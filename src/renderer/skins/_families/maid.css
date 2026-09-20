@@ -1,0 +1,115 @@
+/**
+ * 女仆工坊皮肤族 —— 昼夜变体共享的形状与效果
+ *
+ * 这一族的设计语言是「玻璃拟态 + 柔金 hairline + 深海蓝侧栏 + 衬线装饰」，
+ * 昼夜之间只换调色，形状与效果完全一致。把这些逐字重复的声明收到这里，
+ * 改一处即对两个变体同时生效。
+ *
+ * 用法：族内皮肤在自己的 tokens.css 顶部依次 @import 本文件与 _base.css，
+ * 然后再声明只属于自己那套的**值**（调色）。
+ *
+ * 选择器用 :where([data-theme^="maid-"])：特异性归零（0），而皮肤自己的
+ * [data-theme="<id>"] 是 (0,1,0)，因此皮肤里的调色总能覆盖族里的形状默认值，
+ * 与两个文件谁先加载无关。
+ */
+
+:where([data-theme^="maid-"]) {
+  /* === 强调色：柔金 —— 这一族的招牌装饰色 === */
+  --c-accent: #c5a468;
+
+  /* === 玻璃拟态 === */
+  --c-glass-filter: blur(14px) saturate(0.92);
+  --c-glass-strong-bg: var(--c-surface-2);
+  --c-glass-strong-filter: blur(18px) saturate(0.9);
+
+  /* === 字体：装饰性衬线 === */
+  --c-font-serif: Georgia, "Times New Roman", serif;
+  --c-serif-tracking: 0.012em;
+
+  /* === 圆角：助手气泡不对称（信封收口） === */
+  --c-radius-bubble: 18px 18px 18px 7px;
+
+  /* === 主按钮（深海军蓝渐变 + 金环描边） === */
+  --c-btn-primary-bg: linear-gradient(145deg, #6680bd, #304a91);
+  --c-btn-primary-border: color-mix(in srgb, var(--c-accent) 70%, transparent);
+  --c-btn-primary-text: #fffaf0;
+  --c-btn-primary-shadow: 0 4px 12px rgba(26, 50, 108, 0.28),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+
+  /* === 次级按钮（透明底 + 金色 hairline） === */
+  --c-btn-ghost-border: color-mix(in srgb, var(--c-accent) 32%, transparent);
+  --c-btn-ghost-text: var(--c-text-secondary);
+  --c-btn-ghost-hover-text: var(--c-text);
+  --c-btn-ghost-hover-border: color-mix(in srgb, var(--c-accent) 55%, transparent);
+  --c-btn-ghost-hover-bg: var(--c-accent-soft);
+
+  /* === 圆形图标按钮（玻璃 + 金环） === */
+  --c-btn-round-bg: linear-gradient(
+    145deg,
+    color-mix(in srgb, var(--c-surface) 80%, transparent),
+    var(--c-surface-2)
+  );
+  --c-btn-round-border: color-mix(in srgb, var(--c-accent) 40%, transparent);
+  --c-btn-round-text: var(--c-accent);
+  --c-btn-round-shadow: inset 0 0 0 1px color-mix(in srgb, var(--c-bg) 60%, transparent),
+    0 2px 8px rgba(0, 0, 0, 0.18);
+  --c-btn-round-hover-text: var(--c-accent-hover);
+  --c-btn-round-hover-border: var(--c-accent);
+
+  /* === 描边芯片（金色 hairline + 内高光） === */
+  --c-ring-border: var(--c-border-strong);
+  --c-ring-shadow: inset 0 0 0 1px color-mix(in srgb, var(--c-accent) 8%, transparent),
+    0 2px 8px color-mix(in srgb, var(--c-text) 8%, transparent);
+
+  /* === 选中竖条（金色渐变 + 柔光） === */
+  --c-rail-bg: linear-gradient(var(--c-accent-hover), var(--c-accent));
+  --c-rail-glow: 0 0 6px color-mix(in srgb, var(--c-accent) 60%, transparent);
+
+  /* === 气泡（跟随强调色描边与常规阴影） === */
+  --c-bubble-border: var(--c-border-strong);
+  --c-bubble-shadow: var(--c-shadow-sm);
+
+  /* === 侧栏（无论昼夜都保持深海蓝底） === */
+  --c-sidebar-bg: radial-gradient(circle at 50% 14%, rgba(91, 119, 188, 0.23), transparent 31%),
+    linear-gradient(180deg, rgba(16, 36, 86, 0.97), rgba(5, 14, 43, 0.96)), #0a173b;
+  --c-sidebar-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.018),
+    inset -1px 0 rgba(255, 245, 215, 0.82), inset -3px 0 rgba(226, 207, 166, 0.72);
+  --c-sidebar-texture: repeating-linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.026) 0 1px,
+    transparent 1px 7px
+  );
+
+  /* === 历史回放进度条（金色流光，比经典皮肤更粗） === */
+  --c-progress-height: 3px;
+}
+
+/**
+ * 侧栏调色重映射
+ *
+ * 深海蓝侧栏的底色与主题背景差异很大，侧栏内部的 text-* / bg-* 工具类
+ * 需要取一套独立的调色，否则会出现深底浅字对比不足。
+ * 这里只重赋变量值，不写任何结构 —— 结构仍由 .ui-sidebar 提供。
+ * 选择器特异性 (0,1,0) 来自 .ui-sidebar；皮肤若需再覆盖，用
+ * [data-theme="<id>"] .ui-sidebar（(0,2,0)）即可。
+ */
+:where([data-theme^="maid-"]) .ui-sidebar {
+  --c-surface: rgba(16, 36, 86, 0.6);
+  --c-surface-2: rgba(7, 18, 52, 0.82);
+  --c-surface-hover: rgba(255, 252, 243, 0.1);
+  --c-surface-active: rgba(197, 164, 104, 0.28);
+  --c-text: #f8f3e8;
+  --c-text-secondary: #d7def0;
+  --c-text-muted: #96a8ce;
+  --c-border: rgba(225, 207, 170, 0.2);
+  --c-border-strong: rgba(225, 191, 124, 0.5);
+  --c-accent: #e2cfaa;
+  --c-accent-hover: #fff1ce;
+  --c-accent-foreground: #141c33;
+  --c-accent-soft: rgba(255, 252, 243, 0.1);
+  --c-input-bg: rgba(7, 20, 55, 0.5);
+  --c-input-border: rgba(225, 191, 124, 0.72);
+  --c-input-border-focus: rgba(244, 218, 164, 0.94);
+  --c-scrollbar: rgba(205, 174, 111, 0.45);
+  --c-scrollbar-hover: #e8c77f;
+}

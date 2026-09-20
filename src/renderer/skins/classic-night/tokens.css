@@ -1,0 +1,118 @@
+/**
+ * 经典 · 夜 — token 值
+ *
+ * 「经典 · 昼」的黑色镜像：GitHub Dark / VS Code Dark 的色调。
+ * - 深灰黑背景，不做玻璃拟态、不用金色装饰
+ * - GitHub Dark Blue (#2f81f7) 为强调色
+ * - 标准圆角、无衬线字体，干净利落
+ * - 无装饰舞台
+ *
+ * 分层：字体栈、圆角刻度、布局尺寸来自 _base.css（无族文件），
+ * 本文件只声明这套皮肤独有的值与刻意偏离的差异。
+ */
+
+@import "../_base.css";
+
+[data-theme="classic-night"] {
+  /* === 基础背景 === */
+  --c-bg: #0d1117;
+  --c-surface: #161b22;
+  --c-surface-2: #1c2129;
+  --c-surface-hover: rgba(110, 118, 129, 0.12);
+  --c-surface-active: rgba(56, 139, 253, 0.18);
+
+  /* === 玻璃（深底半透明 + 轻微模糊） === */
+  --c-glass-bg: rgba(22, 27, 34, 0.92);
+  --c-glass-filter: blur(8px) saturate(1);
+  --c-glass-strong-bg: rgba(22, 27, 34, 0.96);
+  --c-glass-strong-filter: blur(8px);
+
+  /* === 边框 === */
+  --c-border: #30363d;
+  --c-border-strong: #2f81f7;
+
+  /* === 文本 === */
+  --c-text: #e6edf3;
+  --c-text-secondary: #8b949e;
+  --c-text-muted: #6e7681;
+
+  /* === 强调色：GitHub Dark Blue === */
+  --c-accent: #2f81f7;
+  --c-accent-hover: #388bfd;
+  --c-accent-foreground: #ffffff;
+  --c-accent-soft: rgba(56, 139, 253, 0.15);
+
+  /* === 语义色 === */
+  --c-thinking: #8b949e;
+  --c-thinking-bg: rgba(22, 27, 34, 0.9);
+  --c-tool: #58a6ff;
+  --c-error: #f85149;
+  --c-error-bg: rgba(248, 81, 73, 0.1);
+  --c-success: #3fb950;
+
+  /* === 用户消息气泡 === */
+  --c-bubble-user: #2f81f7;
+  --c-bubble-user-text: #ffffff;
+  --c-bubble-border: #30363d;
+  --c-bubble-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+
+  /* === 输入框 === */
+  --c-input-bg: #0d1117;
+  --c-input-border: #30363d;
+  --c-input-border-focus: #2f81f7;
+
+  /* === 滚动条 === */
+  --c-scrollbar: rgba(139, 148, 158, 0.22);
+  --c-scrollbar-hover: #2f81f7;
+
+  /* === 阴影 === */
+  --c-shadow: 0 8px 24px rgba(0, 0, 0, 0.5), 0 2px 6px rgba(0, 0, 0, 0.4);
+  --c-shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.4);
+
+  /* === 字体：衬线类降级为无衬线，去掉字距 === */
+  --c-font-serif: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --c-serif-tracking: 0;
+
+  /* === 圆角：气泡用标准对称圆角 === */
+  --c-radius-bubble: 12px;
+
+  /* === 主按钮（纯色、扁平） === */
+  --c-btn-primary-bg: #2f81f7;
+  --c-btn-primary-border: rgba(56, 139, 253, 0.5);
+  --c-btn-primary-text: #ffffff;
+  --c-btn-primary-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+
+  /* === 次级按钮（灰边） === */
+  --c-btn-ghost-border: #30363d;
+  --c-btn-ghost-text: #8b949e;
+  --c-btn-ghost-hover-text: #e6edf3;
+  --c-btn-ghost-hover-border: #2f81f7;
+  --c-btn-ghost-hover-bg: rgba(56, 139, 253, 0.08);
+
+  /* === 圆形图标按钮 === */
+  --c-btn-round-bg: #161b22;
+  --c-btn-round-border: #30363d;
+  --c-btn-round-text: #8b949e;
+  --c-btn-round-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --c-btn-round-hover-text: #2f81f7;
+  --c-btn-round-hover-border: #2f81f7;
+
+  /* === 描边芯片（灰边，无发光） === */
+  --c-ring-border: #30363d;
+  --c-ring-shadow: none;
+
+  /* === 选中竖条（蓝色） === */
+  --c-rail-bg: #2f81f7;
+  --c-rail-glow: 0 0 4px rgba(47, 129, 247, 0.5);
+
+  /* === 侧栏（跟随主题，无纹理、无深色底） === */
+  --c-sidebar-bg: #0d1117;
+  --c-sidebar-shadow: inset -1px 0 0 #30363d;
+  --c-sidebar-texture: none;
+
+  /* === 历史回放进度条（纤细、纯色、无光晕） === */
+  --c-progress-height: 2px;
+  --c-progress-track: #21262d;
+  --c-progress-fill: #2f81f7;
+  --c-progress-glow: none;
+}

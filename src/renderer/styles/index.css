@@ -1,0 +1,659 @@
+/**
+ * 全局样式入口 —— 结构层
+ *
+ * 三层结构：
+ * 1. Tailwind 引入
+ * 2. token 契约（含派生量表）
+ * 3. @theme inline 映射（把 token 暴露为 Tailwind 工具类）
+ *
+ * 铁律：本文件与所有组件**只使用语义类与 token**，不出现任何具体皮肤 id、
+ * 也不出现硬编码颜色 / 字号 / 尺寸 / 间距 / 动效时长。换肤只切换 <html data-theme>。
+ *
+ * ── 谁提供 token 的值 ───────────────────────────────────────────────────
+ *   skins/_base.css           所有皮肤共享的形状默认值（字体栈 / 圆角 / 布局 / 间距 / 动效）
+ *   skins/_families/<f>.css   皮肤族共享的形状与效果
+ *   skins/<id>/tokens.css     该皮肤独有的调色与刻意差异
+ *
+ * token 清单的**唯一真相来源**是 skins/contract.ts：
+ * 新增或更名 token 时，改那里的清单 + 本文件的映射表 + _base.css 的默认值。
+ * ───────────────────────────────────────────────────────────────────────
+ */
+
+/* === Tailwind === */
+@import "tailwindcss";
+
+/* === 派生量表 ===
+ *
+ * 字号量表全部由基准字号派生，因此用户调整基准字号时整套 UI 等比缩放。
+ * 基准值由 _base.css 提供，也可被用户的界面字号设置以内联样式覆盖（内联优先级最高）。
+ *
+ * .ui-chat-scale 也在此列：自定义属性的 var() 是在「声明它的元素」上完成替换的，
+ * 所以聊天区若想独立于全局字号，必须在自身上重新声明整套量表（见下方覆盖规则）。
+ *
+ * 这里只放「皮肤不会声明」的派生值 —— 凡是皮肤会声明的 token 一律不在 :root
+ * 里给默认值，否则属性选择器与 :root 特异性相同时会靠声明顺序决胜，
+ * 让换肤结果依赖打包顺序。
+ */
+:root,
+.ui-chat-scale {
+  /* 派生字号（基准 13px 时依次为 10 / 11 / 12 / 13 / 14 / 15 / 16 / 18 / 20） */
+  --c-font-size-micro: calc(var(--c-font-size) - 3px);
+  --c-font-size-caption: calc(var(--c-font-size) - 2px);
+  --c-font-size-meta: calc(var(--c-font-size) - 1px);
+  --c-font-size-body: var(--c-font-size);
+  --c-font-size-body-lg: calc(var(--c-font-size) + 1px);
+  --c-font-size-title: calc(var(--c-font-size) + 2px);
+  --c-font-size-heading: calc(var(--c-font-size) + 3px);
+  --c-font-size-display: calc(var(--c-font-size) + 5px);
+  --c-font-size-hero: calc(var(--c-font-size) + 7px);
+}
+
+/* 聊天记录区域：字号与全局解耦。
+ * 默认与全局一致（--c-chat-font-size 继承自 :root），用户在设置里单独调大后，
+ * 只有本子树内的 text-* 工具类会跟着变，其余界面保持全局字号。 */
+:root {
+  --c-chat-font-size: var(--c-font-size);
+}
+.ui-chat-scale {
+  --c-font-size: var(--c-chat-font-size);
+}
+
+/* === token → Tailwind 工具类映射 ===
+ *
+ * 使用 @theme inline 让 Tailwind 生成引用 var() 的工具类而非编译期硬编码，
+ * 运行时切换 data-theme 即可换肤。
+ */
+@theme inline {
+  /* 背景 */
+  --color-bg: var(--c-bg);
+  --color-surface: var(--c-surface);
+  --color-surface-2: var(--c-surface-2);
+  --color-surface-hover: var(--c-surface-hover);
+  --color-surface-active: var(--c-surface-active);
+
+  /* 边框 */
+  --color-border: var(--c-border);
+  --color-border-strong: var(--c-border-strong);
+
+  /* 文本 */
+  --color-text: var(--c-text);
+  --color-text-secondary: var(--c-text-secondary);
+  --color-text-muted: var(--c-text-muted);
+
+  /* 强调色 */
+  --color-accent: var(--c-accent);
+  --color-accent-hover: var(--c-accent-hover);
+  --color-accent-foreground: var(--c-accent-foreground);
+  --color-accent-soft: var(--c-accent-soft);
+
+  /* 语义色 */
+  --color-thinking: var(--c-thinking);
+  --color-thinking-bg: var(--c-thinking-bg);
+  --color-tool: var(--c-tool);
+  --color-error: var(--c-error);
+  --color-error-bg: var(--c-error-bg);
+  --color-success: var(--c-success);
+
+  /* Agent 标识色：manifest.tone 选槽位，组件用 text-agent-x 与半透明底 bg-agent-x/15 */
+  --color-agent-amber: var(--c-agent-amber);
+  --color-agent-violet: var(--c-agent-violet);
+  --color-agent-sky: var(--c-agent-sky);
+  --color-agent-teal: var(--c-agent-teal);
+  --color-agent-rose: var(--c-agent-rose);
+  --color-agent-lime: var(--c-agent-lime);
+
+  /* 气泡 */
+  --color-bubble-user: var(--c-bubble-user);
+  --color-bubble-user-text: var(--c-bubble-user-text);
+
+  /* 输入框 */
+  --color-input-bg: var(--c-input-bg);
+  --color-input-border: var(--c-input-border);
+  --color-input-border-focus: var(--c-input-border-focus);
+
+  /* 滚动条 */
+  --color-scrollbar: var(--c-scrollbar);
+  --color-scrollbar-hover: var(--c-scrollbar-hover);
+
+  /* 字体族 */
+  --font-sans: var(--c-font-sans);
+  --font-mono: var(--c-font-mono);
+  --font-serif: var(--c-font-serif);
+
+  /* 字号量表：text-micro / text-caption / text-meta / text-body / ... */
+  --text-micro: var(--c-font-size-micro);
+  --text-caption: var(--c-font-size-caption);
+  --text-meta: var(--c-font-size-meta);
+  --text-body: var(--c-font-size-body);
+  --text-body-lg: var(--c-font-size-body-lg);
+  --text-title: var(--c-font-size-title);
+  --text-heading: var(--c-font-size-heading);
+  --text-display: var(--c-font-size-display);
+  --text-hero: var(--c-font-size-hero);
+
+  /* 圆角：与 Tailwind 的 rounded-* 刻度一一对应，因此组件可直接用工具类 */
+  --radius-sm: var(--c-radius-sm);
+  --radius-md: var(--c-radius-md);
+  --radius-lg: var(--c-radius-lg);
+  --radius-xl: var(--c-radius-xl);
+  --radius-2xl: var(--c-radius-2xl);
+
+  /* 间距与控件尺寸：接入 Tailwind 的 --spacing-* 命名空间，
+   * 于是 p-inset / px-inset / gap-card / size-avatar 这类工具类会引用 token，
+   * 换肤即改变整套容器的内边距与控件尺寸。
+   *
+   * 命名刻意避开数字刻度（p-4 / gap-2 等），不覆盖 Tailwind 的默认间距量表 ——
+   * 组件内部细碎排布仍用默认刻度，那属于结构而非皮肤。
+   */
+  --spacing-inset: var(--c-space-inset);
+  --spacing-card: var(--c-space-card);
+  --spacing-section: var(--c-space-section);
+  --spacing-field: var(--c-space-field);
+  --spacing-avatar: var(--c-size-avatar);
+  --spacing-icon-btn: var(--c-size-icon-btn);
+
+  /* 交互过渡的默认节奏：组件只声明过渡属性（transition-colors 等），
+   * 时长与缓动由皮肤统一决定 —— 「整套动效可调」的单一入口。
+   * 个别需要不同的过渡，再用 duration-* 显式覆盖。 */
+  --default-transition-duration: var(--c-motion-fast);
+  --default-transition-timing-function: var(--c-ease-standard);
+}
+
+/* === 全局重置 === */
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  font-family: var(--c-font-sans);
+  font-size: var(--c-font-size);
+  background: var(--c-bg);
+  color: var(--c-text);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* === 滚动条 === */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--c-scrollbar);
+  border-radius: var(--radius-sm);
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--c-scrollbar-hover);
+}
+
+/* 隐藏滚动条但保留滚动能力：侧栏这类「滚动只是兜底」的容器用它，
+   避免一条常驻的滚动条切断侧栏的整块白。 */
+.ui-scroll-hidden {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.ui-scroll-hidden::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+
+/* ============================================================================
+ * 结构原语（ui-*）
+ *
+ * 命名与皮肤无关：这些是应用的通用 UI 构件，不是某一套皮肤专属的装饰。
+ * 每个原语只消费 token，因此皮肤文件里不需要写任何覆写规则。
+ * ============================================================================ */
+
+/* 主按钮（发送 / 确认 / 下发任务） */
+.ui-btn-primary {
+  border: 1px solid var(--c-btn-primary-border);
+  background: var(--c-btn-primary-bg);
+  color: var(--c-btn-primary-text);
+  box-shadow: var(--c-btn-primary-shadow);
+  transition: transform var(--c-motion-fast) var(--c-ease-standard),
+    box-shadow var(--c-motion-fast) var(--c-ease-standard),
+    filter var(--c-motion-fast) var(--c-ease-standard);
+}
+.ui-btn-primary:hover:not(:disabled) {
+  filter: brightness(1.08);
+  transform: translateY(-1px);
+}
+.ui-btn-primary:active:not(:disabled) {
+  transform: translateY(0);
+}
+.ui-btn-primary:disabled {
+  opacity: 0.55;
+}
+
+/* 次级按钮（取消等） */
+.ui-btn-ghost {
+  border: 1px solid var(--c-btn-ghost-border);
+  background: transparent;
+  color: var(--c-btn-ghost-text);
+  transition: color var(--c-motion-fast) var(--c-ease-standard),
+    border-color var(--c-motion-fast) var(--c-ease-standard),
+    background var(--c-motion-fast) var(--c-ease-standard);
+}
+.ui-btn-ghost:hover {
+  color: var(--c-btn-ghost-hover-text);
+  border-color: var(--c-btn-ghost-hover-border);
+  background: var(--c-btn-ghost-hover-bg);
+}
+
+/* 次级圆形图标按钮（新建 / 折叠 / 加号） */
+.ui-btn-round {
+  border: 1px solid var(--c-btn-round-border);
+  background: var(--c-btn-round-bg);
+  color: var(--c-btn-round-text);
+  box-shadow: var(--c-btn-round-shadow);
+  transition: color var(--c-motion-fast) var(--c-ease-standard),
+    border-color var(--c-motion-fast) var(--c-ease-standard),
+    background var(--c-motion-fast) var(--c-ease-standard),
+    transform var(--c-motion-fast) var(--c-ease-standard);
+}
+.ui-btn-round:hover {
+  color: var(--c-btn-round-hover-text);
+  border-color: var(--c-btn-round-hover-border);
+  transform: translateY(-1px);
+}
+
+/* 玻璃拟态表面（顶栏 / 输入区 / 工具行） */
+.ui-glass {
+  background: var(--c-glass-bg);
+  backdrop-filter: var(--c-glass-filter);
+  -webkit-backdrop-filter: var(--c-glass-filter);
+}
+.ui-glass-strong {
+  background: var(--c-glass-strong-bg);
+  backdrop-filter: var(--c-glass-strong-filter);
+  -webkit-backdrop-filter: var(--c-glass-strong-filter);
+}
+
+/* 描边芯片容器（输入框外框 / 设置入口 / 下拉面板） */
+.ui-ring {
+  border: 1px solid var(--c-ring-border);
+  box-shadow: var(--c-ring-shadow);
+}
+
+/* 助手正文气泡 */
+.ui-bubble {
+  border-radius: var(--c-radius-bubble);
+  border: 1px solid var(--c-bubble-border);
+  box-shadow: var(--c-bubble-shadow);
+}
+
+/* 衬线装饰文本（品牌 / 章节标题 / 空态） */
+.ui-serif {
+  font-family: var(--c-font-serif);
+  letter-spacing: var(--c-serif-tracking);
+}
+
+/* 选中态：左侧竖条指示 */
+.ui-active {
+  position: relative;
+}
+.ui-active::before {
+  content: "";
+  position: absolute;
+  left: 3px;
+  top: 7px;
+  bottom: 7px;
+  width: 3px;
+  border-radius: 999px;
+  background: var(--c-rail-bg);
+  box-shadow: var(--c-rail-glow);
+}
+
+/* ============================================================================
+ * 自动化看板列
+ *
+ * 三列以语义色区分身份：待执行=次要文本灰、执行中=强调蓝、已完成=成功绿。
+ * 通过 data-tone 把语义色绑到局部变量 --board-tone，列内一切色相（顶部色条 /
+ * 列头软染 / 计数徽章 / 列体淡染 / 标题与图标）都由它派生，因此换肤即整套
+ * 变色，不出现任何硬编码颜色。色相选择即 kanban 通用语义：灰=排队、
+ * 蓝=进行、绿=完成；已完成列内的失败卡片仍保留 error 红边以单独可辨。
+ * ============================================================================ */
+.board-col[data-tone="pending"] {
+  --board-tone: var(--c-text-secondary);
+}
+.board-col[data-tone="running"] {
+  --board-tone: var(--c-accent);
+}
+.board-col[data-tone="done"] {
+  --board-tone: var(--c-success);
+}
+
+/* 顶部色条 —— 列身份的唯一强锚点，其余结构保持安静 */
+.board-col-rail {
+  background: var(--board-tone);
+  opacity: 0.92;
+}
+/* 执行中且有任务时，色条呼吸提示「正在进行」—— 动效回应状态而非装饰 */
+.board-col[data-tone="running"][data-has-items] .board-col-rail {
+  animation: board-rail-pulse var(--c-motion-loop) var(--c-ease-standard) infinite;
+}
+@keyframes board-rail-pulse {
+  0%,
+  100% {
+    opacity: 0.92;
+  }
+  50% {
+    opacity: 0.4;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .board-col[data-tone="running"][data-has-items] .board-col-rail {
+    animation: none;
+  }
+}
+
+/* 列头软染 + 标题/图标着色 */
+.board-col-head {
+  background: color-mix(in srgb, var(--board-tone) 7%, transparent);
+}
+.board-col-accent {
+  color: var(--board-tone);
+}
+
+/* 计数徽章：软色底 + 列色字 */
+.board-col-badge {
+  background: color-mix(in srgb, var(--board-tone) 16%, transparent);
+  color: var(--board-tone);
+}
+
+/* 列体极淡染色，让三列读为三个色域，不与卡片争前景 */
+.board-col-body {
+  background: color-mix(in srgb, var(--board-tone) 3%, transparent);
+}
+
+/* ============================================================================
+ * 侧栏
+ *
+ * 只消费 --c-sidebar-* 与常规 token。皮肤若想让侧栏使用与主题不同的调色，
+ * 在自己的 tokens.css 里对 [data-theme="<id>"] .ui-sidebar 重映射本地 token 即可
+ * （只赋变量值，不写结构）。
+ * ============================================================================ */
+.ui-sidebar {
+  color: var(--c-text);
+  background: var(--c-sidebar-bg);
+  box-shadow: var(--c-sidebar-shadow);
+}
+
+/* 侧栏纹理（如纺织质感对角线）。纯色皮肤把 --c-sidebar-texture 设为 none 即可 */
+.ui-sidebar::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: var(--c-sidebar-texture);
+}
+.ui-sidebar > * {
+  position: relative;
+  z-index: 1;
+}
+
+/* ============================================================================
+ * 内容页纸面（聊天主区 / 自动化看板的主体）
+ *
+ * 把「画布」与「主体」分成两层：--c-bg 是画布（根容器的底色），
+ * 本原语是浮在画布上的那张纸（顶栏 + 消息 / 看板 + 输入区都在这张纸上）。
+ *
+ * 三个 token 都是可选的：未声明的皮肤等同于「没有这张纸」——
+ * 背景透明、无投影、无内缩，与其此前的观感一致。
+ * 因此需要层叠质感的皮肤（经典 · 昼）在自己的 tokens.css 里声明即可，
+ * 装饰舞台类皮肤（女仆工坊）无需改动。
+ * ============================================================================ */
+.ui-page {
+  margin: var(--c-page-inset, 0);
+  background: var(--c-page-bg, transparent);
+  box-shadow: var(--c-page-shadow, none);
+}
+
+/* ============================================================================
+ * 装饰舞台（背景图 + 立绘）
+ *
+ * 是否渲染由皮肤 manifest 的 chrome 决定（无 chrome 的皮肤根本不挂载舞台），
+ * 因此这里只需定义舞台自身的结构与行为，无需皮肤开关。
+ * ============================================================================ */
+.ui-stage {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  pointer-events: none;
+  contain: strict;
+}
+
+/* 背景图：cover 保持比例，按内容区较宽轴填充、居中裁剪 */
+.ui-stage-bg {
+  position: absolute;
+  inset: 0;
+  background: center / cover no-repeat;
+}
+
+/* 可读性轻纱：叠在背景图之上，保证消息文字清晰 */
+.ui-stage-veil {
+  position: absolute;
+  inset: 0;
+  background: var(--c-stage-veil, none);
+}
+
+/* 立绘：贴内容区底部两角，按高度缩放 */
+.ui-stage-figure {
+  position: absolute;
+  bottom: 0;
+  width: auto;
+  max-width: none;
+  height: var(--c-stage-figure-height, 62%);
+  object-fit: contain;
+  object-position: center bottom;
+  opacity: 0.9;
+  filter: var(--c-stage-figure-filter, none);
+  transition: height var(--c-motion-slow) var(--c-ease-standard),
+    opacity var(--c-motion-base) var(--c-ease-standard);
+}
+/* 立绘与内容区侧边的距离：由皮肤决定，未声明则用默认内缩 */
+.ui-stage-figure-left {
+  left: var(--c-stage-figure-inset, clamp(8px, 1.5%, 24px));
+  height: var(--c-stage-figure-left-height, 64%);
+}
+.ui-stage-figure-right {
+  right: var(--c-stage-figure-inset, clamp(8px, 1.5%, 24px));
+  height: var(--c-stage-figure-right-height, 60%);
+}
+
+/* 窄屏：降低角色存在感，避免遮挡消息列 */
+@media (max-width: 900px) {
+  .ui-stage-figure {
+    opacity: 0.62;
+    height: calc(var(--c-stage-figure-height, 62%) * 0.74);
+  }
+  .ui-stage-figure-left {
+    height: calc(var(--c-stage-figure-left-height, 64%) * 0.75);
+  }
+  .ui-stage-figure-right {
+    height: calc(var(--c-stage-figure-right-height, 60%) * 0.73);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ui-stage-figure {
+    transition: none;
+  }
+}
+
+/* ============================================================================
+ * 流光动画（流式状态指示器）
+ * ============================================================================ */
+.shimmer {
+  background: linear-gradient(
+    90deg,
+    var(--c-text-muted) 0%,
+    var(--c-text-secondary) 50%,
+    var(--c-text-muted) 100%
+  );
+  background-size: 200% 100%;
+  animation: shimmer var(--c-motion-loop) linear infinite;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+/* ============================================================================
+ * 历史回放进度条
+ *
+ * 回放耗时不可知，故用不确定进度：一段流光条在轨道内左右循环。
+ * 轨道、填充、光晕、粗细、圆角全部由 --c-progress-* 提供，
+ * 各套皮肤自行呈现（纤细纯色 / 金色流光），此处只定义结构与运动。
+ *
+ * 延迟 180ms 淡入：毫秒级命中的会话不会闪一下进度条。
+ * ============================================================================ */
+.history-loading {
+  animation: history-loading-in var(--c-motion-base) var(--c-ease-standard) 180ms both;
+}
+
+@keyframes history-loading-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.history-progress {
+  position: relative;
+  width: 100%;
+  height: var(--c-progress-height);
+  border-radius: var(--c-progress-radius);
+  background: var(--c-progress-track);
+  overflow: hidden;
+}
+
+.history-progress-bar {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 38%;
+  border-radius: inherit;
+  background: var(--c-progress-fill);
+  box-shadow: var(--c-progress-glow);
+  animation: history-progress-slide var(--c-motion-loop) cubic-bezier(0.65, 0, 0.35, 1) infinite;
+}
+
+@keyframes history-progress-slide {
+  0% {
+    transform: translateX(-105%);
+  }
+  100% {
+    transform: translateX(275%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .history-loading {
+    animation: none;
+  }
+  .history-progress-bar {
+    animation: none;
+    width: 100%;
+    opacity: 0.5;
+  }
+}
+
+/* ============================================================================
+ * Markdown 正文
+ * ============================================================================ */
+.nova-markdown {
+  font-size: var(--c-font-size-body-lg);
+  line-height: 1.65;
+}
+
+/* 内联代码 */
+.nova-markdown code:not(pre code) {
+  background: var(--c-accent-soft);
+  border: 1px solid var(--c-ring-border);
+  color: var(--c-accent);
+  padding: 1px 5px;
+  border-radius: var(--radius-sm);
+  font-family: var(--c-font-mono);
+  font-size: 0.85em;
+}
+
+/* 代码块 */
+.nova-markdown pre {
+  background: var(--c-surface-2) !important;
+  border: 1px solid var(--c-ring-border);
+  border-radius: var(--c-radius-md);
+  box-shadow: var(--c-shadow-sm);
+}
+.nova-markdown pre code {
+  background: transparent;
+}
+
+/* 表格 */
+.nova-markdown table {
+  border: 1px solid var(--c-ring-border);
+  border-radius: var(--c-radius-md);
+  overflow: hidden;
+  border-collapse: collapse;
+}
+.nova-markdown th {
+  background: var(--c-accent-soft);
+  border-color: var(--c-ring-border) !important;
+  font-family: var(--c-font-serif);
+  letter-spacing: var(--c-serif-tracking);
+}
+.nova-markdown blockquote {
+  border-left: 2px solid var(--c-accent);
+  color: var(--c-text-secondary);
+}
+.nova-markdown a {
+  color: var(--c-accent);
+}
+.nova-markdown a:hover {
+  text-decoration-color: var(--c-accent-hover);
+}
+
+/* ============================================================================
+ * 自定义下拉面板：淡入 + 轻微上滑（从触发器上方滑入）
+ * ============================================================================ */
+.ui-dropdown-in {
+  transform-origin: bottom center;
+  animation: ui-dropdown-in var(--c-motion-fast) var(--c-ease-standard);
+}
+
+@keyframes ui-dropdown-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ui-dropdown-in {
+    animation: none;
+  }
+}

@@ -1,0 +1,90 @@
+/**
+ * 皮肤形状契约 —— 所有皮肤共享的默认值
+ *
+ * ── 为什么用 :where([data-theme]) ───────────────────────────────────────
+ * 本文件被每套皮肤 @import，因此会被内联多次，声明顺序不可控。
+ * `:where()` 把选择器特异性归零：本文件的声明特异性为 0，
+ * 而皮肤自己的 `[data-theme="<id>"]` 是 (0,1,0)，于是
+ * **皮肤里的同名声明总是覆盖这里的默认值，与加载顺序无关**。
+ *
+ * 若改用 :root，它与 [data-theme="<id>"] 特异性相同（都是 0,1,0），
+ * 换肤结果就会依赖打包顺序 —— 这正是要避免的。
+ * ───────────────────────────────────────────────────────────────────────
+ *
+ * ── 分层约定 ────────────────────────────────────────────────────────────
+ *   _base.css            所有皮肤共享：字体栈、圆角刻度、布局尺寸、间距/尺寸/动效
+ *   _families/<f>.css    皮肤族共享（可选）：同一设计语言的变体共用的形状与效果
+ *   <id>/tokens.css      该皮肤独有：调色与其余刻意的差异
+ *
+ * 新增一套皮肤时，本文件与族文件都无需改动。
+ * 哪些 token 必须由皮肤自己声明，见 skins/contract.ts。
+ */
+
+:where([data-theme]) {
+  /* === 字体栈（字体族本身由皮肤/族决定） === */
+  --c-font-size: 13px;
+  --c-font-sans: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --c-font-mono: "JetBrains Mono", "Cascadia Code", "Fira Code", Consolas, monospace;
+
+  /* === 圆角刻度（与 Tailwind rounded-* 一一对应，组件直接用工具类） === */
+  --c-radius-sm: 2px;
+  --c-radius-md: 6px;
+  --c-radius-lg: 8px;
+  --c-radius-xl: 12px;
+  --c-radius-2xl: 16px;
+  --c-radius-input: 22px;
+
+  /* 历史回放进度条的圆角（形状，与具体皮肤无关） */
+  --c-progress-radius: 999px;
+
+  /* === 布局尺寸 === */
+  --c-layout-sidebar: 280px;
+  --c-layout-drawer: 560px;
+  --c-layout-header: 56px;
+  --c-layout-content: 896px;
+  --c-layout-modal-w: 80vw;
+  --c-layout-modal-h: 80vh;
+  --c-layout-menu: 200px;
+
+  /* === 间距（皮肤可变层） ===
+   *
+   * 只描述「皮肤设计上会改变」的间距角色：组件里的容器内边距、卡片内边距、
+   * 区块间距与表单项间距。组件内部细碎排布（图标与文字的间隙等）仍用
+   * Tailwind 的常规间距刻度，不在此列 —— 那属于结构，不属于皮肤。
+   */
+  --c-space-inset: 12px; /* 控件 / 输入框内边距 */
+  --c-space-card: 16px; /* 卡片 / 面板内边距 */
+  --c-space-section: 20px; /* 区块之间的间距 */
+  --c-space-field: 12px; /* 表单项之间的间距 */
+
+  /* === 控件尺寸 === */
+  --c-size-avatar: 32px; /* 图标头像容器（Agent 选择器、设置入口） */
+  --c-size-icon-btn: 36px; /* 圆形图标按钮直径 */
+
+  /* === 动效 ===
+   *
+   * 皮肤可整套调整节奏（例如要求零动效 / 更舒缓）。
+   * prefers-reduced-motion 的无障碍兜底在各使用处单独处理。
+   */
+  --c-motion-fast: 140ms;
+  --c-motion-base: 200ms;
+  --c-motion-slow: 620ms;
+  --c-motion-loop: 2s; /* 循环动效的周期（流光、不确定进度） */
+  --c-ease-standard: cubic-bezier(0.22, 0.78, 0.2, 1);
+
+  /* === Agent 标识色（跨皮肤共享的默认值，皮肤可按需覆盖） ===
+   *
+   * 同一台机器上并存多个 Agent（pi / opencode / 将来的 Codex …），
+   * 靠这组槽位区分身份：manifest 只声明槽位名（AgentManifest.tone），
+   * 色值由 token 提供。于是新增一个 Agent 只需挑一个空闲槽位，
+   * 不必改皮肤；某套皮肤若觉得某个色相不搭，在自己的 tokens.css 里
+   * 覆盖同名 token 即可。
+   * 取值兼顾浅色与深色皮肤：对白底与深底的对比度都在 4:1 上下。
+   */
+  --c-agent-amber: #b26a10;
+  --c-agent-violet: #7a55f0;
+  --c-agent-sky: #1f7ab8;
+  --c-agent-teal: #0f8a78;
+  --c-agent-rose: #dd4560;
+  --c-agent-lime: #5d8410;
+}

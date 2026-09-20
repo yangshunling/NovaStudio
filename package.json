@@ -1,0 +1,69 @@
+{
+  "name": "nova",
+  "version": "0.1.0",
+  "description": "Nova — AI 智能体 CLI 的女仆工坊 GUI 客户端",
+  "type": "module",
+  "main": "out/main/index.js",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "preview": "electron-vite preview",
+    "verify:skins": "node scripts/verify-skin-tokens.mjs",
+    "package": "electron-vite build && electron-builder",
+    "package:win": "electron-vite build && electron-builder --win"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.2.1",
+    "electron": "^31.0.0",
+    "execa": "^9.4.0",
+    "lucide-react": "^0.428.0",
+    "node-pty": "^1.1.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-markdown": "^9.0.1",
+    "remark-gfm": "^4.0.0",
+    "shiki": "^1.22.0",
+    "zustand": "^4.5.5"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.0.0",
+    "@types/better-sqlite3": "^7.6.0",
+    "@types/node": "^20.14.0",
+    "@types/react": "^18.3.3",
+    "@types/react-dom": "^18.3.0",
+    "@vitejs/plugin-react": "^4.3.1",
+    "electron-builder": "^24.13.3",
+    "electron-vite": "^2.3.0",
+    "tailwindcss": "^4.0.0",
+    "typescript": "^5.5.4",
+    "vite": "^5.4.0"
+  },
+  "build": {
+    "appId": "com.nova.app",
+    "productName": "Nova",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "out/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "resources",
+        "to": "resources"
+      }
+    ],
+    "win": {
+      "target": [
+        "nsis"
+      ],
+      "icon": "resources/logo.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "artifactName": "Nova-Setup-${version}-${arch}.exe"
+    }
+  }
+}
