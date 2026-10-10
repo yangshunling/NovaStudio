@@ -169,6 +169,7 @@ function decodeItem(item: CodexItem, calls: Map<string, CallState>): AgentEvent 
       const changes = item.changes ?? [];
       const call: ToolCallEvent = {
         type: "tool_call",
+        callId: id || undefined,
         name: "file_change",
         input: changes,
         kind: "write",
@@ -187,9 +188,10 @@ function decodeItem(item: CodexItem, calls: Map<string, CallState>): AgentEvent 
       const display = describeTool(name, item.arguments);
       // 与 bash 同名的 MCP 工具沿用「静默」约定
       if (!display) return null;
-      const call: ToolCallEvent = {
-        type: "tool_call",
-        name,
+        const call: ToolCallEvent = {
+          type: "tool_call",
+          callId: id || undefined,
+          name,
         input: item.arguments ?? {},
         kind: display.kind,
         target: display.target,
@@ -209,6 +211,7 @@ function decodeItem(item: CodexItem, calls: Map<string, CallState>): AgentEvent 
       const query = item.query ?? "";
       const call: ToolCallEvent = {
         type: "tool_call",
+        callId: id || undefined,
         name: "web_search",
         input: { query },
         kind: "search",
@@ -255,6 +258,7 @@ function convergeCall(
     calls.set(id, "done");
     events.push({
       type: "tool_result",
+      callId: call.callId,
       name: call.name,
       output: result.output,
       isError: result.isError,

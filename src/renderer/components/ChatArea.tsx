@@ -10,10 +10,9 @@
  * - 助手正文为描边圆角卡片（外观由皮肤 token 决定）
  */
 
-import { useRef, useState, useEffect } from "react";
+import { useRef, useState } from "react";
 import {
   useChatStore,
-  selectCurrentMessages,
   selectCurrentStreaming,
   selectEffectiveAgentId,
 } from "../stores/chat";
@@ -29,7 +28,7 @@ import { SkinStage } from "./SkinStage";
 import { AgentOptionsMenu } from "./AgentOptionsMenu";
 import { AgentSelector } from "./AgentSelector";
 import { useFileMention, FileMentionPopup } from "./FileMention";
-import { MessageGroup, StreamingIndicator } from "./MessageList";
+import { AssistantMessageList } from "./AssistantMessageList";
 import { FileTypeIcon } from "./ui/FileTypeIcon";
 import { FolderTypeIcon } from "./ui/FolderTypeIcon";
 
@@ -38,17 +37,7 @@ import { FolderTypeIcon } from "./ui/FolderTypeIcon";
 // ============================================================================
 
 export function ChatArea({ embedded = false }: { embedded?: boolean } = {}) {
-  const messages = useChatStore(selectCurrentMessages);
   const isStreaming = useChatStore(selectCurrentStreaming);
-  /**
-   * 当前会话的历史是否正在回放（显示进度条）。
-   * 必须显式排除 null：空闲态下 loadingHistoryFor 与 currentSessionId
-   * 均为 null，null === null 会误判为正在回放（例如点击「新建会话」
-   * 把 currentSessionId 置空时）。
-   */
-  const isLoadingHistory = useChatStore(
-    (s) => s.loadingHistoryFor !== null && s.loadingHistoryFor === s.currentSessionId,
-  );
   const sendMessage = useChatStore((s) => s.sendMessage);
   const abort = useChatStore((s) => s.abort);
   const projects = useChatStore((s) => s.projects);
@@ -69,7 +58,6 @@ export function ChatArea({ embedded = false }: { embedded?: boolean } = {}) {
   const showWorkspace = useChatStore((s) => s.showWorkspace);
   const setShowWorkspace = useChatStore((s) => s.setShowWorkspace);
   const [input, setInput] = useState("");
-  const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const fileMention = useFileMention({
@@ -78,26 +66,6 @@ export function ChatArea({ embedded = false }: { embedded?: boolean } = {}) {
     setInput,
     textareaRef,
   });
-  /**
-   * 是否跟随最新内容：默认贴底，用户主动上滑查看历史时暂停跟随，
-   * 回到底部附近后自动恢复 —— 流式输出（含长思考）期间无需手动滚动。
-   */
-  const stickToBottom = useRef(true);
-
-  // 自动滚动到底部（贴底状态下每次内容变化都跟随）
-  useEffect(() => {
-    const el = scrollRef.current;
-    if (el && stickToBottom.current) {
-      el.scrollTop = el.scrollHeight;
-    }
-  }, [messages, isStreaming]);
-
-  const handleScroll = () => {
-    const el = scrollRef.current;
-    if (!el) return;
-    stickToBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 100;
-  };
-
   const handleSend = () => {
     const trimmed = input.trim();
     const references = fileMention.references;
@@ -162,52 +130,9 @@ export function ChatArea({ embedded = false }: { embedded?: boolean } = {}) {
           </button>
         </header>
 
-        {/* 消息区：透明，让纸面 / 舞台透出；
-            ui-chat-scale：本区域字号独立于全局设置（见 styles/index.css） */}
-        <div
-          ref={scrollRef}
-          onScroll={handleScroll}
-          className="ui-chat-scale relative z-10 flex-1 overflow-y-auto px-4 py-4"
-        >
-          <div className="mx-auto max-w-[var(--c-layout-content)]">
-            {messages.length === 0 && (
-              <div className="flex h-full min-h-[50vh] flex-col items-center justify-center gap-3 text-text-muted">
-                {isLoadingHistory ? (
-                  /* 历史回放中：居中的等待卡片（观感随皮肤自适应） */
-                  <div className="history-loading ui-glass ui-ring flex w-[260px] flex-col items-center gap-4 rounded-lg px-6 py-6">
-                    <div className="history-progress">
-                      <div className="history-progress-bar" />
-                    </div>
-                    <p className="ui-serif text-body tracking-wide text-text-secondary">
-                      历史记录正在恢复中
-                    </p>
-                  </div>
-                ) : (
-                  <>
-                    <div className="ui-btn-round flex h-14 w-14 items-center justify-center rounded-full">
-                      <Send className="h-5 w-5" />
-                    </div>
-                    <h1 className="ui-serif text-hero font-semibold tracking-wide text-text-secondary">
-                      {currentProject ? "开始对话" : "Nova 女仆工坊"}
-                    </h1>
-                    <p className="text-body-lg">
-                      {currentProject
-                        ? `在 ${currentProject.name} 里与智能体对话`
-                        : "从左侧选择或创建一个项目"}
-                    </p>
-                  </>
-                )}
-              </div>
-            )}
-            {messages.map((msg) => (
-              <MessageGroup key={msg.id} isUser={msg.role === "user"} events={msg.content} />
-            ))}
-            {isStreaming && (
-              <div className="flex items-center gap-2 px-1 text-body-lg text-text-muted">
-                <StreamingIndicator />
-              </div>
-            )}
-          </div>
+        {/* 消息区由 assistant-ui 运行时渲染，视觉仍由 Nova token 控制 */}
+        <div className="relative z-10 min-h-0 flex-1 overflow-hidden">
+          <AssistantMessageList />
         </div>
 
         {/* 输入区：玻璃拟态 + 大圆角描边卡片 */}

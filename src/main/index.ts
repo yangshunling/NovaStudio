@@ -13,6 +13,7 @@ import { join } from "path";
 import { existsSync } from "fs";
 import { initIpcHandlers, stopAutomation } from "./ipc";
 import { initDatabase, closeDatabase } from "./db/sqlite";
+import { stopTerminals } from "./terminal/manager";
 
 let mainWindow: BrowserWindow | null = null;
 
@@ -97,6 +98,7 @@ app.whenReady().then(() => {
 app.on("window-all-closed", () => {
   // 先停止自动化轮询定时器，避免应用退出后定时器仍在运行
   stopAutomation();
+  stopTerminals();
   closeDatabase();
   if (process.platform !== "darwin") {
     app.quit();

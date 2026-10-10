@@ -2,7 +2,7 @@
  * 中间区域标签栏：对话 + 已打开文件
  */
 
-import { MessageSquare, X } from "lucide-react";
+import { MessageSquare, SquareTerminal, X } from "lucide-react";
 import { useFileViewerStore } from "../stores/fileViewer";
 import { FileTypeIcon } from "./ui/FileTypeIcon";
 
@@ -46,10 +46,14 @@ export function CenterTabs() {
               <button
                 type="button"
                 onClick={() => activateTab(tab.id)}
-                title={tab.relativePath}
+                title={tab.kind === "file" ? tab.relativePath : tab.cwd}
                 className="flex min-w-0 flex-1 items-center gap-1.5 px-2 text-left"
               >
-                <FileTypeIcon name={tab.name} size={14} />
+                {tab.kind === "file" ? (
+                  <FileTypeIcon name={tab.name} size={14} />
+                ) : (
+                  <SquareTerminal className="h-3.5 w-3.5 shrink-0 text-accent" />
+                )}
                 <span className="truncate text-meta">{tab.name}</span>
               </button>
               <button

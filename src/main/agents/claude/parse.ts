@@ -101,6 +101,7 @@ export function mapAssistantBlocks(content: unknown, names: CallNames): AgentEve
       if (!display) continue;
       out.push({
         type: "tool_call",
+        callId: block.id,
         name: block.name,
         input: block.input ?? {},
         kind: display.kind,
@@ -124,6 +125,7 @@ export function mapToolResultBlocks(content: unknown, names: CallNames): AgentEv
     if (isSilentTool(name)) continue;
     out.push({
       type: "tool_result",
+      callId: block.tool_use_id,
       name,
       output: resultText(block.content),
       isError: !!block.is_error,

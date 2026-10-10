@@ -60,6 +60,15 @@ export const ipc = {
   openFileExternal: (projectId: string, relativePath: string) =>
     call("file:openExternal", { projectId, relativePath }),
 
+  // === 系统终端 ===
+  createTerminal: (id: string, cwd?: string, cols?: number, rows?: number) =>
+    call("terminal:create", { id, cwd, cols, rows }),
+  writeTerminal: (id: string, data: string) =>
+    call("terminal:write", { id, data }),
+  resizeTerminal: (id: string, cols: number, rows: number) =>
+    call("terminal:resize", { id, cols, rows }),
+  killTerminal: (id: string) => call("terminal:kill", { id }),
+
   // === 会话 ===
   createSession: (projectId: string, agentId: string) =>
     call("session:create", { projectId, agentId }),
@@ -93,5 +102,9 @@ export const ipc = {
       on("agents:detected", cb),
     automationUpdated: (cb: (payload: IpcPushMap["automation:updated"]) => void) =>
       on("automation:updated", cb),
+    terminalData: (cb: (payload: IpcPushMap["terminal:data"]) => void) =>
+      on("terminal:data", cb),
+    terminalExit: (cb: (payload: IpcPushMap["terminal:exit"]) => void) =>
+      on("terminal:exit", cb),
   },
 };

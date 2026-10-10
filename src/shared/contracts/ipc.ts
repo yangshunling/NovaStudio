@@ -16,6 +16,9 @@ import type {
   ReadFileResult,
   Session,
   SessionOptions,
+  TerminalCreateResult,
+  TerminalDataPayload,
+  TerminalExitPayload,
 } from "../types";
 import type { AgentInfo } from "./agent";
 
@@ -62,6 +65,22 @@ export interface IpcInvokeMap {
     args: [{ projectId: string; relativePath: string }];
     result: OpenFileExternalResult;
   };
+  "terminal:create": {
+    args: [{ id: string; cwd?: string; cols?: number; rows?: number }];
+    result: TerminalCreateResult;
+  };
+  "terminal:write": {
+    args: [{ id: string; data: string }];
+    result: boolean;
+  };
+  "terminal:resize": {
+    args: [{ id: string; cols: number; rows: number }];
+    result: boolean;
+  };
+  "terminal:kill": {
+    args: [{ id: string }];
+    result: boolean;
+  };
 
   /** 预创建空会话，拿到 sessionId 后再 agent:send，事件才能按会话路由 */
   "session:create": { args: [{ projectId: string; agentId: string }]; result: Session };
@@ -97,6 +116,8 @@ export interface IpcPushMap {
   "agents:detected": AgentInfo[];
   /** 自动化任务状态变更（轮询器拾取 / 完成 / 失败时触发） */
   "automation:updated": AutomationTask;
+  "terminal:data": TerminalDataPayload;
+  "terminal:exit": TerminalExitPayload;
 }
 
 export type IpcInvokeChannel = keyof IpcInvokeMap;

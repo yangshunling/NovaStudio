@@ -14,10 +14,9 @@
   },
   "dependencies": {
     "@assistant-ui/react": "^0.15.26",
-    "@assistant-ui/react-markdown": "^0.14.20",
-    "@assistant-ui/styles": "^0.3.7",
+    "@xterm/addon-fit": "^0.11.0",
+    "@xterm/xterm": "^6.0.0",
     "better-sqlite3": "^11.2.1",
-    "electron": "^31.0.0",
     "execa": "^9.4.0",
     "lucide-react": "^0.428.0",
     "node-pty": "^1.1.0",
@@ -36,6 +35,7 @@
     "@types/react": "^18.3.3",
     "@types/react-dom": "^18.3.0",
     "@vitejs/plugin-react": "^4.3.1",
+    "electron": "^31.0.0",
     "electron-builder": "^24.13.3",
     "electron-vite": "^2.3.0",
     "tailwindcss": "^4.0.0",
@@ -62,7 +62,8 @@
       "target": [
         "nsis"
       ],
-      "icon": "resources/logo.png"
+      "icon": "resources/logo.png",
+      "signAndEditExecutable": false
     },
     "nsis": {
       "oneClick": false,

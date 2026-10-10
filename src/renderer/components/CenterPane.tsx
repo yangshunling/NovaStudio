@@ -7,6 +7,7 @@ import { ChatArea } from "./ChatArea";
 import { CenterTabs } from "./CenterTabs";
 import { FilePreview } from "./FilePreview";
 import { SkinStage } from "./SkinStage";
+import { TerminalView } from "./TerminalView";
 
 export function CenterPane() {
   const tabs = useFileViewerStore((s) => s.tabs);
@@ -22,7 +23,18 @@ export function CenterPane() {
           <div className={activeTab ? "hidden" : "h-full"}>
             <ChatArea embedded />
           </div>
-          {activeTab && <FilePreview tab={activeTab} />}
+          {tabs.map((tab) => (
+            <div
+              key={tab.id}
+              className={activeTabId === tab.id ? "h-full" : "hidden"}
+            >
+              {tab.kind === "file" ? (
+                <FilePreview tab={tab} />
+              ) : (
+                <TerminalView tab={tab} />
+              )}
+            </div>
+          ))}
         </div>
       </div>
     </div>

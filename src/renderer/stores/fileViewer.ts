@@ -5,19 +5,31 @@
  */
 
 import { create } from "zustand";
+import { newId } from "../lib/utils";
 
 export interface FileTab {
+  kind: "file";
   id: string;
   projectId: string;
   relativePath: string;
   name: string;
 }
 
+export interface TerminalTab {
+  kind: "terminal";
+  id: string;
+  cwd: string;
+  name: string;
+}
+
+export type CenterTab = FileTab | TerminalTab;
+
 interface FileViewerState {
-  tabs: FileTab[];
+  tabs: CenterTab[];
   activeTabId: string | null;
 
   openFile: (projectId: string, relativePath: string, name: string) => void;
+  openTerminal: (cwd: string, name?: string) => string;
   activateTab: (id: string | null) => void;
   closeTab: (id: string) => void;
   closeAll: () => void;
@@ -38,10 +50,19 @@ export const useFileViewerStore = create<FileViewerState>((set) => ({
       return {
         tabs: exists
           ? state.tabs
-          : [...state.tabs, { id, projectId, relativePath, name }],
+          : [...state.tabs, { kind: "file", id, projectId, relativePath, name }],
         activeTabId: id,
       };
     });
+  },
+
+  openTerminal: (cwd, name = "终端") => {
+    const id = `terminal:${newId()}`;
+    set((state) => ({
+      tabs: [...state.tabs, { kind: "terminal", id, cwd, name }],
+      activeTabId: id,
+    }));
+    return id;
   },
 
   activateTab: (id) => {

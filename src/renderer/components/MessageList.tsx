@@ -30,7 +30,7 @@ import {
 } from "lucide-react";
 import { MarkdownRenderer } from "./MarkdownRenderer";
 import { StreamingIndicator } from "./ui/StreamingIndicator";
-import { truncateHead, truncateText, isToolResultError, firstText } from "../lib/utils";
+import { truncateText, isToolResultError, firstText } from "../lib/utils";
 import type { AgentEvent, ToolKind } from "@shared/types";
 
 // ============================================================================
@@ -66,7 +66,11 @@ function groupAssistantEvents(events: AgentEvent[]): RenderItem[] {
       let matched = false;
       for (let j = items.length - 1; j >= 0; j--) {
         const it = items[j];
-        if (it.kind === "tool" && !it.result && it.call.name === ev.name) {
+        const sameCall =
+          ev.callId && it.kind === "tool" && it.call.callId
+            ? ev.callId === it.call.callId
+            : it.kind === "tool" && it.call.name === ev.name;
+        if (it.kind === "tool" && !it.result && sameCall) {
           it.result = ev;
           matched = true;
           break;
@@ -94,23 +98,7 @@ const TOOL_ICONS: Record<ToolKind, LucideIcon> = {
  * provider 只给原文，怎么截断/缩短由这里决定。
  */
 function toolTarget(call: Extract<AgentEvent, { type: "tool_call" }>): string {
-  const raw = call.target;
-  if (!raw) return "";
-  switch (call.kind) {
-    case "exec":
-      return truncateHead(raw, 48);
-    case "search":
-      return `"${truncateHead(raw, 24)}"`;
-    default:
-      return shortenPath(raw);
-  }
-}
-
-/** 路径缩短：统一分隔后取末尾最多 3 段 */
-function shortenPath(p: string): string {
-  const parts = p.replace(/\\/g, "/").split("/").filter(Boolean);
-  if (parts.length <= 3) return parts.join("/");
-  return ".../" + parts.slice(-3).join("/");
+  return call.target || "";
 }
 
 // ============================================================================
@@ -132,26 +120,31 @@ function ToolGroupBlock({ group }: { group: ToolGroup }) {
   const Icon = TOOL_ICONS[call.kind];
 
   return (
-    <div className="mb-1.5 max-w-fit">
+    <div className="mb-1.5 w-full">
       <button
         onClick={() => setCollapsed((c) => !c)}
-        className="ui-glass flex items-center gap-2 rounded-md px-2.5 py-1 text-meta text-text-secondary hover:text-text"
+        className="ui-glass flex w-full items-start gap-2 rounded-md px-2.5 py-1.5 text-left text-meta text-text-secondary hover:text-text"
       >
-        <Icon className="h-3.5 w-3.5 shrink-0 text-tool" />
+        <Icon className="mt-0.5 h-3.5 w-3.5 shrink-0 text-tool" />
         <span className="shrink-0 font-mono">{call.name}</span>
         {target && (
-          <span className="max-w-[280px] truncate font-mono text-text-muted" title={fullTarget}>
+          <span
+            className="min-w-0 flex-1 whitespace-pre-wrap break-all font-mono text-text-muted"
+            title={fullTarget}
+          >
             {target}
           </span>
         )}
-        <span className={`inline-block h-1.5 w-1.5 shrink-0 rounded-full ${dotClass}`} />
-        <span className={`shrink-0 ${hasError ? "text-error" : "text-text-muted"}`}>{statusText}</span>
-        <ChevronRight
-          className={`h-3 w-3 shrink-0 text-text-muted transition-transform ${collapsed ? "" : "rotate-90"}`}
-        />
+        <span className="ml-auto flex shrink-0 items-center gap-1">
+          <span className={`inline-block h-1.5 w-1.5 shrink-0 rounded-full ${dotClass}`} />
+          <span className={hasError ? "text-error" : "text-text-muted"}>{statusText}</span>
+          <ChevronRight
+            className={`h-3 w-3 shrink-0 text-text-muted transition-transform ${collapsed ? "" : "rotate-90"}`}
+          />
+        </span>
       </button>
       {!collapsed && (
-        <div className="mt-1 space-y-1 border-l-2 border-tool pl-3">
+        <div className="mt-1 w-full space-y-1 border-l-2 border-tool pl-3">
           <div>
             <div className="text-micro uppercase tracking-wide text-text-muted">input</div>
             <pre className="ui-glass max-h-40 overflow-auto rounded-md px-2 py-1 text-meta text-text-secondary">

@@ -43,6 +43,8 @@ export type AgentEvent =
   | { type: "text_delta"; delta: string }
   | {
       type: "tool_call";
+      /** Agent 协议内的稳定调用 id，用于精确配对 tool_result */
+      callId?: string;
       name: string;
       input: unknown;
       /** 展示分类：决定图标与配色 */
@@ -50,7 +52,14 @@ export type AgentEvent =
       /** 操作对象原文（路径 / 命令 / 模式串）。是否缩短由展示层决定 */
       target: string;
     }
-  | { type: "tool_result"; name: string; output: string; isError?: boolean }
+  | {
+      type: "tool_result";
+      /** 对应 tool_call.callId */
+      callId?: string;
+      name: string;
+      output: string;
+      isError?: boolean;
+    }
   | { type: "error"; message: string }
   /**
    * 非致命提示：CLI 自己标记为「警告」的条目（如输出被截断）。
@@ -171,6 +180,27 @@ export type ReadFileResult =
 export interface OpenFileExternalResult {
   ok: boolean;
   error?: string;
+}
+
+// ============================================================================
+// 系统终端
+// ============================================================================
+
+export interface TerminalCreateResult {
+  id: string;
+  cwd: string;
+  shell: string;
+}
+
+export interface TerminalDataPayload {
+  id: string;
+  data: string;
+}
+
+export interface TerminalExitPayload {
+  id: string;
+  exitCode: number;
+  signal?: number;
 }
 
 // ============================================================================

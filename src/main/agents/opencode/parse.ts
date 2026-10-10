@@ -128,6 +128,7 @@ export function decode(
       const output = hasOutput ? stringifyOutput(state.output) : "";
       const call: AgentEvent = {
         type: "tool_call",
+        callId: part.callID,
         name: toolName,
         input: state.input ?? {},
         kind: display.kind,
@@ -141,7 +142,13 @@ export function decode(
         // 已经上报过调用 → 只补结果，UI 把状态更新到原来那一行；
         // 没上报过（流里首个可见状态就是 completed）→ 补发调用，保证能配对显示
         if (state.input && !reported) events.push(call);
-        events.push({ type: "tool_result", name: toolName, output, isError: false });
+        events.push({
+          type: "tool_result",
+          callId: part.callID,
+          name: toolName,
+          output,
+          isError: false,
+        });
         return events;
       }
 
@@ -156,6 +163,7 @@ export function decode(
         calls.set(key, "done");
         return {
           type: "tool_result",
+          callId: part.callID,
           name: toolName,
           output: output || String(state.output ?? ""),
           isError: true,
@@ -219,6 +227,7 @@ export function parseExportMessages(records: unknown[]): Message[] {
             if (state?.input) {
               blocks.push({
                 type: "tool_call",
+                callId: part.callID,
                 name: toolName,
                 input: state.input,
                 kind: display.kind,
@@ -228,6 +237,7 @@ export function parseExportMessages(records: unknown[]): Message[] {
             if (state?.output != null) {
               blocks.push({
                 type: "tool_result",
+                callId: part.callID,
                 name: toolName,
                 output: stringifyOutput(state.output),
                 isError: state.status === "error",
@@ -248,6 +258,7 @@ export function parseExportMessages(records: unknown[]): Message[] {
       if (describeTool(toolName, state?.input) && state?.output != null) {
         lastAssistant.content.push({
           type: "tool_result",
+          callId: part?.callID,
           name: toolName,
           output: stringifyOutput(state.output),
           isError: state.status === "error",

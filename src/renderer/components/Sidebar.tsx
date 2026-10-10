@@ -8,7 +8,8 @@
  * 字号/间距偏大，保证最小点击区 ~36px，移动鼠标不费力。
  */
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useChatStore } from "../stores/chat";
 import {
   Plus,
@@ -21,6 +22,8 @@ import {
   Settings,
   MoreHorizontal,
   Eraser,
+  FolderPlus,
+  SquareTerminal,
 } from "lucide-react";
 import type { Project, Session } from "@shared/types";
 import type { AgentInfo } from "@shared/contracts/agent";
@@ -30,6 +33,7 @@ import { AgentPill } from "./ui/AgentPill";
 import { ConfirmDeleteButton } from "./ui/ConfirmDeleteButton";
 import { FolderTypeIcon } from "./ui/FolderTypeIcon";
 import { StatusDot } from "./ui/StatusDot";
+import { useFileViewerStore } from "../stores/fileViewer";
 
 /** 取路径最后一段当项目名（兼容 Windows 反斜杠） */
 function dirName(p: string): string {
@@ -53,6 +57,7 @@ export function Sidebar() {
   const setViewMode = useChatStore((s) => s.setViewMode);
   const setShowSettings = useChatStore((s) => s.setShowSettings);
   const showSettings = useChatStore((s) => s.showSettings);
+  const openTerminal = useFileViewerStore((s) => s.openTerminal);
   const {
     selectSession,
     selectProject,
@@ -83,10 +88,19 @@ export function Sidebar() {
     await createProject(dirName(cwd), cwd);
   };
 
+  const handleNewTerminal = () => {
+    const project = projects.find((p) => p.id === currentProjectId);
+    openTerminal(project?.cwd ?? "");
+    setViewMode("chat");
+  };
+
   return (
     <aside className="ui-sidebar relative flex h-full w-[var(--c-layout-sidebar)] flex-col border-r-0">
       {/* 头部：品牌 + 新建项目 */}
-      <div className="relative flex h-[var(--c-layout-header)] items-center justify-between border-b border-border px-4">
+      <div
+        style={{ zIndex: 30 }}
+        className="relative flex h-[var(--c-layout-header)] items-center justify-between border-b border-border px-4"
+      >
         <div className="flex items-center gap-2">
           <img
             src={logoUrl}
@@ -95,20 +109,30 @@ export function Sidebar() {
           />
           <span className="text-title font-semibold tracking-wide text-text">Nova</span>
         </div>
-        <button
-          onClick={handleNewProject}
-          title="新建项目（选择文件夹）"
-          className="ui-btn-round flex size-icon-btn items-center justify-center rounded-full"
-        >
-          <Plus className="h-4 w-4" />
-        </button>
+        <CreateMenu
+          onNewProject={handleNewProject}
+          onNewTerminal={handleNewTerminal}
+        />
       </div>
 
       {/* 功能分组 */}
       <div className="px-3 pt-3 pb-1">
         <span className={`px-1 ${FONT_META} font-medium tracking-wide text-text-muted`}>功能</span>
       </div>
-      <div className="px-2.5 pb-2">
+      <div className="space-y-1 px-2.5 pb-2">
+        <button
+          onClick={() => {
+            if (!currentProjectId) return;
+            newSession();
+            setViewMode("chat");
+          }}
+          disabled={!currentProjectId}
+          title={currentProjectId ? "在当前项目下新建任务" : "请先选择项目"}
+          className="flex w-full items-center gap-2 rounded-md px-2.5 py-2.5 text-body-lg font-medium text-text-secondary transition-colors hover:bg-surface-hover hover:text-text disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:bg-transparent disabled:hover:text-text-secondary"
+        >
+          <Plus className="h-4 w-4 shrink-0" />
+          新建任务
+        </button>
         <button
           onClick={() => setViewMode("automation")}
           className={`flex w-full items-center gap-2 rounded-md px-2.5 py-2.5 text-body-lg font-medium transition-colors ${
@@ -161,11 +185,6 @@ export function Sidebar() {
                 selectSession(id);
                 setViewMode("chat");
               }}
-              onNewSession={() => {
-                selectProject(project.id);
-                newSession();
-                setViewMode("chat");
-              }}
               onDeleteSession={(id) => deleteSession(id)}
               onAbortSession={(id) => abort(id)}
               onRenameSession={(id, title) => renameSession(id, title)}
@@ -211,6 +230,81 @@ export function Sidebar() {
 }
 
 // ============================================================================
+// 左上角新建菜单
+// ============================================================================
+
+function CreateMenu({
+  onNewProject,
+  onNewTerminal,
+}: {
+  onNewProject: () => void;
+  onNewTerminal: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (event: MouseEvent) => {
+      if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
+    };
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  const itemClass =
+    "flex w-full items-center gap-2 rounded-md px-2.5 py-2.5 text-left text-body text-text-secondary transition-colors hover:bg-surface-hover hover:text-text";
+
+  return (
+    <div ref={rootRef} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((value) => !value)}
+        title="新建"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        className="ui-btn-round flex size-icon-btn items-center justify-center rounded-full"
+      >
+        <Plus className="h-4 w-4" />
+      </button>
+      {open && (
+        <div className="ui-dropdown-in ui-glass-strong ui-ring pointer-events-auto absolute right-0 top-full z-50 mt-2 w-48 space-y-0.5 rounded-xl p-1.5">
+          <button
+            type="button"
+            onClick={() => {
+              setOpen(false);
+              onNewProject();
+            }}
+            className={itemClass}
+          >
+            <FolderPlus className="h-4 w-4 shrink-0 text-accent" />
+            新建项目
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setOpen(false);
+              onNewTerminal();
+            }}
+            className={itemClass}
+          >
+            <SquareTerminal className="h-4 w-4 shrink-0 text-agent-sky" />
+            新建终端
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ============================================================================
 // 项目节点：可折叠，展开显示会话
 // ============================================================================
 
@@ -223,7 +317,6 @@ function ProjectNode({
   onToggle,
   activeSessionId,
   onOpenSession,
-  onNewSession,
   onDeleteSession,
   onAbortSession,
   onRenameSession,
@@ -238,7 +331,6 @@ function ProjectNode({
   onToggle: () => void;
   activeSessionId: string | null;
   onOpenSession: (id: string) => void;
-  onNewSession: () => void;
   onDeleteSession: (id: string) => void;
   onAbortSession: (id: string) => void;
   onRenameSession: (id: string, title: string) => void;
@@ -285,14 +377,6 @@ function ProjectNode({
       {/* 会话列表 */}
       {isExpanded && (
         <div className="ml-3 space-y-2 border-l border-border pl-2 pt-2">
-          {/* 新建会话行：放在列表最前面，会话再多也不用滑到底部 */}
-          <button
-            onClick={onNewSession}
-            className="flex w-full items-center gap-1.5 rounded-md px-2 py-2.5 text-body text-text-muted transition-colors hover:bg-surface-hover hover:text-text"
-          >
-            <Plus className="h-4 w-4" />
-            新会话
-          </button>
           {sessions.map((session) => (
             <SessionRow
               key={session.id}
@@ -429,7 +513,7 @@ function ProjectMenu({
 }
 
 // ============================================================================
-// 会话行：双行布局 — 第一行标题+操作，第二行 Agent 标记+时间
+// 会话行：单行布局 — 标题常驻，Agent 标记与时间悬浮显示
 // ============================================================================
 
 function SessionRow({
@@ -453,8 +537,24 @@ function SessionRow({
 }) {
   const [editing, setEditing] = useState(false);
   const [editTitle, setEditTitle] = useState("");
+  const rowRef = useRef<HTMLDivElement>(null);
+  const popupRef = useRef<HTMLDivElement>(null);
+  const metaAnchorRef = useRef<{
+    centerX: number;
+    top: number;
+    bottom: number;
+  } | null>(null);
+  const [metaOpen, setMetaOpen] = useState(false);
+  const [metaReady, setMetaReady] = useState(false);
+  const [metaRevision, setMetaRevision] = useState(0);
+  const [metaPos, setMetaPos] = useState<{
+    left: number;
+    top: number;
+    placement: "top" | "bottom";
+  }>({ left: 0, top: 0, placement: "top" });
 
   const startEdit = () => {
+    setMetaOpen(false);
     setEditTitle(session.title);
     setEditing(true);
   };
@@ -463,6 +563,67 @@ function SessionRow({
     if (t && t !== session.title) onRename(t);
     setEditing(false);
   };
+
+  const showMetadata = () => {
+    const rect = rowRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const estimatedHeight = 38;
+    const gap = 10;
+    const placement: "top" | "bottom" =
+      rect.top >= estimatedHeight + gap ? "top" : "bottom";
+    metaAnchorRef.current = {
+      centerX: rect.left + rect.width / 2,
+      top: rect.top,
+      bottom: rect.bottom,
+    };
+    setMetaReady(false);
+    setMetaRevision((value) => value + 1);
+    setMetaPos({
+      left: 0,
+      top: -1000,
+      placement,
+    });
+    setMetaOpen(true);
+  };
+
+  useLayoutEffect(() => {
+    if (!metaOpen) return;
+    const popup = popupRef.current;
+    const anchor = metaAnchorRef.current;
+    if (!popup || !anchor) return;
+
+    const gap = 10;
+    const width = popup.offsetWidth;
+    const height = popup.offsetHeight;
+    const left = Math.round(
+      Math.max(
+        8,
+        Math.min(
+          window.innerWidth - width - 8,
+          anchor.centerX - width / 2,
+        ),
+      ),
+    );
+    const top = Math.round(
+      metaPos.placement === "top"
+        ? anchor.top - gap - height
+        : anchor.bottom + gap,
+    );
+
+    setMetaPos((current) => ({ ...current, left, top }));
+    setMetaReady(true);
+  }, [metaOpen, metaPos.placement, metaRevision]);
+
+  useEffect(() => {
+    if (!metaOpen) return;
+    const close = () => setMetaOpen(false);
+    window.addEventListener("scroll", close, true);
+    window.addEventListener("resize", close);
+    return () => {
+      window.removeEventListener("scroll", close, true);
+      window.removeEventListener("resize", close);
+    };
+  }, [metaOpen]);
 
   // 编辑态：标题变输入框，右侧显示提交/取消
   if (editing) {
@@ -497,62 +658,94 @@ function SessionRow({
   // 行内操作按钮（停止/重命名/删除）自行 stopPropagation，避免误触发切换。
   return (
     <div
+      ref={rowRef}
       role="button"
       tabIndex={0}
       onClick={onOpen}
+      onMouseEnter={showMetadata}
+      onMouseLeave={() => setMetaOpen(false)}
+      onFocus={showMetadata}
+      onBlur={() => setMetaOpen(false)}
       onKeyDown={(e) => {
         if (e.key === "Enter" || e.key === " ") {
           e.preventDefault();
           onOpen();
         }
       }}
-      className={`group cursor-pointer select-none rounded-md px-2 py-2 transition-colors ${
+      className={`group cursor-pointer select-none rounded-md px-2 py-1.5 transition-colors ${
         isActive
           ? "ui-active bg-surface-active text-text"
           : "text-text-secondary hover:bg-surface-hover hover:text-text"
       }`}
     >
-      {/* 第一行：标题 + 操作按钮（流式时保留脉动圆点，选中态由左侧竖杠表示） */}
+      {/* 单行：状态点 + 标题 + 右侧悬浮信息 / 操作 */}
       <div className="flex items-center gap-2">
         {isStreaming && <StatusDot status="streaming" />}
         <span className="min-w-0 flex-1 truncate text-body-lg">{session.title}</span>
 
-        {isStreaming ? (
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              onAbort();
-            }}
-            title="停止运行"
-            className="shrink-0 rounded p-1.5 text-text-muted hover:text-error"
-          >
-            <Square className="h-4 w-4" />
-          </button>
-        ) : (
-          <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
+        <div className="ml-auto flex shrink-0 items-center gap-1">
+          {isStreaming ? (
             <button
               onClick={(e) => {
                 e.stopPropagation();
-                startEdit();
+                onAbort();
               }}
-              title="重命名"
-              className="rounded p-1.5 text-text-muted hover:bg-surface-active hover:text-text"
+              title="停止运行"
+              className="shrink-0 rounded p-1 text-text-muted hover:text-error"
             >
-              <PenLine className="h-4 w-4" />
+              <Square className="h-4 w-4" />
             </button>
-            {/* 删除会话：二次确认由 ConfirmDeleteButton 内部管理（内部已 stopPropagation） */}
-            <ConfirmDeleteButton onConfirm={onDelete} iconSize={16} title="删除会话" />
-          </div>
-        )}
+          ) : (
+            <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  startEdit();
+                }}
+                title="重命名"
+                className="rounded p-1 text-text-muted hover:bg-surface-active hover:text-text"
+              >
+                <PenLine className="h-4 w-4" />
+              </button>
+              <ConfirmDeleteButton onConfirm={onDelete} iconSize={16} title="删除会话" />
+            </div>
+          )}
+        </div>
       </div>
 
-      {/* 第二行：Agent 标记 + 时间（与标题对齐） */}
-      <div className="mt-1 flex items-center gap-2 text-caption">
-        <AgentPill agents={agents} agentId={session.agentId} iconSize={10} />
-        <span className="font-mono text-text-muted">
-          {timeAgo(session.updatedAt)}
-        </span>
-      </div>
+      {metaOpen &&
+        createPortal(
+          <div
+            ref={popupRef}
+            style={{
+              left: metaPos.left,
+              top: metaPos.top,
+              background: "var(--c-glass-strong-bg)",
+              backdropFilter: "none",
+              WebkitBackdropFilter: "none",
+              visibility: metaReady ? "visible" : "hidden",
+            }}
+            className="ui-ring pointer-events-none fixed z-[100] flex w-max items-center justify-center gap-2 rounded-lg px-2.5 py-1.5 text-text shadow-[var(--c-shadow-sm)]"
+          >
+            <span
+              className={`absolute left-1/2 h-2.5 w-2.5 -translate-x-1/2 rotate-45 border-border bg-[var(--c-glass-strong-bg)] ${
+                metaPos.placement === "top"
+                  ? "-bottom-[5px] border-b border-r"
+                  : "-top-[5px] border-l border-t"
+              }`}
+            />
+            <AgentPill
+              agents={agents}
+              agentId={session.agentId}
+              iconSize={10}
+              maxWidth="max-w-20"
+            />
+            <span className="shrink-0 font-mono text-caption text-text-muted">
+              {timeAgo(session.updatedAt)}
+            </span>
+          </div>,
+          document.body,
+        )}
     </div>
   );
 }
