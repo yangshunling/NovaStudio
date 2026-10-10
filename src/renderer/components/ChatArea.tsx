@@ -17,17 +17,27 @@ import {
   selectCurrentStreaming,
   selectEffectiveAgentId,
 } from "../stores/chat";
-import { Send, Square, ChevronRight, Folder } from "lucide-react";
+import {
+  Send,
+  Square,
+  ChevronRight,
+  PanelRightClose,
+  PanelRightOpen,
+  X,
+} from "lucide-react";
 import { SkinStage } from "./SkinStage";
 import { AgentOptionsMenu } from "./AgentOptionsMenu";
 import { AgentSelector } from "./AgentSelector";
+import { useFileMention, FileMentionPopup } from "./FileMention";
 import { MessageGroup, StreamingIndicator } from "./MessageList";
+import { FileTypeIcon } from "./ui/FileTypeIcon";
+import { FolderTypeIcon } from "./ui/FolderTypeIcon";
 
 // ============================================================================
 // 对话主区域
 // ============================================================================
 
-export function ChatArea() {
+export function ChatArea({ embedded = false }: { embedded?: boolean } = {}) {
   const messages = useChatStore(selectCurrentMessages);
   const isStreaming = useChatStore(selectCurrentStreaming);
   /**
@@ -56,8 +66,18 @@ export function ChatArea() {
   const effectiveAgentId = useChatStore(selectEffectiveAgentId);
   const agents = useChatStore((s) => s.agents);
   const selectAgent = useChatStore((s) => s.selectAgent);
+  const showWorkspace = useChatStore((s) => s.showWorkspace);
+  const setShowWorkspace = useChatStore((s) => s.setShowWorkspace);
   const [input, setInput] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  const fileMention = useFileMention({
+    cwd: currentProject?.cwd ?? "",
+    input,
+    setInput,
+    textareaRef,
+  });
   /**
    * 是否跟随最新内容：默认贴底，用户主动上滑查看历史时暂停跟随，
    * 回到底部附近后自动恢复 —— 流式输出（含长思考）期间无需手动滚动。
@@ -80,24 +100,36 @@ export function ChatArea() {
 
   const handleSend = () => {
     const trimmed = input.trim();
-    if (!trimmed || isStreaming) return;
+    const references = fileMention.references;
+    if ((!trimmed && references.length === 0) || isStreaming) return;
+    const referenceText = references
+      .map((entry) => `@${entry.relativePath}`)
+      .join(" ");
+    const prompt = [trimmed, referenceText].filter(Boolean).join(" ");
     setInput("");
-    sendMessage(trimmed);
+    fileMention.clearReferences();
+    sendMessage(prompt);
   };
 
   return (
-    <main className="relative flex flex-1 flex-col overflow-hidden">
+    <main className="relative flex h-full min-h-0 flex-1 flex-col overflow-hidden">
       {/* 装饰舞台：背景 + 立绘，由皮肤声明决定是否渲染 */}
-      <SkinStage />
+      {!embedded && <SkinStage />}
 
       {/* 主体纸面：顶栏 / 消息区 / 输入区同属一张纸，浮在画布底色之上 */}
-      <div className="ui-page relative z-10 flex flex-1 flex-col overflow-hidden rounded-xl">
+      <div
+        className={
+          embedded
+            ? "relative z-10 flex min-h-0 flex-1 flex-col overflow-hidden"
+            : "ui-page relative z-10 flex flex-1 flex-col overflow-hidden rounded-xl"
+        }
+      >
         {/* 顶栏：项目 › 会话 面包屑 */}
         <header className="ui-glass relative z-10 flex h-[var(--c-layout-header)] shrink-0 items-center justify-between border-b border-border px-4">
           <div className="flex min-w-0 items-center gap-1.5 text-body-lg">
             {currentProject ? (
               <>
-                <Folder className="h-3.5 w-3.5 shrink-0 text-accent" />
+                <FolderTypeIcon size={14} />
                 <span className="truncate font-mono text-caption text-text-muted">
                   {currentProject.cwd}
                 </span>
@@ -112,6 +144,22 @@ export function ChatArea() {
               <span className="text-text-muted">Nova</span>
             )}
           </div>
+          <button
+            type="button"
+            onClick={() => setShowWorkspace(!showWorkspace)}
+            title={showWorkspace ? "隐藏工作区文件" : "显示工作区文件"}
+            aria-label={showWorkspace ? "隐藏工作区文件" : "显示工作区文件"}
+            aria-pressed={showWorkspace}
+            className={`ui-btn-round flex size-icon-btn shrink-0 items-center justify-center rounded-full ${
+              showWorkspace ? "text-accent" : ""
+            }`}
+          >
+            {showWorkspace ? (
+              <PanelRightClose className="h-4 w-4" />
+            ) : (
+              <PanelRightOpen className="h-4 w-4" />
+            )}
+          </button>
         </header>
 
         {/* 消息区：透明，让纸面 / 舞台透出；
@@ -165,20 +213,58 @@ export function ChatArea() {
         {/* 输入区：玻璃拟态 + 大圆角描边卡片 */}
         <div className="ui-glass relative z-10 border-t border-border p-inset">
           <div className="mx-auto max-w-[var(--c-layout-content)]">
-            <div className="ui-ring flex items-end gap-2 rounded-[var(--c-radius-input)] bg-input-bg p-2 focus-within:shadow-[0_0_0_2px_var(--c-accent-soft)]">
-              <textarea
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && !e.shiftKey) {
-                    e.preventDefault();
-                    handleSend();
-                  }
-                }}
-                placeholder="输入消息，Enter 发送，Shift+Enter 换行"
-                rows={1}
-                className="max-h-40 flex-1 resize-none bg-transparent px-3 py-2 text-body-lg text-text placeholder-text-muted outline-none"
-              />
+            <div className="ui-ring rounded-[var(--c-radius-input)] bg-input-bg p-2 focus-within:shadow-[0_0_0_2px_var(--c-accent-soft)]">
+              {fileMention.references.length > 0 && (
+                <div className="mb-2 flex flex-wrap gap-1.5 px-1">
+                  {fileMention.references.map((entry) => (
+                    <span
+                      key={entry.relativePath}
+                      title={entry.relativePath}
+                      className="flex max-w-64 items-center gap-1.5 rounded-full border border-accent/25 bg-accent-soft px-2 py-1 text-caption font-medium text-accent"
+                    >
+                      <FileTypeIcon name={entry.name} size={13} />
+                      <span className="truncate">{entry.name}</span>
+                      <button
+                        type="button"
+                        onClick={() => fileMention.removeReference(entry.relativePath)}
+                        title={`移除 ${entry.name}`}
+                        className="rounded-full p-0.5 text-current opacity-70 hover:bg-surface-hover hover:opacity-100"
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              )}
+              <div className="flex items-end gap-2">
+                <div className="relative flex flex-1 items-end">
+                  <textarea
+                    ref={textareaRef}
+                    value={input}
+                    onChange={(e) => fileMention.handleChange(e)}
+                    onKeyDown={(e) => {
+                      if (fileMention.handleKeyDown(e)) return;
+                      if (e.key === "Enter" && !e.shiftKey) {
+                        e.preventDefault();
+                        handleSend();
+                      }
+                    }}
+                    placeholder="输入消息，@ 提及文件，Enter 发送，Shift+Enter 换行"
+                    rows={1}
+                    className="max-h-40 flex-1 resize-none bg-transparent px-3 py-2 text-body-lg text-text placeholder-text-muted outline-none"
+                  />
+                  {fileMention.active && (
+                    <FileMentionPopup
+                      items={fileMention.items}
+                      hoverIdx={fileMention.hoverIdx}
+                      loading={fileMention.loading}
+                      onHover={fileMention.setHoverIdx}
+                      onSelect={fileMention.selectEntry}
+                      popupRef={fileMention.popupRef}
+                      itemRefs={fileMention.itemRefs}
+                    />
+                  )}
+                </div>
               {/* 本次会话使用的 Agent：新会话可选，会话开始后锁定 */}
               <AgentSelector
                 agents={agents}
@@ -206,6 +292,7 @@ export function ChatArea() {
                   <Send className="h-4 w-4" />
                 </button>
               )}
+              </div>
             </div>
           </div>
         </div>

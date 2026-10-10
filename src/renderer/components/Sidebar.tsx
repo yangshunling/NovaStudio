@@ -12,9 +12,7 @@ import { useEffect, useRef, useState } from "react";
 import { useChatStore } from "../stores/chat";
 import {
   Plus,
-  Folder,
   Trash2,
-  FolderOpen,
   Check,
   ChevronRight,
   PenLine,
@@ -30,6 +28,7 @@ import logoUrl from "../assets/logo.png";
 import { timeAgo } from "../lib/utils";
 import { AgentPill } from "./ui/AgentPill";
 import { ConfirmDeleteButton } from "./ui/ConfirmDeleteButton";
+import { FolderTypeIcon } from "./ui/FolderTypeIcon";
 import { StatusDot } from "./ui/StatusDot";
 
 /** 取路径最后一段当项目名（兼容 Windows 反斜杠） */
@@ -132,7 +131,11 @@ export function Sidebar() {
       <div className="ui-scroll-hidden flex-1 overflow-y-auto px-2.5 py-1">
         {projects.length === 0 && (
           <div className="px-2 py-10 text-center">
-            <Folder className="mx-auto mb-3 h-6 w-6 text-text-muted" />
+            <FolderTypeIcon
+              size={24}
+              toneClassName="text-text-muted"
+              className="mx-auto mb-3"
+            />
             <p className={`mb-3 ${FONT_META} text-text-muted`}>还没有项目</p>
             <button
               onClick={handleNewProject}
@@ -253,7 +256,7 @@ function ProjectNode({
           <ChevronRight
             className={`mt-0.5 h-4 w-4 shrink-0 text-text-muted transition-transform ${isExpanded ? "rotate-90" : ""}`}
           />
-          <Folder className="mt-0.5 h-4 w-4 shrink-0 text-accent" />
+          <FolderTypeIcon open={isExpanded} className="mt-0.5" />
           {/* 项目名与路径分两行：路径独占一行、过长省略，不再与项目名抢宽度 */}
           <span className="min-w-0 flex-1">
             <span className={`block truncate ${FONT_BODY} font-medium`}>

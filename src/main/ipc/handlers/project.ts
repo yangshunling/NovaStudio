@@ -4,6 +4,7 @@
 
 import type { AgentService } from "../../engine/agent-service";
 import * as db from "../../db/sqlite";
+import { readGitStatus } from "../../git/status";
 import { handle } from "../register";
 
 export function registerProjectHandlers(service: AgentService): void {
@@ -17,4 +18,6 @@ export function registerProjectHandlers(service: AgentService): void {
     db.deleteProject(id);
     return true;
   });
+
+  handle("project:gitStatus", ({ cwd }) => readGitStatus(cwd));
 }

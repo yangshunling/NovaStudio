@@ -98,21 +98,24 @@ function SkinCard({
 // ============================================================================
 
 const FONT_SIZE_OPTIONS = [12, 13, 14, 15, 16] as const;
+const PREVIEW_FONT_SIZE_OPTIONS = [12, 13, 14, 15, 16, 17, 18] as const;
 
 /** 单行字号选项（全局 / 聊天记录共用同一套刻度） */
 function FontSizeRow({
   label,
   value,
   onChange,
+  options = FONT_SIZE_OPTIONS,
 }: {
   label: string;
   value: number;
   onChange: (px: number) => void;
+  options?: readonly number[];
 }) {
   return (
     <div className="flex items-center gap-2">
       <span className="w-20 shrink-0 text-meta text-text-muted">{label}</span>
-      {FONT_SIZE_OPTIONS.map((size) => (
+      {options.map((size) => (
         <button
           key={size}
           onClick={() => onChange(size)}
@@ -130,17 +133,30 @@ function FontSizeRow({
 }
 
 function FontSizeControl() {
-  const { fontSize, chatFontSize, setFontSize, setChatFontSize } = useTheme();
+  const {
+    fontSize,
+    chatFontSize,
+    previewFontSize,
+    setFontSize,
+    setChatFontSize,
+    setPreviewFontSize,
+  } = useTheme();
 
   return (
     <div className="mb-7">
       <h3 className="text-body font-semibold text-text">文字大小</h3>
       <p className="mt-1 mb-3 text-meta text-text-muted">
-        全局字号是整套界面的缩放基准；聊天记录字号只作用于对话消息区，可单独调整而不影响其他界面。
+        全局字号是整套界面的缩放基准；聊天记录和文件预览可分别调整，互不影响。
       </p>
       <div className="space-y-3">
         <FontSizeRow label="全局" value={fontSize} onChange={setFontSize} />
         <FontSizeRow label="聊天记录" value={chatFontSize} onChange={setChatFontSize} />
+        <FontSizeRow
+          label="文件预览"
+          value={previewFontSize}
+          onChange={setPreviewFontSize}
+          options={PREVIEW_FONT_SIZE_OPTIONS}
+        />
       </div>
     </div>
   );

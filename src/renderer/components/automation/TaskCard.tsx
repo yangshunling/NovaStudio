@@ -5,9 +5,10 @@
  * hover 显示操作按钮（重试 / 删除）；执行中显示旋转图标与「停止」按钮
  */
 
-import { RotateCcw, AlertCircle, Loader2, Square, Folder, Clock } from "lucide-react";
+import { RotateCcw, AlertCircle, Loader2, Square, Clock } from "lucide-react";
 import { ConfirmDeleteButton } from "../ui/ConfirmDeleteButton";
 import { AgentPill } from "../ui/AgentPill";
+import { FolderTypeIcon } from "../ui/FolderTypeIcon";
 import { Pill } from "../ui/Pill";
 import { StatusDot } from "../ui/StatusDot";
 import { timeAgo } from "../../lib/utils";
@@ -73,7 +74,10 @@ export function TaskCard({
       {/* 项目 + Agent 标签 */}
       <div className="mt-2.5 flex items-center gap-2 text-caption">
         {project && (
-          <Pill icon={<Folder className="h-3 w-3" />} variant="neutral">
+          <Pill
+            icon={<FolderTypeIcon size={12} toneClassName="text-text-muted" />}
+            variant="neutral"
+          >
             {project.name}
           </Pill>
         )}

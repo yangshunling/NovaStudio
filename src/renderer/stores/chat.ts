@@ -48,6 +48,8 @@ interface ChatState {
   viewMode: "chat" | "automation";
   /** 设置弹框是否展开 */
   showSettings: boolean;
+  /** 右侧工作区文件面板是否展开 */
+  showWorkspace: boolean;
 
   // 项目
   loadProjects: () => Promise<void>;
@@ -78,6 +80,7 @@ interface ChatState {
   // 视图
   setViewMode: (mode: "chat" | "automation") => void;
   setShowSettings: (show: boolean) => void;
+  setShowWorkspace: (show: boolean) => void;
 
   // 内部
   _onEvent: (payload: { sessionId: string; event: AgentEvent }) => void;
@@ -99,6 +102,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   optionValuesByAgent: {},
   viewMode: "chat",
   showSettings: false,
+  showWorkspace: false,
 
   // ==========================================================================
   // 项目
@@ -364,6 +368,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   setShowSettings: (show) => {
     set({ showSettings: show });
+  },
+
+  setShowWorkspace: (show) => {
+    set({ showWorkspace: show });
   },
 
   // ==========================================================================

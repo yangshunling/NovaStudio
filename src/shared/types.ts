@@ -108,6 +108,72 @@ export interface Message {
 }
 
 // ============================================================================
+// 文件条目 — @ 提及文件选择
+// ============================================================================
+
+export interface FileEntry {
+  name: string;
+  /** 相对于项目根目录的路径（正斜杠分隔） */
+  relativePath: string;
+  isDirectory: boolean;
+}
+
+// ============================================================================
+// Git 工作区状态 — 文件树标记
+// ============================================================================
+
+export type GitStatusKind =
+  | "untracked"
+  | "added"
+  | "modified"
+  | "deleted"
+  | "renamed"
+  | "copied"
+  | "conflicted"
+  | "changed";
+
+export interface GitFileStatus {
+  /** 相对于当前项目根目录的路径（正斜杠分隔） */
+  relativePath: string;
+  status: GitStatusKind;
+}
+
+export interface GitStatusSummary {
+  /** 当前目录是否位于 Git 工作区，且 git 命令可用 */
+  available: boolean;
+  branch: string | null;
+  files: GitFileStatus[];
+}
+
+// ============================================================================
+// 文件预览 — 工作区文件只读打开
+// ============================================================================
+
+export type FilePreviewKind = "text" | "markdown" | "image" | "pdf" | "binary";
+
+export interface FilePreview {
+  name: string;
+  relativePath: string;
+  kind: FilePreviewKind;
+  mimeType: string;
+  size: number;
+  language?: string;
+  content?: string;
+  dataUrl?: string;
+  truncated?: boolean;
+  note?: string;
+}
+
+export type ReadFileResult =
+  | { ok: true; file: FilePreview }
+  | { ok: false; error: string };
+
+export interface OpenFileExternalResult {
+  ok: boolean;
+  error?: string;
+}
+
+// ============================================================================
 // 自动化任务
 // ============================================================================
 
@@ -146,6 +212,8 @@ export interface AppSettings {
   fontSize: number;
   /** 聊天记录区域的独立字号（px）；与全局字号解耦，便于单独调大 */
   chatFontSize: number;
+  /** 文件预览区域的独立字号（px） */
+  previewFontSize: number;
   /** 自动化看板同时执行的任务数上限 */
   automationConcurrency: number;
   /** 自动化看板扫描待执行任务的间隔（秒） */
@@ -160,6 +228,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   theme: "",
   fontSize: 13,
   chatFontSize: 13,
+  previewFontSize: 14,
   automationConcurrency: 3,
   automationPollIntervalSec: 30,
   agentTimeoutMinutes: 30,

@@ -16,9 +16,10 @@ import { useAutomationStore } from "./stores/automation";
 import { useAgentStream } from "./hooks/useAgentStream";
 import { loadSkinSettings } from "./hooks/useTheme";
 import { Sidebar } from "./components/Sidebar";
-import { ChatArea } from "./components/ChatArea";
+import { CenterPane } from "./components/CenterPane";
 import { AutomationView } from "./components/AutomationView";
 import { SettingsModal } from "./components/SettingsModal";
+import { WorkspacePanel } from "./components/WorkspacePanel";
 import { ErrorBoundary } from "./components/ui/ErrorBoundary";
 import { validateSkins } from "./skins/validate";
 
@@ -30,6 +31,7 @@ export default function App() {
   const loadProjects = useChatStore((s) => s.loadProjects);
   const viewMode = useChatStore((s) => s.viewMode);
   const showSettings = useChatStore((s) => s.showSettings);
+  const showWorkspace = useChatStore((s) => s.showWorkspace);
   const loadTasks = useAutomationStore((s) => s.loadTasks);
 
   useEffect(() => {
@@ -46,7 +48,14 @@ export default function App() {
     <ErrorBoundary>
       <div className="flex h-screen w-screen overflow-hidden bg-bg text-text">
         <Sidebar />
-        {viewMode === "automation" ? <AutomationView /> : <ChatArea />}
+        {viewMode === "automation" ? (
+          <AutomationView />
+        ) : (
+          <>
+            <CenterPane />
+            {showWorkspace && <WorkspacePanel />}
+          </>
+        )}
         {showSettings && <SettingsModal />}
       </div>
     </ErrorBoundary>

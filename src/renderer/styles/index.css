@@ -35,7 +35,8 @@
  * 让换肤结果依赖打包顺序。
  */
 :root,
-.ui-chat-scale {
+.ui-chat-scale,
+.ui-preview-scale {
   /* 派生字号（基准 13px 时依次为 10 / 11 / 12 / 13 / 14 / 15 / 16 / 18 / 20） */
   --c-font-size-micro: calc(var(--c-font-size) - 3px);
   --c-font-size-caption: calc(var(--c-font-size) - 2px);
@@ -53,9 +54,13 @@
  * 只有本子树内的 text-* 工具类会跟着变，其余界面保持全局字号。 */
 :root {
   --c-chat-font-size: var(--c-font-size);
+  --c-preview-font-size: 14px;
 }
 .ui-chat-scale {
   --c-font-size: var(--c-chat-font-size);
+}
+.ui-preview-scale {
+  --c-font-size: var(--c-preview-font-size);
 }
 
 /* === token → Tailwind 工具类映射 ===

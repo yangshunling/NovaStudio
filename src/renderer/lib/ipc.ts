@@ -52,6 +52,13 @@ export const ipc = {
   listProjects: () => call("project:list"),
   createProject: (name: string, cwd: string) => call("project:create", { name, cwd }),
   deleteProject: (id: string) => call("project:delete", { id }),
+  listFiles: (cwd: string, subPath?: string) =>
+    call("project:listFiles", { cwd, subPath }),
+  getGitStatus: (cwd: string) => call("project:gitStatus", { cwd }),
+  readFile: (projectId: string, relativePath: string) =>
+    call("file:read", { projectId, relativePath }),
+  openFileExternal: (projectId: string, relativePath: string) =>
+    call("file:openExternal", { projectId, relativePath }),
 
   // === 会话 ===
   createSession: (projectId: string, agentId: string) =>

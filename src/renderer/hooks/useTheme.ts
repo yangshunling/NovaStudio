@@ -25,11 +25,14 @@ interface SkinState {
   fontSize: number;
   /** 聊天记录区域的独立字号（px） */
   chatFontSize: number;
+  /** 文件预览区域的独立字号（px） */
+  previewFontSize: number;
 
   load: () => Promise<void>;
   setTheme: (id: string) => void;
   setFontSize: (px: number) => void;
   setChatFontSize: (px: number) => void;
+  setPreviewFontSize: (px: number) => void;
 }
 
 /**
@@ -63,9 +66,25 @@ function applyChatFontSize(px: number): void {
   document.documentElement.style.setProperty("--c-chat-font-size", `${px}px`);
 }
 
-function writeCache(theme: string, fontSize: number, chatFontSize: number): void {
+/**
+ * 应用文件预览字号。
+ * 由 .ui-preview-scale 消费，只影响代码与 Markdown 预览内容。
+ */
+function applyPreviewFontSize(px: number): void {
+  document.documentElement.style.setProperty("--c-preview-font-size", `${px}px`);
+}
+
+function writeCache(
+  theme: string,
+  fontSize: number,
+  chatFontSize: number,
+  previewFontSize: number,
+): void {
   try {
-    localStorage.setItem(CACHE_KEY, JSON.stringify({ theme, fontSize, chatFontSize }));
+    localStorage.setItem(
+      CACHE_KEY,
+      JSON.stringify({ theme, fontSize, chatFontSize, previewFontSize }),
+    );
   } catch {
     // localStorage 不可用时忽略：只是少了启动缓存
   }
@@ -76,6 +95,7 @@ function readCache(): {
   currentTheme: string;
   fontSize: number;
   chatFontSize: number;
+  previewFontSize: number;
 } {
   const fallbackFontSize = DEFAULT_SETTINGS.fontSize;
   try {
@@ -85,6 +105,7 @@ function readCache(): {
         theme?: unknown;
         fontSize?: unknown;
         chatFontSize?: unknown;
+        previewFontSize?: unknown;
       };
       const fontSize =
         typeof parsed.fontSize === "number" && parsed.fontSize > 0
@@ -101,6 +122,10 @@ function readCache(): {
           typeof parsed.chatFontSize === "number" && parsed.chatFontSize > 0
             ? parsed.chatFontSize
             : fontSize,
+        previewFontSize:
+          typeof parsed.previewFontSize === "number" && parsed.previewFontSize > 0
+            ? parsed.previewFontSize
+            : DEFAULT_SETTINGS.previewFontSize,
       };
     }
   } catch {
@@ -110,6 +135,7 @@ function readCache(): {
     currentTheme: defaultSkinId,
     fontSize: fallbackFontSize,
     chatFontSize: DEFAULT_SETTINGS.chatFontSize,
+    previewFontSize: DEFAULT_SETTINGS.previewFontSize,
   };
 }
 
@@ -119,6 +145,7 @@ export const useThemeStore = create<SkinState>((set, get) => ({
   currentTheme: cached.currentTheme,
   fontSize: cached.fontSize,
   chatFontSize: cached.chatFontSize,
+  previewFontSize: cached.previewFontSize,
 
   /** 从主进程设置同步（应用启动后调用一次），以设置里的值为准 */
   load: async () => {
@@ -134,19 +161,29 @@ export const useThemeStore = create<SkinState>((set, get) => ({
       settings.chatFontSize && settings.chatFontSize > 0
         ? settings.chatFontSize
         : fontSize;
+    const previewFontSize =
+      settings.previewFontSize && settings.previewFontSize > 0
+        ? settings.previewFontSize
+        : DEFAULT_SETTINGS.previewFontSize;
 
-    set({ currentTheme: theme, fontSize, chatFontSize });
+    set({ currentTheme: theme, fontSize, chatFontSize, previewFontSize });
     applyTheme(getSkin(theme));
     applyFontSize(fontSize);
     applyChatFontSize(chatFontSize);
-    writeCache(theme, fontSize, chatFontSize);
+    applyPreviewFontSize(previewFontSize);
+    writeCache(theme, fontSize, chatFontSize, previewFontSize);
   },
 
   setTheme: (id) => {
     if (!hasSkin(id)) return;
     set({ currentTheme: id });
     applyTheme(getSkin(id));
-    writeCache(id, get().fontSize, get().chatFontSize);
+    writeCache(
+      id,
+      get().fontSize,
+      get().chatFontSize,
+      get().previewFontSize,
+    );
     void ipc.setSettings({ theme: id });
   },
 
@@ -154,7 +191,12 @@ export const useThemeStore = create<SkinState>((set, get) => ({
     if (!(px > 0)) return;
     set({ fontSize: px });
     applyFontSize(px);
-    writeCache(get().currentTheme, px, get().chatFontSize);
+    writeCache(
+      get().currentTheme,
+      px,
+      get().chatFontSize,
+      get().previewFontSize,
+    );
     void ipc.setSettings({ fontSize: px });
   },
 
@@ -162,8 +204,21 @@ export const useThemeStore = create<SkinState>((set, get) => ({
     if (!(px > 0)) return;
     set({ chatFontSize: px });
     applyChatFontSize(px);
-    writeCache(get().currentTheme, get().fontSize, px);
+    writeCache(
+      get().currentTheme,
+      get().fontSize,
+      px,
+      get().previewFontSize,
+    );
     void ipc.setSettings({ chatFontSize: px });
+  },
+
+  setPreviewFontSize: (px) => {
+    if (!(px > 0)) return;
+    set({ previewFontSize: px });
+    applyPreviewFontSize(px);
+    writeCache(get().currentTheme, get().fontSize, get().chatFontSize, px);
+    void ipc.setSettings({ previewFontSize: px });
   },
 }));
 
@@ -171,6 +226,7 @@ export const useThemeStore = create<SkinState>((set, get) => ({
 applyTheme(getSkin(useThemeStore.getState().currentTheme));
 applyFontSize(useThemeStore.getState().fontSize);
 applyChatFontSize(useThemeStore.getState().chatFontSize);
+applyPreviewFontSize(useThemeStore.getState().previewFontSize);
 
 /** 供应用启动时调用：从主进程设置同步皮肤与字号 */
 export function loadSkinSettings(): Promise<void> {
@@ -182,17 +238,21 @@ export function useTheme() {
   const currentTheme = useThemeStore((s) => s.currentTheme);
   const fontSize = useThemeStore((s) => s.fontSize);
   const chatFontSize = useThemeStore((s) => s.chatFontSize);
+  const previewFontSize = useThemeStore((s) => s.previewFontSize);
   const setTheme = useThemeStore((s) => s.setTheme);
   const setFontSize = useThemeStore((s) => s.setFontSize);
   const setChatFontSize = useThemeStore((s) => s.setChatFontSize);
+  const setPreviewFontSize = useThemeStore((s) => s.setPreviewFontSize);
 
   return {
     currentTheme,
     fontSize,
     chatFontSize,
+    previewFontSize,
     setTheme,
     setFontSize,
     setChatFontSize,
+    setPreviewFontSize,
     skins,
   };
 }

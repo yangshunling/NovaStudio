@@ -86,6 +86,7 @@ export const REQUIRED_TOKENS: readonly string[] = [
   "--c-progress-radius",
   // 布局
   "--c-layout-sidebar",
+  "--c-layout-workspace",
   "--c-layout-drawer",
   "--c-layout-header",
   "--c-layout-content",
@@ -164,6 +165,7 @@ export const OPTIONAL_TOKENS: readonly string[] = [
  */
 export const DERIVED_TOKENS: readonly string[] = [
   "--c-chat-font-size",
+  "--c-preview-font-size",
   "--c-font-size-micro",
   "--c-font-size-caption",
   "--c-font-size-meta",

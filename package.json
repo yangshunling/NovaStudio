@@ -13,6 +13,9 @@
     "package:win": "electron-vite build && electron-builder --win"
   },
   "dependencies": {
+    "@assistant-ui/react": "^0.15.26",
+    "@assistant-ui/react-markdown": "^0.14.20",
+    "@assistant-ui/styles": "^0.3.7",
     "better-sqlite3": "^11.2.1",
     "electron": "^31.0.0",
     "execa": "^9.4.0",
@@ -26,6 +29,7 @@
     "zustand": "^4.5.5"
   },
   "devDependencies": {
+    "@iconify-json/vscode-icons": "^1.2.87",
     "@tailwindcss/vite": "^4.0.0",
     "@types/better-sqlite3": "^7.6.0",
     "@types/node": "^20.14.0",

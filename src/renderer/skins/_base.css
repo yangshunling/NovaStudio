@@ -39,6 +39,7 @@
 
   /* === 布局尺寸 === */
   --c-layout-sidebar: 280px;
+  --c-layout-workspace: clamp(240px, 28vw, 320px);
   --c-layout-drawer: 560px;
   --c-layout-header: 56px;
   --c-layout-content: 896px;

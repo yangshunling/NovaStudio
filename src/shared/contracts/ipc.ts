@@ -9,7 +9,11 @@ import type {
   AgentEvent,
   AppSettings,
   AutomationTask,
+  FileEntry,
+  GitStatusSummary,
+  OpenFileExternalResult,
   Project,
+  ReadFileResult,
   Session,
   SessionOptions,
 } from "../types";
@@ -38,6 +42,26 @@ export interface IpcInvokeMap {
   "project:list": { args: []; result: Project[] };
   "project:create": { args: [{ name: string; cwd: string }]; result: Project };
   "project:delete": { args: [{ id: string }]; result: boolean };
+  /** 列出项目目录下的文件，供 @ 提及选择 */
+  "project:listFiles": {
+    args: [{ cwd: string; subPath?: string }];
+    result: FileEntry[];
+  };
+  /** 读取当前项目的 Git 状态，供文件树显示新增 / 修改 / 删除等标记 */
+  "project:gitStatus": {
+    args: [{ cwd: string }];
+    result: GitStatusSummary;
+  };
+  /** 读取项目内文件，供中间区域只读预览 */
+  "file:read": {
+    args: [{ projectId: string; relativePath: string }];
+    result: ReadFileResult;
+  };
+  /** 使用系统默认程序打开项目内文件 */
+  "file:openExternal": {
+    args: [{ projectId: string; relativePath: string }];
+    result: OpenFileExternalResult;
+  };
 
   /** 预创建空会话，拿到 sessionId 后再 agent:send，事件才能按会话路由 */
   "session:create": { args: [{ projectId: string; agentId: string }]; result: Session };

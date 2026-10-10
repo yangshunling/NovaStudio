@@ -7,10 +7,11 @@
  */
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import { X, Folder, Loader2 } from "lucide-react";
+import { X, Loader2 } from "lucide-react";
 import { MessageGroup } from "../MessageList";
 import { StreamingIndicator } from "../ui/StreamingIndicator";
 import { AgentPill } from "../ui/AgentPill";
+import { FolderTypeIcon } from "../ui/FolderTypeIcon";
 import { ipc } from "../../lib/ipc";
 import { timeAgo } from "../../lib/utils";
 import { useChatStore } from "../../stores/chat";
@@ -100,7 +101,7 @@ export function TaskDetailDrawer({ task, onClose }: { task: AutomationTask; onCl
           <div className="flex flex-wrap items-center gap-2 text-caption">
             {project && (
               <span className="inline-flex items-center gap-1 rounded-full bg-surface-hover px-2 py-0.5 text-text-muted">
-                <Folder className="h-3 w-3" />
+                <FolderTypeIcon size={12} toneClassName="text-text-muted" />
                 {project.name}
               </span>
             )}
