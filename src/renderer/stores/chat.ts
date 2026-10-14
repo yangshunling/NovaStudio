@@ -159,17 +159,24 @@ export const useChatStore = create<ChatState>((set, get) => ({
   },
 
   selectSession: async (id) => {
-    // 已有实时桶：直接切换，无需回放历史
-    if (get().messagesBySession[id]) {
+    // 点会话时立刻把项目选中态同步到该会话所属项目 ——
+    // 不等历史回放，否则冷切换期间侧栏旧项目头的高亮仍在，看起来"没联动"。
+    // projectId 从 store 里已持有的 sessions 查，不必等 ipc.getSession。
+    const known = get().sessions.find((s) => s.id === id);
+    if (known) {
+      set({ currentSessionId: id, currentProjectId: known.projectId });
+    } else {
       set({ currentSessionId: id });
-      return;
     }
+
+    // 已有实时桶：直接切换，无需回放历史
+    if (get().messagesBySession[id]) return;
     // 同一会话的回放尚未返回时重复点击：忽略，避免重复发起
     if (get().loadingHistoryFor === id) return;
 
     // 乐观切换：先亮起选中态并进入"历史回放中"状态，历史到达后再填充消息。
     // 否则 await 期间界面毫无反馈，用户会误以为没点上而反复点击。
-    set({ currentSessionId: id, loadingHistoryFor: id });
+    set({ loadingHistoryFor: id });
     try {
       const session = await ipc.getSession(id);
       set((s) => ({

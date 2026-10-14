@@ -406,7 +406,7 @@ export function WorkspacePanel() {
           </div>
         </header>
 
-        <div className="flex shrink-0 items-center justify-between border-b border-border px-3 py-2">
+        <div className="flex h-10 shrink-0 items-center justify-between border-b border-border px-3">
           <div className="flex min-w-0 items-center gap-2">
             <span className="shrink-0 text-caption font-medium text-text-muted">
               工作区文件

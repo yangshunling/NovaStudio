@@ -10,16 +10,28 @@
 
 import { homedir } from "os";
 import { join } from "path";
-import { mkdirSync, existsSync } from "fs";
+import { mkdirSync, existsSync, renameSync } from "fs";
 
-/** 数据根目录：~/.nova/ */
-export const DATA_DIR = join(homedir(), ".nova");
+/** 数据根目录：~/.novastudio/ */
+export const DATA_DIR = join(homedir(), ".novastudio");
+
+/** 旧版数据目录（仅一次性迁移用）：~/.nova/ */
+const LEGACY_DATA_DIR = join(homedir(), ".nova");
 
 /** SQLite 数据库路径 */
 export const DB_PATH = join(DATA_DIR, "data.db");
 
-/** 确保数据目录存在 */
+/**
+ * 确保数据目录存在。
+ *
+ * 一次性迁移：历史版本数据落在 ~/.nova/，首次启动新版时若检测到旧目录存在
+ * 且新目录不存在，则整体移动（同盘原子操作，含 data.db、WAL、sessions 等
+ * 全部内容）。新目录已存在则跳过，避免覆盖用户已有数据。
+ */
 export function ensureDataDirs(): void {
+  if (existsSync(LEGACY_DATA_DIR) && !existsSync(DATA_DIR)) {
+    renameSync(LEGACY_DATA_DIR, DATA_DIR);
+  }
   if (!existsSync(DATA_DIR)) {
     mkdirSync(DATA_DIR, { recursive: true });
   }

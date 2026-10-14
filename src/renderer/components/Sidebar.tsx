@@ -94,6 +94,14 @@ export function Sidebar() {
     setViewMode("chat");
   };
 
+  // 点击项目主体：选中该项目 + 切到对话视图 + 进入新会话态（首条消息时才真正建会话，
+  // 避免产生空会话）。同时确保该项目展开，让用户能看到其下会话列表。
+  const handleSelectProject = (id: string) => {
+    selectProject(id);
+    setViewMode("chat");
+    setExpanded((m) => (m[id] === false ? { ...m, [id]: true } : m));
+  };
+
   return (
     <aside className="ui-sidebar relative flex h-full w-[var(--c-layout-sidebar)] flex-col border-r-0">
       {/* 头部：品牌 + 新建项目 */}
@@ -104,10 +112,10 @@ export function Sidebar() {
         <div className="flex items-center gap-2">
           <img
             src={logoUrl}
-            alt="Nova"
+            alt="Nova Studio"
             className="h-8 w-8 rounded-lg object-cover"
           />
-          <span className="text-title font-semibold tracking-wide text-text">Nova</span>
+          <span className="text-title font-semibold tracking-wide text-text">Nova Studio</span>
         </div>
         <CreateMenu
           onNewProject={handleNewProject}
@@ -180,7 +188,9 @@ export function Sidebar() {
               agents={agents}
               isExpanded={expanded[project.id] ?? true}
               onToggle={() => toggleExpand(project.id)}
-              activeSessionId={currentSessionId}
+              onSelect={() => handleSelectProject(project.id)}
+              activeSessionId={viewMode === "chat" ? currentSessionId : null}
+              isActiveProject={viewMode === "chat" && currentProjectId === project.id}
               onOpenSession={(id) => {
                 selectSession(id);
                 setViewMode("chat");
@@ -315,7 +325,9 @@ function ProjectNode({
   agents,
   isExpanded,
   onToggle,
+  onSelect,
   activeSessionId,
+  isActiveProject,
   onOpenSession,
   onDeleteSession,
   onAbortSession,
@@ -329,7 +341,9 @@ function ProjectNode({
   agents: AgentInfo[];
   isExpanded: boolean;
   onToggle: () => void;
+  onSelect: () => void;
   activeSessionId: string | null;
+  isActiveProject: boolean;
   onOpenSession: (id: string) => void;
   onDeleteSession: (id: string) => void;
   onAbortSession: (id: string) => void;
@@ -339,29 +353,30 @@ function ProjectNode({
 }) {
   return (
     <div>
-      {/* 项目头 */}
-      <div className="group/proj flex items-center gap-1 rounded-lg px-1.5 hover:bg-surface-hover">
+      {/* 项目头：折叠箭头与选中主体分开 —— 点箭头只折叠，点主体才选中项目 */}
+      <div
+        className={`group/proj flex items-center gap-1 rounded-lg px-1.5 ${
+          isActiveProject ? "bg-surface-active" : "hover:bg-surface-hover"
+        }`}
+      >
         <button
           onClick={onToggle}
-          className="flex min-w-0 flex-1 items-start gap-1.5 py-2.5 text-left"
+          title={isExpanded ? "折叠" : "展开"}
+          aria-expanded={isExpanded}
+          className="flex shrink-0 items-center justify-center py-2.5 text-text-muted hover:text-text"
         >
           <ChevronRight
-            className={`mt-0.5 h-4 w-4 shrink-0 text-text-muted transition-transform ${isExpanded ? "rotate-90" : ""}`}
+            className={`h-4 w-4 shrink-0 transition-transform ${isExpanded ? "rotate-90" : ""}`}
           />
-          <FolderTypeIcon open={isExpanded} className="mt-0.5" />
-          {/* 项目名与路径分两行：路径独占一行、过长省略，不再与项目名抢宽度 */}
-          <span className="min-w-0 flex-1">
-            <span className={`block truncate ${FONT_BODY} font-medium`}>
-              {project.name}
-            </span>
-            {project.cwd && (
-              <span
-                className="mt-0.5 block truncate font-mono text-caption text-text-muted"
-                title={project.cwd}
-              >
-                {project.cwd}
-              </span>
-            )}
+        </button>
+        <button
+          onClick={onSelect}
+          className="flex min-w-0 flex-1 items-center gap-1.5 py-2.5 text-left"
+          title={project.cwd || project.name}
+        >
+          <FolderTypeIcon open={isExpanded} />
+          <span className={`min-w-0 flex-1 truncate ${FONT_BODY} font-medium`}>
+            {project.name}
           </span>
         </button>
         {/* 项目操作：⋯ 菜单（清空会话 / 删除项目） */}
