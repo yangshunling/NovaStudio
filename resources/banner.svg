@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 300" role="img" aria-label="Nova Studio">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#4338CA"/>
+      <stop offset="45%" stop-color="#7C3AED"/>
+      <stop offset="100%" stop-color="#DB2777"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.24"/>
+      <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="accent" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#22D3EE" stop-opacity="0.38"/>
+      <stop offset="100%" stop-color="#22D3EE" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <rect width="1200" height="300" fill="url(#bg)"/>
+  <circle cx="1060" cy="20" r="270" fill="url(#glow)"/>
+  <circle cx="130" cy="300" r="230" fill="url(#accent)"/>
+  <circle cx="620" cy="150" r="340" fill="url(#glow)" opacity="0.45"/>
+
+  <text x="600" y="150" text-anchor="middle"
+        font-family="Segoe UI, -apple-system, Helvetica Neue, Helvetica, Arial, sans-serif"
+        font-size="86" font-weight="700" fill="#FFFFFF" letter-spacing="2">Nova Studio</text>
+  <text x="600" y="200" text-anchor="middle"
+        font-family="Segoe UI, -apple-system, Helvetica Neue, Helvetica, Arial, sans-serif"
+        font-size="25" fill="#FFFFFF" fill-opacity="0.85" letter-spacing="0.5">One window for every Agent</text>
+</svg>
