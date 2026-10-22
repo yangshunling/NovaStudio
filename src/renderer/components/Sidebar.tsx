@@ -146,14 +146,15 @@ export function Sidebar() {
         </button>
         <button
           type="button"
-          title="工作流（规划中，暂未开放）"
-          className="flex w-full cursor-default items-center gap-2 rounded-md px-2.5 py-2.5 text-body-lg font-medium text-text-secondary transition-colors hover:bg-surface-hover hover:text-text"
+          onClick={() => setViewMode("workflow")}
+          className={`flex w-full items-center gap-2 rounded-md px-2.5 py-2.5 text-body-lg font-medium transition-colors ${
+            viewMode === "workflow"
+              ? "ui-active bg-surface-active text-text"
+              : "text-text-secondary hover:bg-surface-hover hover:text-text"
+          }`}
         >
           <Waypoints className="h-4 w-4 shrink-0" />
-          <span className="min-w-0 flex-1 text-left">工作流</span>
-          <span className="shrink-0 rounded-full bg-surface-hover px-2 py-0.5 text-caption font-normal text-text-muted">
-            规划中
-          </span>
+          工作流
         </button>
         <button
           type="button"

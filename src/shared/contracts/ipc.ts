@@ -21,6 +21,8 @@ import type {
   TerminalCreateResult,
   TerminalDataPayload,
   TerminalExitPayload,
+  Workflow,
+  WorkflowDraft,
 } from "../types";
 import type { AgentInfo, AgentModelOption } from "./agent";
 
@@ -123,6 +125,16 @@ export interface IpcInvokeMap {
     result: DigitalEmployee | null;
   };
   "employees:delete": { args: [{ id: string }]; result: boolean };
+
+  /** 工作流：列表 / 新建 / 更新 / 删除 */
+  "workflows:list": { args: []; result: Workflow[] };
+  "workflows:get": { args: [{ id: string }]; result: Workflow | null };
+  "workflows:create": { args: [{ draft: WorkflowDraft }]; result: Workflow };
+  "workflows:update": {
+    args: [{ id: string; draft: WorkflowDraft }];
+    result: Workflow | null;
+  };
+  "workflows:delete": { args: [{ id: string }]; result: boolean };
 }
 
 /** 主进程 → 渲染进程（push）通道表。事件均带 sessionId，供多会话并发路由。 */

@@ -45,7 +45,7 @@ interface ChatState {
    */
   optionValuesByAgent: Record<string, Record<string, string>>;
   /** 视图模式：对话 / 任务中心 / 数字员工 */
-  viewMode: "chat" | "automation" | "employees";
+  viewMode: "chat" | "automation" | "employees" | "workflow";
   /** 设置弹框是否展开 */
   showSettings: boolean;
   /** 右侧工作区文件面板是否展开 */
@@ -78,7 +78,7 @@ interface ChatState {
   abort: (sessionId?: string) => Promise<void>;
 
   // 视图
-  setViewMode: (mode: "chat" | "automation" | "employees") => void;
+  setViewMode: (mode: "chat" | "automation" | "employees" | "workflow") => void;
   setShowSettings: (show: boolean) => void;
   setShowWorkspace: (show: boolean) => void;
 

@@ -19,9 +19,11 @@ import { Sidebar } from "./components/Sidebar";
 import { CenterPane } from "./components/CenterPane";
 import { AutomationView } from "./components/AutomationView";
 import { EmployeesView } from "./components/employees/EmployeesView";
+import { WorkflowsView } from "./components/workflows/WorkflowsView";
 import { SettingsModal } from "./components/SettingsModal";
 import { WorkspacePanel } from "./components/WorkspacePanel";
 import { ErrorBoundary } from "./components/ui/ErrorBoundary";
+import { ToastViewport } from "./components/ui/ToastViewport";
 import { validateSkins } from "./skins/validate";
 
 export default function App() {
@@ -53,6 +55,8 @@ export default function App() {
           <AutomationView />
         ) : viewMode === "employees" ? (
           <EmployeesView />
+        ) : viewMode === "workflow" ? (
+          <WorkflowsView />
         ) : (
           <>
             <CenterPane />
@@ -60,6 +64,8 @@ export default function App() {
           </>
         )}
         {showSettings && <SettingsModal />}
+        {/* 全局提醒：顶部居中，所有页面共用同一套 */}
+        <ToastViewport />
       </div>
     </ErrorBoundary>
   );

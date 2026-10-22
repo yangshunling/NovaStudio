@@ -71,7 +71,11 @@ function createWindow(): BrowserWindow {
   // 开发模式加载 dev server，生产模式加载打包文件
   if (process.env["ELECTRON_RENDERER_URL"]) {
     win.loadURL(process.env["ELECTRON_RENDERER_URL"]);
-    win.webContents.openDevTools();
+    // 默认不自动弹 DevTools；需要时用 NOVA_DEVTOOLS=1 启动，
+    // 或运行时按 Ctrl+Shift+I 手动打开。
+    if (process.env["NOVA_DEVTOOLS"] === "1") {
+      win.webContents.openDevTools();
+    }
   } else {
     win.loadFile(join(__dirname, "../renderer/index.html"));
   }

@@ -280,6 +280,76 @@ export interface DigitalEmployee extends DigitalEmployeeDraft {
 }
 
 // ============================================================================
+// 工作流
+// ============================================================================
+
+/** 画布节点类型：开始 / 结束 / 数字员工执行节点 */
+export type WorkflowNodeType = "start" | "end" | "employee";
+
+/**
+ * 节点失败策略：
+ * - stop  失败停止：该节点失败后立即终止整个工作流
+ * - skip  自动跳过：标记为跳过，继续执行下游节点（下游拿到空输出）
+ * - retry 自动重试：按 maxRetries 重试，仍失败则终止整个工作流
+ *
+ * 人工审核被驳回时同样视为「节点失败」，由本策略决定后续走向。
+ */
+export type WorkflowFailureStrategy = "stop" | "skip" | "retry";
+
+/**
+ * 审核门禁：
+ * - auto   自动通过：节点直接执行
+ * - manual 人工审核：执行前暂停，等待人工通过 / 驳回
+ *
+ * 门禁作用于「执行前」：通过后才把任务详情交给数字员工。
+ */
+export type WorkflowReviewMode = "auto" | "manual";
+
+export interface WorkflowNodeConfig {
+  /** 绑定的数字员工 id；仅 employee 节点使用，未配置时为 null */
+  employeeId: string | null;
+  /** 任务详情：节点执行时交给数字员工的完整指令 */
+  taskDetail: string;
+  failureStrategy: WorkflowFailureStrategy;
+  /** 自动重试次数（不含首次执行），仅在 retry 策略下生效，范围 1-5 */
+  maxRetries: number;
+  reviewMode: WorkflowReviewMode;
+}
+
+export interface WorkflowNode {
+  id: string;
+  type: WorkflowNodeType;
+  name: string;
+  position: { x: number; y: number };
+  config: WorkflowNodeConfig;
+}
+
+export interface WorkflowEdge {
+  id: string;
+  source: string;
+  target: string;
+}
+
+export interface WorkflowGraph {
+  nodes: WorkflowNode[];
+  edges: WorkflowEdge[];
+}
+
+/** 可编辑字段；新建与更新共用 */
+export interface WorkflowDraft {
+  name: string;
+  description: string;
+  graph: WorkflowGraph;
+}
+
+/** 持久化后的工作流 */
+export interface Workflow extends WorkflowDraft {
+  id: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+// ============================================================================
 // 设置
 // ============================================================================
 

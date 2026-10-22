@@ -25,6 +25,10 @@ import type {
   AutomationStatus,
   DigitalEmployee,
   DigitalEmployeeDraft,
+  Workflow,
+  WorkflowDraft,
+  WorkflowGraph,
+  WorkflowNode,
 } from "../../shared/types";
 import { DB_PATH, ensureDataDirs } from "../utils/paths";
 
@@ -86,6 +90,15 @@ export function initDatabase(): void {
       started_at INTEGER,
       completed_at INTEGER,
       error TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS workflows (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      description TEXT NOT NULL DEFAULT '',
+      graph_json TEXT NOT NULL DEFAULT '{"nodes":[],"edges":[]}',
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
     );
 
     CREATE TABLE IF NOT EXISTS digital_employees (
@@ -429,6 +442,126 @@ export function updateDigitalEmployee(
 
 export function deleteDigitalEmployee(id: string): void {
   db!.prepare("DELETE FROM digital_employees WHERE id = ?").run(id);
+}
+
+// ============================================================================
+// 工作流操作
+// ============================================================================
+
+/**
+ * 单节点归一化。
+ *
+ * 除了兜住损坏数据，还负责一次字段迁移：
+ * 旧版把任务内容存在 config.prompt，现统一为 config.taskDetail。
+ * 新的策略 / 门禁字段缺失时补默认值（失败停止 + 自动通过）。
+ */
+function normalizeWorkflowNode(raw: any, index: number): WorkflowNode {
+  const config = raw?.config ?? {};
+  const type: WorkflowNode["type"] =
+    raw?.type === "start" || raw?.type === "end" ? raw.type : "employee";
+  const failureStrategy: WorkflowNode["config"]["failureStrategy"] =
+    config.failureStrategy === "skip" || config.failureStrategy === "retry"
+      ? config.failureStrategy
+      : "stop";
+  const px = Number(raw?.position?.x);
+  const py = Number(raw?.position?.y);
+
+  return {
+    id: typeof raw?.id === "string" ? raw.id : `n_${index}`,
+    type,
+    name: typeof raw?.name === "string" ? raw.name : `节点 ${index + 1}`,
+    position: {
+      x: Number.isFinite(px) ? px : 120 + (index % 3) * 300,
+      y: Number.isFinite(py) ? py : 140 + Math.floor(index / 3) * 160,
+    },
+    config: {
+      employeeId:
+        typeof config.employeeId === "string" ? config.employeeId : null,
+      taskDetail:
+        typeof config.taskDetail === "string"
+          ? config.taskDetail
+          : typeof config.prompt === "string"
+            ? config.prompt
+            : "",
+      failureStrategy,
+      maxRetries:
+        typeof config.maxRetries === "number" && config.maxRetries > 0
+          ? Math.min(5, Math.round(config.maxRetries))
+          : 1,
+      reviewMode: config.reviewMode === "manual" ? "manual" : "auto",
+    },
+  };
+}
+
+/** graph_json 的安全解析：结构损坏时退回空画布，不阻断列表加载 */
+function parseWorkflowGraph(raw: string): WorkflowGraph {
+  try {
+    const value = JSON.parse(raw);
+    const rawNodes = Array.isArray(value?.nodes) ? value.nodes : [];
+    const rawEdges = Array.isArray(value?.edges) ? value.edges : [];
+
+    return {
+      nodes: rawNodes.map(normalizeWorkflowNode),
+      edges: rawEdges
+        .filter(
+          (edge: any) =>
+            typeof edge?.source === "string" &&
+            typeof edge?.target === "string",
+        )
+        .map((edge: any, index: number) => ({
+          id: typeof edge.id === "string" ? edge.id : `e_${index}`,
+          source: edge.source,
+          target: edge.target,
+        })),
+    };
+  } catch {
+    return { nodes: [], edges: [] };
+  }
+}
+
+function rowToWorkflow(row: any): Workflow {
+  return {
+    id: row.id,
+    name: row.name,
+    description: row.description ?? "",
+    graph: parseWorkflowGraph(row.graph_json),
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+export function listWorkflows(): Workflow[] {
+  const rows = db!
+    .prepare("SELECT * FROM workflows ORDER BY updated_at DESC")
+    .all() as any[];
+  return rows.map(rowToWorkflow);
+}
+
+export function getWorkflow(id: string): Workflow | null {
+  const row = db!.prepare("SELECT * FROM workflows WHERE id = ?").get(id) as any;
+  return row ? rowToWorkflow(row) : null;
+}
+
+export function createWorkflow(draft: WorkflowDraft): Workflow {
+  const id = randomUUID();
+  const now = Date.now();
+  db!.prepare(
+    "INSERT INTO workflows (id, name, description, graph_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+  ).run(id, draft.name, draft.description, JSON.stringify(draft.graph), now, now);
+  return getWorkflow(id)!;
+}
+
+export function updateWorkflow(id: string, draft: WorkflowDraft): Workflow | null {
+  const info = db!
+    .prepare(
+      "UPDATE workflows SET name = ?, description = ?, graph_json = ?, updated_at = ? WHERE id = ?",
+    )
+    .run(draft.name, draft.description, JSON.stringify(draft.graph), Date.now(), id);
+  return info.changes > 0 ? getWorkflow(id) : null;
+}
+
+export function deleteWorkflow(id: string): void {
+  db!.prepare("DELETE FROM workflows WHERE id = ?").run(id);
 }
 
 // ============================================================================

@@ -17,6 +17,7 @@ import type {
   AppSettings,
   DigitalEmployeeDraft,
   SessionOptions,
+  WorkflowDraft,
 } from "@shared/types";
 
 /** preload 暴露的桥（运行时结构，类型在下面统一收敛） */
@@ -105,6 +106,14 @@ export const ipc = {
   updateEmployee: (id: string, draft: DigitalEmployeeDraft) =>
     call("employees:update", { id, draft }),
   deleteEmployee: (id: string) => call("employees:delete", { id }),
+
+  // === 工作流 ===
+  listWorkflows: () => call("workflows:list"),
+  getWorkflow: (id: string) => call("workflows:get", { id }),
+  createWorkflow: (draft: WorkflowDraft) => call("workflows:create", { draft }),
+  updateWorkflow: (id: string, draft: WorkflowDraft) =>
+    call("workflows:update", { id, draft }),
+  deleteWorkflow: (id: string) => call("workflows:delete", { id }),
 
   // === 主进程推送订阅（返回取消订阅函数） ===
   on: {

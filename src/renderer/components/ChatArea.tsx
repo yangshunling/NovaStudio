@@ -165,6 +165,10 @@ export function ChatArea({ embedded = false }: { embedded?: boolean } = {}) {
                 <div className="relative flex flex-1 items-end">
                   <textarea
                     ref={textareaRef}
+                    // 启动时把焦点留在输入框：否则 Chromium 的初始焦点会落到
+                    // DOM 里第一个可聚焦元素（侧栏「新建项目」按钮）上。
+                    // autoFocus 只在挂载时生效，不会在后续渲染里抢焦点。
+                    autoFocus
                     value={input}
                     onChange={(e) => fileMention.handleChange(e)}
                     onKeyDown={(e) => {

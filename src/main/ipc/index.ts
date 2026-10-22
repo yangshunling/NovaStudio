@@ -18,6 +18,7 @@ import { registerFileHandlers } from "./handlers/file";
 import { registerAutomationHandlers } from "./handlers/automation";
 import { registerTerminalHandlers } from "./handlers/terminal";
 import { registerEmployeeHandlers } from "./handlers/employee";
+import { registerWorkflowHandlers } from "./handlers/workflow";
 
 /** 自动化轮询器实例；由本层（装配层）持有其生命周期 */
 let scheduler: AutomationScheduler | null = null;
@@ -40,6 +41,7 @@ export function initIpcHandlers(window: BrowserWindow): void {
   registerFileHandlers();
   registerTerminalHandlers();
   registerEmployeeHandlers();
+  registerWorkflowHandlers();
 
   // 调度器先于 handler 创建：停止任务的 handler 需要拿到调度器实例
   scheduler = createScheduler(service);

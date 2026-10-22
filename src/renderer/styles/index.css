@@ -662,3 +662,269 @@ body {
     animation: none;
   }
 }
+
+/* ============================================================================
+ * 工作流画布
+ *
+ * 只消费语义 token：点阵底、节点卡片、端口、连线全部随皮肤变色。
+ * 画布世界层由组件用 transform 平移/缩放，这里只定义坐标系与视觉。
+ * ============================================================================ */
+.wf-canvas {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  touch-action: none;
+  cursor: grab;
+  background-color: var(--c-bg);
+  background-image: radial-gradient(var(--c-border) 1px, transparent 1px);
+  background-size: 22px 22px;
+}
+.wf-canvas.panning {
+  cursor: grabbing;
+}
+
+.wf-world {
+  position: absolute;
+  inset: 0;
+  transform-origin: 0 0;
+}
+
+.wf-svg {
+  position: absolute;
+  inset: 0;
+  overflow: visible;
+  pointer-events: none;
+}
+.wf-edge-hit {
+  pointer-events: stroke;
+  cursor: pointer;
+}
+
+/* 节点卡片 */
+.wf-node {
+  position: absolute;
+  overflow: visible;
+  border: 1px solid var(--c-border);
+  border-radius: var(--c-radius-xl);
+  background: var(--c-surface-2);
+  box-shadow: var(--c-shadow-sm);
+  user-select: none;
+  cursor: grab;
+  animation: wf-node-in var(--c-motion-fast) var(--c-ease-standard);
+  transition: border-color var(--c-motion-fast) var(--c-ease-standard),
+    box-shadow var(--c-motion-fast) var(--c-ease-standard);
+}
+.wf-node:hover {
+  border-color: var(--c-border-strong);
+  box-shadow: var(--c-shadow);
+}
+.wf-node.selected {
+  border-color: var(--c-accent);
+  box-shadow: 0 0 0 3px var(--c-accent-soft), var(--c-shadow-sm);
+}
+.wf-node.dragging {
+  cursor: grabbing;
+  z-index: 20;
+  box-shadow: var(--c-shadow);
+}
+
+@keyframes wf-node-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.wf-node-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 11px 13px;
+  border-bottom: 1px solid var(--c-border);
+}
+.wf-node-icon {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  border-radius: var(--c-radius-md);
+}
+.wf-node-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--c-font-size-body-lg);
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: var(--c-text);
+}
+.wf-node-body {
+  padding: 9px 13px 11px;
+}
+.wf-node-desc {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--c-font-size-meta);
+  line-height: 1.5;
+  color: var(--c-text-muted);
+}
+.wf-node-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+.wf-node-chip {
+  border-radius: 999px;
+  background: var(--c-surface-hover);
+  padding: 2px 8px;
+  font-size: var(--c-font-size-meta);
+  color: var(--c-text-secondary);
+}
+.wf-node-chip.warn {
+  background: var(--c-error-bg);
+  color: var(--c-error);
+}
+
+/* 连线端口：拖出即连线，落在目标节点上完成连接 */
+.wf-port {
+  position: absolute;
+  top: 50%;
+  width: 12px;
+  height: 12px;
+  margin-top: -6px;
+  border: 2px solid var(--c-border-strong);
+  border-radius: 999px;
+  background: var(--c-surface-2);
+  cursor: crosshair;
+  z-index: 2;
+  transition: border-color var(--c-motion-fast) var(--c-ease-standard),
+    background var(--c-motion-fast) var(--c-ease-standard),
+    box-shadow var(--c-motion-fast) var(--c-ease-standard),
+    transform var(--c-motion-fast) var(--c-ease-standard);
+}
+.wf-port:hover {
+  border-color: var(--c-accent);
+  background: var(--c-accent);
+  box-shadow: 0 0 0 4px var(--c-accent-soft);
+  transform: scale(1.15);
+}
+.wf-node.selected .wf-port {
+  border-color: var(--c-accent);
+}
+.wf-port.in {
+  left: -6px;
+}
+.wf-port.out {
+  right: -6px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wf-node {
+    animation: none;
+  }
+}
+
+/* 连线悬停高亮：命中区是 24px 的透明描边，视觉线只做强调 */
+.wf-edge:hover .wf-edge-line {
+  stroke-opacity: 1;
+}
+
+/* 选中连线后的操作点：中点删除、目标端点改连 */
+.wf-edge-delete {
+  position: absolute;
+  z-index: 30;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  transform: translate(-50%, -50%);
+  border: 1px solid var(--c-border-strong);
+  border-radius: 999px;
+  background: var(--c-surface-2);
+  color: var(--c-text-muted);
+  box-shadow: var(--c-shadow-sm);
+  cursor: pointer;
+  transition: color var(--c-motion-fast) var(--c-ease-standard),
+    border-color var(--c-motion-fast) var(--c-ease-standard),
+    background var(--c-motion-fast) var(--c-ease-standard);
+}
+.wf-edge-delete:hover {
+  border-color: var(--c-error);
+  background: var(--c-error-bg);
+  color: var(--c-error);
+}
+
+.wf-reconnect {
+  position: absolute;
+  z-index: 31;
+  width: 14px;
+  height: 14px;
+  transform: translate(-50%, -50%);
+  border: 2px solid var(--c-accent);
+  border-radius: 999px;
+  background: var(--c-surface-2);
+  box-shadow: 0 0 0 4px var(--c-accent-soft);
+  cursor: crosshair;
+  transition: background var(--c-motion-fast) var(--c-ease-standard);
+}
+.wf-reconnect:hover {
+  background: var(--c-accent);
+}
+
+/* ============================================================================
+ * 全局 Toast：从顶部滑入（视口在 Top 居中，见 ToastViewport）
+ * ============================================================================ */
+.ui-toast-in {
+  animation: ui-toast-in var(--c-motion-fast) var(--c-ease-standard);
+}
+
+@keyframes ui-toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(-8px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ui-toast-in {
+    animation: none;
+  }
+}
+
+
+/* 右侧浮层面板：从右上角轻微滑入 */
+.ui-panel-in {
+  transform-origin: top right;
+  animation: ui-panel-in var(--c-motion-fast) var(--c-ease-standard);
+}
+
+@keyframes ui-panel-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ui-panel-in {
+    animation: none;
+  }
+}
