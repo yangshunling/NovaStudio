@@ -15,7 +15,7 @@ import { randomUUID } from "crypto";
 import type { AgentEvent, Message, Session, SessionOptions } from "../../shared/types";
 import { DEFAULT_SETTINGS } from "../../shared/types";
 import { appendEvent } from "../../shared/merge";
-import type { AgentInfo } from "../../shared/contracts/agent";
+import type { AgentInfo, AgentModelOption } from "../../shared/contracts/agent";
 import type { IpcPushChannel, IpcPushMap } from "../../shared/contracts/ipc";
 import { getProvider, listProviders } from "../agents/registry";
 import type { RunSession } from "../agents/types";
@@ -56,6 +56,8 @@ export interface RunOutcome {
 export interface AgentService {
   /** 全部 Agent 的 manifest + 运行时检测结果 */
   listAgentInfos(): Promise<AgentInfo[]>;
+  /** 某 Agent 当前可选的模型；不支持或获取失败时返回空数组 */
+  listAgentModels(agentId: string): Promise<AgentModelOption[]>;
   /** 解析工作目录：取第一个存在的候选，否则回退主进程目录 */
   resolveCwd(...candidates: (string | undefined | null)[]): string;
   /** 执行一次对话（新建或恢复由会话已存的引用 + provider 能力决定） */
@@ -133,6 +135,17 @@ export function createAgentService(emit: Emit): AgentService {
         providers.map((p) => p.detect().catch(() => ({ installed: false }))),
       );
       return providers.map((p, i) => ({ ...p.manifest, status: statuses[i] }));
+    },
+
+    async listAgentModels(agentId): Promise<AgentModelOption[]> {
+      const provider = getProvider(agentId);
+      if (!provider?.listModels) return [];
+      try {
+        return await provider.listModels();
+      } catch {
+        // 模型列表属于辅助功能：失败不应影响页面，由 UI 回退为手动输入
+        return [];
+      }
     },
 
     resolveCwd(...candidates) {

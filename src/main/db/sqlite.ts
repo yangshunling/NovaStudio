@@ -17,7 +17,15 @@
 
 import Database from "better-sqlite3";
 import { randomUUID } from "crypto";
-import type { Project, Session, Message, AutomationTask, AutomationStatus } from "../../shared/types";
+import type {
+  Project,
+  Session,
+  Message,
+  AutomationTask,
+  AutomationStatus,
+  DigitalEmployee,
+  DigitalEmployeeDraft,
+} from "../../shared/types";
 import { DB_PATH, ensureDataDirs } from "../utils/paths";
 
 let db: Database.Database | null = null;
@@ -78,6 +86,22 @@ export function initDatabase(): void {
       started_at INTEGER,
       completed_at INTEGER,
       error TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS digital_employees (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      role TEXT NOT NULL DEFAULT '',
+      description TEXT NOT NULL DEFAULT '',
+      avatar TEXT,
+      agent_id TEXT NOT NULL,
+      model TEXT NOT NULL DEFAULT '',
+      system_prompt TEXT NOT NULL DEFAULT '',
+      mcp_servers_json TEXT NOT NULL DEFAULT '[]',
+      skills_json TEXT NOT NULL DEFAULT '[]',
+      enabled INTEGER NOT NULL DEFAULT 1,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
     );
   `);
 
@@ -312,6 +336,99 @@ export function listSessionIdsByProject(projectId: string): string[] {
  */
 export function deleteSession(id: string): void {
   db!.prepare("DELETE FROM sessions WHERE id = ?").run(id);
+}
+
+// ============================================================================
+// 数字员工操作
+// ============================================================================
+
+/** JSON 列的安全解析：损坏或形状不对时退回空数组，不阻断读取 */
+function parseJsonArray<T>(raw: string): T[] {
+  try {
+    const value = JSON.parse(raw);
+    return Array.isArray(value) ? (value as T[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+function rowToDigitalEmployee(row: any): DigitalEmployee {
+  return {
+    id: row.id,
+    name: row.name,
+    role: row.role ?? "",
+    description: row.description ?? "",
+    avatar: row.avatar ?? null,
+    agentId: row.agent_id,
+    model: row.model ?? "",
+    systemPrompt: row.system_prompt ?? "",
+    mcpServers: parseJsonArray(row.mcp_servers_json),
+    skills: parseJsonArray(row.skills_json),
+    enabled: !!row.enabled,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+/** 草稿字段 → SQL 参数（顺序与建表列一致，新建 / 更新共用） */
+function employeeParams(draft: DigitalEmployeeDraft): unknown[] {
+  return [
+    draft.name,
+    draft.role,
+    draft.description,
+    draft.avatar,
+    draft.agentId,
+    draft.model,
+    draft.systemPrompt,
+    JSON.stringify(draft.mcpServers),
+    JSON.stringify(draft.skills),
+    draft.enabled ? 1 : 0,
+  ];
+}
+
+export function listDigitalEmployees(): DigitalEmployee[] {
+  const rows = db!
+    .prepare("SELECT * FROM digital_employees ORDER BY updated_at DESC")
+    .all() as any[];
+  return rows.map(rowToDigitalEmployee);
+}
+
+export function getDigitalEmployee(id: string): DigitalEmployee | null {
+  const row = db!.prepare("SELECT * FROM digital_employees WHERE id = ?").get(id) as any;
+  return row ? rowToDigitalEmployee(row) : null;
+}
+
+export function createDigitalEmployee(draft: DigitalEmployeeDraft): DigitalEmployee {
+  const id = randomUUID();
+  const now = Date.now();
+  db!.prepare(
+    `INSERT INTO digital_employees (
+      id, name, role, description, avatar, agent_id, model,
+      system_prompt, mcp_servers_json, skills_json,
+      enabled, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).run(id, ...employeeParams(draft), now, now);
+  return getDigitalEmployee(id)!;
+}
+
+export function updateDigitalEmployee(
+  id: string,
+  draft: DigitalEmployeeDraft,
+): DigitalEmployee | null {
+  const info = db!
+    .prepare(
+      `UPDATE digital_employees SET
+        name = ?, role = ?, description = ?, avatar = ?, agent_id = ?, model = ?,
+        system_prompt = ?, mcp_servers_json = ?, skills_json = ?,
+        enabled = ?, updated_at = ?
+      WHERE id = ?`,
+    )
+    .run(...employeeParams(draft), Date.now(), id);
+  return info.changes > 0 ? getDigitalEmployee(id) : null;
+}
+
+export function deleteDigitalEmployee(id: string): void {
+  db!.prepare("DELETE FROM digital_employees WHERE id = ?").run(id);
 }
 
 // ============================================================================

@@ -44,8 +44,8 @@ interface ChatState {
    * 宿主不理解键值含义，只负责按声明存取并原样回传。
    */
   optionValuesByAgent: Record<string, Record<string, string>>;
-  /** 视图模式：对话 / 自动化 */
-  viewMode: "chat" | "automation";
+  /** 视图模式：对话 / 任务中心 / 数字员工 */
+  viewMode: "chat" | "automation" | "employees";
   /** 设置弹框是否展开 */
   showSettings: boolean;
   /** 右侧工作区文件面板是否展开 */
@@ -78,7 +78,7 @@ interface ChatState {
   abort: (sessionId?: string) => Promise<void>;
 
   // 视图
-  setViewMode: (mode: "chat" | "automation") => void;
+  setViewMode: (mode: "chat" | "automation" | "employees") => void;
   setShowSettings: (show: boolean) => void;
   setShowWorkspace: (show: boolean) => void;
 

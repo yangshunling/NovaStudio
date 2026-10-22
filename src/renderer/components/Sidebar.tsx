@@ -12,7 +12,6 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useChatStore } from "../stores/chat";
 import {
-  Plus,
   Trash2,
   Check,
   ChevronRight,
@@ -24,6 +23,8 @@ import {
   Eraser,
   FolderPlus,
   SquareTerminal,
+  Waypoints,
+  Users,
 } from "lucide-react";
 import type { Project, Session } from "@shared/types";
 import type { AgentInfo } from "@shared/contracts/agent";
@@ -61,7 +62,6 @@ export function Sidebar() {
   const {
     selectSession,
     selectProject,
-    newSession,
     deleteSession,
     createProject,
     deleteProject,
@@ -88,9 +88,10 @@ export function Sidebar() {
     await createProject(dirName(cwd), cwd);
   };
 
-  const handleNewTerminal = () => {
-    const project = projects.find((p) => p.id === currentProjectId);
-    openTerminal(project?.cwd ?? "");
+  /** 在指定项目目录下新建终端，并切到该项目的对话视图 */
+  const handleProjectTerminal = (project: Project) => {
+    selectProject(project.id);
+    openTerminal(project.cwd);
     setViewMode("chat");
   };
 
@@ -104,10 +105,10 @@ export function Sidebar() {
 
   return (
     <aside className="ui-sidebar relative flex h-full w-[var(--c-layout-sidebar)] flex-col border-r-0">
-      {/* 头部：品牌 + 新建项目 */}
+      {/* 头部：品牌 */}
       <div
         style={{ zIndex: 30 }}
-        className="relative flex h-[var(--c-layout-header)] items-center justify-between border-b border-border px-4"
+        className="relative flex h-[var(--c-layout-header)] items-center border-b border-border px-4"
       >
         <div className="flex items-center gap-2">
           <img
@@ -117,10 +118,6 @@ export function Sidebar() {
           />
           <span className="text-title font-semibold tracking-wide text-text">Nova Studio</span>
         </div>
-        <CreateMenu
-          onNewProject={handleNewProject}
-          onNewTerminal={handleNewTerminal}
-        />
       </div>
 
       {/* 功能分组 */}
@@ -129,17 +126,12 @@ export function Sidebar() {
       </div>
       <div className="space-y-1 px-2.5 pb-2">
         <button
-          onClick={() => {
-            if (!currentProjectId) return;
-            newSession();
-            setViewMode("chat");
-          }}
-          disabled={!currentProjectId}
-          title={currentProjectId ? "在当前项目下新建任务" : "请先选择项目"}
-          className="flex w-full items-center gap-2 rounded-md px-2.5 py-2.5 text-body-lg font-medium text-text-secondary transition-colors hover:bg-surface-hover hover:text-text disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:bg-transparent disabled:hover:text-text-secondary"
+          onClick={handleNewProject}
+          title="选择文件夹新建项目"
+          className="flex w-full items-center gap-2 rounded-md px-2.5 py-2.5 text-body-lg font-medium text-text-secondary transition-colors hover:bg-surface-hover hover:text-text"
         >
-          <Plus className="h-4 w-4 shrink-0" />
-          新建任务
+          <FolderPlus className="h-4 w-4 shrink-0" />
+          新建项目
         </button>
         <button
           onClick={() => setViewMode("automation")}
@@ -150,7 +142,30 @@ export function Sidebar() {
           }`}
         >
           <Workflow className="h-4 w-4 shrink-0" />
-          自动化
+          任务中心
+        </button>
+        <button
+          type="button"
+          title="工作流（规划中，暂未开放）"
+          className="flex w-full cursor-default items-center gap-2 rounded-md px-2.5 py-2.5 text-body-lg font-medium text-text-secondary transition-colors hover:bg-surface-hover hover:text-text"
+        >
+          <Waypoints className="h-4 w-4 shrink-0" />
+          <span className="min-w-0 flex-1 text-left">工作流</span>
+          <span className="shrink-0 rounded-full bg-surface-hover px-2 py-0.5 text-caption font-normal text-text-muted">
+            规划中
+          </span>
+        </button>
+        <button
+          type="button"
+          onClick={() => setViewMode("employees")}
+          className={`flex w-full items-center gap-2 rounded-md px-2.5 py-2.5 text-body-lg font-medium transition-colors ${
+            viewMode === "employees"
+              ? "ui-active bg-surface-active text-text"
+              : "text-text-secondary hover:bg-surface-hover hover:text-text"
+          }`}
+        >
+          <Users className="h-4 w-4 shrink-0" />
+          数字员工
         </button>
       </div>
 
@@ -198,6 +213,7 @@ export function Sidebar() {
               onDeleteSession={(id) => deleteSession(id)}
               onAbortSession={(id) => abort(id)}
               onRenameSession={(id, title) => renameSession(id, title)}
+              onNewTerminal={() => handleProjectTerminal(project)}
               onClearSessions={() => {
                 if (
                   window.confirm(
@@ -240,81 +256,6 @@ export function Sidebar() {
 }
 
 // ============================================================================
-// 左上角新建菜单
-// ============================================================================
-
-function CreateMenu({
-  onNewProject,
-  onNewTerminal,
-}: {
-  onNewProject: () => void;
-  onNewTerminal: () => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const rootRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    const onDown = (event: MouseEvent) => {
-      if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
-    };
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setOpen(false);
-    };
-    document.addEventListener("mousedown", onDown);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("mousedown", onDown);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [open]);
-
-  const itemClass =
-    "flex w-full items-center gap-2 rounded-md px-2.5 py-2.5 text-left text-body text-text-secondary transition-colors hover:bg-surface-hover hover:text-text";
-
-  return (
-    <div ref={rootRef} className="relative">
-      <button
-        type="button"
-        onClick={() => setOpen((value) => !value)}
-        title="新建"
-        aria-haspopup="menu"
-        aria-expanded={open}
-        className="ui-btn-round flex size-icon-btn items-center justify-center rounded-full"
-      >
-        <Plus className="h-4 w-4" />
-      </button>
-      {open && (
-        <div className="ui-dropdown-in ui-glass-strong ui-ring pointer-events-auto absolute right-0 top-full z-50 mt-2 w-48 space-y-0.5 rounded-xl p-1.5">
-          <button
-            type="button"
-            onClick={() => {
-              setOpen(false);
-              onNewProject();
-            }}
-            className={itemClass}
-          >
-            <FolderPlus className="h-4 w-4 shrink-0 text-accent" />
-            新建项目
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              setOpen(false);
-              onNewTerminal();
-            }}
-            className={itemClass}
-          >
-            <SquareTerminal className="h-4 w-4 shrink-0 text-agent-sky" />
-            新建终端
-          </button>
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ============================================================================
 // 项目节点：可折叠，展开显示会话
 // ============================================================================
 
@@ -332,6 +273,7 @@ function ProjectNode({
   onDeleteSession,
   onAbortSession,
   onRenameSession,
+  onNewTerminal,
   onClearSessions,
   onDeleteProject,
 }: {
@@ -348,6 +290,7 @@ function ProjectNode({
   onDeleteSession: (id: string) => void;
   onAbortSession: (id: string) => void;
   onRenameSession: (id: string, title: string) => void;
+  onNewTerminal: () => void;
   onClearSessions: () => void;
   onDeleteProject: () => void;
 }) {
@@ -379,10 +322,11 @@ function ProjectNode({
             {project.name}
           </span>
         </button>
-        {/* 项目操作：⋯ 菜单（清空会话 / 删除项目） */}
+        {/* 项目操作：⋯ 菜单（新建终端 / 清空会话 / 删除项目） */}
         <div className="flex shrink-0 items-center gap-0.5">
           <ProjectMenu
             sessionCount={sessions.length}
+            onNewTerminal={onNewTerminal}
             onClearSessions={onClearSessions}
             onDeleteProject={onDeleteProject}
           />
@@ -416,11 +360,13 @@ function ProjectNode({
 }
 
 // ============================================================================
-// 项目操作菜单：清空所有会话 / 删除项目
+// 项目操作菜单：新建终端 / 清空所有会话 / 删除项目
 // ============================================================================
 
 /** 面板宽度：定位要按它右对齐到按钮，单独定义避免与 class 里的宽度写重 */
 const MENU_WIDTH = 192;
+/** 面板高度估算：用于贴近窗口底部时向上翻转，避免被视口裁掉 */
+const MENU_HEIGHT = 160;
 
 /**
  * 「⋯」菜单。面板用 fixed 定位挂在按钮下方 —— 侧栏会话树本身是滚动容器，
@@ -428,10 +374,12 @@ const MENU_WIDTH = 192;
  */
 function ProjectMenu({
   sessionCount,
+  onNewTerminal,
   onClearSessions,
   onDeleteProject,
 }: {
   sessionCount: number;
+  onNewTerminal: () => void;
   onClearSessions: () => void;
   onDeleteProject: () => void;
 }) {
@@ -464,7 +412,12 @@ function ProjectMenu({
     }
     const rect = btnRef.current?.getBoundingClientRect();
     if (!rect) return;
-    setPos({ top: rect.bottom + 4, left: Math.max(8, rect.right - MENU_WIDTH) });
+    // 展开后若会超出窗口底部，则改为向上展开
+    const top =
+      rect.bottom + 4 + MENU_HEIGHT > window.innerHeight - 8
+        ? Math.max(8, rect.top - MENU_HEIGHT - 4)
+        : rect.bottom + 4;
+    setPos({ top, left: Math.max(8, rect.right - MENU_WIDTH) });
     setOpen(true);
   };
 
@@ -483,6 +436,20 @@ function ProjectMenu({
         >
           <button
             type="button"
+            onClick={() => {
+              setOpen(false);
+              onNewTerminal();
+            }}
+            className={`${itemClass} text-text-secondary hover:bg-surface-hover hover:text-text`}
+          >
+            <SquareTerminal className="h-4 w-4 shrink-0 text-accent" />
+            新建终端
+          </button>
+
+          <div className="my-1 h-px bg-border" />
+
+          <button
+            type="button"
             disabled={sessionCount === 0}
             onClick={() => {
               setOpen(false);
@@ -494,7 +461,12 @@ function ProjectMenu({
             <Eraser className="h-4 w-4 shrink-0" />
             清空所有会话
             {sessionCount > 0 && (
-              <span className="ml-auto font-mono text-caption text-text-muted">{sessionCount}</span>
+              <span
+                title={`${sessionCount} 个会话`}
+                className="ml-auto flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-accent px-1.5 font-mono text-caption font-semibold text-accent-foreground"
+              >
+                {sessionCount}
+              </span>
             )}
           </button>
           <button

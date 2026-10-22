@@ -11,6 +11,7 @@
 import { useEffect, useRef, useState } from "react";
 import { SlidersHorizontal } from "lucide-react";
 import { useChatStore, selectEffectiveAgentId } from "../stores/chat";
+import { ModelSelect } from "./ui/ModelSelect";
 
 /** 无参数记录时的稳定空引用（避免 selector 每次返回新对象导致重渲染） */
 const EMPTY_OPTIONS: Record<string, string> = Object.freeze({});
@@ -70,7 +71,7 @@ export function AgentOptionsMenu() {
 
           <div className="flex flex-col gap-3">
             {fields.map((field) => (
-              <label key={field.key} className="block">
+              <div key={field.key}>
                 <span className="mb-1 block text-caption font-medium text-text-secondary">
                   {field.label}
                 </span>
@@ -90,6 +91,12 @@ export function AgentOptionsMenu() {
                       </option>
                     ))}
                   </select>
+                ) : field.type === "model" ? (
+                  <ModelSelect
+                    agentId={agentId}
+                    value={options[field.key] ?? ""}
+                    onChange={(value) => setAgentOption(agentId, field.key, value)}
+                  />
                 ) : (
                   <input
                     value={options[field.key] ?? ""}
@@ -104,7 +111,7 @@ export function AgentOptionsMenu() {
                     {field.hint}
                   </span>
                 )}
-              </label>
+              </div>
             ))}
           </div>
         </div>

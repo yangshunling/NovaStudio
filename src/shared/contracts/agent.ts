@@ -46,8 +46,11 @@ export interface AgentOptionField {
   label: string;
   /** 一句话说明，展示在控件下方 */
   hint?: string;
-  /** text = 自由输入（如模型名）；select = 从 choices 里选 */
-  type: "text" | "select";
+  /**
+   * text = 自由输入；select = 从 choices 里选；
+   * model = 从该 Agent 动态获取的模型列表里选（获取失败时回退为自由输入）
+   */
+  type: "text" | "select" | "model";
   /** type=select 时的候选项 */
   choices?: readonly string[];
   /** 缺省值；缺省表示该项默认不传，由 CLI 自己决定 */
@@ -86,6 +89,21 @@ export interface AgentManifest {
 export interface AgentStatus {
   installed: boolean;
   version?: string;
+}
+
+/**
+ * Agent 当前可选的模型项。
+ *
+ * 由各 provider 从自己的 CLI 或接口动态获取（命令、接口、回退别名各不相同），
+ * 宿主只负责展示下拉并原样回传 value。
+ */
+export interface AgentModelOption {
+  /** 传给该 Agent `--model` 的值 */
+  value: string;
+  /** 下拉展示名 */
+  label: string;
+  /** 补充说明（如 provider / 上下文窗口），可选 */
+  hint?: string;
 }
 
 /** manifest + status 的合并视图，UI 只消费这一个结构 */

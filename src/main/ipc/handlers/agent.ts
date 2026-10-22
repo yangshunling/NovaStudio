@@ -15,6 +15,9 @@ export function registerAgentHandlers(service: AgentService): void {
     return agents;
   });
 
+  /** 模型列表由各 provider 自己查询（pi --list-models / codex debug models / …） */
+  handle("agent:models", ({ agentId }) => service.listAgentModels(agentId));
+
   /**
    * 统一发送：主进程按会话是否已存会话引用、以及 provider 是否支持多轮，
    * 决定新建还是恢复（判断逻辑在 AgentService 内，此处不重复）。

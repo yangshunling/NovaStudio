@@ -13,7 +13,11 @@ import type {
   IpcResult,
   SendAgentResult,
 } from "@shared/contracts/ipc";
-import type { AppSettings, SessionOptions } from "@shared/types";
+import type {
+  AppSettings,
+  DigitalEmployeeDraft,
+  SessionOptions,
+} from "@shared/types";
 
 /** preload 暴露的桥（运行时结构，类型在下面统一收敛） */
 interface NovaBridge {
@@ -41,6 +45,7 @@ function on<C extends IpcPushChannel>(
 export const ipc = {
   // === Agent ===
   detectAgents: () => call("agent:detect"),
+  listAgentModels: (agentId: string) => call("agent:models", { agentId }),
   sendAgent: (
     sessionId: string,
     prompt: string,
@@ -92,6 +97,14 @@ export const ipc = {
   deleteAutomationTask: (id: string) => call("automation:delete", { id }),
   retryAutomationTask: (id: string) => call("automation:retry", { id }),
   stopAutomationTask: (id: string) => call("automation:stop", { id }),
+
+  // === 数字员工 ===
+  listEmployees: () => call("employees:list"),
+  createEmployee: (draft: DigitalEmployeeDraft) =>
+    call("employees:create", { draft }),
+  updateEmployee: (id: string, draft: DigitalEmployeeDraft) =>
+    call("employees:update", { id, draft }),
+  deleteEmployee: (id: string) => call("employees:delete", { id }),
 
   // === 主进程推送订阅（返回取消订阅函数） ===
   on: {

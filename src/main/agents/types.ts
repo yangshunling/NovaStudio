@@ -11,7 +11,11 @@
  */
 
 import type { AgentEvent, Message, SessionOptions } from "../../shared/types";
-import type { AgentManifest, AgentStatus } from "../../shared/contracts/agent";
+import type {
+  AgentManifest,
+  AgentModelOption,
+  AgentStatus,
+} from "../../shared/contracts/agent";
 
 /** 一次调用的输入 */
 export interface RunOptions {
@@ -58,6 +62,12 @@ export interface AgentProvider {
 
   /** 检测本机是否安装 */
   detect(): Promise<AgentStatus>;
+
+  /**
+   * 列出该 Agent 当前可选的模型。
+   * 可选实现：不支持或获取失败时返回空数组，宿主会回退为手动输入。
+   */
+  listModels?(): Promise<AgentModelOption[]>;
 
   /** 发起一次对话（新建或恢复由 opts.sessionRef 决定） */
   start(opts: RunOptions): RunSession;

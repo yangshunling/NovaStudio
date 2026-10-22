@@ -20,6 +20,7 @@ import { startLineRun } from "../line-run";
 import { probeVersion } from "../probe";
 import { manifest } from "./manifest";
 import { decode, extractSessionId } from "./parse";
+import { listModels as listAvailableModels } from "./models";
 import {
   deleteSession as deleteSessionFile,
   fileVersion,
@@ -50,6 +51,8 @@ export const provider: AgentProvider = {
   manifest,
 
   detect: () => probeVersion(BIN),
+
+  listModels: listAvailableModels,
 
   start(opts: RunOptions): RunSession {
     const args = [BIN, "-p", opts.prompt, "--mode", "json"];

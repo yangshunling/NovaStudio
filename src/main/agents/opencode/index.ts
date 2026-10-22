@@ -25,6 +25,7 @@ import { startLineRun } from "../line-run";
 import { probeVersion } from "../probe";
 import { manifest } from "./manifest";
 import { createDecoder, extractSessionId } from "./parse";
+import { listModels as listAvailableModels } from "./models";
 import { deleteSession as deleteSessionRemote, readHistory as readHistoryRemote } from "./sessions";
 
 const BIN = "opencode";
@@ -50,6 +51,8 @@ export const provider: AgentProvider = {
   manifest,
 
   detect: () => probeVersion(BIN),
+
+  listModels: listAvailableModels,
 
   start(opts: RunOptions): RunSession {
     // --auto：自动批准未被显式 deny 的权限请求（CLI 里能达到的最高权限；

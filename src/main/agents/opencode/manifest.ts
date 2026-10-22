@@ -23,7 +23,7 @@ export const manifest: AgentManifest = {
       key: "model",
       label: "模型",
       hint: "对应 opencode 的 -m，格式为 provider/model；留空则由 opencode 自己决定",
-      type: "text",
+      type: "model",
     },
     {
       key: "thinking",

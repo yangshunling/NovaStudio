@@ -18,6 +18,7 @@ import { loadSkinSettings } from "./hooks/useTheme";
 import { Sidebar } from "./components/Sidebar";
 import { CenterPane } from "./components/CenterPane";
 import { AutomationView } from "./components/AutomationView";
+import { EmployeesView } from "./components/employees/EmployeesView";
 import { SettingsModal } from "./components/SettingsModal";
 import { WorkspacePanel } from "./components/WorkspacePanel";
 import { ErrorBoundary } from "./components/ui/ErrorBoundary";
@@ -50,6 +51,8 @@ export default function App() {
         <Sidebar />
         {viewMode === "automation" ? (
           <AutomationView />
+        ) : viewMode === "employees" ? (
+          <EmployeesView />
         ) : (
           <>
             <CenterPane />

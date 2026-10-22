@@ -229,6 +229,57 @@ export interface AutomationTask {
 }
 
 // ============================================================================
+// 数字员工
+// ============================================================================
+
+/** 数字员工可调用的 MCP 服务配置 */
+export interface EmployeeMcpServer {
+  id: string;
+  name: string;
+  /** 启动命令，如 npx / uvx / node */
+  command: string;
+  /** 命令参数（原样保存，由运行时自行拆分） */
+  args: string;
+  /** 环境变量，每行 KEY=VALUE */
+  env: string;
+  enabled: boolean;
+}
+
+/** 数字员工启用的技能 */
+export interface EmployeeSkill {
+  id: string;
+  name: string;
+  /** 技能目录或来源描述 */
+  source: string;
+  enabled: boolean;
+}
+
+/** 数字员工的可编辑字段；新建与更新共用 */
+export interface DigitalEmployeeDraft {
+  name: string;
+  /** 职位 / 角色，如「产品分析」 */
+  role: string;
+  description: string;
+  /** 头像 data URL；null 表示未设置 */
+  avatar: string | null;
+  /** 绑定的 Agent（AgentManifest.id） */
+  agentId: string;
+  /** 模型名；留空由 Agent 自己决定 */
+  model: string;
+  systemPrompt: string;
+  mcpServers: EmployeeMcpServer[];
+  skills: EmployeeSkill[];
+  enabled: boolean;
+}
+
+/** 持久化后的数字员工 */
+export interface DigitalEmployee extends DigitalEmployeeDraft {
+  id: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+// ============================================================================
 // 设置
 // ============================================================================
 

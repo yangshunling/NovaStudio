@@ -9,6 +9,8 @@ import type {
   AgentEvent,
   AppSettings,
   AutomationTask,
+  DigitalEmployee,
+  DigitalEmployeeDraft,
   FileEntry,
   GitStatusSummary,
   OpenFileExternalResult,
@@ -20,7 +22,7 @@ import type {
   TerminalDataPayload,
   TerminalExitPayload,
 } from "../types";
-import type { AgentInfo } from "./agent";
+import type { AgentInfo, AgentModelOption } from "./agent";
 
 /** agent:send 的返回：显式区分成功与业务失败 */
 export type SendAgentResult =
@@ -34,6 +36,8 @@ export type SendAgentResult =
 export interface IpcInvokeMap {
   /** 检测本机已安装的 Agent */
   "agent:detect": { args: []; result: AgentInfo[] };
+  /** 获取指定 Agent 当前可选的模型（由 provider 自行查询 CLI / 接口） */
+  "agent:models": { args: [{ agentId: string }]; result: AgentModelOption[] };
   /** 统一发送：主进程按会话是否已有会话引用决定新建 / 恢复 */
   "agent:send": {
     args: [{ sessionId: string; prompt: string; opts?: SessionOptions }];
@@ -107,6 +111,18 @@ export interface IpcInvokeMap {
   "automation:retry": { args: [{ id: string }]; result: boolean };
   /** 手动停止一个执行中的任务 */
   "automation:stop": { args: [{ id: string }]; result: boolean };
+
+  /** 数字员工：列表 / 新建 / 更新 / 删除 */
+  "employees:list": { args: []; result: DigitalEmployee[] };
+  "employees:create": {
+    args: [{ draft: DigitalEmployeeDraft }];
+    result: DigitalEmployee;
+  };
+  "employees:update": {
+    args: [{ id: string; draft: DigitalEmployeeDraft }];
+    result: DigitalEmployee | null;
+  };
+  "employees:delete": { args: [{ id: string }]; result: boolean };
 }
 
 /** 主进程 → 渲染进程（push）通道表。事件均带 sessionId，供多会话并发路由。 */

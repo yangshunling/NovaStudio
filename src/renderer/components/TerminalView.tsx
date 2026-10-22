@@ -109,9 +109,12 @@ export function TerminalView({ tab }: { tab: TerminalTab }) {
 
   return (
     <main className="flex h-full min-h-0 flex-col overflow-hidden">
-      <div className="ui-glass flex h-9 shrink-0 items-center gap-2 border-b border-border px-3 text-caption text-text-muted">
-        <SquareTerminal className="h-3.5 w-3.5 shrink-0 text-accent" />
-        <span className="shrink-0 font-mono">{runtime?.shell ?? "shell"}</span>
+      {/* 与其他中心区域标题栏保持同一高度（--c-layout-header） */}
+      <div className="ui-glass flex h-[var(--c-layout-header)] shrink-0 items-center gap-2 border-b border-border px-4 text-meta text-text-muted">
+        <SquareTerminal className="h-4 w-4 shrink-0 text-accent" />
+        <span className="shrink-0 font-mono font-medium text-text-secondary">
+          {runtime?.shell ?? "shell"}
+        </span>
         <span className="min-w-0 truncate font-mono" title={runtime?.cwd}>
           {runtime?.cwd ?? tab.cwd}
         </span>

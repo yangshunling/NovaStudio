@@ -29,6 +29,7 @@ import { startLineRun } from "../line-run";
 import { probeVersion } from "../probe";
 import { manifest } from "./manifest";
 import { createDecoder, extractSessionId } from "./parse";
+import { listModels as listAvailableModels } from "./models";
 import {
   deleteSession as deleteSessionRemote,
   fileVersion,
@@ -71,6 +72,8 @@ export const provider: AgentProvider = {
   manifest,
 
   detect: () => probeVersion(BIN),
+
+  listModels: listAvailableModels,
 
   start(opts: RunOptions): RunSession {
     // 恢复会话是独立子命令：codex exec resume <thread_id> "<prompt>"
