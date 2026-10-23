@@ -3,10 +3,10 @@
  *
  * 把源码契约（src/renderer/skins/contract.ts）与构建产物比对，守住三件事：
  *   1. 每套皮肤都能解析出全部必填 token
- *   2. base / 族的声明用 :where() 归零特异性 —— 覆盖关系不依赖加载顺序
+ *   2. base 的声明用 :where() 归零特异性 —— 覆盖关系不依赖加载顺序
  *   3. CSS 里出现的每个 --c-* 都已登记进契约，杜绝"没人管的临时变量"
  *
- * 皮肤与皮肤族都从磁盘/CSS 自动发现，新增一套皮肤或一个族后本脚本无需改动。
+ * 皮肤从磁盘自动发现，新增一套皮肤后本脚本无需改动。
  *
  * 用法：先构建，再运行 `npm run verify:skins`
  * （开发期还有一层运行时校验：src/renderer/skins/validate.ts）
@@ -70,23 +70,6 @@ function findSkins() {
     .sort();
 }
 
-/**
- * 从 CSS 发现皮肤族：选择器形如 :where([data-theme^="maid-"])。
- *
- * 族的 CSS 会按族内成员各内联一份（换取"加皮肤零改动"），因此同一前缀
- * 可能出现多次 —— 按前缀合并去重，同时归并各自声明的 token。
- */
-function findFamilies() {
-  const byPrefix = new Map();
-  const re = /:where\(\[data-theme\^="([a-z0-9-]+)"\]\)\s*\{([\s\S]*?)\}/g;
-  for (const m of css.matchAll(re)) {
-    const merged = byPrefix.get(m[1]) ?? new Set();
-    for (const token of tokensIn(m[2])) merged.add(token);
-    byPrefix.set(m[1], merged);
-  }
-  return [...byPrefix].map(([prefix, tokens]) => ({ prefix, tokens }));
-}
-
 let failed = false;
 const fail = (msg) => {
   console.log(`FAIL  ${msg}`);
@@ -100,14 +83,11 @@ if (!base) {
 }
 
 const skins = findSkins();
-const families = findFamilies();
 
 console.log(
   `契约：必填 ${required.length} 项 / 可选 ${optional.length} 项 / 派生 ${derived.length} 项`,
 );
-console.log(
-  `发现皮肤 ${skins.length} 套、皮肤族 ${families.length} 个（${families.map((f) => f.prefix + "*").join(", ") || "无"}）\n`,
-);
+console.log(`发现皮肤 ${skins.length} 套\n`);
 
 // 覆盖关系必须由特异性保证，而不是靠加载顺序
 if (!/:where\(\[data-theme\]\)/.test(css)) fail("base 未使用 :where() 归零特异性");
@@ -118,24 +98,12 @@ for (const id of skins) {
     fail(`${id}: 未在构建产物中找到皮肤块`);
     continue;
   }
-  // 命中该皮肤所属的族（按前缀匹配）
-  const fromFamilies = families.filter((f) => id.startsWith(f.prefix));
-  for (const f of fromFamilies) {
-    if (!new RegExp(`:where\\(\\[data-theme\\^="${f.prefix}"\\]\\)`).test(css)) {
-      fail(`族 ${f.prefix}* 未使用 :where() 归零特异性`);
-    }
-  }
-  const effective = new Set([
-    ...base,
-    ...fromFamilies.flatMap((f) => [...f.tokens]),
-    ...skin,
-  ]);
+  const effective = new Set([...base, ...skin]);
   const missing = required.filter((t) => !effective.has(t));
   if (missing.length) {
     fail(`${id}: 缺少 ${missing.join(", ")}`);
   } else {
-    const via = fromFamilies.length ? `（含族 ${fromFamilies.map((f) => f.prefix + "*").join(", ")}）` : "";
-    console.log(`OK    ${id}: ${effective.size} 个 token，必填项全部解析${via}`);
+    console.log(`OK    ${id}: ${effective.size} 个 token，必填项全部解析`);
   }
 }
 

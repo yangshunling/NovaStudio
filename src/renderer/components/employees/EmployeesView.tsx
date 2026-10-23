@@ -19,7 +19,6 @@ import {
 } from "lucide-react";
 import { ipc } from "../../lib/ipc";
 import { useChatStore } from "../../stores/chat";
-import { SkinStage } from "../SkinStage";
 import { AgentPill } from "../ui/AgentPill";
 import { EmployeeAvatar } from "./EmployeeAvatar";
 import { EmployeeDrawer } from "./EmployeeDrawer";
@@ -66,8 +65,6 @@ export function EmployeesView() {
 
   return (
     <main className="relative flex flex-1 flex-col overflow-hidden">
-      <SkinStage />
-
       <div className="ui-page relative z-10 flex flex-1 flex-col overflow-hidden rounded-xl">
         {/* 顶栏：标题 / 搜索 / 新建 */}
         <header className="ui-glass relative z-10 flex h-[var(--c-layout-header)] shrink-0 items-center justify-between gap-3 border-b border-border px-card">

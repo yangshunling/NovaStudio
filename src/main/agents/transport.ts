@@ -130,6 +130,7 @@ export function execCli(args: string[], timeoutMs: number): Promise<string> {
 export function spawnPty(
   args: string[],
   cwd: string,
+  envOverrides: Record<string, string> | undefined,
   handlers: TransportHandlers,
 ): Transport {
   const win = process.platform === "win32";
@@ -142,7 +143,7 @@ export function spawnPty(
     cols: 9999,
     rows: 999,
     cwd,
-    env: process.env as Record<string, string>,
+    env: { ...process.env, ...envOverrides } as Record<string, string>,
   });
 
   proc.onData((data) => handlers.onData(data));
@@ -166,13 +167,14 @@ export function spawnPty(
 export function spawnChild(
   args: string[],
   cwd: string,
+  envOverrides: Record<string, string> | undefined,
   handlers: TransportHandlers,
 ): Transport {
   const child = spawn(args[0], args.slice(1), {
     cwd,
     shell: process.platform === "win32",
     windowsHide: true,
-    env: process.env,
+    env: { ...process.env, ...envOverrides },
   });
 
   child.stdout.setEncoding("utf8");

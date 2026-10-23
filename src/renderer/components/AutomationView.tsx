@@ -23,7 +23,6 @@ import { useState } from "react";
 import { Clock, Check, Loader2 } from "lucide-react";
 import { useAutomationStore } from "../stores/automation";
 import { useChatStore } from "../stores/chat";
-import { SkinStage } from "./SkinStage";
 import { BoardColumn } from "./automation/BoardColumn";
 import { TaskCreateModal } from "./automation/TaskCreateModal";
 import { TaskDetailDrawer } from "./automation/TaskDetailDrawer";
@@ -53,9 +52,6 @@ export function AutomationView() {
 
   return (
     <main className="relative flex flex-1 flex-col overflow-hidden">
-      {/* 背景 */}
-      <SkinStage />
-
       {/* 主体纸面：顶栏 + 看板同属一张纸，浮在画布底色之上 */}
       <div className="ui-page relative z-10 flex flex-1 flex-col overflow-hidden rounded-xl">
         <header className="ui-glass relative z-10 flex h-[var(--c-layout-header)] shrink-0 items-center justify-between border-b border-border px-4">

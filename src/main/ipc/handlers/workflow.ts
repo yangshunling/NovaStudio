@@ -5,10 +5,17 @@
  * 解析与校验责任在渲染进程，避免主进程理解 UI 布局细节。
  */
 
+import { app } from "electron";
+import type { AgentService } from "../../engine/agent-service";
 import * as db from "../../db/sqlite";
+import { deleteWorkflowData } from "../../workflow/cleanup";
+import type { WorkflowRunner } from "../../workflow/runner";
 import { handle } from "../register";
 
-export function registerWorkflowHandlers(): void {
+export function registerWorkflowHandlers(
+  service: AgentService,
+  runner: WorkflowRunner,
+): void {
   handle("workflows:list", () => db.listWorkflows());
 
   handle("workflows:get", ({ id }) => db.getWorkflow(id));
@@ -17,8 +24,18 @@ export function registerWorkflowHandlers(): void {
 
   handle("workflows:update", ({ id, draft }) => db.updateWorkflow(id, draft));
 
-  handle("workflows:delete", ({ id }) => {
-    db.deleteWorkflow(id);
+  handle("workflows:delete", async ({ id }) => {
+    if (runner.hasActiveRunForWorkflow(id)) {
+      throw new Error("该工作流正在运行，请先终止运行");
+    }
+    const workflow = db.getWorkflow(id);
+    if (!workflow) return false;
+
+    // 运行记录、节点会话、产物目录、配置副本一并删除
+    await deleteWorkflowData(workflow, {
+      service,
+      userDataDir: app.getPath("userData"),
+    });
     return true;
   });
 }

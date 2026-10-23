@@ -38,9 +38,16 @@ import {
 
 const BIN = "claude";
 
-/** 运行参数 key → 命令行开关。permissionMode 见下方 optionArgs（它有默认值） */
+/**
+ * 运行参数 key → 命令行开关。permissionMode 见下方 optionArgs（它有默认值）。
+ *
+ * systemPrompt / mcpConfig / strictMcpConfig 是工作流运行注入的扩展参数：
+ * 普通聊天不会传，因此对既有行为零影响。
+ */
 const OPTION_FLAGS: Record<string, string> = {
   model: "--model",
+  systemPrompt: "--append-system-prompt",
+  mcpConfig: "--mcp-config",
 };
 
 /**
@@ -61,6 +68,8 @@ function optionArgs(opts?: SessionOptions): string[] {
   }
   // 权限模式总有值：用户选了用用户的，没选则取最高权限
   args.push("--permission-mode", opts?.permissionMode || DEFAULT_PERMISSION_MODE);
+  // 只使用显式传入的 MCP，屏蔽全局 / 项目配置（工作流隔离用）
+  if (opts?.strictMcpConfig === "1") args.push("--strict-mcp-config");
   return args;
 }
 
@@ -92,6 +101,7 @@ export const provider: AgentProvider = {
         // 含空格的 prompt 会被拆成多个参数；PTY 由 transport 逐个参数处理引号
         transport: "pty",
         timeoutMs: opts.timeoutMs,
+        env: opts.env,
         extractSessionId,
         // 每次运行新建解码器：它记住本次运行内 tool_use id → 工具名，
         // 让随后到达的 tool_result 能补上工具名
@@ -108,14 +118,14 @@ export const provider: AgentProvider = {
 
   /** 会话文件是文件，用 mtime 作为版本号，命中率极高 */
   historyVersion(ref, ctx) {
-    return fileVersion(ref, ctx.cwd);
+    return fileVersion(ref, ctx.cwd, ctx.configDir);
   },
 
   readHistory(ref, ctx) {
-    return readHistoryFile(ref, ctx.cwd);
+    return readHistoryFile(ref, ctx.cwd, ctx.configDir);
   },
 
   deleteSession(ref, ctx) {
-    deleteSessionFile(ref, ctx.cwd);
+    deleteSessionFile(ref, ctx.cwd, ctx.configDir);
   },
 };

@@ -27,6 +27,13 @@ export interface RunOptions {
   opts?: SessionOptions;
   /** 单次运行超时（毫秒）。由宿主从设置读出后传入；缺省则用 provider 自己的默认值 */
   timeoutMs?: number;
+  /**
+   * 本次子进程追加的环境变量（与 process.env 合并）。
+   * 工作流节点用它注入独立的 CLAUDE_CONFIG_DIR，普通会话不传。
+   */
+  env?: Record<string, string>;
+  /** CLI 配置目录；用于会话历史定位（没有则用用户默认目录） */
+  configDir?: string | null;
   /** 事件回调。provider 保证事件已归一、语义正确 */
   onEvent: (event: AgentEvent) => void;
   /** 首次拿到会话原始 id 时回调，供宿主持久化 */
@@ -55,6 +62,7 @@ export interface RunSession {
 /** 会话引用上下文：引用语义由 provider 解释，宿主只负责原样传回 */
 export interface SessionContext {
   cwd: string;
+  configDir?: string | null;
 }
 
 export interface AgentProvider {

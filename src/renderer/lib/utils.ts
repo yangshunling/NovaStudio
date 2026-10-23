@@ -12,6 +12,13 @@ export function newId(): string {
   return crypto.randomUUID();
 }
 
+/** 取路径最后一段作为名称（兼容 Windows 反斜杠） */
+export function dirName(path: string): string {
+  if (!path) return "未命名";
+  const parts = path.replace(/\\/g, "/").split("/").filter(Boolean);
+  return parts[parts.length - 1] || path;
+}
+
 /** 相对时间：刚刚 / N分钟前 / N小时前 / N天前 */
 export function timeAgo(ts: number): string {
   const diff = Date.now() - ts;

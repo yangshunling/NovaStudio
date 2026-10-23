@@ -25,7 +25,9 @@ import type {
   DigitalEmployee,
   WorkflowEdge,
   WorkflowNode,
+  WorkflowNodeRunStatus,
 } from "@shared/types";
+import { NODE_STATUS } from "../../lib/workflowStatus";
 import { EmployeeAvatar } from "../employees/EmployeeAvatar";
 
 export const WF_NODE_W = 240;
@@ -69,6 +71,8 @@ interface WorkflowCanvasProps {
   onSelectEdge: (id: string | null) => void;
   /** 每次自增触发一次「适应画布」（自动布局后用） */
   fitRequest?: number;
+  /** 调试中的节点状态：nodeId → 状态 */
+  nodeStates?: Record<string, WorkflowNodeRunStatus>;
 }
 
 export function WorkflowCanvas({
@@ -81,6 +85,7 @@ export function WorkflowCanvas({
   onSelectNode,
   onSelectEdge,
   fitRequest = 0,
+  nodeStates = {},
 }: WorkflowCanvasProps) {
   const canvasRef = useRef<HTMLDivElement>(null);
   const [view, setView] = useState<Viewport>({ x: 80, y: 60, k: 1 });
@@ -513,6 +518,7 @@ export function WorkflowCanvas({
             employee={employees.find((e) => e.id === node.config.employeeId)}
             selected={selectedNodeId === node.id}
             dragging={drag?.id === node.id}
+            state={nodeStates[node.id]}
             onPointerDown={onNodePointerDown}
             onStartConnect={startConnect}
           />
@@ -612,6 +618,7 @@ function NodeCard({
   employee,
   selected,
   dragging,
+  state,
   onPointerDown,
   onStartConnect,
 }: {
@@ -619,6 +626,8 @@ function NodeCard({
   employee: DigitalEmployee | undefined;
   selected: boolean;
   dragging: boolean;
+  /** 调试中的节点状态；未调试时为 undefined */
+  state?: WorkflowNodeRunStatus;
   onPointerDown: (e: React.PointerEvent, node: WorkflowNode) => void;
   onStartConnect: (e: React.PointerEvent, node: WorkflowNode) => void;
 }) {
@@ -639,10 +648,17 @@ function NodeCard({
         ? `重试 ${node.config.maxRetries} 次`
         : "失败停止";
 
+  const stateMeta = state ? NODE_STATUS[state] : null;
+  const StateIcon = stateMeta?.icon;
+  const spinning = state === "running" || state === "retrying";
+
   return (
     <div
       data-node-id={node.id}
-      className={`wf-node ${selected ? "selected" : ""} ${dragging ? "dragging" : ""}`}
+      data-state={state}
+      className={`wf-node ${selected ? "selected" : ""} ${dragging ? "dragging" : ""} ${
+        state ? `state-${state}` : ""
+      }`}
       style={{
         left: node.position.x,
         top: node.position.y,
@@ -674,10 +690,23 @@ function NodeCard({
           </span>
         )}
         <span className="wf-node-title">{node.name}</span>
-        {node.type === "employee" && node.config.taskDetail.trim() && (
-          <span title="已填写任务详情" className="shrink-0 text-text-muted">
-            <FileText className="h-3.5 w-3.5" />
+
+        {stateMeta && state !== "pending" && StateIcon ? (
+          <span
+            title={stateMeta.label}
+            className={`shrink-0 ${stateMeta.className}`}
+          >
+            <StateIcon
+              className={`h-4 w-4 ${spinning ? "animate-spin" : ""}`}
+            />
           </span>
+        ) : (
+          node.type === "employee" &&
+          node.config.taskDetail.trim() && (
+            <span title="已填写任务详情" className="shrink-0 text-text-muted">
+              <FileText className="h-3.5 w-3.5" />
+            </span>
+          )
         )}
       </div>
 
@@ -685,14 +714,20 @@ function NodeCard({
         <p className="wf-node-desc">{desc}</p>
         {node.type === "employee" && (
           <div className="wf-node-meta">
-            {employee ? (
+            {stateMeta && state !== "pending" ? (
+              <span className="wf-node-chip" data-state={state}>
+                {stateMeta.label}
+              </span>
+            ) : employee ? (
               <span className="wf-node-chip">{failureLabel}</span>
             ) : (
               <span className="wf-node-chip warn">待配置</span>
             )}
-            {employee && node.config.reviewMode === "manual" && (
-              <span className="wf-node-chip">人工审核</span>
-            )}
+            {(!state || state === "pending") &&
+              employee &&
+              node.config.reviewMode === "manual" && (
+                <span className="wf-node-chip">人工审核</span>
+              )}
           </div>
         )}
       </div>

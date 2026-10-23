@@ -23,6 +23,10 @@ import type {
   TerminalExitPayload,
   Workflow,
   WorkflowDraft,
+  WorkflowNodeRunDetail,
+  WorkflowRun,
+  WorkflowRunDetail,
+  WorkflowRunEvent,
 } from "../types";
 import type { AgentInfo, AgentModelOption } from "./agent";
 
@@ -135,6 +139,44 @@ export interface IpcInvokeMap {
     result: Workflow | null;
   };
   "workflows:delete": { args: [{ id: string }]; result: boolean };
+
+  /** 工作流运行：启动 / 详情 / 历史 / 取消 / 人工审核 / 打开产物目录 */
+  "workflow:run:start": { args: [{ workflowId: string }]; result: WorkflowRun };
+  "workflow:run:get": {
+    args: [{ runId: string }];
+    result: WorkflowRunDetail | null;
+  };
+  "workflow:run:list": {
+    args: [{ workflowId: string }];
+    result: WorkflowRun[];
+  };
+  /** 某工作区下所有工作流的运行记录（工作区级历史入口） */
+  "workflow:run:listByWorkspace": {
+    args: [{ workspaceId: string }];
+    result: WorkflowRun[];
+  };
+  "workflow:run:cancel": { args: [{ runId: string }]; result: boolean };
+  "workflow:run:approve": {
+    args: [
+      {
+        runId: string;
+        nodeRunId: string;
+        action: "approve" | "reject";
+        note?: string;
+      },
+    ];
+    result: boolean;
+  };
+  "workflow:run:openArtifacts": { args: [{ runId: string }]; result: boolean };
+  /** 单个节点的输入 / 返回 / 产物文件列表 */
+  "workflow:run:nodeDetail": {
+    args: [{ runId: string; nodeRunId: string }];
+    result: WorkflowNodeRunDetail | null;
+  };
+  "workflow:run:openNodeArtifacts": {
+    args: [{ runId: string; nodeRunId: string }];
+    result: boolean;
+  };
 }
 
 /** 主进程 → 渲染进程（push）通道表。事件均带 sessionId，供多会话并发路由。 */
@@ -146,6 +188,8 @@ export interface IpcPushMap {
   "automation:updated": AutomationTask;
   "terminal:data": TerminalDataPayload;
   "terminal:exit": TerminalExitPayload;
+  /** 工作流运行的实时状态事件（同时已落库，可断线重放） */
+  "workflow:run:event": WorkflowRunEvent;
 }
 
 export type IpcInvokeChannel = keyof IpcInvokeMap;

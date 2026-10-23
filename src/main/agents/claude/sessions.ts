@@ -23,9 +23,13 @@ import { homedir } from "os";
 import type { AgentEvent, Message } from "../../../shared/types";
 import { mapAssistantBlocks, mapToolResultBlocks, type CallNames } from "./parse";
 
-/** 会话根目录 */
-function projectsRoot(): string {
-  return join(homedir(), ".claude", "projects");
+/**
+ * 会话根目录。
+ * 普通会话没有 configDir，沿用 ~/.claude；工作流节点会传入独立配置目录，
+ * 此时 Claude 会把会话写到 <configDir>/projects 下。
+ */
+function projectsRoot(configDir?: string | null): string {
+  return join(configDir || join(homedir(), ".claude"), "projects");
 }
 
 /** cwd → 目录名（与 claude 自己的转义一致：\ / : 一律变成 -） */
@@ -40,9 +44,13 @@ function encodeCwd(cwd: string): string {
  *    （同一个盘符可能写成 C-- 也可能写成 c--），所以不能只靠字符串相等；
  *    会话 uuid 全局唯一，按文件名扫描不会误命中。
  */
-export function locateSessionFile(cwd: string, sessionId: string): string | null {
+export function locateSessionFile(
+  cwd: string,
+  sessionId: string,
+  configDir?: string | null,
+): string | null {
   if (!cwd || !sessionId) return null;
-  const root = projectsRoot();
+  const root = projectsRoot(configDir);
   const file = `${sessionId}.jsonl`;
 
   const fast = join(root, encodeCwd(cwd), file);
@@ -62,8 +70,12 @@ export function locateSessionFile(cwd: string, sessionId: string): string | null
 }
 
 /** 文件版本号（mtime），供历史缓存失效使用；引用定位不到时返回 null */
-export function fileVersion(ref: string, cwd: string): string | null {
-  const file = locateSessionFile(cwd, ref);
+export function fileVersion(
+  ref: string,
+  cwd: string,
+  configDir?: string | null,
+): string | null {
+  const file = locateSessionFile(cwd, ref, configDir);
   if (!file) return null;
   try {
     return String(statSync(file).mtimeMs);
@@ -88,8 +100,12 @@ interface ClaudeSessionEntry {
  * （与流式时 tool_result 紧跟 tool_call 的呈现一致）。
  * 文件缺失或解析失败返回空数组。
  */
-export function readHistory(ref: string, cwd: string): Message[] {
-  const file = locateSessionFile(cwd, ref);
+export function readHistory(
+  ref: string,
+  cwd: string,
+  configDir?: string | null,
+): Message[] {
+  const file = locateSessionFile(cwd, ref, configDir);
   if (!file) return [];
 
   let raw: string;
@@ -155,8 +171,12 @@ export function readHistory(ref: string, cwd: string): Message[] {
  * 只删这一个文件；父目录仅在「空目录」时移除（rmdir 对非空目录会抛错并被忽略）。
  * 绝不做递归删除 —— 同一目录下可能存在其他会话文件。
  */
-export function deleteSession(ref: string, cwd: string): void {
-  const file = locateSessionFile(cwd, ref);
+export function deleteSession(
+  ref: string,
+  cwd: string,
+  configDir?: string | null,
+): void {
+  const file = locateSessionFile(cwd, ref, configDir);
   if (!file || !existsSync(file)) return;
 
   try {

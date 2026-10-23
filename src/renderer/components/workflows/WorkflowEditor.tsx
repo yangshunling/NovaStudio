@@ -22,8 +22,10 @@ import {
 import {
   ArrowLeft,
   Bot,
+  Bug,
   CircleStop,
   Flag,
+  History,
   LayoutGrid,
   Loader2,
   Play,
@@ -39,18 +41,23 @@ import {
 } from "lucide-react";
 import { ipc } from "../../lib/ipc";
 import { newId } from "../../lib/utils";
-import { SkinStage } from "../SkinStage";
+import { toast } from "../../stores/toast";
 import { EmployeeAvatar } from "../employees/EmployeeAvatar";
 import { WorkflowCanvas, WF_NODE_W } from "./WorkflowCanvas";
+import { WorkflowDebugPanel } from "./WorkflowDebugPanel";
 import { defaultNodeConfig } from "./defaults";
 import type {
   DigitalEmployee,
+  Project,
   Workflow,
   WorkflowEdge,
   WorkflowFailureStrategy,
   WorkflowNode,
+  WorkflowNodeRunStatus,
   WorkflowNodeType,
   WorkflowReviewMode,
+  WorkflowRunDetail,
+  WorkflowRunStatus,
 } from "@shared/types";
 
 const INPUT_CLASS =
@@ -129,19 +136,35 @@ function freePosition(nodes: WorkflowNode[]): { x: number; y: number } {
 
 interface WorkflowEditorProps {
   workflow: Workflow;
+  /** 全部工作区：用于给「未归属」的历史工作流重新指定归属 */
+  workspaces: Project[];
   employees: DigitalEmployee[];
   onBack: () => void;
   /** 保存成功后回传最新工作流，供列表更新 */
   onSaved: (workflow: Workflow) => void;
+  /** 仅更新列表、不退出编辑器（调试前的自动保存用） */
+  onDraftSaved: (workflow: Workflow) => void;
+  /** 打开该工作流的运行记录列表 */
+  onOpenHistory: () => void;
+  /** 从卡片直接点「调试」时，带着已启动的 runId 进入编辑器 */
+  initialDebugRunId?: string | null;
 }
 
 export function WorkflowEditor({
   workflow,
+  workspaces,
   employees,
   onBack,
   onSaved,
+  onDraftSaved,
+  onOpenHistory,
+  initialDebugRunId = null,
 }: WorkflowEditorProps) {
   const [name, setName] = useState(workflow.name);
+  /** 工作区归属可在编辑器里修改（主要服务「未归属」的历史工作流） */
+  const [workspaceId, setWorkspaceId] = useState(workflow.workspaceId);
+  const workspace =
+    workspaces.find((item) => item.id === workspaceId) ?? null;
   const [nodes, setNodes] = useState<WorkflowNode[]>(workflow.graph.nodes);
   const [edges, setEdges] = useState<WorkflowEdge[]>(workflow.graph.edges);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
@@ -150,6 +173,19 @@ export function WorkflowEditor({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [fitRequest, setFitRequest] = useState(0);
+
+  /** 调试：直接在当前画布上展示状态，不跳转运行详情页 */
+  const [debugRunId, setDebugRunId] = useState<string | null>(
+    initialDebugRunId,
+  );
+  const [debugDetail, setDebugDetail] = useState<WorkflowRunDetail | null>(null);
+  const [debugBusy, setDebugBusy] = useState(false);
+  const previousDebugStatus = useRef<WorkflowRunStatus | null>(null);
+
+  // 卡片上点「调试」时，run 已经在父级启动；这里接上它的实时状态
+  useEffect(() => {
+    if (initialDebugRunId) setDebugRunId(initialDebugRunId);
+  }, [initialDebugRunId]);
 
   // 名称输入框按实际文字宽度伸缩，让「未保存」徽标紧贴名称
   const nameMeasureRef = useRef<HTMLSpanElement>(null);
@@ -277,32 +313,201 @@ export function WorkflowEditor({
     setFitRequest((value) => value + 1);
   };
 
-  const save = useCallback(async () => {
+  /** 写库但不决定是否退出编辑器；保存按钮与运行前自动保存共用 */
+  const persist = useCallback(async (): Promise<Workflow | null> => {
     setSaving(true);
     setError(null);
     try {
       const updated = await ipc.updateWorkflow(workflow.id, {
+        workspaceId,
         name: name.trim() || "未命名工作流",
         description: workflow.description,
         graph: { nodes, edges },
       });
       if (!updated) {
         setError("保存失败：工作流不存在");
-        return;
+        return null;
       }
       setDirty(false);
-      // 保存成功即退出编辑：由父级负责刷新列表并弹出 toast
-      onSaved(updated);
+      return updated;
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
+      return null;
     } finally {
       setSaving(false);
     }
-  }, [workflow.id, workflow.description, name, nodes, edges, onSaved]);
+  }, [workflow.id, workspaceId, workflow.description, name, nodes, edges]);
+
+  const save = useCallback(async () => {
+    const updated = await persist();
+    // 保存成功即退出编辑：由父级负责刷新列表并弹出 toast
+    if (updated) onSaved(updated);
+  }, [persist, onSaved]);
+
+  /** 重新进入编辑器时，如果该工作流还有活跃调试，直接把状态接回来 */
+  useEffect(() => {
+    let alive = true;
+    void (async () => {
+      try {
+        const runs = await ipc.listWorkflowRuns(workflow.id);
+        const active = runs.find(
+          (run) =>
+            run.status === "queued" ||
+            run.status === "running" ||
+            run.status === "awaiting_approval",
+        );
+        if (alive && active) setDebugRunId(active.id);
+      } catch {
+        // 历史读取失败不影响继续编辑
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [workflow.id]);
+
+  // 调试事件 → 拉取最新运行详情（事件可能密集，做一次 80ms 合并）
+  useEffect(() => {
+    if (!debugRunId) return;
+    let alive = true;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+
+    const load = async () => {
+      try {
+        const next = await ipc.getWorkflowRun(debugRunId);
+        if (alive) setDebugDetail(next);
+      } catch {
+        // 单次读取失败不打断调试
+      }
+    };
+
+    void load();
+    const off = ipc.on.workflowRunEvent((event) => {
+      if (event.runId !== debugRunId) return;
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => void load(), 80);
+    });
+
+    return () => {
+      alive = false;
+      if (timer) clearTimeout(timer);
+      off();
+    };
+  }, [debugRunId]);
+
+  // 调试结束提示
+  useEffect(() => {
+    const status = debugDetail?.run.status;
+    if (!status) return;
+    const previous = previousDebugStatus.current;
+    previousDebugStatus.current = status;
+    if (!previous || previous === status) return;
+
+    if (status === "succeeded") toast.success("调试完成");
+    else if (status === "failed")
+      toast.error(debugDetail?.run.error || "调试失败", 5000);
+    else if (status === "canceled") toast.info("调试已取消");
+    else if (status === "interrupted") toast.error("调试被中断");
+  }, [debugDetail?.run.status, debugDetail?.run.error]);
+
+  const nodeStates = useMemo(() => {
+    const map: Record<string, WorkflowNodeRunStatus> = {};
+    debugDetail?.nodes.forEach((node) => {
+      map[node.nodeId] = node.status;
+    });
+    return map;
+  }, [debugDetail]);
+
+  const debugActive =
+    debugRunId !== null &&
+    (debugDetail
+      ? debugDetail.run.status === "queued" ||
+        debugDetail.run.status === "running" ||
+        debugDetail.run.status === "awaiting_approval"
+      : true);
+
+  /** 调试：留在当前画布，实时显示节点状态 */
+  const startDebug = async () => {
+    if (!workspace) {
+      toast.error("工作流未绑定工作区，无法调试");
+      return;
+    }
+    if (saving || debugActive) return;
+
+    // 调试读取数据库里的最新版本：有改动先保存，但不退出编辑器
+    if (dirty) {
+      const updated = await persist();
+      if (!updated) return;
+      onDraftSaved(updated);
+    }
+
+    try {
+      const run = await ipc.startWorkflowRun(workflow.id);
+      previousDebugStatus.current = null;
+      setDebugDetail(null);
+      setDebugRunId(run.id);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setError(message);
+      toast.error(message, 6000);
+    }
+  };
+
+  const decideDebug = async (action: "approve" | "reject") => {
+    if (!debugRunId || !debugDetail || debugBusy) return;
+    const awaiting = debugDetail.nodes.find(
+      (node) => node.status === "awaiting_approval",
+    );
+    if (!awaiting) return;
+
+    setDebugBusy(true);
+    try {
+      await ipc.approveWorkflowNode(debugRunId, awaiting.id, action);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : String(err));
+    } finally {
+      setDebugBusy(false);
+    }
+  };
+
+  const cancelDebug = async () => {
+    if (!debugRunId || debugBusy) return;
+    setDebugBusy(true);
+    try {
+      await ipc.cancelWorkflowRun(debugRunId);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : String(err));
+    } finally {
+      setDebugBusy(false);
+    }
+  };
+
+  const openDebugArtifacts = async () => {
+    if (!debugRunId) return;
+    const ok = await ipc.openWorkflowArtifacts(debugRunId);
+    if (!ok) toast.error("无法打开产物目录");
+  };
+
+  const closeDebug = () => {
+    setDebugRunId(null);
+    setDebugDetail(null);
+    setDebugBusy(false);
+    previousDebugStatus.current = null;
+  };
 
   const back = () => {
     if (dirty && !window.confirm("有未保存的修改，确定退出编辑？")) return;
     onBack();
+  };
+
+  /** 打开运行记录前先落库，避免切换页面丢失画布修改 */
+  const openHistory = async () => {
+    if (dirty) {
+      const updated = await persist();
+      if (!updated) return;
+      onDraftSaved(updated);
+    }
+    onOpenHistory();
   };
 
   // Ctrl/Cmd + S 保存
@@ -319,8 +524,6 @@ export function WorkflowEditor({
 
   return (
     <main className="relative flex flex-1 flex-col overflow-hidden">
-      <SkinStage />
-
       <div className="ui-page relative z-10 flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl">
         {/* 顶栏：返回 / 名称 / 保存 */}
         <header className="ui-glass relative z-10 flex h-[var(--c-layout-header)] shrink-0 items-center gap-3 border-b border-border px-4">
@@ -369,6 +572,30 @@ export function WorkflowEditor({
             )}
           </div>
 
+          {!workspace &&
+            (workspaces.length > 0 ? (
+              <select
+                value={workspaceId}
+                onChange={(event) => {
+                  setWorkspaceId(event.target.value);
+                  setDirty(true);
+                }}
+                title="该工作流还没有归属工作区，选择后才可调试"
+                className="ui-ring h-9 shrink-0 rounded-lg bg-input-bg px-2.5 text-meta text-text outline-none transition-colors focus:border-input-border-focus"
+              >
+                <option value="">未归属 · 选择工作区…</option>
+                {workspaces.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.name}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <span className="shrink-0 text-meta text-error">
+                未归属 · 请先创建工作区
+              </span>
+            ))}
+
           <div className="min-w-0 flex-1" />
 
           {error && (
@@ -376,6 +603,16 @@ export function WorkflowEditor({
               {error}
             </span>
           )}
+
+          <button
+            type="button"
+            onClick={() => void openHistory()}
+            title="查看这个工作流的历史运行"
+            className="ui-btn-ghost flex h-9 shrink-0 items-center gap-1.5 rounded-full px-4 text-body font-medium active:scale-95"
+          >
+            <History className="h-4 w-4" />
+            运行记录
+          </button>
 
           <button
             type="button"
@@ -391,7 +628,7 @@ export function WorkflowEditor({
             type="button"
             onClick={() => void save()}
             disabled={saving}
-            className="ui-btn-primary flex h-9 shrink-0 items-center gap-1.5 rounded-full px-4 text-body font-medium active:scale-95"
+            className="ui-btn-ghost flex h-9 shrink-0 items-center gap-1.5 rounded-full px-4 text-body font-medium active:scale-95"
           >
             {saving ? (
               <Loader2 className="h-4 w-4 animate-spin" />
@@ -399,6 +636,25 @@ export function WorkflowEditor({
               <Save className="h-4 w-4" />
             )}
             保存
+          </button>
+
+          <button
+            type="button"
+            onClick={() => void startDebug()}
+            disabled={saving || !workspace || debugActive}
+            title={
+              workspace
+                ? `在当前工作流中调试（产物写入 ${workspace.cwd} 下的 .novastudio）`
+                : "工作流未绑定工作区，无法调试"
+            }
+            className="ui-btn-primary flex h-9 shrink-0 items-center gap-1.5 rounded-full px-4 text-body font-medium active:scale-95 disabled:opacity-50"
+          >
+            {debugActive ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Bug className="h-4 w-4" />
+            )}
+            {debugActive ? "调试中" : "调试"}
           </button>
         </header>
 
@@ -474,38 +730,53 @@ export function WorkflowEditor({
             </div>
           </aside>
 
-          {/* 右侧：画布 + 节点配置浮层 */}
-          <div className="relative min-w-0 flex-1">
-            <WorkflowCanvas
-              nodes={nodes}
-              edges={edges}
-              employees={employees}
-              selectedNodeId={selectedNodeId}
-              selectedEdgeId={selectedEdgeId}
-              onChange={handleChange}
-              onSelectNode={(id) => {
-                setSelectedNodeId(id);
-                if (id) setSelectedEdgeId(null);
-              }}
-              onSelectEdge={(id) => {
-                setSelectedEdgeId(id);
-                if (id) setSelectedNodeId(null);
-              }}
-              fitRequest={fitRequest}
-            />
-
-            {selectedNode && (
-              <NodeInspector
-                node={selectedNode}
-                employees={employees}
-                onPatch={patchNode}
-                onDelete={deleteNode}
-                onClose={() => setSelectedNodeId(null)}
+          {/* 右侧：调试状态栏 + 画布 + 节点配置浮层 */}
+          <div className="relative flex min-w-0 flex-1 flex-col">
+            {debugDetail && (
+              <WorkflowDebugPanel
+                detail={debugDetail}
+                busy={debugBusy}
+                onApprove={(action) => void decideDebug(action)}
+                onCancel={() => void cancelDebug()}
+                onOpenArtifacts={() => void openDebugArtifacts()}
+                onClose={closeDebug}
               />
             )}
+
+            <div className="relative min-h-0 flex-1">
+              <WorkflowCanvas
+                nodes={nodes}
+                edges={edges}
+                employees={employees}
+                selectedNodeId={selectedNodeId}
+                selectedEdgeId={selectedEdgeId}
+                onChange={handleChange}
+                onSelectNode={(id) => {
+                  setSelectedNodeId(id);
+                  if (id) setSelectedEdgeId(null);
+                }}
+                onSelectEdge={(id) => {
+                  setSelectedEdgeId(id);
+                  if (id) setSelectedNodeId(null);
+                }}
+                fitRequest={fitRequest}
+                nodeStates={nodeStates}
+              />
+
+              {selectedNode && (
+                <NodeInspector
+                  node={selectedNode}
+                  employees={employees}
+                  onPatch={patchNode}
+                  onDelete={deleteNode}
+                  onClose={() => setSelectedNodeId(null)}
+                />
+              )}
+            </div>
           </div>
         </div>
       </div>
+
     </main>
   );
 }

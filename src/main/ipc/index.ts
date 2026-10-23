@@ -5,8 +5,12 @@
  * 具体业务逻辑全部在 engine / automation / db，本目录只做「接线」。
  */
 
-import { BrowserWindow } from "electron";
+import { app, BrowserWindow } from "electron";
 import { createAgentService } from "../engine/agent-service";
+import {
+  createWorkflowRunner,
+  type WorkflowRunner,
+} from "../workflow/runner";
 import { createScheduler, type AutomationScheduler } from "../automation/scheduler";
 import { push, setMainWindow } from "./push";
 import { registerAgentHandlers } from "./handlers/agent";
@@ -19,9 +23,13 @@ import { registerAutomationHandlers } from "./handlers/automation";
 import { registerTerminalHandlers } from "./handlers/terminal";
 import { registerEmployeeHandlers } from "./handlers/employee";
 import { registerWorkflowHandlers } from "./handlers/workflow";
+import { registerWorkflowRunHandlers } from "./handlers/workflow-run";
 
 /** 自动化轮询器实例；由本层（装配层）持有其生命周期 */
 let scheduler: AutomationScheduler | null = null;
+
+/** 工作流运行器；应用退出时需要中断运行中的节点 */
+let workflowRunner: WorkflowRunner | null = null;
 
 /**
  * 注册全部 IPC 处理器。
@@ -33,15 +41,24 @@ export function initIpcHandlers(window: BrowserWindow): void {
 
   const service = createAgentService(push);
 
+  // 删除工作流 / 工作区前需要查询是否有活跃运行，因此运行器先于 handler 创建
+  const runner = createWorkflowRunner({
+    service,
+    emit: (event) => push("workflow:run:event", event),
+    userDataDir: app.getPath("userData"),
+  });
+  workflowRunner = runner;
+
   registerAgentHandlers(service);
   registerSessionHandlers(service);
-  registerProjectHandlers(service);
+  registerProjectHandlers(service, runner);
   registerSettingsHandlers();
   registerDialogHandlers();
   registerFileHandlers();
   registerTerminalHandlers();
   registerEmployeeHandlers();
-  registerWorkflowHandlers();
+  registerWorkflowHandlers(service, runner);
+  registerWorkflowRunHandlers(runner);
 
   // 调度器先于 handler 创建：停止任务的 handler 需要拿到调度器实例
   scheduler = createScheduler(service);
@@ -53,4 +70,10 @@ export function initIpcHandlers(window: BrowserWindow): void {
 export function stopAutomation(): void {
   scheduler?.stop();
   scheduler = null;
+}
+
+/** 中断所有运行中的工作流（进程即将退出，不能留下“假装还在跑”的状态） */
+export function stopWorkflows(): void {
+  workflowRunner?.shutdown();
+  workflowRunner = null;
 }

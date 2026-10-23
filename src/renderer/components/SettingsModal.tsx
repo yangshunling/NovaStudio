@@ -1,97 +1,15 @@
 /**
  * 设置弹框 — 基于通用 Modal 的模态框
  *
- * 左侧菜单栏，右侧内容区。
- *
- * 皮肤列表、色卡、代码高亮主题全部由皮肤注册表驱动：
- * 色卡展示哪些 token 由皮肤自己的 preview 声明，本文件不出现任何具体皮肤 id。
+ * 皮肤切换已移到侧栏头部的昼夜切换按钮，这里只保留通用设置。
  */
 
 import { useEffect, useRef, useState } from "react";
-import { Palette, Check, SlidersHorizontal } from "lucide-react";
 import { Modal, ModalHeader } from "./ui/Modal";
 import { useChatStore } from "../stores/chat";
 import { useTheme } from "../hooks/useTheme";
 import { ipc } from "../lib/ipc";
-import { skins } from "../skins/registry";
 import { DEFAULT_SETTINGS } from "@shared/types";
-import type { SkinVariant } from "@shared/contracts/skin";
-
-// ============================================================================
-// 皮肤预览色卡
-// ============================================================================
-
-/** 色卡标签；未列出的 token 直接展示去掉 --c- 前缀的名字 */
-const PREVIEW_LABELS: Record<string, string> = {
-  "--c-bg": "背景",
-  "--c-surface": "表面",
-  "--c-surface-2": "次级表面",
-  "--c-accent": "强调",
-  "--c-text": "文字",
-  "--c-border": "边框",
-};
-
-function SkinPreview({ skin }: { skin: SkinVariant }) {
-  return (
-    <div
-      data-theme={skin.id}
-      className="flex h-20 items-center gap-2 rounded-lg border border-border bg-surface-2 p-3"
-    >
-      {skin.preview.map((token) => (
-        <div key={token} className="flex flex-1 flex-col items-center gap-1">
-          <div
-            className="h-8 w-full rounded-md border border-border"
-            style={{ background: `var(${token})` }}
-          />
-          <span className="text-micro text-text-muted">
-            {PREVIEW_LABELS[token] ?? token.replace(/^--c-/, "")}
-          </span>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-// ============================================================================
-// 皮肤选择卡片
-// ============================================================================
-
-function SkinCard({
-  skin,
-  isActive,
-  onSelect,
-}: {
-  skin: SkinVariant;
-  isActive: boolean;
-  onSelect: () => void;
-}) {
-  return (
-    <button
-      onClick={onSelect}
-      className={`group relative flex flex-col gap-3 rounded-xl border p-card text-left transition-all ${
-        isActive
-          ? "border-accent bg-accent-soft shadow-[var(--c-shadow-sm)]"
-          : "border-border bg-surface-2/60 hover:border-border-strong hover:bg-surface-2/80"
-      }`}
-    >
-      {isActive && (
-        <div className="absolute right-3 top-3 flex items-center gap-1 rounded-full bg-accent px-2 py-0.5 text-caption font-medium text-accent-foreground">
-          <Check className="h-3 w-3" />
-          当前
-        </div>
-      )}
-
-      <SkinPreview skin={skin} />
-
-      <div>
-        <h3 className={`text-title font-semibold ${isActive ? "text-accent" : "text-text"}`}>
-          {skin.displayName}
-        </h3>
-        <p className="mt-1 text-meta leading-relaxed text-text-muted">{skin.description}</p>
-      </div>
-    </button>
-  );
-}
 
 // ============================================================================
 // 文字大小
@@ -332,34 +250,6 @@ function TimeoutControl() {
 }
 
 // ============================================================================
-// 换肤面板
-// ============================================================================
-
-function ThemePanel() {
-  const { currentTheme, setTheme } = useTheme();
-
-  return (
-    <div className="mx-auto max-w-2xl">
-      <div className="mb-6">
-        <h2 className="text-heading font-semibold text-text">皮肤选择</h2>
-        <p className="mt-1 text-body text-text-muted">选择你喜欢的皮肤风格，切换即时生效。</p>
-      </div>
-
-      <div className="mb-7 grid grid-cols-1 gap-4 sm:grid-cols-2">
-        {skins.map((skin) => (
-          <SkinCard
-            key={skin.id}
-            skin={skin}
-            isActive={currentTheme === skin.id}
-            onSelect={() => setTheme(skin.id)}
-          />
-        ))}
-      </div>
-    </div>
-  );
-}
-
-// ============================================================================
 // 通用面板
 // ============================================================================
 
@@ -383,15 +273,7 @@ function GeneralPanel() {
 // 设置弹框主组件
 // ============================================================================
 
-type SettingsSection = "general" | "theme";
-
-const menuItems: Array<{ id: SettingsSection; label: string; icon: React.ReactNode }> = [
-  { id: "general", label: "通用", icon: <SlidersHorizontal className="h-4 w-4" /> },
-  { id: "theme", label: "换肤", icon: <Palette className="h-4 w-4" /> },
-];
-
 export function SettingsModal() {
-  const [section, setSection] = useState<SettingsSection>("general");
   const setShowSettings = useChatStore((s) => s.setShowSettings);
 
   return (
@@ -414,31 +296,9 @@ export function SettingsModal() {
         className="h-[var(--c-layout-header)] shrink-0 border-b border-border px-5"
       />
 
-      {/* 弹框正文：左菜单 + 右内容 */}
-      <div className="flex flex-1 overflow-hidden">
-        {/* 左侧菜单 */}
-        <aside className="flex w-[var(--c-layout-menu)] shrink-0 flex-col border-r border-border p-2">
-          {menuItems.map((item) => (
-            <button
-              key={item.id}
-              onClick={() => setSection(item.id)}
-              className={`flex w-full items-center gap-2 rounded-md px-3 py-2.5 text-body font-medium transition-colors ${
-                section === item.id
-                  ? "bg-surface-active text-text"
-                  : "text-text-muted hover:bg-surface-hover hover:text-text"
-              }`}
-            >
-              {item.icon}
-              {item.label}
-            </button>
-          ))}
-        </aside>
-
-        {/* 右侧内容区 */}
-        <div className="flex-1 overflow-y-auto p-section">
-          {section === "general" && <GeneralPanel />}
-          {section === "theme" && <ThemePanel />}
-        </div>
+      {/* 弹框正文 */}
+      <div className="flex-1 overflow-y-auto p-section">
+        <GeneralPanel />
       </div>
     </Modal>
   );

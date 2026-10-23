@@ -6,7 +6,6 @@ import { useFileViewerStore } from "../stores/fileViewer";
 import { ChatArea } from "./ChatArea";
 import { CenterTabs } from "./CenterTabs";
 import { FilePreview } from "./FilePreview";
-import { SkinStage } from "./SkinStage";
 import { TerminalView } from "./TerminalView";
 
 export function CenterPane() {
@@ -16,7 +15,6 @@ export function CenterPane() {
 
   return (
     <div className="relative flex min-w-0 flex-1 flex-col overflow-hidden">
-      <SkinStage />
       <div className="ui-page relative z-10 flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl">
         <CenterTabs />
         <div className="relative min-h-0 flex-1 overflow-hidden">

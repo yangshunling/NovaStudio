@@ -4,7 +4,7 @@
  * 这里是「一套皮肤需要提供哪些 token」的唯一清单：
  * - 运行时校验（validate.ts）直接读本文件，不再另抄一份
  * - styles/index.css 的映射表与本文件一一对应；新增 token 时两处同步
- * - skins/_base.css 与 skins/_families/*.css 提供的默认值也算「能解析」，
+ * - skins/_base.css 提供的默认值也算「能解析」，
  *   因此校验的是最终**计算值**，而不是"这套皮肤自己写了哪些行"
  *
  * 分层与「谁提供值」的约定见 skins/_base.css 顶部说明。
@@ -92,7 +92,6 @@ export const REQUIRED_TOKENS: readonly string[] = [
   "--c-layout-content",
   "--c-layout-modal-w",
   "--c-layout-modal-h",
-  "--c-layout-menu",
   // 间距（皮肤可变层）
   "--c-space-inset",
   "--c-space-card",
@@ -149,12 +148,6 @@ export const OPTIONAL_TOKENS: readonly string[] = [
   "--c-page-bg",
   "--c-page-shadow",
   "--c-page-inset",
-  "--c-stage-veil",
-  "--c-stage-figure-filter",
-  "--c-stage-figure-inset",
-  "--c-stage-figure-height",
-  "--c-stage-figure-left-height",
-  "--c-stage-figure-right-height",
 ];
 
 /**

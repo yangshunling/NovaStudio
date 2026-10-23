@@ -5,7 +5,6 @@
  * text / thinking / tool_call / tool_result / error / done。
  *
  * 布局：
- * - 装饰舞台（背景 + 立绘）挂在 main 内部，由当前皮肤决定是否渲染
  * - 顶栏 / 输入区为玻璃拟态
  * - 助手正文为描边圆角卡片（外观由皮肤 token 决定）
  */
@@ -24,7 +23,6 @@ import {
   PanelRightOpen,
   X,
 } from "lucide-react";
-import { SkinStage } from "./SkinStage";
 import { AgentOptionsMenu } from "./AgentOptionsMenu";
 import { AgentSelector } from "./AgentSelector";
 import { useFileMention, FileMentionPopup } from "./FileMention";
@@ -81,9 +79,6 @@ export function ChatArea({ embedded = false }: { embedded?: boolean } = {}) {
 
   return (
     <main className="relative flex h-full min-h-0 flex-1 flex-col overflow-hidden">
-      {/* 装饰舞台：背景 + 立绘，由皮肤声明决定是否渲染 */}
-      {!embedded && <SkinStage />}
-
       {/* 主体纸面：顶栏 / 消息区 / 输入区同属一张纸，浮在画布底色之上 */}
       <div
         className={

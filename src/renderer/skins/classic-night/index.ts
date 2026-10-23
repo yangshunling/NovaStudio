@@ -1,7 +1,7 @@
 /**
  * 经典 · 夜（classic-night）
  *
- * 黑色调、GitHub 深蓝、夜间护眼。无装饰舞台。
+ * 黑色调、GitHub 深蓝、夜间护眼。
  */
 
 import "./tokens.css";
@@ -13,7 +13,5 @@ export const variant: SkinVariant = {
   description: "黑色调、GitHub 深蓝、夜间护眼",
   appearance: "dark",
   codeTheme: "github-dark",
-  preview: ["--c-bg", "--c-surface-2", "--c-accent", "--c-text", "--c-border"],
   order: 20,
-  // 无 chrome：纯色皮肤不挂载装饰舞台
 };

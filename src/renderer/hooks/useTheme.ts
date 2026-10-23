@@ -257,7 +257,7 @@ export function useTheme() {
   };
 }
 
-/** 当前皮肤的完整描述（需要 codeTheme / chrome 等元信息的组件使用） */
+/** 当前皮肤的完整描述（需要 codeTheme / appearance 等元信息的组件使用） */
 export function useSkin(): SkinVariant {
   return useThemeStore((s) => getSkin(s.currentTheme));
 }

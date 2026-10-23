@@ -88,10 +88,15 @@ export interface Project {
   updatedAt: number;
 }
 
+/** 会话来源：普通聊天 / 工作流节点执行 */
+export type SessionSource = "chat" | "workflow";
+
 /** 会话从属于一个项目 */
 export interface Session {
   id: string;
   projectId: string;
+  /** 未声明时视为 chat（兼容旧数据） */
+  source?: SessionSource;
   /** 对应 AgentManifest.id */
   agentId: string;
   /**
@@ -107,6 +112,11 @@ export interface Session {
   messageCount?: number;
   /** 仅 session:get 时由 provider 回放填充；listSessions 返回空数组 */
   messages?: Message[];
+  /**
+   * CLI 配置目录（如 Claude 的 CLAUDE_CONFIG_DIR）。
+   * 工作流节点会为每次运行使用独立配置目录；普通会话为 null，走用户默认目录。
+   */
+  configDir?: string | null;
 }
 
 export interface Message {
@@ -337,6 +347,8 @@ export interface WorkflowGraph {
 
 /** 可编辑字段；新建与更新共用 */
 export interface WorkflowDraft {
+  /** 所属工作区（复用项目的 id）：工作流只在某个根目录下存在 */
+  workspaceId: string;
   name: string;
   description: string;
   graph: WorkflowGraph;
@@ -347,6 +359,125 @@ export interface Workflow extends WorkflowDraft {
   id: string;
   createdAt: number;
   updatedAt: number;
+}
+
+// ============================================================================
+// 工作流运行
+// ============================================================================
+
+export type WorkflowRunStatus =
+  | "queued"
+  | "running"
+  | "awaiting_approval"
+  | "succeeded"
+  | "failed"
+  | "canceled"
+  | "interrupted";
+
+export type WorkflowNodeRunStatus =
+  | "pending"
+  | "running"
+  | "awaiting_approval"
+  | "retrying"
+  | "succeeded"
+  | "failed"
+  | "skipped"
+  | "canceled";
+
+export interface WorkflowRun {
+  id: string;
+  workflowId: string;
+  workspaceId: string;
+  workflowName: string;
+  workspacePath: string;
+  /** 运行时的工作流图快照；运行中改工作流不影响本次执行 */
+  graph: WorkflowGraph;
+  /** 产物根目录（工作区下 .novastudio/workflows/<workflowId>/runs/<runId>） */
+  artifactDir: string;
+  status: WorkflowRunStatus;
+  error: string | null;
+  createdAt: number;
+  startedAt: number | null;
+  finishedAt: number | null;
+}
+
+export interface WorkflowNodeRun {
+  id: string;
+  runId: string;
+  nodeId: string;
+  nodeName: string;
+  nodeType: WorkflowNodeType;
+  employeeId: string | null;
+  employeeName: string | null;
+  agentId: string | null;
+  status: WorkflowNodeRunStatus;
+  /** 当前（或最后一次）尝试序号，从 1 开始 */
+  attempt: number;
+  maxRetries: number;
+  sessionId: string | null;
+  artifactDir: string | null;
+  inputPath: string | null;
+  outputPath: string | null;
+  handoffPath: string | null;
+  outputSummary: string | null;
+  error: string | null;
+  decision: "approved" | "rejected" | null;
+  decidedAt: number | null;
+  startedAt: number | null;
+  finishedAt: number | null;
+}
+
+export type WorkflowRunEventType =
+  | "run_started"
+  | "node_status"
+  | "node_retry"
+  | "approval_required"
+  | "approval_decided"
+  | "node_finished"
+  | "run_finished"
+  | "log";
+
+export interface WorkflowRunEvent {
+  seq: number;
+  runId: string;
+  nodeRunId: string | null;
+  type: WorkflowRunEventType;
+  payload: Record<string, unknown>;
+  createdAt: number;
+}
+
+/** 运行详情一次性返回：run + 节点状态 + 事件（用于打开页面时回放） */
+export interface WorkflowRunDetail {
+  run: WorkflowRun;
+  nodes: WorkflowNodeRun[];
+  events: WorkflowRunEvent[];
+}
+
+/** 节点产物目录里的单个文件 */
+export interface WorkflowArtifactFile {
+  name: string;
+  relativePath: string;
+  size: number;
+}
+
+/**
+ * 单个节点的执行详情。
+ * 文本内容来自产物目录，按需读取；mcp.json 含环境变量，不对外暴露。
+ */
+export interface WorkflowNodeRunDetail {
+  /** 实际拼装后交给 Agent 的任务输入 */
+  input: string;
+  /** 员工人设 / 系统提示词 */
+  systemPrompt: string;
+  /** Agent 最终返回 */
+  output: string;
+  /** 结构化交接单 */
+  handoff: string;
+  /** 本次调用的运行参数（模型 / MCP 是否隔离等） */
+  options: string;
+  /** 隔离环境告警 */
+  warnings: string;
+  files: WorkflowArtifactFile[];
 }
 
 // ============================================================================

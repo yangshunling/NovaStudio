@@ -25,10 +25,17 @@ import type {
   AutomationStatus,
   DigitalEmployee,
   DigitalEmployeeDraft,
+  SessionSource,
   Workflow,
   WorkflowDraft,
   WorkflowGraph,
   WorkflowNode,
+  WorkflowNodeRun,
+  WorkflowNodeRunStatus,
+  WorkflowRun,
+  WorkflowRunEvent,
+  WorkflowRunEventType,
+  WorkflowRunStatus,
 } from "../../shared/types";
 import { DB_PATH, ensureDataDirs } from "../utils/paths";
 
@@ -60,6 +67,8 @@ export function initDatabase(): void {
       agent_session_id TEXT,
       title TEXT NOT NULL,
       cwd TEXT NOT NULL,
+      config_dir TEXT,
+      source TEXT NOT NULL DEFAULT 'chat',
       message_count INTEGER NOT NULL DEFAULT 0,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL
@@ -94,12 +103,79 @@ export function initDatabase(): void {
 
     CREATE TABLE IF NOT EXISTS workflows (
       id TEXT PRIMARY KEY,
+      workspace_id TEXT,
       name TEXT NOT NULL,
       description TEXT NOT NULL DEFAULT '',
       graph_json TEXT NOT NULL DEFAULT '{"nodes":[],"edges":[]}',
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS workflow_runs (
+      id TEXT PRIMARY KEY,
+      workflow_id TEXT NOT NULL,
+      workspace_id TEXT NOT NULL,
+      workflow_name TEXT NOT NULL,
+      workspace_path TEXT NOT NULL,
+      graph_json TEXT NOT NULL,
+      artifact_dir TEXT NOT NULL,
+      status TEXT NOT NULL,
+      error TEXT,
+      created_at INTEGER NOT NULL,
+      started_at INTEGER,
+      finished_at INTEGER
+    );
+
+    CREATE TABLE IF NOT EXISTS workflow_node_runs (
+      id TEXT PRIMARY KEY,
+      run_id TEXT NOT NULL,
+      node_id TEXT NOT NULL,
+      node_name TEXT NOT NULL,
+      node_type TEXT NOT NULL,
+      employee_id TEXT,
+      employee_name TEXT,
+      agent_id TEXT,
+      status TEXT NOT NULL,
+      attempt INTEGER NOT NULL DEFAULT 1,
+      max_retries INTEGER NOT NULL DEFAULT 0,
+      session_id TEXT,
+      artifact_dir TEXT,
+      input_path TEXT,
+      output_path TEXT,
+      handoff_path TEXT,
+      output_summary TEXT,
+      error TEXT,
+      decision TEXT,
+      decided_at INTEGER,
+      started_at INTEGER,
+      finished_at INTEGER
+    );
+
+    CREATE TABLE IF NOT EXISTS workflow_run_events (
+      seq INTEGER PRIMARY KEY AUTOINCREMENT,
+      run_id TEXT NOT NULL,
+      node_run_id TEXT,
+      type TEXT NOT NULL,
+      payload_json TEXT NOT NULL,
+      created_at INTEGER NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS workflow_node_attempts (
+      id TEXT PRIMARY KEY,
+      run_id TEXT NOT NULL,
+      node_run_id TEXT NOT NULL,
+      attempt INTEGER NOT NULL,
+      session_id TEXT,
+      artifact_dir TEXT,
+      created_at INTEGER NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_workflow_node_runs_run
+      ON workflow_node_runs (run_id);
+    CREATE INDEX IF NOT EXISTS idx_workflow_node_attempts_run
+      ON workflow_node_attempts (run_id);
+    CREATE INDEX IF NOT EXISTS idx_workflow_run_events_run
+      ON workflow_run_events (run_id, seq);
 
     CREATE TABLE IF NOT EXISTS digital_employees (
       id TEXT PRIMARY KEY,
@@ -123,9 +199,15 @@ export function initDatabase(): void {
   // 旧库因表已存在而跳过 CREATE，故需要 ALTER 补齐后加的列。
   migrateSessionsProjectId();
   migrateSessionsMessageCount();
+  migrateSessionsConfigDir();
+  migrateSessionsSource();
+  migrateWorkflowWorkspace();
 
   // === 数据迁移：孤儿会话归入"收件箱"项目 ===
   migrateOrphanSessions();
+
+  // 上次进程遗留的运行不可能还活着：统一标记为中断
+  interruptStaleWorkflowRuns();
 }
 
 /** 检测并给 sessions 表补 project_id 列 */
@@ -136,11 +218,62 @@ function migrateSessionsProjectId(): void {
   }
 }
 
+/** 检测并给 sessions 表补 source 列：工作流节点会话不进入项目会话列表 */
+function migrateSessionsSource(): void {
+  const cols = db!.prepare("PRAGMA table_info(sessions)").all() as { name: string }[];
+  if (!cols.some((c) => c.name === "source")) {
+    db!.exec("ALTER TABLE sessions ADD COLUMN source TEXT NOT NULL DEFAULT 'chat'");
+  }
+
+  // 历史工作流节点已经建过会话：按 node_runs.session_id 回填来源，
+  // 避免旧数据继续出现在项目会话树里。该 UPDATE 可重复执行。
+  db!.exec(`
+    UPDATE sessions
+    SET source = 'workflow'
+    WHERE COALESCE(source, 'chat') <> 'workflow'
+      AND id IN (
+        SELECT session_id FROM workflow_node_runs WHERE session_id IS NOT NULL
+      )
+  `);
+}
+
+/** 检测并给 sessions 表补 config_dir 列（工作流节点使用独立 CLI 配置目录） */
+function migrateSessionsConfigDir(): void {
+  const cols = db!.prepare("PRAGMA table_info(sessions)").all() as { name: string }[];
+  if (!cols.some((c) => c.name === "config_dir")) {
+    db!.exec("ALTER TABLE sessions ADD COLUMN config_dir TEXT");
+  }
+}
+
 /** 检测并给 sessions 表补 message_count 列（旧索引不含消息计数） */
 function migrateSessionsMessageCount(): void {
   const cols = db!.prepare("PRAGMA table_info(sessions)").all() as { name: string }[];
   if (!cols.some((c) => c.name === "message_count")) {
     db!.exec("ALTER TABLE sessions ADD COLUMN message_count INTEGER NOT NULL DEFAULT 0");
+  }
+}
+
+/**
+ * 工作区迁移：给旧库补 workspace_id，并把未归属的工作流挂到最早创建的项目上。
+ *
+ * 工作区复用项目（同一个根目录 + 名字），因此这里不做新的实体，
+ * 只保证历史工作流不会因为缺少 workspace_id 而从列表里消失。
+ */
+function migrateWorkflowWorkspace(): void {
+  const cols = db!.prepare("PRAGMA table_info(workflows)").all() as {
+    name: string;
+  }[];
+  if (!cols.some((col) => col.name === "workspace_id")) {
+    db!.exec("ALTER TABLE workflows ADD COLUMN workspace_id TEXT");
+  }
+
+  const first = db!
+    .prepare("SELECT id FROM projects ORDER BY created_at ASC LIMIT 1")
+    .get() as { id: string } | undefined;
+  if (first) {
+    db!.prepare(
+      "UPDATE workflows SET workspace_id = ? WHERE workspace_id IS NULL OR workspace_id = ''",
+    ).run(first.id);
   }
 }
 
@@ -221,22 +354,37 @@ export function createSession(
   projectId: string,
   cwd: string,
   title?: string,
+  configDir?: string | null,
+  source: SessionSource = "chat",
 ): Session {
   const id = randomUUID();
   const now = Date.now();
   const resolvedTitle = title || "新会话";
 
   db!.prepare(
-    "INSERT INTO sessions (id, project_id, agent_id, agent_session_id, title, cwd, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-  ).run(id, projectId, agentId, null, resolvedTitle, cwd, now, now);
+    "INSERT INTO sessions (id, project_id, agent_id, agent_session_id, title, cwd, config_dir, source, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+  ).run(
+    id,
+    projectId,
+    agentId,
+    null,
+    resolvedTitle,
+    cwd,
+    configDir ?? null,
+    source,
+    now,
+    now,
+  );
 
   return {
     id,
     projectId,
+    source,
     agentId,
     agentSessionId: null,
     title: resolvedTitle,
     cwd,
+    configDir: configDir ?? null,
     createdAt: now,
     updatedAt: now,
     messageCount: 0,
@@ -310,10 +458,12 @@ function rowToSession(row: any): Session {
   return {
     id: row.id,
     projectId: row.project_id,
+    source: (row.source ?? "chat") as Session["source"],
     agentId: row.agent_id,
     agentSessionId: row.agent_session_id,
     title: row.title,
     cwd: row.cwd,
+    configDir: row.config_dir ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     messageCount: row.message_count ?? 0,
@@ -321,9 +471,16 @@ function rowToSession(row: any): Session {
   };
 }
 
-/** 获取会话列表（按更新时间倒序） */
+/**
+ * 获取聊天会话列表（按更新时间倒序）。
+ * 工作流节点会话只服务于运行详情，不应出现在项目会话树里。
+ */
 export function listSessions(): Session[] {
-  const rows = db!.prepare("SELECT * FROM sessions ORDER BY updated_at DESC").all() as any[];
+  const rows = db!
+    .prepare(
+      "SELECT * FROM sessions WHERE COALESCE(source, 'chat') <> 'workflow' ORDER BY updated_at DESC",
+    )
+    .all() as any[];
   return rows.map(rowToSession);
 }
 
@@ -335,10 +492,20 @@ export function getSession(id: string): Session | null {
   return row ? rowToSession(row) : null;
 }
 
-/** 列出某项目下所有会话 id（CLI 侧数据的清理由 agent-service 逐个执行） */
+/** 列出某项目下所有会话 id（含工作流会话；用于删除项目时的完整清理） */
 export function listSessionIdsByProject(projectId: string): string[] {
   const rows = db!
     .prepare("SELECT id FROM sessions WHERE project_id = ?")
+    .all(projectId) as Array<{ id: string }>;
+  return rows.map((r) => r.id);
+}
+
+/** 某项目下的聊天会话 id（「清空会话」只处理用户可见的聊天） */
+export function listChatSessionIdsByProject(projectId: string): string[] {
+  const rows = db!
+    .prepare(
+      "SELECT id FROM sessions WHERE project_id = ? AND COALESCE(source, 'chat') <> 'workflow'",
+    )
     .all(projectId) as Array<{ id: string }>;
   return rows.map((r) => r.id);
 }
@@ -522,6 +689,7 @@ function parseWorkflowGraph(raw: string): WorkflowGraph {
 function rowToWorkflow(row: any): Workflow {
   return {
     id: row.id,
+    workspaceId: row.workspace_id ?? "",
     name: row.name,
     description: row.description ?? "",
     graph: parseWorkflowGraph(row.graph_json),
@@ -546,22 +714,425 @@ export function createWorkflow(draft: WorkflowDraft): Workflow {
   const id = randomUUID();
   const now = Date.now();
   db!.prepare(
-    "INSERT INTO workflows (id, name, description, graph_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
-  ).run(id, draft.name, draft.description, JSON.stringify(draft.graph), now, now);
+    "INSERT INTO workflows (id, workspace_id, name, description, graph_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+  ).run(
+    id,
+    draft.workspaceId,
+    draft.name,
+    draft.description,
+    JSON.stringify(draft.graph),
+    now,
+    now,
+  );
   return getWorkflow(id)!;
 }
 
 export function updateWorkflow(id: string, draft: WorkflowDraft): Workflow | null {
   const info = db!
     .prepare(
-      "UPDATE workflows SET name = ?, description = ?, graph_json = ?, updated_at = ? WHERE id = ?",
+      "UPDATE workflows SET workspace_id = ?, name = ?, description = ?, graph_json = ?, updated_at = ? WHERE id = ?",
     )
-    .run(draft.name, draft.description, JSON.stringify(draft.graph), Date.now(), id);
+    .run(
+      draft.workspaceId,
+      draft.name,
+      draft.description,
+      JSON.stringify(draft.graph),
+      Date.now(),
+      id,
+    );
   return info.changes > 0 ? getWorkflow(id) : null;
+}
+
+export function listWorkflowsByWorkspace(workspaceId: string): Workflow[] {
+  const rows = db!
+    .prepare(
+      "SELECT * FROM workflows WHERE workspace_id = ? ORDER BY updated_at DESC",
+    )
+    .all(workspaceId) as any[];
+  return rows.map(rowToWorkflow);
 }
 
 export function deleteWorkflow(id: string): void {
   db!.prepare("DELETE FROM workflows WHERE id = ?").run(id);
+}
+
+/**
+ * 删除某工作流的所有运行记录，并返回需要一并清理的目录与会话。
+ *
+ * 事件 / 节点运行 / 运行主记录在一个事务里删除；
+ * 会话与磁盘目录由调用方清理（需要 provider 与文件系统参与）。
+ */
+export function deleteWorkflowRuns(workflowId: string): {
+  runIds: string[];
+  sessionIds: string[];
+} {
+  const runRows = db!
+    .prepare("SELECT id FROM workflow_runs WHERE workflow_id = ?")
+    .all(workflowId) as { id: string }[];
+  const runIds = runRows.map((row) => row.id);
+  const sessionIds = new Set<string>();
+
+  db!.transaction(() => {
+    for (const runId of runIds) {
+      const nodeRows = db!
+        .prepare("SELECT session_id FROM workflow_node_runs WHERE run_id = ?")
+        .all(runId) as { session_id: string | null }[];
+      const attemptRows = db!
+        .prepare("SELECT session_id FROM workflow_node_attempts WHERE run_id = ?")
+        .all(runId) as { session_id: string | null }[];
+      for (const row of [...nodeRows, ...attemptRows]) {
+        if (row.session_id) sessionIds.add(row.session_id);
+      }
+      db!.prepare("DELETE FROM workflow_run_events WHERE run_id = ?").run(runId);
+      db!.prepare("DELETE FROM workflow_node_attempts WHERE run_id = ?").run(runId);
+      db!.prepare("DELETE FROM workflow_node_runs WHERE run_id = ?").run(runId);
+      db!.prepare("DELETE FROM workflow_runs WHERE id = ?").run(runId);
+    }
+  })();
+
+  return { runIds, sessionIds: [...sessionIds] };
+}
+
+// ============================================================================
+// 工作流运行
+// ============================================================================
+
+function rowToWorkflowRun(row: any): WorkflowRun {
+  return {
+    id: row.id,
+    workflowId: row.workflow_id,
+    workspaceId: row.workspace_id,
+    workflowName: row.workflow_name,
+    workspacePath: row.workspace_path,
+    graph: parseWorkflowGraph(row.graph_json),
+    artifactDir: row.artifact_dir,
+    status: row.status as WorkflowRunStatus,
+    error: row.error ?? null,
+    createdAt: row.created_at,
+    startedAt: row.started_at ?? null,
+    finishedAt: row.finished_at ?? null,
+  };
+}
+
+function rowToWorkflowNodeRun(row: any): WorkflowNodeRun {
+  return {
+    id: row.id,
+    runId: row.run_id,
+    nodeId: row.node_id,
+    nodeName: row.node_name,
+    nodeType: row.node_type,
+    employeeId: row.employee_id ?? null,
+    employeeName: row.employee_name ?? null,
+    agentId: row.agent_id ?? null,
+    status: row.status as WorkflowNodeRunStatus,
+    attempt: row.attempt ?? 1,
+    maxRetries: row.max_retries ?? 0,
+    sessionId: row.session_id ?? null,
+    artifactDir: row.artifact_dir ?? null,
+    inputPath: row.input_path ?? null,
+    outputPath: row.output_path ?? null,
+    handoffPath: row.handoff_path ?? null,
+    outputSummary: row.output_summary ?? null,
+    error: row.error ?? null,
+    decision: row.decision ?? null,
+    decidedAt: row.decided_at ?? null,
+    startedAt: row.started_at ?? null,
+    finishedAt: row.finished_at ?? null,
+  };
+}
+
+function rowToWorkflowRunEvent(row: any): WorkflowRunEvent {
+  let payload: Record<string, unknown> = {};
+  try {
+    payload = JSON.parse(row.payload_json);
+  } catch {
+    // 损坏事件不阻断回放
+  }
+  return {
+    seq: row.seq,
+    runId: row.run_id,
+    nodeRunId: row.node_run_id ?? null,
+    type: row.type as WorkflowRunEventType,
+    payload,
+    createdAt: row.created_at,
+  };
+}
+
+export function createWorkflowRun(input: {
+  id: string;
+  workflowId: string;
+  workspaceId: string;
+  workflowName: string;
+  workspacePath: string;
+  graph: WorkflowGraph;
+  artifactDir: string;
+  status: WorkflowRunStatus;
+  createdAt: number;
+}): WorkflowRun {
+  db!.prepare(
+    `INSERT INTO workflow_runs (
+      id, workflow_id, workspace_id, workflow_name, workspace_path,
+      graph_json, artifact_dir, status, error, created_at, started_at, finished_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, NULL, NULL)`,
+  ).run(
+    input.id,
+    input.workflowId,
+    input.workspaceId,
+    input.workflowName,
+    input.workspacePath,
+    JSON.stringify(input.graph),
+    input.artifactDir,
+    input.status,
+    input.createdAt,
+  );
+  return getWorkflowRun(input.id)!;
+}
+
+export function getWorkflowRun(id: string): WorkflowRun | null {
+  const row = db!
+    .prepare("SELECT * FROM workflow_runs WHERE id = ?")
+    .get(id) as any;
+  return row ? rowToWorkflowRun(row) : null;
+}
+
+export function listWorkflowRuns(workflowId?: string): WorkflowRun[] {
+  const rows = workflowId
+    ? (db!
+        .prepare(
+          "SELECT * FROM workflow_runs WHERE workflow_id = ? ORDER BY created_at DESC",
+        )
+        .all(workflowId) as any[])
+    : (db!
+        .prepare("SELECT * FROM workflow_runs ORDER BY created_at DESC")
+        .all() as any[]);
+  return rows.map(rowToWorkflowRun);
+}
+
+export function listWorkflowRunsByWorkspace(
+  workspaceId: string,
+): WorkflowRun[] {
+  const rows = db!
+    .prepare(
+      "SELECT * FROM workflow_runs WHERE workspace_id = ? ORDER BY created_at DESC",
+    )
+    .all(workspaceId) as any[];
+  return rows.map(rowToWorkflowRun);
+}
+
+export function updateWorkflowRun(
+  id: string,
+  patch: {
+    status?: WorkflowRunStatus;
+    error?: string | null;
+    startedAt?: number | null;
+    finishedAt?: number | null;
+  },
+): void {
+  const sets: string[] = [];
+  const values: unknown[] = [];
+  if (patch.status !== undefined) {
+    sets.push("status = ?");
+    values.push(patch.status);
+  }
+  if (patch.error !== undefined) {
+    sets.push("error = ?");
+    values.push(patch.error);
+  }
+  if (patch.startedAt !== undefined) {
+    sets.push("started_at = ?");
+    values.push(patch.startedAt);
+  }
+  if (patch.finishedAt !== undefined) {
+    sets.push("finished_at = ?");
+    values.push(patch.finishedAt);
+  }
+  if (sets.length === 0) return;
+  values.push(id);
+  db!.prepare(`UPDATE workflow_runs SET ${sets.join(", ")} WHERE id = ?`).run(
+    ...values,
+  );
+}
+
+export function createWorkflowNodeRun(input: {
+  id: string;
+  runId: string;
+  nodeId: string;
+  nodeName: string;
+  nodeType: WorkflowNode["type"];
+  employeeId: string | null;
+  employeeName: string | null;
+  agentId: string | null;
+  status: WorkflowNodeRunStatus;
+  attempt: number;
+  maxRetries: number;
+}): WorkflowNodeRun {
+  db!.prepare(
+    `INSERT INTO workflow_node_runs (
+      id, run_id, node_id, node_name, node_type, employee_id, employee_name,
+      agent_id, status, attempt, max_retries
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).run(
+    input.id,
+    input.runId,
+    input.nodeId,
+    input.nodeName,
+    input.nodeType,
+    input.employeeId,
+    input.employeeName,
+    input.agentId,
+    input.status,
+    input.attempt,
+    input.maxRetries,
+  );
+  return getWorkflowNodeRun(input.id)!;
+}
+
+/**
+ * 记录一次节点尝试的会话与产物目录。
+ * workflow_node_runs.session_id 只保存最新一次，重试前的会话靠这张表保留引用，
+ * 删除工作流时才能把历次会话全部清理掉。
+ */
+export function createWorkflowNodeAttempt(input: {
+  id: string;
+  runId: string;
+  nodeRunId: string;
+  attempt: number;
+  sessionId: string | null;
+  artifactDir: string | null;
+}): void {
+  db!.prepare(
+    `INSERT INTO workflow_node_attempts (
+      id, run_id, node_run_id, attempt, session_id, artifact_dir, created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+  ).run(
+    input.id,
+    input.runId,
+    input.nodeRunId,
+    input.attempt,
+    input.sessionId,
+    input.artifactDir,
+    Date.now(),
+  );
+}
+
+export function getWorkflowNodeRun(id: string): WorkflowNodeRun | null {
+  const row = db!
+    .prepare("SELECT * FROM workflow_node_runs WHERE id = ?")
+    .get(id) as any;
+  return row ? rowToWorkflowNodeRun(row) : null;
+}
+
+export function listWorkflowNodeRuns(runId: string): WorkflowNodeRun[] {
+  const rows = db!
+    .prepare(
+      "SELECT * FROM workflow_node_runs WHERE run_id = ? ORDER BY rowid ASC",
+    )
+    .all(runId) as any[];
+  return rows.map(rowToWorkflowNodeRun);
+}
+
+const NODE_RUN_COLUMNS: Record<string, string> = {
+  status: "status",
+  attempt: "attempt",
+  sessionId: "session_id",
+  artifactDir: "artifact_dir",
+  inputPath: "input_path",
+  outputPath: "output_path",
+  handoffPath: "handoff_path",
+  outputSummary: "output_summary",
+  error: "error",
+  decision: "decision",
+  decidedAt: "decided_at",
+  startedAt: "started_at",
+  finishedAt: "finished_at",
+};
+
+export function updateWorkflowNodeRun(
+  id: string,
+  patch: Partial<
+    Pick<
+      WorkflowNodeRun,
+      | "status"
+      | "attempt"
+      | "sessionId"
+      | "artifactDir"
+      | "inputPath"
+      | "outputPath"
+      | "handoffPath"
+      | "outputSummary"
+      | "error"
+      | "decision"
+      | "decidedAt"
+      | "startedAt"
+      | "finishedAt"
+    >
+  >,
+): void {
+  const sets: string[] = [];
+  const values: unknown[] = [];
+  for (const [key, column] of Object.entries(NODE_RUN_COLUMNS)) {
+    const value = (patch as Record<string, unknown>)[key];
+    if (value !== undefined) {
+      sets.push(`${column} = ?`);
+      values.push(value);
+    }
+  }
+  if (sets.length === 0) return;
+  values.push(id);
+  db!.prepare(
+    `UPDATE workflow_node_runs SET ${sets.join(", ")} WHERE id = ?`,
+  ).run(...values);
+}
+
+export function appendWorkflowRunEvent(input: {
+  runId: string;
+  nodeRunId: string | null;
+  type: WorkflowRunEventType;
+  payload: Record<string, unknown>;
+}): WorkflowRunEvent {
+  const info = db!
+    .prepare(
+      "INSERT INTO workflow_run_events (run_id, node_run_id, type, payload_json, created_at) VALUES (?, ?, ?, ?, ?)",
+    )
+    .run(
+      input.runId,
+      input.nodeRunId,
+      input.type,
+      JSON.stringify(input.payload),
+      Date.now(),
+    );
+  const seq = Number(info.lastInsertRowid);
+  return {
+    seq,
+    runId: input.runId,
+    nodeRunId: input.nodeRunId,
+    type: input.type,
+    payload: input.payload,
+    createdAt: Date.now(),
+  };
+}
+
+export function listWorkflowRunEvents(
+  runId: string,
+  afterSeq = 0,
+): WorkflowRunEvent[] {
+  const rows = db!
+    .prepare(
+      "SELECT * FROM workflow_run_events WHERE run_id = ? AND seq > ? ORDER BY seq ASC",
+    )
+    .all(runId, afterSeq) as any[];
+  return rows.map(rowToWorkflowRunEvent);
+}
+
+/** 标记应用退出时仍处于活动状态的运行为中断（进程已不存在，不能假装还在跑） */
+export function interruptStaleWorkflowRuns(): void {
+  const now = Date.now();
+  db!.prepare(
+    "UPDATE workflow_runs SET status = 'interrupted', error = '应用已退出，运行被中断', finished_at = ? WHERE status IN ('queued','running','awaiting_approval')",
+  ).run(now);
+  db!.prepare(
+    "UPDATE workflow_node_runs SET status = 'canceled', finished_at = ? WHERE status IN ('pending','running','awaiting_approval','retrying')",
+  ).run(now);
 }
 
 // ============================================================================

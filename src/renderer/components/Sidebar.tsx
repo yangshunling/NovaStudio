@@ -29,19 +29,14 @@ import {
 import type { Project, Session } from "@shared/types";
 import type { AgentInfo } from "@shared/contracts/agent";
 import logoUrl from "../assets/logo.png";
-import { timeAgo } from "../lib/utils";
+import { dirName, timeAgo } from "../lib/utils";
+import { toast } from "../stores/toast";
 import { AgentPill } from "./ui/AgentPill";
 import { ConfirmDeleteButton } from "./ui/ConfirmDeleteButton";
 import { FolderTypeIcon } from "./ui/FolderTypeIcon";
 import { StatusDot } from "./ui/StatusDot";
 import { useFileViewerStore } from "../stores/fileViewer";
-
-/** 取路径最后一段当项目名（兼容 Windows 反斜杠） */
-function dirName(p: string): string {
-  if (!p) return "未命名";
-  const parts = p.replace(/\\/g, "/").split("/").filter(Boolean);
-  return parts[parts.length - 1] || p;
-}
+import { ThemeToggle } from "./ThemeToggle";
 
 /** 侧栏正文与元信息字号 */
 const FONT_BODY = "text-body-lg";
@@ -108,16 +103,19 @@ export function Sidebar() {
       {/* 头部：品牌 */}
       <div
         style={{ zIndex: 30 }}
-        className="relative flex h-[var(--c-layout-header)] items-center border-b border-border px-4"
+        className="relative flex h-[var(--c-layout-header)] items-center justify-between gap-2 border-b border-border px-4"
       >
-        <div className="flex items-center gap-2">
+        <div className="flex min-w-0 items-center gap-2">
           <img
             src={logoUrl}
             alt="Nova Studio"
-            className="h-8 w-8 rounded-lg object-cover"
+            className="h-8 w-8 shrink-0 rounded-lg object-cover"
           />
-          <span className="text-title font-semibold tracking-wide text-text">Nova Studio</span>
+          <span className="truncate text-title font-semibold tracking-wide text-text">
+            Nova Studio
+          </span>
         </div>
+        <ThemeToggle />
       </div>
 
       {/* 功能分组 */}
@@ -225,9 +223,22 @@ export function Sidebar() {
                 }
               }}
               onDeleteProject={() => {
-                if (window.confirm(`删除项目「${project.name}」及其所有会话？`)) {
-                  deleteProject(project.id);
-                }
+                const confirmed = window.confirm(
+                  [
+                    `删除项目「${project.name}」？`,
+                    "",
+                    "将同时删除：",
+                    "· 所有会话",
+                    "· 该项目下的工作流与运行记录",
+                    "· 项目目录下的 .novastudio 产物",
+                    "",
+                    "项目文件夹本身不会被删除。此操作不可恢复。",
+                  ].join("\n"),
+                );
+                if (!confirmed) return;
+                void deleteProject(project.id).catch((err) =>
+                  toast.error(err instanceof Error ? err.message : String(err)),
+                );
               }}
             />
           ))}

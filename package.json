@@ -1,7 +1,7 @@
 {
   "name": "nova",
   "version": "0.1.0",
-  "description": "Nova — AI 智能体 CLI 的女仆工坊 GUI 客户端",
+  "description": "Nova — AI 智能体 CLI 的桌面 GUI 客户端",
   "type": "module",
   "main": "out/main/index.js",
   "scripts": {

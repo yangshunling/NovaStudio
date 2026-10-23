@@ -42,6 +42,10 @@ export interface RunParams {
   prompt: string;
   cwd: string;
   opts?: SessionOptions;
+  /** 子进程追加环境变量（工作流节点的独立配置目录等） */
+  env?: Record<string, string>;
+  /** 宿主侧旁路监听：除推送到渲染层外，引擎也需要实时拿到事件 */
+  onEvent?: (event: AgentEvent) => void;
 }
 
 export interface RunOutcome {
@@ -88,7 +92,7 @@ export function createAgentService(emit: Emit): AgentService {
     const ref = session.agentSessionId;
     if (!provider || !ref) return [];
 
-    const ctx = { cwd: session.cwd };
+    const ctx = { cwd: session.cwd, configDir: session.configDir ?? null };
     const version = provider.historyVersion(ref, ctx);
 
     if (version !== null) {
@@ -123,7 +127,10 @@ export function createAgentService(emit: Emit): AgentService {
 
     const provider = getProvider(session.agentId);
     if (provider?.manifest.capabilities.sessionCleanup) {
-      provider.deleteSession(ref, { cwd: session.cwd });
+      provider.deleteSession(ref, {
+        cwd: session.cwd,
+        configDir: session.configDir ?? null,
+      });
     }
     historyCache.delete(ref);
   }
@@ -155,7 +162,7 @@ export function createAgentService(emit: Emit): AgentService {
     },
 
     async run(params: RunParams): Promise<RunOutcome> {
-      const { sessionId, prompt, cwd, opts } = params;
+      const { sessionId, prompt, cwd, opts, env, onEvent } = params;
       const failed = (error: string): RunOutcome => ({
         ok: false,
         exitCode: -1,
@@ -195,13 +202,20 @@ export function createAgentService(emit: Emit): AgentService {
         cwd,
         sessionRef,
         opts,
+        env,
+        configDir: session.configDir ?? null,
         timeoutMs: resolveTimeoutMs(),
         onEvent: (event) => {
           // done 事件仅复位流式状态，不进入消息内容（与渲染进程 _onEvent 一致）
           if (event.type !== "done") {
             assistantContent = appendEvent(assistantContent, event);
           }
-          emit("agent:event", { sessionId, event });
+          // 工作流会话不出现在聊天界面，事件只交给引擎；
+          // 否则渲染层的 messagesBySession 会持续堆积永远不会展示的数据。
+          if (session.source !== "workflow") {
+            emit("agent:event", { sessionId, event });
+          }
+          onEvent?.(event);
         },
         onSessionId: (rawId) => {
           captured.rawId = rawId;

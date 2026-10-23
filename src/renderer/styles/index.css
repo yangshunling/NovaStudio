@@ -11,7 +11,6 @@
  *
  * ── 谁提供 token 的值 ───────────────────────────────────────────────────
  *   skins/_base.css           所有皮肤共享的形状默认值（字体栈 / 圆角 / 布局 / 间距 / 动效）
- *   skins/_families/<f>.css   皮肤族共享的形状与效果
  *   skins/<id>/tokens.css     该皮肤独有的调色与刻意差异
  *
  * token 清单的**唯一真相来源**是 skins/contract.ts：
@@ -411,86 +410,12 @@ body {
  *
  * 三个 token 都是可选的：未声明的皮肤等同于「没有这张纸」——
  * 背景透明、无投影、无内缩，与其此前的观感一致。
- * 因此需要层叠质感的皮肤（经典 · 昼）在自己的 tokens.css 里声明即可，
- * 装饰舞台类皮肤（女仆工坊）无需改动。
+ * 因此需要层叠质感的皮肤（经典 · 昼）在自己的 tokens.css 里声明即可。
  * ============================================================================ */
 .ui-page {
   margin: var(--c-page-inset, 0);
   background: var(--c-page-bg, transparent);
   box-shadow: var(--c-page-shadow, none);
-}
-
-/* ============================================================================
- * 装饰舞台（背景图 + 立绘）
- *
- * 是否渲染由皮肤 manifest 的 chrome 决定（无 chrome 的皮肤根本不挂载舞台），
- * 因此这里只需定义舞台自身的结构与行为，无需皮肤开关。
- * ============================================================================ */
-.ui-stage {
-  position: absolute;
-  inset: 0;
-  z-index: 0;
-  overflow: hidden;
-  pointer-events: none;
-  contain: strict;
-}
-
-/* 背景图：cover 保持比例，按内容区较宽轴填充、居中裁剪 */
-.ui-stage-bg {
-  position: absolute;
-  inset: 0;
-  background: center / cover no-repeat;
-}
-
-/* 可读性轻纱：叠在背景图之上，保证消息文字清晰 */
-.ui-stage-veil {
-  position: absolute;
-  inset: 0;
-  background: var(--c-stage-veil, none);
-}
-
-/* 立绘：贴内容区底部两角，按高度缩放 */
-.ui-stage-figure {
-  position: absolute;
-  bottom: 0;
-  width: auto;
-  max-width: none;
-  height: var(--c-stage-figure-height, 62%);
-  object-fit: contain;
-  object-position: center bottom;
-  opacity: 0.9;
-  filter: var(--c-stage-figure-filter, none);
-  transition: height var(--c-motion-slow) var(--c-ease-standard),
-    opacity var(--c-motion-base) var(--c-ease-standard);
-}
-/* 立绘与内容区侧边的距离：由皮肤决定，未声明则用默认内缩 */
-.ui-stage-figure-left {
-  left: var(--c-stage-figure-inset, clamp(8px, 1.5%, 24px));
-  height: var(--c-stage-figure-left-height, 64%);
-}
-.ui-stage-figure-right {
-  right: var(--c-stage-figure-inset, clamp(8px, 1.5%, 24px));
-  height: var(--c-stage-figure-right-height, 60%);
-}
-
-/* 窄屏：降低角色存在感，避免遮挡消息列 */
-@media (max-width: 900px) {
-  .ui-stage-figure {
-    opacity: 0.62;
-    height: calc(var(--c-stage-figure-height, 62%) * 0.74);
-  }
-  .ui-stage-figure-left {
-    height: calc(var(--c-stage-figure-left-height, 64%) * 0.75);
-  }
-  .ui-stage-figure-right {
-    height: calc(var(--c-stage-figure-right-height, 60%) * 0.73);
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .ui-stage-figure {
-    transition: none;
-  }
 }
 
 /* ============================================================================
@@ -927,4 +852,57 @@ body {
   .ui-panel-in {
     animation: none;
   }
+}
+
+/* ============================================================================
+ * 调试状态：直接画在节点上
+ * ============================================================================ */
+.wf-node.state-running {
+  border-color: var(--c-accent);
+  box-shadow: 0 0 0 3px var(--c-accent-soft), var(--c-shadow-sm);
+}
+.wf-node.state-awaiting_approval {
+  border-color: var(--c-accent);
+  border-style: dashed;
+  box-shadow: 0 0 0 3px var(--c-accent-soft), var(--c-shadow-sm);
+}
+.wf-node.state-succeeded {
+  border-color: var(--c-success);
+}
+.wf-node.state-failed {
+  border-color: var(--c-error);
+  box-shadow: 0 0 0 3px var(--c-error-bg), var(--c-shadow-sm);
+}
+.wf-node.state-skipped {
+  border-style: dashed;
+  opacity: 0.7;
+}
+.wf-node.state-canceled {
+  border-style: dashed;
+  opacity: 0.55;
+}
+
+.wf-node-chip[data-state="running"],
+.wf-node-chip[data-state="retrying"],
+.wf-node-chip[data-state="awaiting_approval"] {
+  background: var(--c-accent-soft);
+  color: var(--c-accent);
+}
+.wf-node-chip[data-state="succeeded"] {
+  background: color-mix(in srgb, var(--c-success) 14%, transparent);
+  color: var(--c-success);
+}
+.wf-node-chip[data-state="failed"] {
+  background: var(--c-error-bg);
+  color: var(--c-error);
+}
+.wf-node-chip[data-state="skipped"],
+.wf-node-chip[data-state="canceled"] {
+  background: var(--c-surface-hover);
+  color: var(--c-text-muted);
+}
+
+/* details 展开时旋转箭头 */
+details[open] > summary .details-chevron {
+  transform: rotate(180deg);
 }

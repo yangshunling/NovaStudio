@@ -115,6 +115,29 @@ export const ipc = {
     call("workflows:update", { id, draft }),
   deleteWorkflow: (id: string) => call("workflows:delete", { id }),
 
+  // === 工作流运行 ===
+  startWorkflowRun: (workflowId: string) =>
+    call("workflow:run:start", { workflowId }),
+  getWorkflowRun: (runId: string) => call("workflow:run:get", { runId }),
+  listWorkflowRuns: (workflowId: string) =>
+    call("workflow:run:list", { workflowId }),
+  listWorkspaceRuns: (workspaceId: string) =>
+    call("workflow:run:listByWorkspace", { workspaceId }),
+  cancelWorkflowRun: (runId: string) =>
+    call("workflow:run:cancel", { runId }),
+  approveWorkflowNode: (
+    runId: string,
+    nodeRunId: string,
+    action: "approve" | "reject",
+    note?: string,
+  ) => call("workflow:run:approve", { runId, nodeRunId, action, note }),
+  openWorkflowArtifacts: (runId: string) =>
+    call("workflow:run:openArtifacts", { runId }),
+  getWorkflowNodeDetail: (runId: string, nodeRunId: string) =>
+    call("workflow:run:nodeDetail", { runId, nodeRunId }),
+  openWorkflowNodeArtifacts: (runId: string, nodeRunId: string) =>
+    call("workflow:run:openNodeArtifacts", { runId, nodeRunId }),
+
   // === 主进程推送订阅（返回取消订阅函数） ===
   on: {
     agentEvent: (cb: (payload: IpcPushMap["agent:event"]) => void) =>
@@ -128,5 +151,8 @@ export const ipc = {
       on("terminal:data", cb),
     terminalExit: (cb: (payload: IpcPushMap["terminal:exit"]) => void) =>
       on("terminal:exit", cb),
+    workflowRunEvent: (
+      cb: (payload: IpcPushMap["workflow:run:event"]) => void,
+    ) => on("workflow:run:event", cb),
   },
 };

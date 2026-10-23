@@ -34,9 +34,13 @@ export function registerSessionHandlers(service: AgentService): void {
     return true;
   });
 
-  /** 清空某项目下的全部会话：逐个中断、清理 CLI 侧数据与缓存，再删索引行 */
+  /**
+   * 清空某项目下的聊天会话。
+   * 工作流节点会话不在项目会话树里展示，因此不参与这个操作；
+   * 它们由删除工作流 / 工作区时统一清理。
+   */
   handle("session:clearProject", ({ projectId }) => {
-    for (const id of db.listSessionIdsByProject(projectId)) {
+    for (const id of db.listChatSessionIdsByProject(projectId)) {
       service.releaseSession(id);
       db.deleteSession(id);
     }

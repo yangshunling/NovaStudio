@@ -3,7 +3,7 @@
  *
  * Nova 继续持有 AgentEvent / Zustand / SQLite；本组件只把领域事件转换成
  * assistant-ui 的 ThreadMessageLike，并使用其 Thread / Message / Part 原语渲染。
- * 视觉样式全部走 Nova 的语义 token，因此昼夜和女仆皮肤自动兼容。
+ * 视觉样式全部走 Nova 的语义 token，因此昼夜皮肤自动兼容。
  */
 
 import { useMemo, useState } from "react";
@@ -99,7 +99,7 @@ function ThreadEmpty() {
         <Brain className="h-5 w-5" />
       </div>
       <h1 className="ui-serif text-hero font-semibold tracking-wide text-text-secondary">
-        {project ? "开始对话" : "Nova 女仆工坊"}
+        {project ? "开始对话" : "Nova Studio"}
       </h1>
       <p className="text-body-lg">
         {project ? `在 ${project.name} 里与智能体对话` : "从左侧选择或创建一个项目"}

@@ -2,7 +2,7 @@
  * 系统终端标签
  *
  * xterm.js 负责终端渲染与键盘输入；真实 shell 运行在主进程 node-pty 中。
- * 颜色通过 Nova 的语义 token 读取，昼夜与女仆皮肤会自动适配。
+ * 颜色通过 Nova 的语义 token 读取，昼夜皮肤会自动适配。
  */
 
 import { useEffect, useRef, useState } from "react";
