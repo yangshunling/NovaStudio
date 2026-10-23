@@ -232,13 +232,13 @@ export function WorkflowRunView({
 
   return (
     <main className="relative flex flex-1 flex-col overflow-hidden">
-      <div className="ui-page relative z-10 flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl">
+      <div className="ui-page relative z-10 flex min-h-0 flex-1 flex-col overflow-hidden">
         <header className="ui-glass relative z-10 flex h-[var(--c-layout-header)] shrink-0 items-center gap-3 border-b border-border px-4">
           <button
             type="button"
             onClick={onBack}
             title="返回运行记录"
-            className="flex h-9 shrink-0 items-center gap-1.5 rounded-lg px-2 text-body text-text-muted transition-colors hover:bg-surface-hover hover:text-text active:scale-95"
+            className="flex h-8 shrink-0 items-center gap-1.5 rounded-lg px-2 text-body text-text-muted transition-colors hover:bg-surface-hover hover:text-text active:scale-95"
           >
             <ArrowLeft className="h-4 w-4" />
             返回
@@ -285,7 +285,7 @@ export function WorkflowRunView({
               const ok = await ipc.openWorkflowArtifacts(runId);
               if (!ok) toast.error("无法打开产物目录");
             }}
-            className="ui-btn-ghost flex h-9 shrink-0 items-center gap-1.5 rounded-full px-4 text-body font-medium active:scale-95"
+            className="ui-btn-ghost flex h-8 shrink-0 items-center gap-1.5 rounded-full px-4 text-body font-medium active:scale-95"
           >
             <FolderOpen className="h-4 w-4" />
             产物
@@ -296,7 +296,7 @@ export function WorkflowRunView({
               type="button"
               onClick={() => void cancelRun()}
               disabled={busy}
-              className="flex h-9 shrink-0 items-center gap-1.5 rounded-full border border-error/40 bg-error-bg px-4 text-body font-medium text-error transition-colors hover:border-error active:scale-95 disabled:opacity-50"
+              className="flex h-8 shrink-0 items-center gap-1.5 rounded-full border border-error/40 bg-error-bg px-4 text-body font-medium text-error transition-colors hover:border-error active:scale-95 disabled:opacity-50"
             >
               <Square className="h-3.5 w-3.5" />
               终止
@@ -306,7 +306,7 @@ export function WorkflowRunView({
 
         <div className="flex min-h-0 flex-1">
           {/* 左：节点列表 */}
-          <aside className="flex w-[300px] shrink-0 flex-col border-r border-border bg-surface-2/25">
+          <aside className="flex w-[300px] shrink-0 flex-col border-r border-border bg-[var(--c-panel-bg)]">
             <div className="flex items-center justify-between px-4 pb-2 pt-4">
               <p className="text-meta font-semibold tracking-wide text-text-muted">
                 节点
@@ -360,7 +360,7 @@ export function WorkflowRunView({
                       type="button"
                       onClick={() => void decide("reject")}
                       disabled={busy}
-                      className="ui-btn-ghost flex h-9 items-center gap-1.5 rounded-full px-4 text-body font-medium active:scale-95 disabled:opacity-50"
+                      className="ui-btn-ghost flex h-8 items-center gap-1.5 rounded-full px-4 text-body font-medium active:scale-95 disabled:opacity-50"
                     >
                       <X className="h-4 w-4" />
                       驳回
@@ -369,7 +369,7 @@ export function WorkflowRunView({
                       type="button"
                       onClick={() => void decide("approve")}
                       disabled={busy}
-                      className="ui-btn-primary flex h-9 items-center gap-1.5 rounded-full px-4 text-body font-medium active:scale-95 disabled:opacity-50"
+                      className="ui-btn-primary flex h-8 items-center gap-1.5 rounded-full px-4 text-body font-medium active:scale-95 disabled:opacity-50"
                     >
                       <Check className="h-4 w-4" />
                       通过

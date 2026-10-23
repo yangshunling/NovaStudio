@@ -25,6 +25,7 @@ import type {
   AutomationStatus,
   DigitalEmployee,
   DigitalEmployeeDraft,
+  EmployeeSkill,
   SessionSource,
   Workflow,
   WorkflowDraft,
@@ -532,6 +533,31 @@ function parseJsonArray<T>(raw: string): T[] {
   }
 }
 
+/**
+ * 员工技能归一化。
+ *
+ * 旧版存的是 `{ id, name, source, enabled }` 路径条目；新版只存技能资产引用
+ * `{ assetId, name, enabled }`。旧条目保留 source，运行时仍可按原语义解析，
+ * 在 UI 中标记为「旧版路径」提示重新绑定。
+ */
+function normalizeEmployeeSkills(raw: string): EmployeeSkill[] {
+  return parseJsonArray<Record<string, unknown>>(raw).flatMap((item) => {
+    if (!item || typeof item !== "object") return [];
+    const name = typeof item.name === "string" ? item.name : "";
+    const source = typeof item.source === "string" ? item.source : undefined;
+    const assetId = typeof item.assetId === "string" ? item.assetId : "";
+    if (!assetId && !source && !name) return [];
+    return [
+      {
+        assetId,
+        name: name || source || "未命名技能",
+        ...(source ? { source } : {}),
+        enabled: item.enabled !== false,
+      },
+    ];
+  });
+}
+
 function rowToDigitalEmployee(row: any): DigitalEmployee {
   return {
     id: row.id,
@@ -543,7 +569,7 @@ function rowToDigitalEmployee(row: any): DigitalEmployee {
     model: row.model ?? "",
     systemPrompt: row.system_prompt ?? "",
     mcpServers: parseJsonArray(row.mcp_servers_json),
-    skills: parseJsonArray(row.skills_json),
+    skills: normalizeEmployeeSkills(row.skills_json),
     enabled: !!row.enabled,
     createdAt: row.created_at,
     updatedAt: row.updated_at,

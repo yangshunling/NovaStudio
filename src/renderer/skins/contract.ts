@@ -86,12 +86,14 @@ export const REQUIRED_TOKENS: readonly string[] = [
   "--c-progress-radius",
   // 布局
   "--c-layout-sidebar",
+  "--c-layout-session-list",
   "--c-layout-workspace",
   "--c-layout-drawer",
   "--c-layout-header",
   "--c-layout-content",
   "--c-layout-modal-w",
   "--c-layout-modal-h",
+  "--c-layout-menu",
   // 间距（皮肤可变层）
   "--c-space-inset",
   "--c-space-card",
@@ -125,9 +127,6 @@ export const REQUIRED_TOKENS: readonly string[] = [
   // 芯片
   "--c-ring-border",
   "--c-ring-shadow",
-  // 选中条
-  "--c-rail-bg",
-  "--c-rail-glow",
   // 侧栏
   "--c-sidebar-bg",
   "--c-sidebar-shadow",
@@ -148,6 +147,8 @@ export const OPTIONAL_TOKENS: readonly string[] = [
   "--c-page-bg",
   "--c-page-shadow",
   "--c-page-inset",
+  // 列表侧栏（会话 / 工作区）
+  "--c-panel-bg",
 ];
 
 /**
@@ -158,7 +159,6 @@ export const OPTIONAL_TOKENS: readonly string[] = [
  */
 export const DERIVED_TOKENS: readonly string[] = [
   "--c-chat-font-size",
-  "--c-preview-font-size",
   "--c-font-size-micro",
   "--c-font-size-caption",
   "--c-font-size-meta",

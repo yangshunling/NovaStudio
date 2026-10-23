@@ -18,6 +18,11 @@ import type {
   ReadFileResult,
   Session,
   SessionOptions,
+  SkillAsset,
+  SkillDocument,
+  SkillImportKind,
+  SkillImportResult,
+  SkillWriteResult,
   TerminalCreateResult,
   TerminalDataPayload,
   TerminalExitPayload,
@@ -107,6 +112,11 @@ export interface IpcInvokeMap {
 
   "settings:get": { args: []; result: Partial<AppSettings> };
   "settings:set": { args: [Partial<AppSettings>]; result: boolean };
+  /** 把当前皮肤的明暗同步给主进程，驱动原生标题栏 / 系统控件配色 */
+  "window:setAppearance": {
+    args: [{ appearance: "light" | "dark" }];
+    result: boolean;
+  };
 
   "automation:list": { args: []; result: AutomationTask[] };
   "automation:create": {
@@ -129,6 +139,20 @@ export interface IpcInvokeMap {
     result: DigitalEmployee | null;
   };
   "employees:delete": { args: [{ id: string }]; result: boolean };
+
+  /** 技能资产：聚合扫描 / 导入主库 / 删除 / 文档读写 / 打开目录 */
+  "skills:list": { args: []; result: SkillAsset[] };
+  "skills:import": {
+    args: [{ kind: SkillImportKind }];
+    result: SkillImportResult;
+  };
+  "skills:delete": { args: [{ id: string }]; result: boolean };
+  "skills:getDocument": { args: [{ id: string }]; result: SkillDocument | null };
+  "skills:saveDocument": {
+    args: [{ id: string; content: string }];
+    result: SkillWriteResult;
+  };
+  "skills:reveal": { args: [{ id: string }]; result: boolean };
 
   /** 工作流：列表 / 新建 / 更新 / 删除 */
   "workflows:list": { args: []; result: Workflow[] };

@@ -14,26 +14,24 @@ export function CenterPane() {
   const activeTab = tabs.find((tab) => tab.id === activeTabId) ?? null;
 
   return (
-    <div className="relative flex min-w-0 flex-1 flex-col overflow-hidden">
-      <div className="ui-page relative z-10 flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl">
-        <CenterTabs />
-        <div className="relative min-h-0 flex-1 overflow-hidden">
-          <div className={activeTab ? "hidden" : "h-full"}>
-            <ChatArea embedded />
-          </div>
-          {tabs.map((tab) => (
-            <div
-              key={tab.id}
-              className={activeTabId === tab.id ? "h-full" : "hidden"}
-            >
-              {tab.kind === "file" ? (
-                <FilePreview tab={tab} />
-              ) : (
-                <TerminalView tab={tab} />
-              )}
-            </div>
-          ))}
+    <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+      <CenterTabs />
+      <div className="relative min-h-0 flex-1 overflow-hidden">
+        <div className={activeTab ? "hidden" : "h-full"}>
+          <ChatArea embedded />
         </div>
+        {tabs.map((tab) => (
+          <div
+            key={tab.id}
+            className={activeTabId === tab.id ? "h-full" : "hidden"}
+          >
+            {tab.kind === "file" ? (
+              <FilePreview tab={tab} />
+            ) : (
+              <TerminalView tab={tab} />
+            )}
+          </div>
+        ))}
       </div>
     </div>
   );

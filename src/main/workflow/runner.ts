@@ -433,6 +433,7 @@ export function createWorkflowRunner(deps: WorkflowRunnerDeps): WorkflowRunner {
     );
     await ensureDir(attemptDir);
 
+    const runtimeWarnings: string[] = [];
     let claudeEnv: ClaudeEnvironment | null = null;
     if (employee.agentId === "claude") {
       claudeEnv = await prepareClaudeEnvironment({
@@ -443,12 +444,20 @@ export function createWorkflowRunner(deps: WorkflowRunnerDeps): WorkflowRunner {
         workspacePath: active.workspacePath,
         employee,
       });
-      if (claudeEnv.warnings.length > 0) {
-        await writeText(
-          join(attemptDir, "warnings.txt"),
-          claudeEnv.warnings.join("\n"),
+      runtimeWarnings.push(...claudeEnv.warnings);
+    } else {
+      const enabledSkills = employee.skills.filter((skill) => skill.enabled);
+      if (enabledSkills.length > 0) {
+        runtimeWarnings.push(
+          `当前 Agent（${employee.agentId}）暂未实现技能注入，本次已忽略 ${enabledSkills.length} 个技能。`,
         );
       }
+    }
+    if (runtimeWarnings.length > 0) {
+      await writeText(
+        join(attemptDir, "warnings.txt"),
+        runtimeWarnings.join("\n"),
+      );
     }
 
     const prompt = buildPrompt(active, node, employee, attempt);
@@ -505,6 +514,7 @@ export function createWorkflowRunner(deps: WorkflowRunnerDeps): WorkflowRunner {
           mcpConfig: claudeEnv?.mcpConfigPath ? "mcp.json" : null,
           strictMcpConfig: opts.strictMcpConfig === "1",
           isolatedConfigDir: !!claudeEnv?.configDir,
+          skills: claudeEnv?.skills ?? [],
         },
         null,
         2,

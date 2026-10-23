@@ -524,14 +524,14 @@ export function WorkflowEditor({
 
   return (
     <main className="relative flex flex-1 flex-col overflow-hidden">
-      <div className="ui-page relative z-10 flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl">
+      <div className="ui-page relative z-10 flex min-h-0 flex-1 flex-col overflow-hidden">
         {/* 顶栏：返回 / 名称 / 保存 */}
         <header className="ui-glass relative z-10 flex h-[var(--c-layout-header)] shrink-0 items-center gap-3 border-b border-border px-4">
           <button
             type="button"
             onClick={back}
             title="返回工作流列表"
-            className="flex h-9 shrink-0 items-center gap-1.5 rounded-lg px-2 text-body text-text-muted transition-colors hover:bg-surface-hover hover:text-text active:scale-95"
+            className="flex h-8 shrink-0 items-center gap-1.5 rounded-lg px-2 text-body text-text-muted transition-colors hover:bg-surface-hover hover:text-text active:scale-95"
           >
             <ArrowLeft className="h-4 w-4" />
             返回
@@ -581,7 +581,7 @@ export function WorkflowEditor({
                   setDirty(true);
                 }}
                 title="该工作流还没有归属工作区，选择后才可调试"
-                className="ui-ring h-9 shrink-0 rounded-lg bg-input-bg px-2.5 text-meta text-text outline-none transition-colors focus:border-input-border-focus"
+                className="ui-ring h-8 shrink-0 rounded-lg bg-input-bg px-2.5 text-meta text-text outline-none transition-colors focus:border-input-border-focus"
               >
                 <option value="">未归属 · 选择工作区…</option>
                 {workspaces.map((item) => (
@@ -608,7 +608,7 @@ export function WorkflowEditor({
             type="button"
             onClick={() => void openHistory()}
             title="查看这个工作流的历史运行"
-            className="ui-btn-ghost flex h-9 shrink-0 items-center gap-1.5 rounded-full px-4 text-body font-medium active:scale-95"
+            className="ui-btn-ghost flex h-8 shrink-0 items-center gap-1.5 rounded-full px-4 text-body font-medium active:scale-95"
           >
             <History className="h-4 w-4" />
             运行记录
@@ -618,7 +618,7 @@ export function WorkflowEditor({
             type="button"
             onClick={autoLayout}
             title="按连线自动排列节点"
-            className="ui-btn-ghost flex h-9 shrink-0 items-center gap-1.5 rounded-full px-4 text-body font-medium active:scale-95"
+            className="ui-btn-ghost flex h-8 shrink-0 items-center gap-1.5 rounded-full px-4 text-body font-medium active:scale-95"
           >
             <LayoutGrid className="h-4 w-4" />
             自动布局
@@ -628,7 +628,7 @@ export function WorkflowEditor({
             type="button"
             onClick={() => void save()}
             disabled={saving}
-            className="ui-btn-ghost flex h-9 shrink-0 items-center gap-1.5 rounded-full px-4 text-body font-medium active:scale-95"
+            className="ui-btn-ghost flex h-8 shrink-0 items-center gap-1.5 rounded-full px-4 text-body font-medium active:scale-95"
           >
             {saving ? (
               <Loader2 className="h-4 w-4 animate-spin" />
@@ -647,7 +647,7 @@ export function WorkflowEditor({
                 ? `在当前工作流中调试（产物写入 ${workspace.cwd} 下的 .novastudio）`
                 : "工作流未绑定工作区，无法调试"
             }
-            className="ui-btn-primary flex h-9 shrink-0 items-center gap-1.5 rounded-full px-4 text-body font-medium active:scale-95 disabled:opacity-50"
+            className="ui-btn-primary flex h-8 shrink-0 items-center gap-1.5 rounded-full px-4 text-body font-medium active:scale-95 disabled:opacity-50"
           >
             {debugActive ? (
               <Loader2 className="h-4 w-4 animate-spin" />
@@ -660,7 +660,7 @@ export function WorkflowEditor({
 
         <div className="relative flex min-h-0 flex-1">
           {/* 左侧：节点面板 + 数字员工 */}
-          <aside className="flex w-[280px] shrink-0 flex-col border-r border-border bg-surface-2/25">
+          <aside className="flex w-[280px] shrink-0 flex-col border-r border-border bg-[var(--c-panel-bg)]">
             <div className="p-4">
               <p className="mb-3 px-1 text-meta font-semibold tracking-wide text-text-muted">
                 节点

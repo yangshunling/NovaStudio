@@ -25,25 +25,38 @@
   --c-font-sans: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
   --c-font-mono: "JetBrains Mono", "Cascadia Code", "Fira Code", Consolas, monospace;
 
-  /* === 圆角刻度（与 Tailwind rounded-* 一一对应，组件直接用工具类） === */
-  --c-radius-sm: 2px;
-  --c-radius-md: 6px;
-  --c-radius-lg: 8px;
+  /* === 圆角：全站统一为同一个圆润弧度 ===
+   *
+   * rounded-sm / md / lg / xl / 2xl 全部映射到这个值，避免同类组件
+   * 因为用了不同工具类而出现深浅不一的圆角。
+   * 圆形头像、状态点、胶囊按钮仍使用 rounded-full（那是形状，不是背景弧度）。
+   */
+  --c-radius-sm: 12px;
+  --c-radius-md: 12px;
+  --c-radius-lg: 12px;
   --c-radius-xl: 12px;
-  --c-radius-2xl: 16px;
-  --c-radius-input: 22px;
+  --c-radius-2xl: 12px;
+  --c-radius-input: 12px;
 
   /* 历史回放进度条的圆角（形状，与具体皮肤无关） */
   --c-progress-radius: 999px;
 
+  /* === 表面 ===
+   * 列表侧栏（会话 / 工作区）的底色；皮肤可覆盖，
+   * 未声明时透明，不额外叠加色块。
+   */
+  --c-panel-bg: transparent;
+
   /* === 布局尺寸 === */
-  --c-layout-sidebar: 280px;
+  --c-layout-sidebar: 240px;
+  --c-layout-session-list: 268px;
   --c-layout-workspace: clamp(240px, 28vw, 320px);
   --c-layout-drawer: 560px;
   --c-layout-header: 56px;
   --c-layout-content: 896px;
   --c-layout-modal-w: 80vw;
   --c-layout-modal-h: 80vh;
+  --c-layout-menu: 200px;
 
   /* === 间距（皮肤可变层） ===
    *

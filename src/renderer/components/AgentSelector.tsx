@@ -166,7 +166,7 @@ export function AgentSelector({
                   onMouseEnter={() => setHoverIdx(i)}
                   className={`relative flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left transition-colors ${
                     hovered ? "bg-surface-hover" : ""
-                  } ${active ? "ui-active bg-surface-active" : ""} ${
+                  } ${active ? "bg-surface-active" : ""} ${
                     !agent.status.installed ? "opacity-55" : ""
                   }`}
                 >

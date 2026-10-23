@@ -1,8 +1,8 @@
 /**
  * 经典 · 夜 — token 值
  *
- * 「经典 · 昼」的黑色镜像：GitHub Dark / VS Code Dark 的色调。
- * - 深灰黑背景，不做玻璃拟态、不用金色装饰
+ * 「经典 · 昼」的黑色镜像：以纯黑（#000）为底，只在需要抬升的表面上略作提亮。
+ * - 画布、纸面、侧栏、输入框均为纯黑；卡片等浮起表面用近黑灰区分层次
  * - GitHub Dark Blue (#2f81f7) 为强调色
  * - 标准圆角、无衬线字体，干净利落
  *
@@ -13,27 +13,27 @@
 @import "../_base.css";
 
 [data-theme="classic-night"] {
-  /* === 基础背景 === */
-  --c-bg: #0d1117;
-  --c-surface: #161b22;
-  --c-surface-2: #1c2129;
-  --c-surface-hover: rgba(110, 118, 129, 0.12);
+  /* === 基础背景：画布 / 主纸面保持纯黑，浮起表面用近黑灰拉出层次 === */
+  --c-bg: #000000;
+  --c-surface: #000000;
+  --c-surface-2: #0d0d10;
+  --c-surface-hover: rgba(255, 255, 255, 0.07);
   --c-surface-active: rgba(56, 139, 253, 0.18);
 
-  /* === 玻璃（深底半透明 + 轻微模糊） === */
-  --c-glass-bg: rgba(22, 27, 34, 0.92);
-  --c-glass-filter: blur(8px) saturate(1);
-  --c-glass-strong-bg: rgba(22, 27, 34, 0.96);
-  --c-glass-strong-filter: blur(8px);
+  /* === 玻璃（黑色半透明 + 更明显的模糊） === */
+  --c-glass-bg: rgba(10, 10, 12, 0.72);
+  --c-glass-filter: blur(12px) saturate(1.1);
+  --c-glass-strong-bg: rgba(10, 10, 12, 0.92);
+  --c-glass-strong-filter: blur(14px);
 
-  /* === 边框 === */
-  --c-border: #30363d;
+  /* === 边框（中性灰，避免在纯黑上偏蓝） === */
+  --c-border: #2b2b30;
   --c-border-strong: #2f81f7;
 
   /* === 文本 === */
-  --c-text: #e6edf3;
-  --c-text-secondary: #8b949e;
-  --c-text-muted: #6e7681;
+  --c-text: #f5f5f5;
+  --c-text-secondary: #a3a3a3;
+  --c-text-muted: #737373;
 
   /* === 强调色：GitHub Dark Blue === */
   --c-accent: #2f81f7;
@@ -42,8 +42,8 @@
   --c-accent-soft: rgba(56, 139, 253, 0.15);
 
   /* === 语义色 === */
-  --c-thinking: #8b949e;
-  --c-thinking-bg: rgba(22, 27, 34, 0.9);
+  --c-thinking: #a3a3a3;
+  --c-thinking-bg: rgba(10, 10, 10, 0.9);
   --c-tool: #58a6ff;
   --c-error: #f85149;
   --c-error-bg: rgba(248, 81, 73, 0.1);
@@ -52,16 +52,16 @@
   /* === 用户消息气泡 === */
   --c-bubble-user: #2f81f7;
   --c-bubble-user-text: #ffffff;
-  --c-bubble-border: #30363d;
+  --c-bubble-border: #262626;
   --c-bubble-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
 
-  /* === 输入框 === */
-  --c-input-bg: #0d1117;
-  --c-input-border: #30363d;
+  /* === 输入框（纯黑底，靠描边成形） === */
+  --c-input-bg: #000000;
+  --c-input-border: #2a2a2a;
   --c-input-border-focus: #2f81f7;
 
   /* === 滚动条 === */
-  --c-scrollbar: rgba(139, 148, 158, 0.22);
+  --c-scrollbar: rgba(255, 255, 255, 0.18);
   --c-scrollbar-hover: #2f81f7;
 
   /* === 阴影 === */
@@ -72,7 +72,7 @@
   --c-font-serif: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
   --c-serif-tracking: 0;
 
-  /* === 圆角：气泡用标准对称圆角 === */
+  /* === 圆角：气泡与其他组件统一 === */
   --c-radius-bubble: 12px;
 
   /* === 主按钮（纯色、扁平） === */
@@ -82,36 +82,40 @@
   --c-btn-primary-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
 
   /* === 次级按钮（灰边） === */
-  --c-btn-ghost-border: #30363d;
-  --c-btn-ghost-text: #8b949e;
-  --c-btn-ghost-hover-text: #e6edf3;
+  --c-btn-ghost-border: #2a2a2a;
+  --c-btn-ghost-text: #a3a3a3;
+  --c-btn-ghost-hover-text: #f5f5f5;
   --c-btn-ghost-hover-border: #2f81f7;
   --c-btn-ghost-hover-bg: rgba(56, 139, 253, 0.08);
 
   /* === 圆形图标按钮 === */
-  --c-btn-round-bg: #161b22;
-  --c-btn-round-border: #30363d;
-  --c-btn-round-text: #8b949e;
+  --c-btn-round-bg: #0d0d10;
+  --c-btn-round-border: #2a2a2a;
+  --c-btn-round-text: #a3a3a3;
   --c-btn-round-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
   --c-btn-round-hover-text: #2f81f7;
   --c-btn-round-hover-border: #2f81f7;
 
   /* === 描边芯片（灰边，无发光） === */
-  --c-ring-border: #30363d;
+  --c-ring-border: #2a2a2a;
   --c-ring-shadow: none;
 
-  /* === 选中竖条（蓝色） === */
-  --c-rail-bg: #2f81f7;
-  --c-rail-glow: 0 0 4px rgba(47, 129, 247, 0.5);
-
-  /* === 侧栏（跟随主题，无纹理、无深色底） === */
-  --c-sidebar-bg: #0d1117;
-  --c-sidebar-shadow: inset -1px 0 0 #30363d;
+  /* === 侧栏（纯黑，靠右侧细线与 hover 微光区分） === */
+  --c-sidebar-bg: #000000;
+  --c-sidebar-shadow: inset -1px 0 0 #2b2b30;
   --c-sidebar-texture: none;
+
+  /* === 列表侧栏（会话 / 工作区）：保持纯黑 === */
+  --c-panel-bg: #000000;
+
+  /* === 主纸面：比画布略亮一点的近黑，形成层次 === */
+  --c-page-bg: #050505;
+  --c-page-shadow: none;
+  --c-page-inset: 0;
 
   /* === 历史回放进度条（纤细、纯色、无光晕） === */
   --c-progress-height: 2px;
-  --c-progress-track: #21262d;
+  --c-progress-track: #171717;
   --c-progress-fill: #2f81f7;
   --c-progress-glow: none;
 }

@@ -573,8 +573,9 @@ function TreeNode({
     : null;
   const fileTabId = `${projectId}:${entry.relativePath}`;
   const isActiveFile = !entry.isDirectory && activeTabId === fileTabId;
+  // 文件列表直接使用全局基准字号（--c-font-size），不再比全局小一档
   const rowClass =
-    "flex min-h-8 w-full items-center gap-1.5 rounded-md pr-2 text-left text-meta transition-colors";
+    "flex min-h-8 w-full items-center gap-1.5 rounded-md pr-2 text-left text-body transition-colors";
 
   return (
     <div>

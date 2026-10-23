@@ -15,22 +15,22 @@
 
 [data-theme="classic-day"] {
   /* === 画布：衬托白纸的底色（App 根容器 / 纸面四周的留白） === */
-  --c-bg: #e9edf2;
+  --c-bg: #e8edf4;
 
-  /* === 表面 === */
+  /* === 表面：主纸面纯白，次级表面带一点冷调，形成层次 === */
   --c-surface: #ffffff;
-  --c-surface-2: #f6f8fa;
-  --c-surface-hover: rgba(31, 35, 40, 0.055);
+  --c-surface-2: #f1f5fa;
+  --c-surface-hover: rgba(31, 35, 40, 0.06);
   --c-surface-active: #dbeafe;
 
-  /* === 玻璃（顶栏 / 输入区 / 工具行：白纸上的极淡色带，靠 hairline 分隔） === */
-  --c-glass-bg: rgba(246, 248, 250, 0.86);
-  --c-glass-filter: blur(8px) saturate(1);
-  --c-glass-strong-bg: #ffffff;
-  --c-glass-strong-filter: blur(8px);
+  /* === 玻璃（顶栏 / 输入区 / 工具行：更明显的模糊与半透明） === */
+  --c-glass-bg: rgba(255, 255, 255, 0.72);
+  --c-glass-filter: blur(12px) saturate(1.1);
+  --c-glass-strong-bg: rgba(255, 255, 255, 0.92);
+  --c-glass-strong-filter: blur(14px);
 
-  /* === 边框 === */
-  --c-border: #d0d7de;
+  /* === 边框（比 GitHub 默认灰稍深，保证白色背景上板块分割线清晰可见） === */
+  --c-border: #b9c3cc;
   --c-border-strong: #0969da;
 
   /* === 文本 === */
@@ -58,30 +58,29 @@
   --c-bubble-border: #e0e5ea;
   --c-bubble-shadow: 0 1px 2px rgba(31, 35, 40, 0.05), 0 1px 1px rgba(31, 35, 40, 0.03);
 
-  /* === 输入框（白纸上的白域，靠描边与轻投影成形） === */
-  --c-input-bg: #ffffff;
-  --c-input-border: #d0d7de;
+  /* === 输入框（白纸上略浅的表面，靠描边与轻投影成形） === */
+  --c-input-bg: #f8fafc;
+  --c-input-border: #ccd5de;
   --c-input-border-focus: #0969da;
 
   /* === 滚动条 === */
   --c-scrollbar: rgba(59, 73, 107, 0.2);
   --c-scrollbar-hover: #0969da;
 
-  /* === 阴影（浮层用大而柔的投影，小控件用 1px 级的轻投影） === */
-  --c-shadow: 0 10px 30px rgba(31, 35, 40, 0.1), 0 2px 6px rgba(31, 35, 40, 0.06);
-  --c-shadow-sm: 0 1px 3px rgba(31, 35, 40, 0.08);
+  /* === 阴影（浮层用大而柔的投影，小控件用轻投影） === */
+  --c-shadow: 0 16px 40px rgba(31, 35, 40, 0.12), 0 3px 10px rgba(31, 35, 40, 0.07);
+  --c-shadow-sm: 0 2px 8px rgba(31, 35, 40, 0.08);
 
-  /* === 主体纸面：白纸 + hairline 描边 + 双层投影，四周留出画布底色 === */
+  /* === 主体纸面：纯白铺满，不做外框 / 投影 / 内缩（与深色皮肤一致） === */
   --c-page-bg: #ffffff;
-  --c-page-shadow: 0 0 0 1px rgba(31, 35, 40, 0.04), 0 1px 2px rgba(31, 35, 40, 0.04),
-    0 12px 32px rgba(31, 35, 40, 0.07);
-  --c-page-inset: 10px;
+  --c-page-shadow: none;
+  --c-page-inset: 0;
 
   /* === 字体：衬线类降级为无衬线，去掉字距 === */
   --c-font-serif: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
   --c-serif-tracking: 0;
 
-  /* === 圆角：气泡用标准对称圆角 === */
+  /* === 圆角：气泡与其他组件统一 === */
   --c-radius-bubble: 12px;
 
   /* === 主按钮（纯色、扁平） === */
@@ -109,14 +108,13 @@
   --c-ring-border: #d0d7de;
   --c-ring-shadow: 0 1px 2px rgba(31, 35, 40, 0.05);
 
-  /* === 选中竖条（蓝色） === */
-  --c-rail-bg: #0969da;
-  --c-rail-glow: 0 0 4px rgba(9, 105, 218, 0.4);
-
-  /* === 侧栏（纯白：与白纸同色，靠画布留白与纸面的 hairline 界定边界） === */
-  --c-sidebar-bg: #ffffff;
-  --c-sidebar-shadow: none;
+  /* === 侧栏（略浅于主纸面，靠右侧细线与投影拉开层次） === */
+  --c-sidebar-bg: #f6f9fc;
+  --c-sidebar-shadow: inset -1px 0 0 #c9d2db;
   --c-sidebar-texture: none;
+
+  /* === 列表侧栏（会话 / 工作区） === */
+  --c-panel-bg: #f3f7fb;
 
   /* === 历史回放进度条（纤细、纯色、无光晕） === */
   --c-progress-height: 2px;

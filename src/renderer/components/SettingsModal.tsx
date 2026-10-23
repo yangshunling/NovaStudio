@@ -5,6 +5,7 @@
  */
 
 import { useEffect, useRef, useState } from "react";
+import { SlidersHorizontal } from "lucide-react";
 import { Modal, ModalHeader } from "./ui/Modal";
 import { useChatStore } from "../stores/chat";
 import { useTheme } from "../hooks/useTheme";
@@ -16,24 +17,21 @@ import { DEFAULT_SETTINGS } from "@shared/types";
 // ============================================================================
 
 const FONT_SIZE_OPTIONS = [12, 13, 14, 15, 16] as const;
-const PREVIEW_FONT_SIZE_OPTIONS = [12, 13, 14, 15, 16, 17, 18] as const;
 
 /** 单行字号选项（全局 / 聊天记录共用同一套刻度） */
 function FontSizeRow({
   label,
   value,
   onChange,
-  options = FONT_SIZE_OPTIONS,
 }: {
   label: string;
   value: number;
   onChange: (px: number) => void;
-  options?: readonly number[];
 }) {
   return (
     <div className="flex items-center gap-2">
       <span className="w-20 shrink-0 text-meta text-text-muted">{label}</span>
-      {options.map((size) => (
+      {FONT_SIZE_OPTIONS.map((size) => (
         <button
           key={size}
           onClick={() => onChange(size)}
@@ -51,30 +49,17 @@ function FontSizeRow({
 }
 
 function FontSizeControl() {
-  const {
-    fontSize,
-    chatFontSize,
-    previewFontSize,
-    setFontSize,
-    setChatFontSize,
-    setPreviewFontSize,
-  } = useTheme();
+  const { fontSize, chatFontSize, setFontSize, setChatFontSize } = useTheme();
 
   return (
     <div className="mb-7">
       <h3 className="text-body font-semibold text-text">文字大小</h3>
       <p className="mt-1 mb-3 text-meta text-text-muted">
-        全局字号是整套界面的缩放基准；聊天记录和文件预览可分别调整，互不影响。
+        全局字号是整套界面的缩放基准；聊天记录可单独调整，文件预览与工作区文件跟随全局字号。
       </p>
       <div className="space-y-3">
         <FontSizeRow label="全局" value={fontSize} onChange={setFontSize} />
         <FontSizeRow label="聊天记录" value={chatFontSize} onChange={setChatFontSize} />
-        <FontSizeRow
-          label="文件预览"
-          value={previewFontSize}
-          onChange={setPreviewFontSize}
-          options={PREVIEW_FONT_SIZE_OPTIONS}
-        />
       </div>
     </div>
   );
@@ -296,9 +281,23 @@ export function SettingsModal() {
         className="h-[var(--c-layout-header)] shrink-0 border-b border-border px-5"
       />
 
-      {/* 弹框正文 */}
-      <div className="flex-1 overflow-y-auto p-section">
-        <GeneralPanel />
+      {/* 弹框正文：左侧菜单 + 右侧内容 */}
+      <div className="flex flex-1 overflow-hidden">
+        {/* 左侧菜单 */}
+        <aside className="flex w-[var(--c-layout-menu)] shrink-0 flex-col border-r border-border p-2">
+          <button
+            type="button"
+            className="flex w-full items-center gap-2 rounded-md bg-surface-active px-3 py-2.5 text-body font-medium text-text"
+          >
+            <SlidersHorizontal className="h-4 w-4" />
+            通用
+          </button>
+        </aside>
+
+        {/* 右侧内容区 */}
+        <div className="flex-1 overflow-y-auto p-section">
+          <GeneralPanel />
+        </div>
       </div>
     </Modal>
   );

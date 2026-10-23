@@ -16,9 +16,10 @@ import { useAutomationStore } from "./stores/automation";
 import { useAgentStream } from "./hooks/useAgentStream";
 import { loadSkinSettings } from "./hooks/useTheme";
 import { Sidebar } from "./components/Sidebar";
-import { CenterPane } from "./components/CenterPane";
+import { SessionsView } from "./components/SessionsView";
 import { AutomationView } from "./components/AutomationView";
 import { EmployeesView } from "./components/employees/EmployeesView";
+import { SkillsView } from "./components/skills/SkillsView";
 import { WorkflowsView } from "./components/workflows/WorkflowsView";
 import { SettingsModal } from "./components/SettingsModal";
 import { WorkspacePanel } from "./components/WorkspacePanel";
@@ -55,11 +56,13 @@ export default function App() {
           <AutomationView />
         ) : viewMode === "employees" ? (
           <EmployeesView />
+        ) : viewMode === "skills" ? (
+          <SkillsView />
         ) : viewMode === "workflow" ? (
           <WorkflowsView />
         ) : (
           <>
-            <CenterPane />
+            <SessionsView />
             {showWorkspace && <WorkspacePanel />}
           </>
         )}

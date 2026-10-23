@@ -133,7 +133,7 @@ export function ChatArea({ embedded = false }: { embedded?: boolean } = {}) {
         {/* 输入区：玻璃拟态 + 大圆角描边卡片 */}
         <div className="ui-glass relative z-10 border-t border-border p-inset">
           <div className="mx-auto max-w-[var(--c-layout-content)]">
-            <div className="ui-ring rounded-[var(--c-radius-input)] bg-input-bg p-2 focus-within:shadow-[0_0_0_2px_var(--c-accent-soft)]">
+            <div className="ui-ring rounded-[var(--c-radius-input)] bg-input-bg p-2 shadow-[var(--c-shadow-sm)] focus-within:shadow-[0_0_0_2px_var(--c-accent-soft)]">
               {fileMention.references.length > 0 && (
                 <div className="mb-2 flex flex-wrap gap-1.5 px-1">
                   {fileMention.references.map((entry) => (
@@ -161,7 +161,7 @@ export function ChatArea({ embedded = false }: { embedded?: boolean } = {}) {
                   <textarea
                     ref={textareaRef}
                     // 启动时把焦点留在输入框：否则 Chromium 的初始焦点会落到
-                    // DOM 里第一个可聚焦元素（侧栏「新建项目」按钮）上。
+                    // DOM 里第一个可聚焦元素（侧栏「新建会话」按钮）上。
                     // autoFocus 只在挂载时生效，不会在后续渲染里抢焦点。
                     autoFocus
                     value={input}

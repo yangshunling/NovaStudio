@@ -79,7 +79,7 @@ export function WorkflowRunHistoryView({
             type="button"
             onClick={onBack}
             title="返回"
-            className="flex h-9 shrink-0 items-center gap-1.5 rounded-lg px-2 text-body text-text-muted transition-colors hover:bg-surface-hover hover:text-text active:scale-95"
+            className="flex h-8 shrink-0 items-center gap-1.5 rounded-lg px-2 text-body text-text-muted transition-colors hover:bg-surface-hover hover:text-text active:scale-95"
           >
             <ArrowLeft className="h-4 w-4" />
             返回
@@ -100,7 +100,7 @@ export function WorkflowRunHistoryView({
           <button
             type="button"
             onClick={() => void load()}
-            className="ui-btn-ghost flex h-9 shrink-0 items-center gap-1.5 rounded-full px-4 text-body font-medium active:scale-95"
+            className="ui-btn-ghost flex h-8 shrink-0 items-center gap-1.5 rounded-full px-4 text-body font-medium active:scale-95"
           >
             <RefreshCw className="h-4 w-4" />
             刷新

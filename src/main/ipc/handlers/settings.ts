@@ -6,6 +6,7 @@
  * 读取与写入的实现不需要改动。
  */
 
+import { nativeTheme } from "electron";
 import type { AppSettings } from "../../../shared/types";
 import * as db from "../../db/sqlite";
 import { handle } from "../register";
@@ -22,7 +23,6 @@ const SETTING_CODECS: {
   theme: { encode: String, decode: (raw) => raw },
   fontSize: { encode: String, decode: (raw) => Number(raw) },
   chatFontSize: { encode: String, decode: (raw) => Number(raw) },
-  previewFontSize: { encode: String, decode: (raw) => Number(raw) },
   automationConcurrency: { encode: String, decode: (raw) => Number(raw) },
   automationPollIntervalSec: { encode: String, decode: (raw) => Number(raw) },
   agentTimeoutMinutes: { encode: String, decode: (raw) => Number(raw) },
@@ -54,6 +54,16 @@ export function registerSettingsHandlers(): void {
       if (!codec) continue;
       db.setSetting(key, codec.encode(value as never));
     }
+    return true;
+  });
+
+  /**
+   * 原生窗口装饰跟随皮肤明暗。
+   * Windows 的标题栏、系统菜单等原生控件由 nativeTheme 决定配色；
+   * 渲染层每次应用皮肤都会把 appearance 同步过来，因此昼夜切换即时生效。
+   */
+  handle("window:setAppearance", ({ appearance }) => {
+    nativeTheme.themeSource = appearance;
     return true;
   });
 }

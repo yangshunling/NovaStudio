@@ -10,13 +10,13 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   Copy,
   Folder,
   FolderPlus,
   History,
   Loader2,
-  MoreHorizontal,
   PenLine,
   Play,
   Plus,
@@ -45,6 +45,11 @@ import type {
 
 /** 未归属分组的伪工作区 id；真实工作区 id 都是 uuid，不会冲突 */
 const ORPHAN_ID = "__orphan__";
+
+/** 右键菜单尺寸：用于贴近视口边缘时收拢位置 */
+const MENU_WIDTH = 208;
+const WORKSPACE_MENU_HEIGHT = 88;
+const WORKFLOW_MENU_HEIGHT = 300;
 
 /** 新建工作流时预置开始 / 结束两个锚点，画布不至于空得没有参照 */
 function seedGraph(): WorkflowGraph {
@@ -106,6 +111,60 @@ export function WorkflowsView() {
   const [historyScope, setHistoryScope] = useState<
     { workflowId: string } | { workspaceId: string } | null
   >(null);
+
+  /** 右键菜单：工作区与工作流卡片共用一套，同一时间只开一个 */
+  const [contextMenu, setContextMenu] = useState<
+    | { kind: "workspace"; workspace: Project; x: number; y: number }
+    | { kind: "workflow"; workflow: Workflow; x: number; y: number }
+    | null
+  >(null);
+  const contextMenuRef = useRef<HTMLDivElement>(null);
+
+  // 右键菜单：外部点击 / Esc / 滚动 / 窗口缩放时关闭
+  useEffect(() => {
+    if (!contextMenu) return;
+    const close = () => setContextMenu(null);
+    const onDown = (event: MouseEvent) => {
+      if (!contextMenuRef.current?.contains(event.target as Node)) close();
+    };
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") close();
+    };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    window.addEventListener("scroll", close, true);
+    window.addEventListener("resize", close);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+      window.removeEventListener("scroll", close, true);
+      window.removeEventListener("resize", close);
+    };
+  }, [contextMenu]);
+
+  /** 把菜单坐标收拢在视口内 */
+  const menuPosition = (event: React.MouseEvent, height: number) => ({
+    x: Math.max(8, Math.min(event.clientX, window.innerWidth - MENU_WIDTH - 8)),
+    y: Math.max(8, Math.min(event.clientY, window.innerHeight - height - 8)),
+  });
+
+  const openWorkspaceMenu = (workspace: Project, event: React.MouseEvent) => {
+    event.preventDefault();
+    setContextMenu({
+      kind: "workspace",
+      workspace,
+      ...menuPosition(event, WORKSPACE_MENU_HEIGHT),
+    });
+  };
+
+  const openWorkflowMenu = (workflow: Workflow, event: React.MouseEvent) => {
+    event.preventDefault();
+    setContextMenu({
+      kind: "workflow",
+      workflow,
+      ...menuPosition(event, WORKFLOW_MENU_HEIGHT),
+    });
+  };
 
   const load = useCallback(async () => {
     try {
@@ -471,7 +530,7 @@ export function WorkflowsView() {
 
   return (
     <main className="relative flex flex-1 flex-col overflow-hidden">
-      <div className="ui-page relative z-10 flex flex-1 flex-col overflow-hidden rounded-xl">
+      <div className="ui-page relative z-10 flex flex-1 flex-col overflow-hidden">
         {loading ? (
           <div className="flex h-full items-center justify-center gap-2 text-body text-text-muted">
             <Loader2 className="h-4 w-4 animate-spin" />
@@ -499,8 +558,8 @@ export function WorkflowsView() {
         ) : (
           <div className="flex min-h-0 flex-1">
             {/* 左：工作区列表 */}
-            <aside className="flex w-[268px] shrink-0 flex-col border-r border-border bg-surface-2/25">
-              <div className="flex items-center justify-between px-4 pb-2 pt-4">
+            <aside className="flex w-[268px] shrink-0 flex-col border-r border-border bg-[var(--c-panel-bg)] shadow-[var(--c-shadow-sm)]">
+              <div className="flex h-[var(--c-layout-header)] shrink-0 items-center justify-between border-b border-border px-4">
                 <p className="text-meta font-semibold tracking-wide text-text-muted">
                   工作区
                 </p>
@@ -519,7 +578,7 @@ export function WorkflowsView() {
                 </button>
               </div>
 
-              <div className="min-h-0 flex-1 space-y-1 overflow-y-auto px-2.5 pb-4">
+              <div className="min-h-0 flex-1 space-y-1 overflow-y-auto px-2.5 pb-4 pt-4">
                 {workspaceOptions.map((workspace) => {
                   const active = workspace.id === effectiveWorkspaceId;
                   const isOrphan = workspace.id === ORPHAN_ID;
@@ -530,9 +589,10 @@ export function WorkflowsView() {
                   return (
                     <div
                       key={workspace.id}
+                      onContextMenu={(event) => openWorkspaceMenu(workspace, event)}
                       className={`group flex w-full items-center rounded-xl transition-colors ${
                         active
-                          ? "ui-active bg-surface-active text-text"
+                          ? "bg-surface-active text-text shadow-[var(--c-shadow-sm)]"
                           : "text-text-secondary hover:bg-surface-hover hover:text-text"
                       }`}
                     >
@@ -562,35 +622,9 @@ export function WorkflowsView() {
                           {count}
                         </span>
                       </button>
-
-                      {!isOrphan && (
-                        <button
-                          type="button"
-                          onClick={() => void deleteWorkspace(workspace)}
-                          disabled={deletingWorkspaceId === workspace.id}
-                          title="删除工作区"
-                          className="mr-1.5 shrink-0 rounded-lg p-1.5 text-text-muted opacity-0 transition-all hover:bg-error-bg hover:text-error group-hover:opacity-100 disabled:opacity-100"
-                        >
-                          {deletingWorkspaceId === workspace.id ? (
-                            <Loader2 className="h-4 w-4 animate-spin" />
-                          ) : (
-                            <Trash2 className="h-4 w-4" />
-                          )}
-                        </button>
-                      )}
                     </div>
                   );
                 })}
-
-                <button
-                  type="button"
-                  onClick={() => void createWorkspace()}
-                  disabled={creatingWorkspace}
-                  className="mt-1 flex w-full items-center justify-center gap-1.5 rounded-xl border border-dashed border-border px-3 py-2.5 text-meta text-text-muted transition-colors hover:border-border-strong hover:text-text disabled:opacity-50"
-                >
-                  <Plus className="h-3.5 w-3.5" />
-                  新建工作区
-                </button>
               </div>
             </aside>
 
@@ -629,7 +663,7 @@ export function WorkflowsView() {
                       !selectedWorkspace || selectedWorkspace.id === ORPHAN_ID
                     }
                     title="查看该工作区的运行记录"
-                    className="ui-btn-ghost flex h-9 shrink-0 items-center gap-1.5 rounded-full px-4 text-body font-medium active:scale-95 disabled:opacity-50"
+                    className="ui-btn-ghost flex h-8 shrink-0 items-center gap-1.5 rounded-full px-4 text-body font-medium active:scale-95 disabled:opacity-50"
                   >
                     <History className="h-4 w-4" />
                     运行记录
@@ -659,7 +693,7 @@ export function WorkflowsView() {
                     type="button"
                     onClick={openCreateWorkflow}
                     disabled={!selectedWorkspace || selectedWorkspace.id === ORPHAN_ID}
-                    className="ui-btn-primary flex h-9 shrink-0 items-center gap-1.5 rounded-full px-4 text-body font-medium active:scale-95 disabled:opacity-50"
+                    className="ui-btn-primary flex h-8 shrink-0 items-center gap-1.5 rounded-full px-4 text-body font-medium active:scale-95 disabled:opacity-50"
                   >
                     <Plus className="h-4 w-4" />
                     新建工作流
@@ -678,7 +712,7 @@ export function WorkflowsView() {
                     <button
                       type="button"
                       onClick={() => void createWorkspace()}
-                      className="ui-btn-primary mt-1 flex items-center gap-1.5 rounded-full px-4 py-2 text-body font-medium"
+                      className="ui-btn-primary mt-1 flex h-8 items-center gap-1.5 rounded-full px-4 text-body font-medium"
                     >
                       <FolderPlus className="h-4 w-4" />
                       新建工作区
@@ -705,13 +739,9 @@ export function WorkflowsView() {
                         key={workflow.id}
                         workflow={workflow}
                         onOpen={() => openEditor(workflow)}
-                        onDebug={() => void debugWorkflow(workflow)}
-                        onHistory={() =>
-                          setHistoryScope({ workflowId: workflow.id })
+                        onContextMenu={(event) =>
+                          openWorkflowMenu(workflow, event)
                         }
-                        onRename={() => openRename(workflow)}
-                        onDuplicate={() => void duplicateWorkflow(workflow)}
-                        onDelete={() => void deleteWorkflow(workflow)}
                       />
                     ))}
                   </div>
@@ -838,6 +868,94 @@ export function WorkflowsView() {
           </div>
         </div>
       </Modal>
+
+      {/* 右键菜单：工作区 / 工作流卡片共用 */}
+      {contextMenu &&
+        createPortal(
+          <div
+            ref={contextMenuRef}
+            style={{ top: contextMenu.y, left: contextMenu.x, width: MENU_WIDTH }}
+            className="ui-dropdown-in ui-glass-strong ui-ring fixed z-[60] rounded-xl p-1.5"
+          >
+            {contextMenu.kind === "workspace" ? (
+              <CardMenuItem
+                icon={Trash2}
+                label={
+                  contextMenu.workspace.id === ORPHAN_ID
+                    ? "未归属工作区不可删除"
+                    : "删除工作区"
+                }
+                danger={contextMenu.workspace.id !== ORPHAN_ID}
+                disabled={contextMenu.workspace.id === ORPHAN_ID}
+                onClick={() => {
+                  const workspace = contextMenu.workspace;
+                  setContextMenu(null);
+                  void deleteWorkspace(workspace);
+                }}
+              />
+            ) : (
+              <>
+                <CardMenuItem
+                  icon={SquarePen}
+                  label="编辑"
+                  onClick={() => {
+                    const workflow = contextMenu.workflow;
+                    setContextMenu(null);
+                    openEditor(workflow);
+                  }}
+                />
+                <CardMenuItem
+                  icon={Play}
+                  label="调试"
+                  onClick={() => {
+                    const workflow = contextMenu.workflow;
+                    setContextMenu(null);
+                    void debugWorkflow(workflow);
+                  }}
+                />
+                <CardMenuItem
+                  icon={History}
+                  label="运行记录"
+                  onClick={() => {
+                    const workflow = contextMenu.workflow;
+                    setContextMenu(null);
+                    setHistoryScope({ workflowId: workflow.id });
+                  }}
+                />
+                <CardMenuItem
+                  icon={PenLine}
+                  label="重命名 / 说明"
+                  onClick={() => {
+                    const workflow = contextMenu.workflow;
+                    setContextMenu(null);
+                    openRename(workflow);
+                  }}
+                />
+                <CardMenuItem
+                  icon={Copy}
+                  label="复制工作流"
+                  onClick={() => {
+                    const workflow = contextMenu.workflow;
+                    setContextMenu(null);
+                    void duplicateWorkflow(workflow);
+                  }}
+                />
+                <div className="my-1 h-px bg-border" />
+                <CardMenuItem
+                  icon={Trash2}
+                  label="删除工作流"
+                  danger
+                  onClick={() => {
+                    const workflow = contextMenu.workflow;
+                    setContextMenu(null);
+                    void deleteWorkflow(workflow);
+                  }}
+                />
+              </>
+            )}
+          </div>,
+          document.body,
+        )}
     </main>
   );
 }
@@ -849,46 +967,12 @@ export function WorkflowsView() {
 function WorkflowCard({
   workflow,
   onOpen,
-  onDebug,
-  onHistory,
-  onRename,
-  onDuplicate,
-  onDelete,
+  onContextMenu,
 }: {
   workflow: Workflow;
   onOpen: () => void;
-  onDebug: () => void;
-  onHistory: () => void;
-  onRename: () => void;
-  onDuplicate: () => void;
-  onDelete: () => void;
+  onContextMenu: (event: React.MouseEvent) => void;
 }) {
-  const [menuOpen, setMenuOpen] = useState(false);
-  const menuRef = useRef<HTMLDivElement>(null);
-
-  // 更多菜单：外部点击 / Esc 关闭
-  useEffect(() => {
-    if (!menuOpen) return;
-    const onDown = (event: MouseEvent) => {
-      if (!menuRef.current?.contains(event.target as Node)) setMenuOpen(false);
-    };
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setMenuOpen(false);
-    };
-    document.addEventListener("mousedown", onDown);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("mousedown", onDown);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [menuOpen]);
-
-  const action = (fn: () => void) => (event: React.MouseEvent) => {
-    event.stopPropagation();
-    setMenuOpen(false);
-    fn();
-  };
-
   const nodeCount = workflow.graph.nodes.length;
   const employeeIds = new Set(
     workflow.graph.nodes
@@ -901,6 +985,7 @@ function WorkflowCard({
       role="button"
       tabIndex={0}
       onClick={onOpen}
+      onContextMenu={onContextMenu}
       onKeyDown={(event) => {
         // 只响应卡片本身，不拦截内部操作按钮的键盘事件
         if (event.target !== event.currentTarget) return;
@@ -909,7 +994,7 @@ function WorkflowCard({
           onOpen();
         }
       }}
-      className="group relative flex h-full cursor-pointer flex-col rounded-xl border border-border bg-surface-2/60 p-card text-left transition-all hover:-translate-y-0.5 hover:border-border-strong hover:bg-surface-2/85 hover:shadow-[var(--c-shadow-sm)]"
+      className="group relative flex h-full cursor-pointer flex-col rounded-xl border border-border bg-surface-2/60 p-card text-left shadow-[var(--c-shadow-sm)] transition-all hover:-translate-y-0.5 hover:border-border-strong hover:bg-surface-2/85 hover:shadow-[var(--c-shadow)]"
     >
       <div className="flex items-start gap-3">
         <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-accent-soft text-accent">
@@ -934,66 +1019,6 @@ function WorkflowCard({
         </span>
         <span className="ml-auto">{timeAgo(workflow.updatedAt)}</span>
       </div>
-
-      {/* 卡片操作：悬停显示，直接提供调试 / 运行记录 / 更多 */}
-      <div className="absolute right-2 top-2 flex items-center gap-0.5 rounded-lg bg-surface/85 p-0.5 opacity-0 shadow-[var(--c-shadow-sm)] backdrop-blur-sm transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
-        <button
-          type="button"
-          onClick={action(onDebug)}
-          title="调试"
-          className="rounded-md p-1.5 text-text-muted transition-colors hover:bg-surface-hover hover:text-accent"
-        >
-          <Play className="h-3.5 w-3.5" />
-        </button>
-        <button
-          type="button"
-          onClick={action(onHistory)}
-          title="运行记录"
-          className="rounded-md p-1.5 text-text-muted transition-colors hover:bg-surface-hover hover:text-text"
-        >
-          <History className="h-3.5 w-3.5" />
-        </button>
-
-        <div ref={menuRef} className="relative">
-          <button
-            type="button"
-            onClick={(event) => {
-              event.stopPropagation();
-              setMenuOpen((value) => !value);
-            }}
-            title="更多操作"
-            className="rounded-md p-1.5 text-text-muted transition-colors hover:bg-surface-hover hover:text-text"
-          >
-            <MoreHorizontal className="h-3.5 w-3.5" />
-          </button>
-
-          {menuOpen && (
-            <div
-              onClick={(event) => event.stopPropagation()}
-              className="ui-glass-strong ui-ring absolute right-0 top-full z-30 mt-1 w-40 rounded-lg p-1"
-            >
-              <CardMenuItem icon={SquarePen} label="编辑" onClick={action(onOpen)} />
-              <CardMenuItem
-                icon={PenLine}
-                label="重命名 / 说明"
-                onClick={action(onRename)}
-              />
-              <CardMenuItem
-                icon={Copy}
-                label="复制工作流"
-                onClick={action(onDuplicate)}
-              />
-              <div className="my-1 h-px bg-border" />
-              <CardMenuItem
-                icon={Trash2}
-                label="删除工作流"
-                danger
-                onClick={action(onDelete)}
-              />
-            </div>
-          )}
-        </div>
-      </div>
     </div>
   );
 }
@@ -1002,18 +1027,21 @@ function CardMenuItem({
   icon: Icon,
   label,
   danger = false,
+  disabled = false,
   onClick,
 }: {
   icon: LucideIcon;
   label: string;
   danger?: boolean;
-  onClick: (event: React.MouseEvent) => void;
+  disabled?: boolean;
+  onClick: () => void;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
-      className={`flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left text-meta transition-colors ${
+      disabled={disabled}
+      className={`flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left text-meta transition-colors disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent ${
         danger
           ? "text-error hover:bg-error-bg"
           : "text-text-secondary hover:bg-surface-hover hover:text-text"
@@ -1081,7 +1109,7 @@ function EmptyState({ onCreate }: { onCreate: () => void }) {
       <button
         type="button"
         onClick={onCreate}
-        className="ui-btn-primary mt-2 flex items-center gap-1.5 rounded-full px-4 py-2 text-body font-medium"
+        className="ui-btn-primary mt-2 flex h-8 items-center gap-1.5 rounded-full px-4 text-body font-medium active:scale-95"
       >
         <Plus className="h-4 w-4" />
         新建工作流

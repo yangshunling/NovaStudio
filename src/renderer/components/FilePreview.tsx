@@ -141,7 +141,7 @@ export function FilePreview({ tab }: { tab: FileTab }) {
         </div>
       )}
 
-      <div className="ui-preview-scale min-h-0 flex-1 overflow-hidden">
+      <div className="min-h-0 flex-1 overflow-hidden">
         {loading ? (
           <PreviewState
             icon={<Loader2 className="h-6 w-6 animate-spin" />}

@@ -17,6 +17,7 @@ import type {
   AppSettings,
   DigitalEmployeeDraft,
   SessionOptions,
+  SkillImportKind,
   WorkflowDraft,
 } from "@shared/types";
 
@@ -90,6 +91,8 @@ export const ipc = {
   // === 设置 ===
   getSettings: () => call("settings:get"),
   setSettings: (patch: Partial<AppSettings>) => call("settings:set", patch),
+  setWindowAppearance: (appearance: "light" | "dark") =>
+    call("window:setAppearance", { appearance }),
 
   // === 自动化任务 ===
   listAutomationTasks: () => call("automation:list"),
@@ -106,6 +109,15 @@ export const ipc = {
   updateEmployee: (id: string, draft: DigitalEmployeeDraft) =>
     call("employees:update", { id, draft }),
   deleteEmployee: (id: string) => call("employees:delete", { id }),
+
+  // === 技能资产 ===
+  listSkills: () => call("skills:list"),
+  importSkills: (kind: SkillImportKind) => call("skills:import", { kind }),
+  deleteSkill: (id: string) => call("skills:delete", { id }),
+  getSkillDocument: (id: string) => call("skills:getDocument", { id }),
+  saveSkillDocument: (id: string, content: string) =>
+    call("skills:saveDocument", { id, content }),
+  revealSkill: (id: string) => call("skills:reveal", { id }),
 
   // === 工作流 ===
   listWorkflows: () => call("workflows:list"),

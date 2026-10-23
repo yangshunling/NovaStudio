@@ -255,12 +255,85 @@ export interface EmployeeMcpServer {
   enabled: boolean;
 }
 
-/** 数字员工启用的技能 */
-export interface EmployeeSkill {
+// ============================================================================
+// 技能资产
+// ============================================================================
+
+/**
+ * 技能来源。
+ *
+ * - library         Nova 主库（~/.novastudio/skills/）：可上传、编辑、删除
+ * - claude-global   Claude Code 全局目录（~/.claude/skills/）：只读发现
+ * - agents-store    共享技能库（~/.agents/skills/）：只读发现
+ *
+ * 只读来源由各自工具管理，Nova 只做索引与引用，避免两边同时写导致状态漂移。
+ */
+export type SkillOrigin = "library" | "claude-global" | "agents-store";
+
+/**
+ * 一个技能资产 = 磁盘上的一个技能目录（含 SKILL.md）。
+ *
+ * 技能内容始终以文件为准，本结构只是扫描后的索引视图；
+ * 同名技能可以在多个来源同时存在，UI 按来源分别展示。
+ */
+export interface SkillAsset {
+  /** 稳定引用 id，格式 `${origin}:${slug}` */
   id: string;
+  /** 目录名，也是技能在本来源内的唯一标识 */
+  slug: string;
+  /** SKILL.md frontmatter 里的 name；缺失时回退为目录名 */
   name: string;
-  /** 技能目录或来源描述 */
-  source: string;
+  description: string;
+  origin: SkillOrigin;
+  /** 技能目录的绝对路径 */
+  path: string;
+  /** 是否只读（非 Nova 主库的来源） */
+  readOnly: boolean;
+  /** 只读原因：UI 直接展示，说明为什么不能删除 / 编辑 */
+  readOnlyReason: string | null;
+  /** 是否可被 Agent 正常加载（缺 SKILL.md 或 name 非法时为 false） */
+  valid: boolean;
+  /** 校验提示；空数组表示没有发现问题 */
+  problems: string[];
+  /** 文件数（最多统计 200 个） */
+  fileCount: number;
+  /** 是否包含可执行脚本（.sh / .ps1 / .py / .js 等） */
+  hasScripts: boolean;
+  /** SKILL.md 最近修改时间 */
+  updatedAt: number;
+}
+
+/** 技能文档：供技能页预览 / 编辑 */
+export interface SkillDocument {
+  content: string;
+  /** 实际文件路径（SKILL.md） */
+  path: string;
+  readOnly: boolean;
+  /** 文件超过读取上限被截断：此时禁止保存，避免用截断内容覆写原文 */
+  truncated: boolean;
+  asset: SkillAsset;
+}
+
+export type SkillImportKind = "directory" | "file";
+
+export interface SkillImportResult {
+  ok: boolean;
+  imported: SkillAsset[];
+  error?: string;
+}
+
+export type SkillWriteResult =
+  | { ok: true; asset: SkillAsset }
+  | { ok: false; error: string };
+
+/** 数字员工绑定的技能：只存引用，技能内容由技能库统一管理 */
+export interface EmployeeSkill {
+  /** SkillAsset.id；旧版路径技能为空字符串 */
+  assetId: string;
+  /** 展示名快照，资产失效时仍可显示 */
+  name: string;
+  /** 旧版路径来源；仅在 assetId 为空时用于兼容运行时 */
+  source?: string;
   enabled: boolean;
 }
 
@@ -494,8 +567,6 @@ export interface AppSettings {
   fontSize: number;
   /** 聊天记录区域的独立字号（px）；与全局字号解耦，便于单独调大 */
   chatFontSize: number;
-  /** 文件预览区域的独立字号（px） */
-  previewFontSize: number;
   /** 自动化看板同时执行的任务数上限 */
   automationConcurrency: number;
   /** 自动化看板扫描待执行任务的间隔（秒） */
@@ -510,7 +581,6 @@ export const DEFAULT_SETTINGS: AppSettings = {
   theme: "",
   fontSize: 13,
   chatFontSize: 13,
-  previewFontSize: 14,
   automationConcurrency: 3,
   automationPollIntervalSec: 30,
   agentTimeoutMinutes: 30,

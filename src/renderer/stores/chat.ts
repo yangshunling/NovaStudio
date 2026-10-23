@@ -33,7 +33,7 @@ interface ChatState {
   currentSessionId: string | null;
   /** 每个会话的实时消息桶（含未落库的流式增量） */
   messagesBySession: Record<string, Message[]>;
-  /** 每个会话是否正在流式运行（供侧栏并发指示、输入区按钮态） */
+  /** 每个会话是否正在流式运行（供会话列表并发指示、输入区按钮态） */
   streamingBySession: Record<string, boolean>;
   /** 正在回放历史的会话 id（供聊天区显示进度条；null 表示空闲） */
   loadingHistoryFor: string | null;
@@ -44,8 +44,8 @@ interface ChatState {
    * 宿主不理解键值含义，只负责按声明存取并原样回传。
    */
   optionValuesByAgent: Record<string, Record<string, string>>;
-  /** 视图模式：对话 / 任务中心 / 数字员工 */
-  viewMode: "chat" | "automation" | "employees" | "workflow";
+  /** 视图模式：会话 / 任务中心 / 数字员工 / 工作流 */
+  viewMode: "chat" | "automation" | "employees" | "workflow" | "skills";
   /** 设置弹框是否展开 */
   showSettings: boolean;
   /** 右侧工作区文件面板是否展开 */
@@ -78,7 +78,7 @@ interface ChatState {
   abort: (sessionId?: string) => Promise<void>;
 
   // 视图
-  setViewMode: (mode: "chat" | "automation" | "employees" | "workflow") => void;
+  setViewMode: (mode: "chat" | "automation" | "employees" | "workflow" | "skills") => void;
   setShowSettings: (show: boolean) => void;
   setShowWorkspace: (show: boolean) => void;
 
@@ -160,7 +160,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   selectSession: async (id) => {
     // 点会话时立刻把项目选中态同步到该会话所属项目 ——
-    // 不等历史回放，否则冷切换期间侧栏旧项目头的高亮仍在，看起来"没联动"。
+    // 不等历史回放，否则冷切换期间会话列表旧项目头的高亮仍在，看起来"没联动"。
     // projectId 从 store 里已持有的 sessions 查，不必等 ipc.getSession。
     const known = get().sessions.find((s) => s.id === id);
     if (known) {
@@ -314,7 +314,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         messagesBySession: { ...s.messagesBySession, [sessionId]: [] },
         streamingBySession: { ...s.streamingBySession, [sessionId]: false },
       }));
-      // 立即刷新侧栏，让新会话出现（不等跑完）
+      // 立即刷新会话列表，让新会话出现（不等跑完）
       void get().loadSessions();
     }
 
@@ -438,8 +438,8 @@ export function selectCurrentStreaming(s: ChatState): boolean {
 
 /**
  * 选择器：当前生效的 Agent id。
- * 已有会话时以会话记录的 Agent 为准（会话可能由自动化创建，未必等于侧栏选中项），
- * 否则用侧栏选中的 Agent。运行参数与发送目标都以此为准。
+ * 已有会话时以会话记录的 Agent 为准（会话可能由自动化创建，未必等于当前选中项），
+ * 否则用当前选中的 Agent。运行参数与发送目标都以此为准。
  */
 export function selectEffectiveAgentId(s: ChatState): string {
   if (s.currentSessionId) {

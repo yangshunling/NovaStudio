@@ -8,11 +8,12 @@
  *   <userData>/workflow-runs/<runId>/<node>-attempt-N/claude-home/
  */
 
-import { cp, mkdir, rm, stat, writeFile } from "fs/promises";
+import { cp, mkdir, rm, writeFile } from "fs/promises";
 import { existsSync } from "fs";
 import { homedir } from "os";
-import { isAbsolute, join } from "path";
-import type { DigitalEmployee, EmployeeSkill } from "../../shared/types";
+import { join } from "path";
+import type { DigitalEmployee } from "../../shared/types";
+import { materializeEmployeeSkills } from "../skills/catalog";
 
 /** 一次运行在工作区里的产物根目录 */
 export function createRunArtifactDir(
@@ -81,6 +82,8 @@ export interface ClaudeEnvironment {
   /** 注入子进程的额外环境变量 */
   env?: Record<string, string>;
   mcpConfigPath?: string;
+  /** 本次实际物化到隔离目录的技能目录名 */
+  skills: string[];
   warnings: string[];
 }
 
@@ -121,52 +124,6 @@ function mcpJson(employee: DigitalEmployee): string {
   return JSON.stringify({ mcpServers: servers }, null, 2);
 }
 
-function safeSkillDirName(skill: EmployeeSkill): string {
-  const base = (skill.name || skill.id).replace(/[\\/:*?"<>|\s]+/g, "-");
-  return `${base}-${skill.id.slice(0, 8)}`;
-}
-
-/** 把员工启用的技能复制进独立配置目录 */
-async function materializeSkills(
-  configDir: string,
-  workspacePath: string,
-  employee: DigitalEmployee,
-  warnings: string[],
-): Promise<void> {
-  const skillsRoot = join(configDir, "skills");
-  await mkdir(skillsRoot, { recursive: true });
-
-  for (const skill of employee.skills) {
-    if (!skill.enabled || !skill.source.trim()) continue;
-    const source = isAbsolute(skill.source)
-      ? skill.source
-      : join(workspacePath, skill.source);
-
-    let info;
-    try {
-      info = await stat(source);
-    } catch {
-      warnings.push(`技能「${skill.name || skill.id}」的来源不存在：${skill.source}`);
-      continue;
-    }
-
-    const target = join(skillsRoot, safeSkillDirName(skill));
-    try {
-      if (info.isDirectory()) {
-        await cp(source, target, { recursive: true });
-      } else {
-        // 单个文件视为 SKILL.md
-        await mkdir(target, { recursive: true });
-        await cp(source, join(target, "SKILL.md"));
-      }
-    } catch (err) {
-      warnings.push(
-        `技能「${skill.name || skill.id}」复制失败：${err instanceof Error ? err.message : String(err)}`,
-      );
-    }
-  }
-}
-
 /**
  * 为一次节点尝试准备 Claude 的隔离环境。
  *
@@ -194,6 +151,7 @@ export async function prepareClaudeEnvironment(input: {
 
   const credentials = join(homedir(), ".claude", ".credentials.json");
   const hasCredentials = existsSync(credentials);
+  let skills: string[] = [];
   if (hasCredentials) {
     try {
       await cp(credentials, join(home, ".credentials.json"));
@@ -203,15 +161,15 @@ export async function prepareClaudeEnvironment(input: {
       );
     }
 
-    await materializeSkills(
-      home,
-      input.workspacePath,
-      input.employee,
+    skills = await materializeEmployeeSkills({
+      configDir: home,
+      workspacePath: input.workspacePath,
+      skills: input.employee.skills,
       warnings,
-    );
+    });
   } else {
     warnings.push(
-      "未找到 Claude 登录凭证，节点回退到用户默认配置目录，技能与设置将不隔离。",
+      "未找到 Claude 登录凭证，节点回退到用户默认配置目录：员工绑定的技能不会注入。",
     );
   }
 
@@ -224,6 +182,7 @@ export async function prepareClaudeEnvironment(input: {
     runtimeDir,
     env: hasCredentials ? { CLAUDE_CONFIG_DIR: home } : undefined,
     mcpConfigPath,
+    skills,
     warnings,
   };
 }
