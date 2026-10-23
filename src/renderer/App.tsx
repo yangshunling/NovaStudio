@@ -20,6 +20,7 @@ import { SessionsView } from "./components/SessionsView";
 import { AutomationView } from "./components/AutomationView";
 import { EmployeesView } from "./components/employees/EmployeesView";
 import { SkillsView } from "./components/skills/SkillsView";
+import { McpView } from "./components/mcp/McpView";
 import { WorkflowsView } from "./components/workflows/WorkflowsView";
 import { SettingsModal } from "./components/SettingsModal";
 import { WorkspacePanel } from "./components/WorkspacePanel";
@@ -58,6 +59,8 @@ export default function App() {
           <EmployeesView />
         ) : viewMode === "skills" ? (
           <SkillsView />
+        ) : viewMode === "mcp" ? (
+          <McpView />
         ) : viewMode === "workflow" ? (
           <WorkflowsView />
         ) : (

@@ -242,18 +242,104 @@ export interface AutomationTask {
 // 数字员工
 // ============================================================================
 
-/** 数字员工可调用的 MCP 服务配置 */
+/**
+ * 数字员工绑定的 MCP 服务。
+ *
+ * 新版只存资产引用；旧版是内联配置（assetId 为空）。内联字段保留是为了
+ * 兼容历史数据：运行时仍可直接用 command/args/env 注入，UI 会提示迁移。
+ */
 export interface EmployeeMcpServer {
-  id: string;
+  /** 引用的 MCP 资产 id；旧版内联配置为空字符串 */
+  assetId: string;
+  /** 展示名快照 / 旧版名称 */
   name: string;
-  /** 启动命令，如 npx / uvx / node */
-  command: string;
-  /** 命令参数（原样保存，由运行时自行拆分） */
-  args: string;
-  /** 环境变量，每行 KEY=VALUE */
-  env: string;
   enabled: boolean;
+  /** 旧版内联字段；assetId 为空时使用 */
+  command?: string;
+  /** 旧版参数文本（原样保存，由运行时拆分） */
+  args?: string;
+  /** 旧版环境变量，每行 KEY=VALUE */
+  env?: string;
 }
+
+// ============================================================================
+// MCP 资产
+// ============================================================================
+
+/** MCP 传输方式 */
+export type McpTransport = "stdio" | "http" | "sse";
+
+/**
+ * MCP 来源。
+ *
+ * - library         Nova MCP 库（~/.novastudio/mcp/*.json）：可编辑
+ * - claude-global   Claude 配置（用户级 ~/.claude.json 与项目级 .mcp.json）：只读发现
+ *
+ * 与 Skill 的分类方式保持一致：只区分「Nova 库」与「Claude 全局」，
+ * 项目级配置不再单列来源，具体路径在详情里展示。
+ */
+export type McpSource = "library" | "claude-global";
+
+/**
+ * 一个 MCP 服务定义。
+ *
+ * 与 Skill 不同，MCP 不是「复制目录给 Agent 读」，而是 Nova 在每次运行时
+ * 把它渲染成目标 Agent 的配置。因此这里只描述服务本身，与具体 Agent 无关。
+ */
+export interface McpServerAsset {
+  /** 稳定引用 id，格式 `${source}:${slug}` */
+  id: string;
+  /** 库内文件名（library）/ 服务名（发现型） */
+  slug: string;
+  /** 服务名，决定 Agent 侧的工具命名空间 */
+  name: string;
+  description: string;
+  transport: McpTransport;
+  /** stdio 启动命令 */
+  command: string;
+  args: string[];
+  /** 环境变量；值可以是字面量或 ${VAR} 占位符 */
+  env: Record<string, string>;
+  /** http / sse 端点 */
+  url: string;
+  /** http / sse 请求头 */
+  headers: Record<string, string>;
+  /** 定义文件路径（发现型为 ~/.claude.json） */
+  path: string;
+  source: McpSource;
+  readOnly: boolean;
+  readOnlyReason: string | null;
+  /** env / headers 中是否包含字面量密钥（非 ${...} 占位符） */
+  hasSecrets: boolean;
+  valid: boolean;
+  problems: string[];
+  updatedAt: number;
+}
+
+/** MCP 编辑表单：多值字段用文本编辑，保存时再结构化 */
+export interface McpServerDraft {
+  name: string;
+  description: string;
+  transport: McpTransport;
+  command: string;
+  /** 每行一个参数 */
+  args: string;
+  /** 每行 KEY=VALUE；值支持 ${VAR} 占位符 */
+  env: string;
+  url: string;
+  /** 每行 KEY=VALUE */
+  headers: string;
+}
+
+export interface McpImportResult {
+  ok: boolean;
+  imported: McpServerAsset[];
+  error?: string;
+}
+
+export type McpWriteResult =
+  | { ok: true; asset: McpServerAsset }
+  | { ok: false; error: string };
 
 // ============================================================================
 // 技能资产
@@ -311,7 +397,6 @@ export interface SkillDocument {
   readOnly: boolean;
   /** 文件超过读取上限被截断：此时禁止保存，避免用截断内容覆写原文 */
   truncated: boolean;
-  asset: SkillAsset;
 }
 
 export type SkillImportKind = "directory" | "file";

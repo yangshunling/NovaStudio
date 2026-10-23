@@ -8,13 +8,15 @@
  *   项目右键 → 新建终端 / 清空所有会话 / 删除项目
  */
 
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
   Check,
   ChevronRight,
   Eraser,
+  Folder,
   FolderPlus,
+  MessageSquare,
   PenLine,
   Square,
   SquareTerminal,
@@ -31,13 +33,16 @@ import { ConfirmDeleteButton } from "./ui/ConfirmDeleteButton";
 import { FolderTypeIcon } from "./ui/FolderTypeIcon";
 import { StatusDot } from "./ui/StatusDot";
 
-/** 面板正文与元信息字号 */
-const FONT_BODY = "text-body-lg";
-const FONT_META = "text-meta";
-
 /** 右键菜单尺寸：用于贴近视口边缘时收拢位置 */
 const MENU_WIDTH = 192;
 const MENU_HEIGHT = 160;
+
+/** 项目副标题只保留末尾两级目录，避免长路径把行撑乱 */
+function shortPath(cwd: string): string {
+  const parts = cwd.split(/[\\/]/).filter(Boolean);
+  if (parts.length <= 2) return cwd;
+  return `…/${parts.slice(-2).join("/")}`;
+}
 
 export function SessionListPanel() {
   const projects = useChatStore((s) => s.projects);
@@ -47,17 +52,27 @@ export function SessionListPanel() {
   const currentSessionId = useChatStore((s) => s.currentSessionId);
   const streamingBySession = useChatStore((s) => s.streamingBySession);
   const openTerminal = useFileViewerStore((s) => s.openTerminal);
-  const {
-    selectSession,
-    selectProject,
-    deleteSession,
-    createProject,
-    deleteProject,
-    clearProjectSessions,
-    renameSession,
-    pickDirectory,
-    abort,
-  } = useChatStore();
+  // 逐项订阅 action：避免无 selector 的 useChatStore() 让整个面板
+  // 在每次流式 token 到达时重渲染
+  const selectSession = useChatStore((s) => s.selectSession);
+  const selectProject = useChatStore((s) => s.selectProject);
+  const deleteSession = useChatStore((s) => s.deleteSession);
+  const createProject = useChatStore((s) => s.createProject);
+  const deleteProject = useChatStore((s) => s.deleteProject);
+  const clearProjectSessions = useChatStore((s) => s.clearProjectSessions);
+  const renameSession = useChatStore((s) => s.renameSession);
+  const pickDirectory = useChatStore((s) => s.pickDirectory);
+  const abort = useChatStore((s) => s.abort);
+
+  const sessionsByProject = useMemo(() => {
+    const map = new Map<string, Session[]>();
+    for (const session of sessions) {
+      const list = map.get(session.projectId);
+      if (list) list.push(session);
+      else map.set(session.projectId, [session]);
+    }
+    return map;
+  }, [sessions]);
 
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   /** 项目右键菜单：同一时间只开一个，坐标用视口坐标 */
@@ -159,55 +174,76 @@ export function SessionListPanel() {
   };
 
   return (
-    <aside className="flex w-[var(--c-layout-session-list)] shrink-0 flex-col border-l border-r border-border bg-[var(--c-panel-bg)] shadow-[var(--c-shadow-sm)]">
+    <aside className="flex w-[var(--c-layout-session-list)] shrink-0 flex-col border-r border-border bg-[var(--c-panel-bg)]">
       {/* 头部：项目 + 新建项目（高度与右侧会话区顶栏一致，底部分隔线贯通） */}
-      <div className="flex h-[var(--c-layout-header)] shrink-0 items-center justify-between border-b border-border px-4">
-        <p className="text-meta font-semibold tracking-wide text-text-muted">项目</p>
+      <div className="flex h-[var(--c-layout-header)] shrink-0 items-center justify-between gap-2 border-b border-border px-4">
+        <div className="flex min-w-0 items-center gap-2">
+          <span className="flex size-6 shrink-0 items-center justify-center rounded-md bg-accent-soft text-accent">
+            <Folder className="h-3.5 w-3.5" />
+          </span>
+          <span className="truncate text-body-lg font-semibold text-text">项目</span>
+          {projects.length > 0 && (
+            <span className="rounded-full bg-surface-hover px-2 py-0.5 font-mono text-caption leading-none text-text-muted">
+              {projects.length}
+            </span>
+          )}
+        </div>
         <button
           type="button"
           onClick={handleNewProject}
           title="选择文件夹新建项目"
           aria-label="选择文件夹新建项目"
-          className="rounded-lg p-1.5 text-text-muted transition-colors hover:bg-surface-hover hover:text-text active:scale-95"
+          className="ui-btn-round flex size-8 shrink-0 items-center justify-center rounded-full text-text-muted transition-colors hover:text-accent active:scale-95"
         >
           <FolderPlus className="h-4 w-4" />
         </button>
       </div>
 
       {/* 项目 + 会话树 */}
-      <div className="min-h-0 flex-1 space-y-1 overflow-y-auto px-2.5 pb-4 pt-4">
-        {projects.length === 0 && (
-          <div className="px-2 py-8 text-center">
-            <FolderTypeIcon
-              size={24}
-              toneClassName="text-text-muted"
-              className="mx-auto mb-2"
-            />
-            <p className={`${FONT_META} text-text-muted`}>还没有项目</p>
+      <div className="ui-scroll-hidden min-h-0 flex-1 overflow-y-auto px-3 pb-5 pt-3">
+        {projects.length === 0 ? (
+          <div className="mx-auto mt-4 flex flex-col items-center gap-4 rounded-2xl border border-dashed border-border-strong/70 bg-surface-2/30 px-5 py-10 text-center">
+            <span className="flex size-14 items-center justify-center rounded-2xl bg-accent-soft text-accent shadow-[var(--c-shadow-sm)]">
+              <FolderPlus className="h-6 w-6" />
+            </span>
+            <div className="space-y-1">
+              <p className="text-body-lg font-semibold text-text">还没有项目</p>
+              <p className="text-meta leading-relaxed text-text-muted">
+                选择一个本地文件夹作为工作目录，项目下的会话会共享它。
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={handleNewProject}
+              className="ui-btn-primary flex h-8 items-center gap-1.5 rounded-full px-4 text-meta font-medium active:scale-95"
+            >
+              <FolderPlus className="h-4 w-4" />
+              选择文件夹
+            </button>
+          </div>
+        ) : (
+          <div className="space-y-2.5">
+            {projects.map((project) => (
+              <ProjectNode
+                key={project.id}
+                project={project}
+                sessions={sessionsByProject.get(project.id) ?? []}
+                streamingBySession={streamingBySession}
+                agents={agents}
+                isExpanded={expanded[project.id] ?? true}
+                onToggle={() => toggleExpand(project.id)}
+                onSelect={() => handleSelectProject(project.id)}
+                activeSessionId={currentSessionId}
+                isActiveProject={currentProjectId === project.id}
+                onOpenSession={(id) => selectSession(id)}
+                onDeleteSession={(id) => deleteSession(id)}
+                onAbortSession={(id) => abort(id)}
+                onRenameSession={(id, title) => renameSession(id, title)}
+                onContextMenu={openProjectMenu}
+              />
+            ))}
           </div>
         )}
-
-        <div className="space-y-1">
-          {projects.map((project) => (
-            <ProjectNode
-              key={project.id}
-              project={project}
-              sessions={sessions.filter((s) => s.projectId === project.id)}
-              streamingBySession={streamingBySession}
-              agents={agents}
-              isExpanded={expanded[project.id] ?? true}
-              onToggle={() => toggleExpand(project.id)}
-              onSelect={() => handleSelectProject(project.id)}
-              activeSessionId={currentSessionId}
-              isActiveProject={currentProjectId === project.id}
-              onOpenSession={(id) => selectSession(id)}
-              onDeleteSession={(id) => deleteSession(id)}
-              onAbortSession={(id) => abort(id)}
-              onRenameSession={(id, title) => renameSession(id, title)}
-              onContextMenu={openProjectMenu}
-            />
-          ))}
-        </div>
       </div>
 
       {/* 项目右键菜单（挂到 body，避免被滚动容器裁切） */}
@@ -221,7 +257,7 @@ export function SessionListPanel() {
             <button
               type="button"
               onClick={() => handleProjectTerminal(menu.project)}
-              className="flex w-full items-center gap-2 rounded-md px-2.5 py-3 text-left text-body text-text-secondary transition-colors hover:bg-surface-hover hover:text-text"
+              className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-body text-text-secondary transition-colors hover:bg-surface-hover hover:text-text"
             >
               <SquareTerminal className="h-4 w-4 shrink-0 text-accent" />
               新建终端
@@ -230,16 +266,14 @@ export function SessionListPanel() {
             <div className="my-1 h-px bg-border" />
 
             {(() => {
-              const count = sessions.filter(
-                (session) => session.projectId === menu.project.id,
-              ).length;
+              const count = sessionsByProject.get(menu.project.id)?.length ?? 0;
               return (
                 <button
                   type="button"
                   disabled={count === 0}
                   onClick={() => handleClearSessions(menu.project)}
                   title={count === 0 ? "该项目下没有会话" : "一键删除该项目下的全部会话"}
-                  className="flex w-full items-center gap-2 rounded-md px-2.5 py-3 text-left text-body text-text-secondary transition-colors hover:bg-surface-hover hover:text-text disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-text-secondary"
+                  className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-body text-text-secondary transition-colors hover:bg-surface-hover hover:text-text disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-text-secondary"
                 >
                   <Eraser className="h-4 w-4 shrink-0" />
                   清空所有会话
@@ -258,7 +292,7 @@ export function SessionListPanel() {
             <button
               type="button"
               onClick={() => handleDeleteProject(menu.project)}
-              className="flex w-full items-center gap-2 rounded-md px-2.5 py-3 text-left text-body text-error transition-colors hover:bg-error-bg"
+              className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-body text-error transition-colors hover:bg-error-bg"
             >
               <Trash2 className="h-4 w-4 shrink-0" />
               删除项目
@@ -306,21 +340,31 @@ function ProjectNode({
   onContextMenu: (project: Project, event: React.MouseEvent) => void;
 }) {
   return (
-    <div>
+    <div
+      className={`group/proj relative overflow-hidden rounded-xl border transition-all ${
+        isActiveProject
+          ? "border-accent/30 bg-accent-soft/60 shadow-[var(--c-shadow-sm)]"
+          : "border-border/70 bg-surface-2/30 hover:border-border-strong hover:bg-surface-2/60"
+      }`}
+    >
+      {/* 选中项目：左侧强调条，比整块实色背景更克制 */}
+      {isActiveProject && (
+        <span
+          aria-hidden
+          className="absolute inset-y-2.5 left-0 w-0.5 rounded-full bg-accent"
+        />
+      )}
+
       {/* 项目头：折叠箭头与选中主体分开 —— 点箭头只折叠，点主体才选中项目 */}
       <div
         onContextMenu={(event) => onContextMenu(project, event)}
-        className={`group/proj flex w-full items-center rounded-xl transition-colors ${
-          isActiveProject
-            ? "bg-surface-active text-text shadow-[var(--c-shadow-sm)]"
-            : "text-text-secondary hover:bg-surface-hover hover:text-text"
-        }`}
+        className="flex w-full items-center gap-1 px-1.5 py-1.5"
       >
         <button
           onClick={onToggle}
           title={isExpanded ? "折叠" : "展开"}
           aria-expanded={isExpanded}
-          className="flex shrink-0 items-center justify-center py-2.5 pl-1.5 pr-0.5 text-text-muted hover:text-text"
+          className="flex size-6 shrink-0 items-center justify-center rounded-md text-text-muted transition-colors hover:bg-surface-hover hover:text-text"
         >
           <ChevronRight
             className={`h-3.5 w-3.5 shrink-0 transition-transform ${isExpanded ? "rotate-90" : ""}`}
@@ -328,46 +372,68 @@ function ProjectNode({
         </button>
         <button
           onClick={onSelect}
-          className="flex min-w-0 flex-1 items-center gap-3 py-2.5 pr-2.5 text-left"
+          className="flex min-w-0 flex-1 items-center gap-2.5 rounded-lg px-1 py-0.5 text-left"
           title={project.cwd || project.name}
         >
           <span
-            className={`grid h-9 w-9 shrink-0 place-items-center ${
-              isActiveProject ? "text-accent" : "text-text-muted"
+            className={`flex size-8 shrink-0 items-center justify-center rounded-lg transition-colors ${
+              isActiveProject
+                ? "bg-accent-soft text-accent"
+                : "bg-surface-hover/80 text-text-muted group-hover/proj:text-text"
             }`}
           >
-            <FolderTypeIcon open={isExpanded} size={16} />
+            <FolderTypeIcon open={isExpanded} size={17} />
           </span>
           <span className="min-w-0 flex-1">
-            <span className={`block truncate ${FONT_BODY} font-medium`}>
+            <span
+              className={`block truncate text-body-lg font-semibold ${
+                isActiveProject
+                  ? "text-text"
+                  : "text-text-secondary group-hover/proj:text-text"
+              }`}
+            >
               {project.name}
             </span>
-            <span className="block truncate font-mono text-caption text-text-muted">
-              {project.cwd}
+            <span className="mt-0.5 block truncate font-mono text-meta text-text-muted">
+              {project.cwd ? shortPath(project.cwd) : "未设置工作目录"}
             </span>
+          </span>
+          <span
+            title={`${sessions.length} 个会话`}
+            className={`flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full px-1.5 font-mono text-meta tabular-nums ${
+              isActiveProject
+                ? "bg-accent-soft text-accent"
+                : "bg-surface-hover text-text-muted"
+            }`}
+          >
+            {sessions.length}
           </span>
         </button>
       </div>
 
-      {/* 会话列表 */}
+      {/* 会话列表：竖线从文件夹图标下方延伸，保持树形层级 */}
       {isExpanded && (
-        <div className="ml-4 space-y-0.5 border-l border-border pl-2 pt-1">
-          {sessions.map((session) => (
-            <SessionRow
-              key={session.id}
-              session={session}
-              isActive={session.id === activeSessionId}
-              isStreaming={!!streamingBySession[session.id]}
-              agents={agents}
-              onOpen={() => onOpenSession(session.id)}
-              onDelete={() => onDeleteSession(session.id)}
-              onAbort={() => onAbortSession(session.id)}
-              onRename={(title) => onRenameSession(session.id, title)}
-            />
-          ))}
-          {/* 空态 */}
+        <div className="ml-[50px] border-l border-border/80 pb-2 pl-3 pr-2 pt-0.5">
+          <div className="space-y-0.5">
+            {sessions.map((session) => (
+              <SessionRow
+                key={session.id}
+                session={session}
+                isActive={session.id === activeSessionId}
+                isStreaming={!!streamingBySession[session.id]}
+                agents={agents}
+                onOpen={() => onOpenSession(session.id)}
+                onDelete={() => onDeleteSession(session.id)}
+                onAbort={() => onAbortSession(session.id)}
+                onRename={(title) => onRenameSession(session.id, title)}
+              />
+            ))}
+          </div>
           {sessions.length === 0 && (
-            <p className={`px-2 py-1.5 ${FONT_META} text-text-muted`}>无会话</p>
+            <div className="flex items-center gap-1.5 py-1.5 text-meta text-text-muted">
+              <MessageSquare className="h-3.5 w-3.5 opacity-60" />
+              暂无会话
+            </div>
           )}
         </div>
       )}
@@ -492,8 +558,8 @@ function SessionRow({
   if (editing) {
     return (
       <div
-        className={`group flex items-center gap-2 rounded-lg px-2.5 py-2 ${
-          isActive ? "bg-surface-active" : ""
+        className={`group flex items-center gap-2 rounded-lg py-1 pl-2.5 pr-1 ${
+          isActive ? "bg-surface-active shadow-[var(--c-shadow-sm)]" : ""
         }`}
       >
         <input
@@ -504,14 +570,14 @@ function SessionRow({
             if (e.key === "Enter") submitEdit();
             if (e.key === "Escape") setEditing(false);
           }}
-          className="min-w-0 flex-1 rounded border border-input-border bg-input-bg px-2 py-1 text-body-lg text-text outline-none focus:border-input-border-focus"
+          className="min-w-0 flex-1 rounded-md border border-input-border bg-input-bg px-2 py-1 text-body text-text outline-none focus:border-input-border-focus"
         />
         <button
           onClick={submitEdit}
           title="确认"
-          className="shrink-0 rounded p-2 text-text-muted hover:text-success"
+          className="shrink-0 rounded-md p-1.5 text-text-muted transition-colors hover:bg-surface-hover hover:text-success"
         >
-          <Check className="h-4 w-4" />
+          <Check className="h-3.5 w-3.5" />
         </button>
       </div>
     );
@@ -535,18 +601,30 @@ function SessionRow({
           onOpen();
         }
       }}
-      className={`group cursor-pointer select-none rounded-lg px-2.5 py-2 transition-colors ${
+      className={`group relative cursor-pointer select-none rounded-lg py-2 pl-2.5 pr-1.5 transition-colors ${
         isActive
-          ? "bg-surface-active text-text"
+          ? "bg-surface-active text-text shadow-[var(--c-shadow-sm)]"
           : "text-text-secondary hover:bg-surface-hover hover:text-text"
       }`}
     >
+      {/* 选中标识：贴左缘的一道强调色短条 */}
+      {isActive && (
+        <span
+          aria-hidden
+          className="absolute left-0 top-1/2 h-5 w-[3px] -translate-y-1/2 rounded-full bg-accent"
+        />
+      )}
+
       {/* 单行：状态点 + 标题 + 右侧悬浮信息 / 操作 */}
       <div className="flex items-center gap-2">
         {isStreaming && <StatusDot status="streaming" />}
-        <span className="min-w-0 flex-1 truncate text-body">{session.title}</span>
+        <span
+          className={`min-w-0 flex-1 truncate text-body ${isActive ? "font-medium" : ""}`}
+        >
+          {session.title}
+        </span>
 
-        <div className="ml-auto flex shrink-0 items-center gap-1">
+        <div className="ml-auto flex shrink-0 items-center gap-0.5">
           {isStreaming ? (
             <button
               onClick={(e) => {
@@ -554,7 +632,7 @@ function SessionRow({
                 onAbort();
               }}
               title="停止运行"
-              className="shrink-0 rounded p-1 text-text-muted hover:text-error"
+              className="shrink-0 rounded-md p-1 text-text-muted transition-colors hover:bg-error-bg hover:text-error"
             >
               <Square className="h-4 w-4" />
             </button>
@@ -566,7 +644,7 @@ function SessionRow({
                   startEdit();
                 }}
                 title="重命名"
-                className="rounded p-1 text-text-muted hover:bg-surface-active hover:text-text"
+                className="rounded-md p-1.5 text-text-muted transition-colors hover:bg-surface-active hover:text-text"
               >
                 <PenLine className="h-4 w-4" />
               </button>

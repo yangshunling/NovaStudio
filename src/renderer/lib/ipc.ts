@@ -16,6 +16,7 @@ import type {
 import type {
   AppSettings,
   DigitalEmployeeDraft,
+  McpServerDraft,
   SessionOptions,
   SkillImportKind,
   WorkflowDraft,
@@ -109,6 +110,16 @@ export const ipc = {
   updateEmployee: (id: string, draft: DigitalEmployeeDraft) =>
     call("employees:update", { id, draft }),
   deleteEmployee: (id: string) => call("employees:delete", { id }),
+
+  // === MCP 资产 ===
+  listMcpServers: () => call("mcp:list"),
+  createMcpServer: (draft: McpServerDraft) => call("mcp:create", { draft }),
+  updateMcpServer: (id: string, draft: McpServerDraft) =>
+    call("mcp:update", { id, draft }),
+  deleteMcpServer: (id: string) => call("mcp:delete", { id }),
+  importMcpServers: (json: string) => call("mcp:import", { json }),
+  importMcpFile: () => call("mcp:importFile"),
+  revealMcpServer: (id: string) => call("mcp:reveal", { id }),
 
   // === 技能资产 ===
   listSkills: () => call("skills:list"),

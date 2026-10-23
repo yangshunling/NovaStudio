@@ -13,6 +13,10 @@ import type {
   DigitalEmployeeDraft,
   FileEntry,
   GitStatusSummary,
+  McpImportResult,
+  McpServerAsset,
+  McpServerDraft,
+  McpWriteResult,
   OpenFileExternalResult,
   Project,
   ReadFileResult,
@@ -139,6 +143,22 @@ export interface IpcInvokeMap {
     result: DigitalEmployee | null;
   };
   "employees:delete": { args: [{ id: string }]; result: boolean };
+
+  /** MCP 资产：扫描 / 新建 / 更新 / 删除 / 导入 / 打开目录 */
+  "mcp:list": { args: []; result: McpServerAsset[] };
+  "mcp:create": {
+    args: [{ draft: McpServerDraft }];
+    result: McpWriteResult;
+  };
+  "mcp:update": {
+    args: [{ id: string; draft: McpServerDraft }];
+    result: McpWriteResult;
+  };
+  "mcp:delete": { args: [{ id: string }]; result: boolean };
+  "mcp:import": { args: [{ json: string }]; result: McpImportResult };
+  /** 从 JSON 文件导入（主进程弹选择框） */
+  "mcp:importFile": { args: []; result: McpImportResult };
+  "mcp:reveal": { args: [{ id: string }]; result: boolean };
 
   /** 技能资产：聚合扫描 / 导入主库 / 删除 / 文档读写 / 打开目录 */
   "skills:list": { args: []; result: SkillAsset[] };

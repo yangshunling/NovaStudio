@@ -25,6 +25,7 @@ import type {
   AutomationStatus,
   DigitalEmployee,
   DigitalEmployeeDraft,
+  EmployeeMcpServer,
   EmployeeSkill,
   SessionSource,
   Workflow,
@@ -558,6 +559,40 @@ function normalizeEmployeeSkills(raw: string): EmployeeSkill[] {
   });
 }
 
+/**
+ * 员工 MCP 归一化。
+ *
+ * 新版只存资产引用 `{ assetId, name, enabled }`；旧版是内联配置
+ * `{ id, name, command, args, env, enabled }`。旧条目保留内联字段，
+ * 运行时仍可注入，UI 中标记为「旧版内联」并提示导入 MCP 库。
+ */
+function normalizeEmployeeMcpServers(raw: string): EmployeeMcpServer[] {
+  return parseJsonArray<Record<string, unknown>>(raw).flatMap((item) => {
+    if (!item || typeof item !== "object") return [];
+    const assetId = typeof item.assetId === "string" ? item.assetId : "";
+    const name = typeof item.name === "string" ? item.name : "";
+    const enabled = item.enabled !== false;
+
+    if (assetId) return [{ assetId, name, enabled }];
+
+    const command = typeof item.command === "string" ? item.command : "";
+    const args = typeof item.args === "string" ? item.args : "";
+    const env = typeof item.env === "string" ? item.env : "";
+    if (!command && !args && !env) return [];
+
+    return [
+      {
+        assetId: "",
+        name: name || command || "未命名 MCP",
+        enabled,
+        command,
+        args,
+        env,
+      },
+    ];
+  });
+}
+
 function rowToDigitalEmployee(row: any): DigitalEmployee {
   return {
     id: row.id,
@@ -568,7 +603,7 @@ function rowToDigitalEmployee(row: any): DigitalEmployee {
     agentId: row.agent_id,
     model: row.model ?? "",
     systemPrompt: row.system_prompt ?? "",
-    mcpServers: parseJsonArray(row.mcp_servers_json),
+    mcpServers: normalizeEmployeeMcpServers(row.mcp_servers_json),
     skills: normalizeEmployeeSkills(row.skills_json),
     enabled: !!row.enabled,
     createdAt: row.created_at,

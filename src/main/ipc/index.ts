@@ -22,6 +22,7 @@ import { registerFileHandlers } from "./handlers/file";
 import { registerAutomationHandlers } from "./handlers/automation";
 import { registerTerminalHandlers } from "./handlers/terminal";
 import { registerEmployeeHandlers } from "./handlers/employee";
+import { registerMcpHandlers } from "./handlers/mcp";
 import { registerSkillHandlers } from "./handlers/skill";
 import { registerWorkflowHandlers } from "./handlers/workflow";
 import { registerWorkflowRunHandlers } from "./handlers/workflow-run";
@@ -58,6 +59,7 @@ export function initIpcHandlers(window: BrowserWindow): void {
   registerFileHandlers();
   registerTerminalHandlers();
   registerEmployeeHandlers();
+  registerMcpHandlers();
   registerSkillHandlers();
   registerWorkflowHandlers(service, runner);
   registerWorkflowRunHandlers(runner);

@@ -23,6 +23,15 @@ import type {
   SessionOptions,
 } from "@shared/types";
 
+/** 主视图标识：state 与 setter 共用，避免联合类型各写一份 */
+export type ViewMode =
+  | "chat"
+  | "automation"
+  | "employees"
+  | "workflow"
+  | "skills"
+  | "mcp";
+
 interface ChatState {
   // 状态
   /** 主进程检测出的全部 Agent（manifest + 安装状态） */
@@ -45,7 +54,7 @@ interface ChatState {
    */
   optionValuesByAgent: Record<string, Record<string, string>>;
   /** 视图模式：会话 / 任务中心 / 数字员工 / 工作流 */
-  viewMode: "chat" | "automation" | "employees" | "workflow" | "skills";
+  viewMode: ViewMode;
   /** 设置弹框是否展开 */
   showSettings: boolean;
   /** 右侧工作区文件面板是否展开 */
@@ -78,7 +87,7 @@ interface ChatState {
   abort: (sessionId?: string) => Promise<void>;
 
   // 视图
-  setViewMode: (mode: "chat" | "automation" | "employees" | "workflow" | "skills") => void;
+  setViewMode: (mode: ViewMode) => void;
   setShowSettings: (show: boolean) => void;
   setShowWorkspace: (show: boolean) => void;
 

@@ -23,12 +23,6 @@ import { ThemeToggle } from "./ThemeToggle";
 /** 导航项字号 */
 const FONT_BODY = "text-body-lg";
 
-/** 资产分组：技能已开放，MCP 与知识库仍标记「规划中」 */
-const PLANNED_ASSET_ITEMS = [
-  { id: "mcp", label: "MCP 工具", icon: Plug },
-  { id: "knowledge", label: "知识库", icon: Library },
-] as const;
-
 export function Sidebar() {
   const viewMode = useChatStore((s) => s.viewMode);
   const setViewMode = useChatStore((s) => s.setViewMode);
@@ -116,26 +110,28 @@ export function Sidebar() {
           className={itemClass(viewMode === "skills")}
         >
           <Sparkles className="h-4 w-4 shrink-0" />
-          Skill 技能
+          Skill
         </button>
-        {PLANNED_ASSET_ITEMS.map((item) => {
-          const Icon = item.icon;
-          return (
-            <button
-              key={item.id}
-              type="button"
-              disabled
-              title={`${item.label}（规划中）`}
-              className="flex w-full cursor-not-allowed items-center gap-2 rounded-md px-2.5 py-2.5 text-body-lg font-medium text-text-muted/70"
-            >
-              <Icon className="h-4 w-4 shrink-0" />
-              {item.label}
-              <span className="ml-auto rounded-full bg-surface-hover px-2 py-0.5 text-caption font-medium text-text-muted">
-                规划中
-              </span>
-            </button>
-          );
-        })}
+        <button
+          type="button"
+          onClick={() => setViewMode("mcp")}
+          className={itemClass(viewMode === "mcp")}
+        >
+          <Plug className="h-4 w-4 shrink-0" />
+          MCP
+        </button>
+        <button
+          type="button"
+          disabled
+          title="知识库（规划中）"
+          className="flex w-full cursor-not-allowed items-center gap-2 rounded-md px-2.5 py-2.5 text-body-lg font-medium text-text-muted/70"
+        >
+          <Library className="h-4 w-4 shrink-0" />
+          知识库
+          <span className="ml-auto rounded-full bg-surface-hover px-2 py-0.5 text-caption font-medium text-text-muted">
+            规划中
+          </span>
+        </button>
       </div>
 
       {/* 底部：设置入口 */}

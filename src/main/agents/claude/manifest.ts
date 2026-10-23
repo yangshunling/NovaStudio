@@ -18,6 +18,8 @@ export const manifest: AgentManifest = {
   capabilities: {
     resume: true,
     sessionCleanup: true,
+    skills: true,
+    mcp: true,
   },
   options: [
     {

@@ -16,7 +16,6 @@ import {
   useMemo,
   useState,
   type CSSProperties,
-  type ReactNode,
 } from "react";
 import {
   AlertTriangle,
@@ -37,6 +36,13 @@ import {
 import { ipc } from "../../lib/ipc";
 import { useSkillFontSize } from "../../hooks/useTheme";
 import { toast } from "../../stores/toast";
+import {
+  formatAssetTime,
+  Meta,
+  SourceTag,
+  Tag,
+} from "../assets/assetUi";
+import { SKILL_ORIGIN_CLASS, SKILL_ORIGIN_LABEL } from "./presentation";
 import type {
   DigitalEmployee,
   SkillAsset,
@@ -49,33 +55,12 @@ import type {
 // 常量
 // ============================================================================
 
-const ORIGIN_LABEL: Record<SkillOrigin, string> = {
-  library: "Nova 技能库",
-  "claude-global": "Claude 全局",
-  "agents-store": "共享技能库",
-};
-
-const ORIGIN_CLASS: Record<SkillOrigin, string> = {
-  library: "bg-accent-soft text-accent",
-  "claude-global": "bg-agent-violet/10 text-agent-violet",
-  "agents-store": "bg-agent-teal/10 text-agent-teal",
-};
-
 const FILTERS: ReadonlyArray<{ id: "all" | SkillOrigin; label: string }> = [
   { id: "all", label: "全部" },
   { id: "library", label: "Nova 技能库" },
   { id: "claude-global", label: "Claude 全局" },
   { id: "agents-store", label: "共享技能库" },
 ];
-
-function formatTime(timestamp: number): string {
-  return new Date(timestamp).toLocaleString("zh-CN", {
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
 
 // ============================================================================
 // 页面
@@ -347,7 +332,10 @@ function SkillCard({
         <div className="min-w-0">
           <h3 className="truncate text-title font-semibold text-text">{skill.name}</h3>
         </div>
-        <SourceTag origin={skill.origin} />
+        <SourceTag
+          label={SKILL_ORIGIN_LABEL[skill.origin]}
+          className={SKILL_ORIGIN_CLASS[skill.origin]}
+        />
       </div>
 
       <p className="mt-2.5 line-clamp-2 text-body-lg leading-relaxed text-text-secondary">
@@ -376,7 +364,7 @@ function SkillCard({
           </Tag>
         )}
         <span className="ml-auto text-meta text-text-muted">
-          {formatTime(skill.updatedAt)}
+          {formatAssetTime(skill.updatedAt)}
         </span>
       </div>
     </button>
@@ -400,21 +388,16 @@ function SkillDrawer({
   onChanged: () => Promise<void>;
   onDeleted: () => void;
 }) {
-  const [current, setCurrent] = useState<SkillAsset>(skill);
   const [document, setDocument] = useState<SkillDocument | null>(null);
   const [content, setContent] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    setCurrent(skill);
-  }, [skill]);
-
-  useEffect(() => {
     let cancelled = false;
     setLoading(true);
     ipc
-      .getSkillDocument(current.id)
+      .getSkillDocument(skill.id)
       .then((doc) => {
         if (cancelled) return;
         setDocument(doc);
@@ -429,11 +412,11 @@ function SkillDrawer({
     return () => {
       cancelled = true;
     };
-  }, [current.id]);
+  }, [skill.id]);
 
   const usedBy = employees.filter((employee) =>
     employee.skills.some(
-      (item) => item.enabled && item.assetId === current.id,
+      (item) => item.enabled && item.assetId === skill.id,
     ),
   );
 
@@ -443,13 +426,12 @@ function SkillDrawer({
     if (saving || !document || document.readOnly || document.truncated) return;
     setSaving(true);
     try {
-      const result = await ipc.saveSkillDocument(current.id, content);
+      const result = await ipc.saveSkillDocument(skill.id, content);
       if (!result.ok) {
         toast.error(result.error, 5000);
         return;
       }
-      setCurrent(result.asset);
-      setDocument({ ...document, content, asset: result.asset });
+      setDocument({ ...document, content });
       toast.success("SKILL.md 已保存");
       await onChanged();
     } catch (err) {
@@ -460,15 +442,15 @@ function SkillDrawer({
   };
 
   const handleDelete = async () => {
-    if (current.readOnly) return;
+    if (skill.readOnly) return;
     const suffix =
       usedBy.length > 0
         ? `\n\n有 ${usedBy.length} 位数字员工正在使用它，删除后这些员工会失去该技能。`
         : "";
-    if (!window.confirm(`从 Nova 技能库删除「${current.name}」？${suffix}`)) return;
+    if (!window.confirm(`从 Nova 技能库删除「${skill.name}」？${suffix}`)) return;
 
     try {
-      const ok = await ipc.deleteSkill(current.id);
+      const ok = await ipc.deleteSkill(skill.id);
       if (!ok) {
         toast.error("删除失败：技能可能已不存在");
         return;
@@ -497,13 +479,16 @@ function SkillDrawer({
           <div className="min-w-0 flex-1">
             <div className="flex min-w-0 items-center gap-2">
               <span className="truncate text-title font-semibold text-text">
-                {current.name}
+                {skill.name}
               </span>
-              <SourceTag origin={current.origin} />
-              {current.readOnly && <Tag icon={Lock}>只读</Tag>}
+              <SourceTag
+                label={SKILL_ORIGIN_LABEL[skill.origin]}
+                className={SKILL_ORIGIN_CLASS[skill.origin]}
+              />
+              {skill.readOnly && <Tag icon={Lock}>只读</Tag>}
             </div>
             <div className="truncate text-meta text-text-muted">
-              {current.slug}
+              {skill.slug}
             </div>
           </div>
           <button
@@ -521,12 +506,12 @@ function SkillDrawer({
             {/* 顶部信息固定高度：剩余空间全部留给 SKILL.md */}
             <div className="shrink-0 space-y-4">
             {/* 只读说明：告诉用户为什么不能编辑 / 删除，以及能做什么 */}
-            {current.readOnly && current.readOnlyReason && (
+            {skill.readOnly && skill.readOnlyReason && (
               <div className="rounded-lg border border-border bg-surface-2/60 p-3">
                 <div className="flex items-start gap-2 text-body leading-relaxed text-text-secondary">
                   <Lock className="mt-0.5 h-4 w-4 shrink-0 text-text-muted" />
                   <div>
-                    <p>{current.readOnlyReason}</p>
+                    <p>{skill.readOnlyReason}</p>
                     <p className="mt-1 text-text-muted">
                       你仍然可以在数字员工中绑定它；Nova 会在每次运行时把技能复制到独立的
                       Agent 配置目录，不会改动原目录。
@@ -537,10 +522,10 @@ function SkillDrawer({
             )}
 
             {/* 校验问题 */}
-            {current.problems.length > 0 && (
+            {skill.problems.length > 0 && (
               <div
                 className={`rounded-lg border p-3 ${
-                  current.valid
+                  skill.valid
                     ? "border-border bg-surface-2/60"
                     : "border-error/40 bg-error-bg"
                 }`}
@@ -548,11 +533,11 @@ function SkillDrawer({
                 <div className="flex items-start gap-2">
                   <AlertTriangle
                     className={`mt-0.5 h-4 w-4 shrink-0 ${
-                      current.valid ? "text-agent-amber" : "text-error"
+                      skill.valid ? "text-agent-amber" : "text-error"
                     }`}
                   />
                   <ul className="space-y-0.5 text-body leading-relaxed text-text-secondary">
-                    {current.problems.map((problem) => (
+                    {skill.problems.map((problem) => (
                       <li key={problem}>{problem}</li>
                     ))}
                   </ul>
@@ -562,9 +547,9 @@ function SkillDrawer({
 
             {/* 元信息 */}
             <div className="grid grid-cols-2 gap-3 text-body">
-              <Meta label="目录" value={current.path} mono />
-              <Meta label="最近更新" value={formatTime(current.updatedAt)} />
-              <Meta label="文件数" value={`${current.fileCount} 个文件`} />
+              <Meta label="目录" value={skill.path} mono />
+              <Meta label="最近更新" value={formatAssetTime(skill.updatedAt)} />
+              <Meta label="文件数" value={`${skill.fileCount} 个文件`} />
               <Meta
                 label="使用情况"
                 value={
@@ -588,7 +573,7 @@ function SkillDrawer({
                     </span>
                   )}
                 </div>
-                {!current.readOnly && (
+                {!skill.readOnly && (
                   <button
                     type="button"
                     onClick={handleSave}
@@ -621,10 +606,10 @@ function SkillDrawer({
                   <textarea
                     value={content}
                     onChange={(event) => setContent(event.target.value)}
-                    readOnly={current.readOnly || document.truncated}
+                    readOnly={skill.readOnly || document.truncated}
                     spellCheck={false}
                     className={`ui-ring min-h-[240px] w-full flex-1 resize-none rounded-lg border border-input-border bg-input-bg p-inset font-mono text-body-lg leading-relaxed text-text outline-none ${
-                      current.readOnly || document.truncated
+                      skill.readOnly || document.truncated
                         ? "opacity-80"
                         : "focus:border-input-border-focus"
                     }`}
@@ -642,7 +627,7 @@ function SkillDrawer({
         {/* 底部操作 */}
         <div className="flex shrink-0 items-center justify-between gap-3 border-t border-border px-card py-3">
           <div>
-            {!current.readOnly && (
+            {!skill.readOnly && (
               <button
                 type="button"
                 onClick={handleDelete}
@@ -652,7 +637,7 @@ function SkillDrawer({
                 从技能库删除
               </button>
             )}
-            {current.readOnly && (
+            {skill.readOnly && (
               <span className="text-meta text-text-muted">
                 只读来源：删除请到原目录或对应工具中操作
               </span>
@@ -661,7 +646,7 @@ function SkillDrawer({
           <button
             type="button"
             onClick={async () => {
-              const ok = await ipc.revealSkill(current.id);
+              const ok = await ipc.revealSkill(skill.id);
               if (!ok) toast.error("无法打开技能目录，可能已被移动或删除");
             }}
             className="flex items-center gap-1.5 rounded-lg border border-accent/30 bg-accent-soft px-3.5 py-2 text-body font-medium text-accent transition-colors hover:bg-accent/15"
@@ -678,69 +663,6 @@ function SkillDrawer({
 // ============================================================================
 // 小件
 // ============================================================================
-
-function SourceTag({ origin }: { origin: SkillOrigin }) {
-  return (
-    <span
-      className={`shrink-0 rounded-full px-2 py-0.5 text-meta font-medium ${ORIGIN_CLASS[origin]}`}
-    >
-      {ORIGIN_LABEL[origin]}
-    </span>
-  );
-}
-
-const TAG_TONE_CLASS = {
-  neutral: "bg-surface-hover text-text-muted",
-  error: "bg-error-bg text-error",
-  warning: "bg-agent-amber/10 text-agent-amber",
-  success: "bg-success/10 text-success",
-} as const;
-
-function Tag({
-  icon: Icon,
-  children,
-  tone = "neutral",
-  title,
-}: {
-  icon?: typeof Lock;
-  children: ReactNode;
-  tone?: keyof typeof TAG_TONE_CLASS;
-  title?: string;
-}) {
-  return (
-    <span
-      title={title}
-      className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-meta ${TAG_TONE_CLASS[tone]}`}
-    >
-      {Icon && <Icon className="h-3 w-3" />}
-      {children}
-    </span>
-  );
-}
-
-function Meta({
-  label,
-  value,
-  mono,
-}: {
-  label: string;
-  value: string;
-  mono?: boolean;
-}) {
-  return (
-    <div className="min-w-0">
-      <div className="text-meta text-text-muted">{label}</div>
-      <div
-        className={`mt-0.5 text-body text-text-secondary ${
-          mono ? "truncate font-mono text-meta" : "break-words"
-        }`}
-        title={value}
-      >
-        {value}
-      </div>
-    </div>
-  );
-}
 
 function EmptySkills({
   onImport,

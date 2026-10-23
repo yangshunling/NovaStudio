@@ -13,7 +13,8 @@ import { existsSync } from "fs";
 import { homedir } from "os";
 import { join } from "path";
 import type { DigitalEmployee } from "../../shared/types";
-import { materializeEmployeeSkills } from "../skills/catalog";
+import { renderClaudeMcpConfig } from "../agents/claude/mcp";
+import { materializeEmployeeSkills } from "../agents/claude/skills";
 
 /** 一次运行在工作区里的产物根目录 */
 export function createRunArtifactDir(
@@ -82,46 +83,11 @@ export interface ClaudeEnvironment {
   /** 注入子进程的额外环境变量 */
   env?: Record<string, string>;
   mcpConfigPath?: string;
+  /** 本次实际注入的 MCP 服务名 */
+  mcpServers: string[];
   /** 本次实际物化到隔离目录的技能目录名 */
   skills: string[];
   warnings: string[];
-}
-
-/** 简单的参数拆分：支持单双引号，其余按空白切 */
-function splitArgs(raw: string): string[] {
-  const result: string[] = [];
-  const pattern = /"([^"]*)"|'([^']*)'|(\S+)/g;
-  let match: RegExpExecArray | null;
-  while ((match = pattern.exec(raw)) !== null) {
-    result.push(match[1] ?? match[2] ?? match[3]);
-  }
-  return result;
-}
-
-/** 每行 KEY=VALUE；忽略空行与 # 注释 */
-function parseEnv(raw: string): Record<string, string> {
-  const env: Record<string, string> = {};
-  for (const line of raw.split(/\r?\n/)) {
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith("#")) continue;
-    const index = trimmed.indexOf("=");
-    if (index <= 0) continue;
-    env[trimmed.slice(0, index).trim()] = trimmed.slice(index + 1);
-  }
-  return env;
-}
-
-function mcpJson(employee: DigitalEmployee): string {
-  const servers: Record<string, unknown> = {};
-  for (const server of employee.mcpServers) {
-    if (!server.enabled || !server.command.trim()) continue;
-    servers[server.name || server.id] = {
-      command: server.command.trim(),
-      args: splitArgs(server.args || ""),
-      env: parseEnv(server.env || ""),
-    };
-  }
-  return JSON.stringify({ mcpServers: servers }, null, 2);
 }
 
 /**
@@ -151,7 +117,10 @@ export async function prepareClaudeEnvironment(input: {
 
   const credentials = join(homedir(), ".claude", ".credentials.json");
   const hasCredentials = existsSync(credentials);
-  let skills: string[] = [];
+  // 技能物化与 MCP 渲染互不依赖，并行准备；两者各自扫描自己的资产目录
+  const mcpPromise = renderClaudeMcpConfig(input.employee.mcpServers);
+  let skillsPromise: Promise<string[]> = Promise.resolve([]);
+
   if (hasCredentials) {
     try {
       await cp(credentials, join(home, ".credentials.json"));
@@ -161,7 +130,7 @@ export async function prepareClaudeEnvironment(input: {
       );
     }
 
-    skills = await materializeEmployeeSkills({
+    skillsPromise = materializeEmployeeSkills({
       configDir: home,
       workspacePath: input.workspacePath,
       skills: input.employee.skills,
@@ -169,19 +138,24 @@ export async function prepareClaudeEnvironment(input: {
     });
   } else {
     warnings.push(
-      "未找到 Claude 登录凭证，节点回退到用户默认配置目录：员工绑定的技能不会注入。",
+      "未找到 Claude 登录凭证，节点回退到用户默认配置目录：员工绑定的技能不会注入（MCP 配置仍会生成）。",
     );
   }
 
+  // 旧版内联 MCP 配置也由 renderClaudeMcpConfig 兼容
+  const [mcp, skills] = await Promise.all([mcpPromise, skillsPromise]);
+  warnings.push(...mcp.warnings);
+
   // mcp.json 含 MCP 的环境变量（Token/API Key），放在用户数据目录而不是工作区产物里
   const mcpConfigPath = join(runtimeDir, "mcp.json");
-  await writeFile(mcpConfigPath, mcpJson(input.employee), "utf8");
+  await writeFile(mcpConfigPath, mcp.json, "utf8");
 
   return {
     configDir: hasCredentials ? home : null,
     runtimeDir,
     env: hasCredentials ? { CLAUDE_CONFIG_DIR: home } : undefined,
     mcpConfigPath,
+    mcpServers: mcp.servers,
     skills,
     warnings,
   };

@@ -30,6 +30,13 @@ export interface AgentCapabilities {
    * false 时宿主不会调用 provider 的 deleteSession。
    */
   sessionCleanup: boolean;
+  /**
+   * 宿主是否支持把员工绑定的技能物化到该 Agent 的配置。
+   * false 时 UI 会提示「暂未实现」，运行时跳过并记录告警。
+   */
+  skills: boolean;
+  /** 宿主是否支持把员工绑定的 MCP 服务渲染给该 Agent。 */
+  mcp: boolean;
 }
 
 /**

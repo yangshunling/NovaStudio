@@ -12,6 +12,7 @@
 import { randomUUID } from "crypto";
 import { existsSync } from "fs";
 import { join } from "path";
+import { getProvider } from "../agents/registry";
 import type { AgentService } from "../engine/agent-service";
 import * as db from "../db/sqlite";
 import type {
@@ -446,10 +447,19 @@ export function createWorkflowRunner(deps: WorkflowRunnerDeps): WorkflowRunner {
       });
       runtimeWarnings.push(...claudeEnv.warnings);
     } else {
+      // 具体物化适配器目前只有 Claude；是否给出「不支持」告警由能力声明决定，
+      // 避免 UI 与运行时各自硬编码 agent id。
+      const capabilities = getProvider(employee.agentId)?.manifest.capabilities;
       const enabledSkills = employee.skills.filter((skill) => skill.enabled);
-      if (enabledSkills.length > 0) {
+      if (enabledSkills.length > 0 && !capabilities?.skills) {
         runtimeWarnings.push(
           `当前 Agent（${employee.agentId}）暂未实现技能注入，本次已忽略 ${enabledSkills.length} 个技能。`,
+        );
+      }
+      const enabledMcp = employee.mcpServers.filter((server) => server.enabled);
+      if (enabledMcp.length > 0 && !capabilities?.mcp) {
+        runtimeWarnings.push(
+          `当前 Agent（${employee.agentId}）暂未实现 MCP 注入，本次已忽略 ${enabledMcp.length} 个 MCP 服务。`,
         );
       }
     }
@@ -514,6 +524,7 @@ export function createWorkflowRunner(deps: WorkflowRunnerDeps): WorkflowRunner {
           mcpConfig: claudeEnv?.mcpConfigPath ? "mcp.json" : null,
           strictMcpConfig: opts.strictMcpConfig === "1",
           isolatedConfigDir: !!claudeEnv?.configDir,
+          mcpServers: claudeEnv?.mcpServers ?? [],
           skills: claudeEnv?.skills ?? [],
         },
         null,
