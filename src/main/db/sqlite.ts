@@ -25,6 +25,7 @@ import type {
   AutomationStatus,
   DigitalEmployee,
   DigitalEmployeeDraft,
+  EmployeeKnowledge,
   EmployeeMcpServer,
   EmployeeSkill,
   SessionSource,
@@ -42,6 +43,12 @@ import type {
 import { DB_PATH, ensureDataDirs } from "../utils/paths";
 
 let db: Database.Database | null = null;
+
+/**
+ * FTS5 是否可用。better-sqlite3 默认带 FTS5，但这里仍做一次防御：
+ * 创建失败时检索会自动降级为 LIKE 扫描，不影响知识库的其它功能。
+ */
+let knowledgeFtsReady = false;
 
 /** 收件箱项目名：迁移孤儿会话时用 */
 const INBOX_PROJECT_NAME = "收件箱";
@@ -190,11 +197,28 @@ export function initDatabase(): void {
       system_prompt TEXT NOT NULL DEFAULT '',
       mcp_servers_json TEXT NOT NULL DEFAULT '[]',
       skills_json TEXT NOT NULL DEFAULT '[]',
+      knowledge_json TEXT NOT NULL DEFAULT '[]',
       enabled INTEGER NOT NULL DEFAULT 1,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS knowledge_documents (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      kb_id TEXT NOT NULL,
+      relative_path TEXT NOT NULL,
+      name TEXT NOT NULL,
+      size INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      content TEXT NOT NULL,
+      UNIQUE (kb_id, relative_path)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_knowledge_documents_kb
+      ON knowledge_documents (kb_id);
   `);
+
+  ensureKnowledgeFts();
 
   // === schema 迁移：只服务旧库 ===
   // 上面的 CREATE TABLE 已包含全部列，新装用户不会走到这里；
@@ -204,12 +228,54 @@ export function initDatabase(): void {
   migrateSessionsConfigDir();
   migrateSessionsSource();
   migrateWorkflowWorkspace();
+  migrateEmployeeKnowledge();
 
   // === 数据迁移：孤儿会话归入"收件箱"项目 ===
   migrateOrphanSessions();
 
   // 上次进程遗留的运行不可能还活着：统一标记为中断
   interruptStaleWorkflowRuns();
+}
+
+/**
+ * 全文索引（FTS5 trigram）。
+ *
+ * trigram 分词器支持中文 / 英文的子串匹配，正合适 Wiki 式检索。
+ * 表用 external content 模式，正文只存一份在 knowledge_documents 里。
+ */
+function ensureKnowledgeFts(): void {
+  const exists = db!
+    .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'knowledge_fts'")
+    .get();
+  try {
+    if (!exists) {
+      db!.exec(`
+        CREATE VIRTUAL TABLE knowledge_fts USING fts5(
+          content,
+          content='knowledge_documents',
+          content_rowid='id',
+          tokenize='trigram'
+        );
+      `);
+      // 升级场景：文档表可能已有数据，创建索引后重建一次
+      db!.exec("INSERT INTO knowledge_fts(knowledge_fts) VALUES('rebuild')");
+    }
+    knowledgeFtsReady = true;
+  } catch {
+    knowledgeFtsReady = false;
+  }
+}
+
+/** 检测并给 digital_employees 表补 knowledge_json 列 */
+function migrateEmployeeKnowledge(): void {
+  const cols = db!.prepare("PRAGMA table_info(digital_employees)").all() as {
+    name: string;
+  }[];
+  if (!cols.some((column) => column.name === "knowledge_json")) {
+    db!.exec(
+      "ALTER TABLE digital_employees ADD COLUMN knowledge_json TEXT NOT NULL DEFAULT '[]'",
+    );
+  }
 }
 
 /** 检测并给 sessions 表补 project_id 列 */
@@ -593,6 +659,22 @@ function normalizeEmployeeMcpServers(raw: string): EmployeeMcpServer[] {
   });
 }
 
+/** 员工知识库归一化：只接受资产引用，损坏项直接丢弃 */
+function normalizeEmployeeKnowledge(raw: string): EmployeeKnowledge[] {
+  return parseJsonArray<Record<string, unknown>>(raw).flatMap((item) => {
+    if (!item || typeof item !== "object") return [];
+    const assetId = typeof item.assetId === "string" ? item.assetId : "";
+    if (!assetId) return [];
+    return [
+      {
+        assetId,
+        name: typeof item.name === "string" ? item.name : "",
+        enabled: item.enabled !== false,
+      },
+    ];
+  });
+}
+
 function rowToDigitalEmployee(row: any): DigitalEmployee {
   return {
     id: row.id,
@@ -605,6 +687,7 @@ function rowToDigitalEmployee(row: any): DigitalEmployee {
     systemPrompt: row.system_prompt ?? "",
     mcpServers: normalizeEmployeeMcpServers(row.mcp_servers_json),
     skills: normalizeEmployeeSkills(row.skills_json),
+    knowledgeBases: normalizeEmployeeKnowledge(row.knowledge_json ?? "[]"),
     enabled: !!row.enabled,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -623,6 +706,7 @@ function employeeParams(draft: DigitalEmployeeDraft): unknown[] {
     draft.systemPrompt,
     JSON.stringify(draft.mcpServers),
     JSON.stringify(draft.skills),
+    JSON.stringify(draft.knowledgeBases ?? []),
     draft.enabled ? 1 : 0,
   ];
 }
@@ -645,9 +729,9 @@ export function createDigitalEmployee(draft: DigitalEmployeeDraft): DigitalEmplo
   db!.prepare(
     `INSERT INTO digital_employees (
       id, name, role, description, avatar, agent_id, model,
-      system_prompt, mcp_servers_json, skills_json,
+      system_prompt, mcp_servers_json, skills_json, knowledge_json,
       enabled, created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(id, ...employeeParams(draft), now, now);
   return getDigitalEmployee(id)!;
 }
@@ -660,7 +744,7 @@ export function updateDigitalEmployee(
     .prepare(
       `UPDATE digital_employees SET
         name = ?, role = ?, description = ?, avatar = ?, agent_id = ?, model = ?,
-        system_prompt = ?, mcp_servers_json = ?, skills_json = ?,
+        system_prompt = ?, mcp_servers_json = ?, skills_json = ?, knowledge_json = ?,
         enabled = ?, updated_at = ?
       WHERE id = ?`,
     )
@@ -670,6 +754,268 @@ export function updateDigitalEmployee(
 
 export function deleteDigitalEmployee(id: string): void {
   db!.prepare("DELETE FROM digital_employees WHERE id = ?").run(id);
+}
+
+// ============================================================================
+// 知识库全文索引
+// ============================================================================
+
+export interface KnowledgeIndexMeta {
+  relativePath: string;
+  size: number;
+  updatedAt: number;
+}
+
+export interface KnowledgeSearchRow {
+  kbId: string;
+  relativePath: string;
+  snippet: string;
+}
+
+export function getKnowledgeIndexMeta(kbId: string): KnowledgeIndexMeta[] {
+  const rows = db!
+    .prepare(
+      `SELECT relative_path AS relativePath, size, updated_at AS updatedAt
+       FROM knowledge_documents WHERE kb_id = ?`,
+    )
+    .all(kbId) as KnowledgeIndexMeta[];
+  return rows;
+}
+
+/** 写入 / 更新一个文档的索引（external content FTS 需要手动同步删除旧行） */
+export function upsertKnowledgeDocument(input: {
+  kbId: string;
+  relativePath: string;
+  name: string;
+  size: number;
+  updatedAt: number;
+  content: string;
+}): void {
+  const existing = db!
+    .prepare(
+      "SELECT id, content FROM knowledge_documents WHERE kb_id = ? AND relative_path = ?",
+    )
+    .get(input.kbId, input.relativePath) as
+    | { id: number; content: string }
+    | undefined;
+
+  const tx = db!.transaction(() => {
+    if (existing) {
+      if (knowledgeFtsReady) {
+        db!
+          .prepare(
+            "INSERT INTO knowledge_fts(knowledge_fts, rowid, content) VALUES ('delete', ?, ?)",
+          )
+          .run(existing.id, existing.content);
+      }
+      db!
+        .prepare(
+          `UPDATE knowledge_documents
+           SET name = ?, size = ?, updated_at = ?, content = ?
+           WHERE id = ?`,
+        )
+        .run(input.name, input.size, input.updatedAt, input.content, existing.id);
+      if (knowledgeFtsReady) {
+        db!
+          .prepare("INSERT INTO knowledge_fts(rowid, content) VALUES (?, ?)")
+          .run(existing.id, input.content);
+      }
+      return;
+    }
+
+    const info = db!
+      .prepare(
+        `INSERT INTO knowledge_documents
+         (kb_id, relative_path, name, size, updated_at, content)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        input.kbId,
+        input.relativePath,
+        input.name,
+        input.size,
+        input.updatedAt,
+        input.content,
+      );
+    if (knowledgeFtsReady) {
+      db!
+        .prepare("INSERT INTO knowledge_fts(rowid, content) VALUES (?, ?)")
+        .run(info.lastInsertRowid, input.content);
+    }
+  });
+  tx();
+}
+
+export function deleteKnowledgeDocument(
+  kbId: string,
+  relativePath: string,
+): void {
+  const row = db!
+    .prepare(
+      "SELECT id, content FROM knowledge_documents WHERE kb_id = ? AND relative_path = ?",
+    )
+    .get(kbId, relativePath) as { id: number; content: string } | undefined;
+  if (!row) return;
+
+  db!.transaction(() => {
+    if (knowledgeFtsReady) {
+      db!
+        .prepare(
+          "INSERT INTO knowledge_fts(knowledge_fts, rowid, content) VALUES ('delete', ?, ?)",
+        )
+        .run(row.id, row.content);
+    }
+    db!.prepare("DELETE FROM knowledge_documents WHERE id = ?").run(row.id);
+  })();
+}
+
+export function deleteKnowledgeDocumentsByKb(kbId: string): void {
+  const rows = db!
+    .prepare("SELECT id, content FROM knowledge_documents WHERE kb_id = ?")
+    .all(kbId) as { id: number; content: string }[];
+
+  db!.transaction(() => {
+    if (knowledgeFtsReady) {
+      const del = db!.prepare(
+        "INSERT INTO knowledge_fts(knowledge_fts, rowid, content) VALUES ('delete', ?, ?)",
+      );
+      for (const row of rows) del.run(row.id, row.content);
+    }
+    db!.prepare("DELETE FROM knowledge_documents WHERE kb_id = ?").run(kbId);
+  })();
+}
+
+/** 把查询拆成检索词；空查询返回空数组 */
+function splitSearchTerms(query: string): string[] {
+  return query
+    .trim()
+    .split(/\s+/)
+    .map((term) => term.trim())
+    .filter(Boolean);
+}
+
+function escapeLike(value: string): string {
+  return value.replace(/[\\%_]/g, (char) => `\\${char}`);
+}
+
+/** 在片段中给所有检索词加高亮标记（\u0001 / \u0002） */
+function highlightTerms(text: string, terms: string[]): string {
+  let result = text;
+  for (const term of terms) {
+    const lowerTerm = term.toLowerCase();
+    const lowerText = result.toLowerCase();
+    let cursor = 0;
+    let output = "";
+    while (cursor < result.length) {
+      const index = lowerText.indexOf(lowerTerm, cursor);
+      if (index < 0) {
+        output += result.slice(cursor);
+        break;
+      }
+      output +=
+        result.slice(cursor, index) +
+        "\u0001" +
+        result.slice(index, index + term.length) +
+        "\u0002";
+      cursor = index + term.length;
+    }
+    result = output;
+  }
+  return result;
+}
+
+/** LIKE 降级检索时自行截取命中片段 */
+function buildSnippet(content: string, terms: string[], radius = 60): string {
+  const lower = content.toLowerCase();
+  let first = -1;
+  for (const term of terms) {
+    const index = lower.indexOf(term.toLowerCase());
+    if (index >= 0 && (first < 0 || index < first)) first = index;
+  }
+
+  if (first < 0) {
+    return content.slice(0, radius * 2).replace(/\s+/g, " ").trim();
+  }
+
+  const start = Math.max(0, first - radius);
+  const end = Math.min(content.length, first + radius * 2);
+  const snippet = highlightTerms(content.slice(start, end), terms)
+    .replace(/\s+/g, " ")
+    .trim();
+  return `${start > 0 ? "…" : ""}${snippet}${end < content.length ? "…" : ""}`;
+}
+
+/**
+ * 全文检索。
+ *
+ * 检索词都不短于 3 个字符时走 FTS5 trigram；否则（中文两字词、单字母等）
+ * 降级为 LIKE 扫描，保证「产品」「AI」这类查询也能命中。
+ */
+export function searchKnowledgeDocuments(input: {
+  query: string;
+  kbId?: string;
+  limit: number;
+}): { rows: KnowledgeSearchRow[]; degraded: boolean } {
+  const terms = splitSearchTerms(input.query);
+  if (terms.length === 0) return { rows: [], degraded: false };
+
+  const allLongEnough = terms.every((term) => [...term].length >= 3);
+
+  if (knowledgeFtsReady && allLongEnough) {
+    const match = terms
+      .map((term) => `"${term.replace(/"/g, '""')}"`)
+      .join(" AND ");
+    const scope = input.kbId ? " AND d.kb_id = ?" : "";
+    try {
+      const rows = db!
+        .prepare(
+          `SELECT d.kb_id AS kbId, d.relative_path AS relativePath,
+                  snippet(knowledge_fts, 0, char(1), char(2), '…', 24) AS snippet
+           FROM knowledge_fts
+           JOIN knowledge_documents d ON d.id = knowledge_fts.rowid
+           WHERE knowledge_fts MATCH ?${scope}
+           ORDER BY bm25(knowledge_fts)
+           LIMIT ?`,
+        )
+        .all(
+          ...(input.kbId
+            ? [match, input.kbId, input.limit]
+            : [match, input.limit]),
+        ) as KnowledgeSearchRow[];
+      return { rows, degraded: false };
+    } catch {
+      // 查询语法异常时继续走 LIKE 兜底
+    }
+  }
+
+  const conditions = terms.map(() => "content LIKE ? ESCAPE '\\'");
+  if (input.kbId) conditions.push("kb_id = ?");
+  const values: unknown[] = terms.map((term) => `%${escapeLike(term)}%`);
+  if (input.kbId) values.push(input.kbId);
+  values.push(input.limit);
+
+  const rows = db!
+    .prepare(
+      `SELECT kb_id AS kbId, relative_path AS relativePath, content
+       FROM knowledge_documents
+       WHERE ${conditions.join(" AND ")}
+       ORDER BY updated_at DESC
+       LIMIT ?`,
+    )
+    .all(...values) as Array<{
+    kbId: string;
+    relativePath: string;
+    content: string;
+  }>;
+
+  return {
+    rows: rows.map((row) => ({
+      kbId: row.kbId,
+      relativePath: row.relativePath,
+      snippet: buildSnippet(row.content, terms),
+    })),
+    degraded: true,
+  };
 }
 
 // ============================================================================

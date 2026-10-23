@@ -130,6 +130,29 @@ export const ipc = {
     call("skills:saveDocument", { id, content }),
   revealSkill: (id: string) => call("skills:reveal", { id }),
 
+  // === 知识库 ===
+  listKnowledgeBases: () => call("knowledge:list"),
+  createKnowledgeBase: (name: string, description: string) =>
+    call("knowledge:create", { name, description }),
+  updateKnowledgeBase: (id: string, name: string, description: string) =>
+    call("knowledge:update", { id, name, description }),
+  deleteKnowledgeBase: (id: string) => call("knowledge:delete", { id }),
+  listKnowledgeDocuments: (id: string, subPath?: string) =>
+    call("knowledge:listDocuments", { id, subPath }),
+  createKnowledgeFolder: (id: string, parentPath: string, name: string) =>
+    call("knowledge:createFolder", { id, parentPath, name }),
+  uploadKnowledgeDocuments: (id: string, parentPath: string) =>
+    call("knowledge:upload", { id, parentPath }),
+  deleteKnowledgeDocuments: (id: string, paths: string[]) =>
+    call("knowledge:deleteDocuments", { id, paths }),
+  searchKnowledge: (query: string, kbId?: string) =>
+    call("knowledge:search", { query, kbId }),
+  readKnowledgeDocument: (id: string, relativePath: string) =>
+    call("knowledge:readDocument", { id, relativePath }),
+  revealKnowledgeBase: (id: string) => call("knowledge:reveal", { id }),
+  openKnowledgeDocument: (id: string, relativePath: string) =>
+    call("knowledge:openDocument", { id, relativePath }),
+
   // === 工作流 ===
   listWorkflows: () => call("workflows:list"),
   getWorkflow: (id: string) => call("workflows:get", { id }),

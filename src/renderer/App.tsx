@@ -21,6 +21,7 @@ import { AutomationView } from "./components/AutomationView";
 import { EmployeesView } from "./components/employees/EmployeesView";
 import { SkillsView } from "./components/skills/SkillsView";
 import { McpView } from "./components/mcp/McpView";
+import { KnowledgeView } from "./components/knowledge/KnowledgeView";
 import { WorkflowsView } from "./components/workflows/WorkflowsView";
 import { SettingsModal } from "./components/SettingsModal";
 import { WorkspacePanel } from "./components/WorkspacePanel";
@@ -61,6 +62,8 @@ export default function App() {
           <SkillsView />
         ) : viewMode === "mcp" ? (
           <McpView />
+        ) : viewMode === "knowledge" ? (
+          <KnowledgeView />
         ) : viewMode === "workflow" ? (
           <WorkflowsView />
         ) : (

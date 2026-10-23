@@ -11,6 +11,7 @@
 import { useEffect, useRef, useState } from "react";
 import {
   Eraser,
+  Library,
   Loader2,
   MessageSquareText,
   Plug,
@@ -25,6 +26,7 @@ import { ipc } from "../../lib/ipc";
 import { Field, FORM_INPUT_CLASS as INPUT_CLASS } from "../ui/Field";
 import { ModelSelect } from "../ui/ModelSelect";
 import { EmployeeAvatar } from "./EmployeeAvatar";
+import { KnowledgeTab } from "./knowledge/KnowledgeTab";
 import { McpTab } from "./mcp/McpTab";
 import { SkillsTab } from "./skills/SkillsTab";
 import { Toggle } from "./ui";
@@ -35,13 +37,14 @@ import type { DigitalEmployee, DigitalEmployeeDraft } from "@shared/types";
 // 常量与类型
 // ============================================================================
 
-type TabId = "profile" | "prompt" | "mcp" | "skills";
+type TabId = "profile" | "prompt" | "mcp" | "skills" | "knowledge";
 
 const TABS: ReadonlyArray<{ id: TabId; label: string; icon: LucideIcon }> = [
   { id: "profile", label: "基本资料", icon: UserRound },
   { id: "prompt", label: "系统提示词", icon: MessageSquareText },
   { id: "mcp", label: "MCP 服务", icon: Plug },
   { id: "skills", label: "技能", icon: Sparkles },
+  { id: "knowledge", label: "知识库", icon: Library },
 ];
 
 const MAX_AVATAR_BYTES = 8 * 1024 * 1024;
@@ -59,6 +62,7 @@ function emptyDraft(agents: AgentInfo[]): DigitalEmployeeDraft {
     systemPrompt: "",
     mcpServers: [],
     skills: [],
+    knowledgeBases: [],
     enabled: true,
   };
 }
@@ -75,6 +79,7 @@ function toDraft(employee: DigitalEmployee): DigitalEmployeeDraft {
     systemPrompt: employee.systemPrompt,
     mcpServers: employee.mcpServers,
     skills: employee.skills,
+    knowledgeBases: employee.knowledgeBases ?? [],
     enabled: employee.enabled,
   };
 }
@@ -223,7 +228,9 @@ export function EmployeeDrawer({
                 ? draft.mcpServers.length
                 : id === "skills"
                   ? draft.skills.length
-                  : 0;
+                  : id === "knowledge"
+                    ? draft.knowledgeBases.length
+                    : 0;
 
             return (
               <button
@@ -285,6 +292,12 @@ export function EmployeeDrawer({
               agentLabel={agentLabel}
               supportsSkills={supportsSkills}
               onChange={(skills) => update({ skills })}
+            />
+          )}
+          {tab === "knowledge" && (
+            <KnowledgeTab
+              bases={draft.knowledgeBases}
+              onChange={(knowledgeBases) => update({ knowledgeBases })}
             />
           )}
         </div>

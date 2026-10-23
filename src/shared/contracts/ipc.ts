@@ -13,6 +13,12 @@ import type {
   DigitalEmployeeDraft,
   FileEntry,
   GitStatusSummary,
+  KnowledgeBaseAsset,
+  KnowledgeDocument,
+  KnowledgeDocumentContent,
+  KnowledgeSearchResult,
+  KnowledgeUploadResult,
+  KnowledgeWriteResult,
   McpImportResult,
   McpServerAsset,
   McpServerDraft,
@@ -173,6 +179,49 @@ export interface IpcInvokeMap {
     result: SkillWriteResult;
   };
   "skills:reveal": { args: [{ id: string }]; result: boolean };
+
+  /** 知识库：扫描 / 新建 / 更新 / 删除 / 文档与文件夹 / 全文检索 */
+  "knowledge:list": { args: []; result: KnowledgeBaseAsset[] };
+  "knowledge:create": {
+    args: [{ name: string; description: string }];
+    result: KnowledgeWriteResult;
+  };
+  "knowledge:update": {
+    args: [{ id: string; name: string; description: string }];
+    result: KnowledgeWriteResult;
+  };
+  "knowledge:delete": { args: [{ id: string }]; result: boolean };
+  "knowledge:listDocuments": {
+    args: [{ id: string; subPath?: string }];
+    result: KnowledgeDocument[];
+  };
+  "knowledge:createFolder": {
+    args: [{ id: string; parentPath: string; name: string }];
+    result: boolean;
+  };
+  /** 主进程弹多选文件框，并复制到 parentPath */
+  "knowledge:upload": {
+    args: [{ id: string; parentPath: string }];
+    result: KnowledgeUploadResult;
+  };
+  "knowledge:deleteDocuments": {
+    args: [{ id: string; paths: string[] }];
+    result: boolean;
+  };
+  /** 全文检索；kbId 为空时检索全部知识库 */
+  "knowledge:search": {
+    args: [{ query: string; kbId?: string }];
+    result: KnowledgeSearchResult;
+  };
+  "knowledge:readDocument": {
+    args: [{ id: string; relativePath: string }];
+    result: KnowledgeDocumentContent | null;
+  };
+  "knowledge:reveal": { args: [{ id: string }]; result: boolean };
+  "knowledge:openDocument": {
+    args: [{ id: string; relativePath: string }];
+    result: boolean;
+  };
 
   /** 工作流：列表 / 新建 / 更新 / 删除 */
   "workflows:list": { args: []; result: Workflow[] };

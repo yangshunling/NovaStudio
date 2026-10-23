@@ -2,14 +2,14 @@
  * 数字员工 — 卡片画廊
  *
  * 主区域展示全部数字员工，点击卡片从右侧滑出编辑抽屉。
- * 头像、人设、系统提示词、MCP 与技能都在抽屉内编辑；
+ * 头像、人设、系统提示词、MCP、技能与知识库都在抽屉内编辑；
  * 列表只负责概览与搜索，避免把大量配置项堆在卡片上。
  */
 
 import { useEffect, useMemo, useState } from "react";
 import {
+  Library,
   Loader2,
-  MessageSquareText,
   Plug,
   Plus,
   Search,
@@ -188,6 +188,9 @@ function EmployeeCard({
 }) {
   const mcpCount = employee.mcpServers.filter((server) => server.enabled).length;
   const skillCount = employee.skills.filter((skill) => skill.enabled).length;
+  const knowledgeCount = employee.knowledgeBases.filter(
+    (base) => base.enabled,
+  ).length;
 
   return (
     <button
@@ -240,15 +243,10 @@ function EmployeeCard({
           <Sparkles className="h-3 w-3" />
           {skillCount} 技能
         </span>
-        {employee.systemPrompt && (
-          <span
-            title="已配置系统提示词"
-            className="flex items-center gap-1 rounded-full bg-surface-hover px-2 py-0.5"
-          >
-            <MessageSquareText className="h-3 w-3" />
-            提示词
-          </span>
-        )}
+        <span className="flex items-center gap-1 rounded-full bg-surface-hover px-2 py-0.5">
+          <Library className="h-3 w-3" />
+          {knowledgeCount} 知识库
+        </span>
       </div>
     </button>
   );
@@ -269,7 +267,7 @@ function EmptyState({ onCreate }: { onCreate: () => void }) {
       </h2>
       <p className="text-body leading-relaxed">
         每位数字员工都可以拥有独立的头像、人设、系统提示词、MCP
-        服务与技能。
+        服务、技能与知识库。
       </p>
       <button
         type="button"

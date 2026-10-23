@@ -39,6 +39,7 @@ import {
   type ClaudeEnvironment,
 } from "./artifacts";
 import { GraphValidationError, validateGraph } from "./graph";
+import { resolveEmployeeKnowledge } from "../knowledge/runtime";
 
 /** 单节点输出交给下游时的摘要上限 */
 const HANDOFF_SUMMARY_LIMIT = 4000;
@@ -463,6 +464,15 @@ export function createWorkflowRunner(deps: WorkflowRunnerDeps): WorkflowRunner {
         );
       }
     }
+    // 知识库属于员工能力的一部分：解析成目录清单后写进系统提示词
+    const knowledge = await resolveEmployeeKnowledge(employee.knowledgeBases);
+    runtimeWarnings.push(...knowledge.warnings);
+    if (knowledge.bases.length > 0) {
+      await writeJson(join(attemptDir, "knowledge.json"), {
+        bases: knowledge.bases,
+      });
+    }
+
     if (runtimeWarnings.length > 0) {
       await writeText(
         join(attemptDir, "warnings.txt"),
@@ -503,7 +513,7 @@ export function createWorkflowRunner(deps: WorkflowRunnerDeps): WorkflowRunner {
     const deltas: string[] = [];
     const opts: SessionOptions = {};
     if (employee.model) opts.model = employee.model;
-    const systemPrompt = buildSystemPrompt(employee);
+    const systemPrompt = buildSystemPrompt(employee, knowledge.promptSection);
     if (systemPrompt) opts.systemPrompt = systemPrompt;
     if (employee.agentId === "claude" && claudeEnv?.mcpConfigPath) {
       opts.mcpConfig = claudeEnv.mcpConfigPath;
@@ -526,6 +536,11 @@ export function createWorkflowRunner(deps: WorkflowRunnerDeps): WorkflowRunner {
           isolatedConfigDir: !!claudeEnv?.configDir,
           mcpServers: claudeEnv?.mcpServers ?? [],
           skills: claudeEnv?.skills ?? [],
+          knowledgeBases: knowledge.bases.map((base) => ({
+            id: base.id,
+            name: base.name,
+            fileCount: base.fileCount,
+          })),
         },
         null,
         2,
@@ -740,13 +755,17 @@ export function createWorkflowRunner(deps: WorkflowRunnerDeps): WorkflowRunner {
   // 提示词
   // ==========================================================================
 
-  function buildSystemPrompt(employee: DigitalEmployee): string {
+  function buildSystemPrompt(
+    employee: DigitalEmployee,
+    knowledgeSection: string,
+  ): string {
     return [
       employee.role
         ? `你是「${employee.name}」，职位：${employee.role}。`
         : `你是「${employee.name}」。`,
       employee.description,
       employee.systemPrompt,
+      knowledgeSection,
     ]
       .filter((part) => part && part.trim())
       .join("\n\n");

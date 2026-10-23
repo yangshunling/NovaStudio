@@ -342,6 +342,92 @@ export type McpWriteResult =
   | { ok: false; error: string };
 
 // ============================================================================
+// 知识库资产
+// ============================================================================
+
+/**
+ * 知识库 = ~/.novastudio/knowledge/<slug>/ 下的一个 Markdown 文档目录。
+ *
+ * 与 Skill / MCP 相同，磁盘目录是唯一事实来源；元信息存目录内的 .kb.json。
+ * 只收 Markdown：其他格式无法进入索引，也不会被运行时注入。
+ */
+export interface KnowledgeBaseAsset {
+  /** 稳定引用 id，格式 knowledge:<slug> */
+  id: string;
+  /** 目录名，也是知识库在磁盘上的唯一标识 */
+  slug: string;
+  /** 展示名（.kb.json 里的 name） */
+  name: string;
+  description: string;
+  /** 知识库根目录的绝对路径 */
+  path: string;
+  /** Markdown 文档总数（递归统计） */
+  documentCount: number;
+  /** Markdown 文档总字节数 */
+  totalBytes: number;
+  updatedAt: number;
+}
+
+/** 知识库里的一个条目：Markdown 文档或子文件夹 */
+export interface KnowledgeDocument {
+  name: string;
+  /** 相对知识库根目录的 POSIX 路径 */
+  relativePath: string;
+  isDirectory: boolean;
+  size: number;
+  updatedAt: number;
+  /** 是否已进入全文索引；超过索引上限的文件为 false */
+  indexed: boolean;
+}
+
+/** 数字员工绑定的知识库：只存引用，内容由知识库统一管理 */
+export interface EmployeeKnowledge {
+  /** KnowledgeBaseAsset.id */
+  assetId: string;
+  /** 展示名快照，资产失效时仍可显示 */
+  name: string;
+  enabled: boolean;
+}
+
+export type KnowledgeWriteResult =
+  | { ok: true; asset: KnowledgeBaseAsset }
+  | { ok: false; error: string };
+
+export interface KnowledgeUploadResult {
+  ok: boolean;
+  uploaded: KnowledgeDocument[];
+  /** 部分文件被跳过时的提示（非 Markdown / 超大 / 同名改名等） */
+  warnings: string[];
+  error?: string;
+}
+
+/** 全文检索命中的一条文档 */
+export interface KnowledgeSearchHit {
+  kbId: string;
+  kbName: string;
+  relativePath: string;
+  /** 命中片段；\u0001 / \u0002 包裹高亮文字，由渲染层转换 */
+  snippet: string;
+}
+
+export interface KnowledgeSearchResult {
+  hits: KnowledgeSearchHit[];
+  total: number;
+  query: string;
+  /** 查询词过短（<3 字符），已降级为 LIKE 扫描 */
+  degraded: boolean;
+}
+
+/** 知识库文档正文（供预览抽屉使用） */
+export interface KnowledgeDocumentContent {
+  content: string;
+  size: number;
+  updatedAt: number;
+  /** 超过预览上限被截断 */
+  truncated: boolean;
+}
+
+// ============================================================================
 // 技能资产
 // ============================================================================
 
@@ -437,6 +523,7 @@ export interface DigitalEmployeeDraft {
   systemPrompt: string;
   mcpServers: EmployeeMcpServer[];
   skills: EmployeeSkill[];
+  knowledgeBases: EmployeeKnowledge[];
   enabled: boolean;
 }
 

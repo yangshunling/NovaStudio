@@ -122,15 +122,11 @@ export function Sidebar() {
         </button>
         <button
           type="button"
-          disabled
-          title="知识库（规划中）"
-          className="flex w-full cursor-not-allowed items-center gap-2 rounded-md px-2.5 py-2.5 text-body-lg font-medium text-text-muted/70"
+          onClick={() => setViewMode("knowledge")}
+          className={itemClass(viewMode === "knowledge")}
         >
           <Library className="h-4 w-4 shrink-0" />
           知识库
-          <span className="ml-auto rounded-full bg-surface-hover px-2 py-0.5 text-caption font-medium text-text-muted">
-            规划中
-          </span>
         </button>
       </div>
 
