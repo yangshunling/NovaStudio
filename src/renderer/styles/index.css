@@ -262,6 +262,18 @@ body {
   transform: translateY(-1px);
 }
 
+/* 面板头部的圆形图标按钮：加一层浅色圆底，避免图标直接浮在背景上 */
+.ui-icon-action {
+  background: var(--c-surface-hover);
+  border-color: transparent;
+  box-shadow: none;
+}
+.ui-icon-action:hover {
+  background: var(--c-surface-active);
+  border-color: transparent;
+  color: var(--c-text);
+}
+
 /* 玻璃拟态表面（顶栏 / 输入区 / 工具行） */
 .ui-glass {
   background: var(--c-glass-bg);

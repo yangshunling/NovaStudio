@@ -235,15 +235,15 @@ function EmployeeCard({
       {/* mt-auto 把工具标签顶到卡片底部：网格拉伸产生的多余高度留在简介与标签之间，
           而不是堆在标签下面，保证卡片上、下、左、右的 padding 一致 */}
       <div className="mt-auto flex flex-wrap items-center gap-1.5 pt-2.5 text-caption text-text-muted">
-        <span className="flex items-center gap-1 rounded-full bg-surface-hover px-2 py-0.5">
+        <span className="flex items-center gap-1 rounded-full bg-accent-soft px-2 py-0.5 text-accent">
           <Plug className="h-3 w-3" />
           {mcpCount} MCP
         </span>
-        <span className="flex items-center gap-1 rounded-full bg-surface-hover px-2 py-0.5">
+        <span className="flex items-center gap-1 rounded-full bg-agent-violet/10 px-2 py-0.5 text-agent-violet">
           <Sparkles className="h-3 w-3" />
           {skillCount} 技能
         </span>
-        <span className="flex items-center gap-1 rounded-full bg-surface-hover px-2 py-0.5">
+        <span className="flex items-center gap-1 rounded-full bg-agent-teal/10 px-2 py-0.5 text-agent-teal">
           <Library className="h-3 w-3" />
           {knowledgeCount} 知识库
         </span>

@@ -31,7 +31,8 @@ export type ViewMode =
   | "workflow"
   | "skills"
   | "mcp"
-  | "knowledge";
+  | "knowledge"
+  | "agents";
 
 interface ChatState {
   // 状态

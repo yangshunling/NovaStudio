@@ -13,6 +13,11 @@ import { randomUUID } from "crypto";
 import { existsSync } from "fs";
 import { join } from "path";
 import { getProvider } from "../agents/registry";
+import {
+  getClaudeConnection,
+  validateClaudeReadiness,
+  type ClaudeConnection,
+} from "../agents/claude/connection";
 import type { AgentService } from "../engine/agent-service";
 import * as db from "../db/sqlite";
 import type {
@@ -70,7 +75,8 @@ interface ActiveRun {
 }
 
 export interface WorkflowRunner {
-  start(workflowId: string): WorkflowRun;
+  /** 启动前会先做 Agent 安装 / 连接配置校验，因此是异步的 */
+  start(workflowId: string): Promise<WorkflowRun>;
   cancel(runId: string): boolean;
   approve(
     runId: string,
@@ -122,7 +128,7 @@ export function createWorkflowRunner(deps: WorkflowRunnerDeps): WorkflowRunner {
   // 启动
   // ==========================================================================
 
-  function start(workflowId: string): WorkflowRun {
+  async function start(workflowId: string): Promise<WorkflowRun> {
     const workflow = db.getWorkflow(workflowId);
     if (!workflow) throw new Error("工作流不存在");
 
@@ -154,6 +160,10 @@ export function createWorkflowRunner(deps: WorkflowRunnerDeps): WorkflowRunner {
       }
       throw err;
     }
+
+    // 先确认 Agent 已安装、Claude 连接配置可用，再创建运行记录；
+    // 否则用户会看到一条注定失败的运行记录，排查成本更高。
+    await assertAgentsReady(validated.order, employees);
 
     const runId = randomUUID();
     const runDir = createRunArtifactDir(workspace.cwd, workflow.id, runId);
@@ -222,6 +232,43 @@ export function createWorkflowRunner(deps: WorkflowRunnerDeps): WorkflowRunner {
     });
 
     return db.getWorkflowRun(runId)!;
+  }
+
+  /**
+   * 启动前置校验：本工作流用到的每个 Agent 都必须可用。
+   *
+   * Claude 额外要求 Nova 自管的连接配置可用（API Key，或官方端点下的
+   * OAuth 凭证副本）。这样「完全不继承本机配置」才不会把节点跑成未登录状态。
+   */
+  async function assertAgentsReady(
+    order: WorkflowNode[],
+    employees: Map<string, DigitalEmployee>,
+  ): Promise<void> {
+    const agentIds = new Set<string>();
+    for (const node of order) {
+      const employee = employees.get(node.config.employeeId ?? "");
+      if (employee?.agentId) agentIds.add(employee.agentId);
+    }
+
+    for (const agentId of agentIds) {
+      const provider = getProvider(agentId);
+      if (!provider) {
+        throw new Error(`节点使用的 Agent「${agentId}」不存在或未注册`);
+      }
+      const status = await provider.detect().catch(() => ({ installed: false }));
+      if (!status.installed) {
+        throw new Error(
+          agentId === "claude"
+            ? "Agent「Claude Code」未安装或不可用。请先安装，并在「运行环境 → Agent 配置」中完成连接配置。"
+            : `Agent「${provider.manifest.displayName}」未安装或不可用。请先完成安装。`,
+        );
+      }
+    }
+
+    if (agentIds.has("claude")) {
+      const readiness = validateClaudeReadiness();
+      if (!readiness.ok) throw new Error(readiness.message);
+    }
   }
 
   async function prepareRunFiles(active: ActiveRun): Promise<void> {
@@ -437,7 +484,13 @@ export function createWorkflowRunner(deps: WorkflowRunnerDeps): WorkflowRunner {
 
     const runtimeWarnings: string[] = [];
     let claudeEnv: ClaudeEnvironment | null = null;
+    let claudeConnection: ClaudeConnection | null = null;
+    // 员工未指定模型时，回落到「运行环境 → Agent 配置」里的默认模型
+    let model = employee.model;
     if (employee.agentId === "claude") {
+      // 连接配置来自 Nova 自管存储，不读取本机 ~/.claude/settings.json
+      claudeConnection = getClaudeConnection();
+      model = employee.model || claudeConnection.defaultModel;
       claudeEnv = await prepareClaudeEnvironment({
         userDataDir: deps.userDataDir,
         runId: active.id,
@@ -445,6 +498,8 @@ export function createWorkflowRunner(deps: WorkflowRunnerDeps): WorkflowRunner {
         attempt,
         workspacePath: active.workspacePath,
         employee,
+        connection: claudeConnection,
+        model,
       });
       runtimeWarnings.push(...claudeEnv.warnings);
     } else {
@@ -512,7 +567,7 @@ export function createWorkflowRunner(deps: WorkflowRunnerDeps): WorkflowRunner {
     const texts: string[] = [];
     const deltas: string[] = [];
     const opts: SessionOptions = {};
-    if (employee.model) opts.model = employee.model;
+    if (model) opts.model = model;
     const systemPrompt = buildSystemPrompt(employee, knowledge.promptSection);
     if (systemPrompt) opts.systemPrompt = systemPrompt;
     if (employee.agentId === "claude" && claudeEnv?.mcpConfigPath) {
@@ -530,10 +585,29 @@ export function createWorkflowRunner(deps: WorkflowRunnerDeps): WorkflowRunner {
       JSON.stringify(
         {
           agentId: employee.agentId,
-          model: employee.model || null,
+          model: model || null,
           mcpConfig: claudeEnv?.mcpConfigPath ? "mcp.json" : null,
           strictMcpConfig: opts.strictMcpConfig === "1",
           isolatedConfigDir: !!claudeEnv?.configDir,
+          // 审计「这次到底继承了什么」。连接配置来自 Nova，密钥本身永远不落盘。
+          connection: claudeConnection
+            ? {
+                source: "nova-settings-file",
+                settingsFile: claudeEnv?.settingsSource ?? null,
+                baseUrl: claudeConnection.baseUrl || "（官方默认）",
+                authMode: claudeEnv?.authMode ?? "none",
+                oauthCopied: claudeEnv?.oauthCopied ?? false,
+                keyStorage: claudeConnection.keyStorage,
+                defaultModel: claudeConnection.defaultModel || null,
+                // 本次写进节点 settings.json 副本的模型
+                settingsModel: model || null,
+                cachedModels: claudeConnection.models.length,
+                // 只记录键名（不含值）：现在接入值都来自复制的 settings.json，
+                // 进程环境只额外设置 CLAUDE_CONFIG_DIR。
+                envKeys: Object.keys(claudeEnv?.env ?? {}).sort(),
+                removedEnvKeys: claudeEnv?.envRemove ?? [],
+              }
+            : null,
           mcpServers: claudeEnv?.mcpServers ?? [],
           skills: claudeEnv?.skills ?? [],
           knowledgeBases: knowledge.bases.map((base) => ({
@@ -554,6 +628,7 @@ export function createWorkflowRunner(deps: WorkflowRunnerDeps): WorkflowRunner {
         cwd: active.workspacePath,
         opts,
         env: claudeEnv?.env,
+        envRemove: claudeEnv?.envRemove,
         onEvent: (event) => {
           if (event.type === "text") texts.push(event.content);
           else if (event.type === "text_delta") deltas.push(event.delta);

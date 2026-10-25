@@ -27,7 +27,7 @@ export function ThemeToggle() {
       disabled={skins.length < 2}
       title={label}
       aria-label={label}
-      className="ui-btn-round flex h-8 w-8 shrink-0 items-center justify-center rounded-full disabled:cursor-default disabled:opacity-40"
+      className="ui-btn-round ui-icon-action flex h-8 w-8 shrink-0 items-center justify-center rounded-full disabled:cursor-default disabled:opacity-40"
     >
       {isDark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
     </button>

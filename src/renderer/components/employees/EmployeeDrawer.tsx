@@ -25,6 +25,7 @@ import {
 import { ipc } from "../../lib/ipc";
 import { Field, FORM_INPUT_CLASS as INPUT_CLASS } from "../ui/Field";
 import { ModelSelect } from "../ui/ModelSelect";
+import { Select } from "../ui/Select";
 import { EmployeeAvatar } from "./EmployeeAvatar";
 import { KnowledgeTab } from "./knowledge/KnowledgeTab";
 import { McpTab } from "./mcp/McpTab";
@@ -437,34 +438,32 @@ function ProfileTab({
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <Field label="执行 Agent" hint="数字员工复用该 Agent 的运行时与工具生态。">
-          <select
+          <Select
             value={draft.agentId}
-            onChange={(event) =>
+            onChange={(agentId) =>
               // 换 Agent 后旧模型名很可能不再有效，一并清空
-              update({ agentId: event.target.value, model: "" })
+              update({ agentId, model: "" })
             }
             className={INPUT_CLASS}
-          >
-            {agents.length === 0 && (
-              <option value={draft.agentId}>
-                {draft.agentId || "未检测到 Agent"}
-              </option>
-            )}
-            {agents.map((agent) => (
-              <option
-                key={agent.id}
-                value={agent.id}
-                disabled={!agent.status.installed}
-              >
-                {agent.displayName}
-                {agent.status.installed
-                  ? agent.status.version
-                    ? ` v${agent.status.version}`
-                    : ""
-                  : "（未安装）"}
-              </option>
-            ))}
-          </select>
+            placeholder={draft.agentId || "未检测到 Agent"}
+            options={
+              agents.length === 0
+                ? draft.agentId
+                  ? [{ value: draft.agentId, label: draft.agentId }]
+                  : []
+                : agents.map((agent) => ({
+                    value: agent.id,
+                    label: `${agent.displayName}${
+                      agent.status.installed
+                        ? agent.status.version
+                          ? ` v${agent.status.version}`
+                          : ""
+                        : "（未安装）"
+                    }`,
+                    disabled: !agent.status.installed,
+                  }))
+            }
+          />
         </Field>
         <Field
           label="模型"

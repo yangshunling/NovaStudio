@@ -43,7 +43,15 @@ import type {
   WorkflowRunDetail,
   WorkflowRunEvent,
 } from "../types";
-import type { AgentInfo, AgentModelOption } from "./agent";
+import type {
+  AgentConnection,
+  AgentConnectionDraft,
+  AgentConnectionImportResult,
+  AgentConnectionProbeInput,
+  AgentConnectionProbeResult,
+  AgentInfo,
+  AgentModelOption,
+} from "./agent";
 
 /** agent:send 的返回：显式区分成功与业务失败 */
 export type SendAgentResult =
@@ -66,6 +74,36 @@ export interface IpcInvokeMap {
   };
   /** 中断指定会话（多会话并发时互不影响） */
   "agent:abort": { args: [{ sessionId: string }]; result: boolean };
+
+  /** Nova 自管的 Agent 连接配置：读取 / 保存 / 查询模型 / 连通性测试 / 本机导入 */
+  "agent:connection:get": {
+    args: [{ agentId: string }];
+    result: AgentConnection;
+  };
+  "agent:connection:save": {
+    args: [{ draft: AgentConnectionDraft }];
+    result: AgentConnection;
+  };
+  /** 使用表单值（未保存也可）查询模型列表 */
+  "agent:connection:models": {
+    args: [{ input: AgentConnectionProbeInput }];
+    result: AgentConnectionProbeResult;
+  };
+  /** 测试 Base URL / API Key / 模型名是否可用 */
+  "agent:connection:test": {
+    args: [{ input: AgentConnectionProbeInput }];
+    result: AgentConnectionProbeResult;
+  };
+  /** 一次性导入本机 Claude 配置（仅导入，不在运行时继承） */
+  "agent:connection:importLocal": {
+    args: [{ agentId: string }];
+    result: AgentConnectionImportResult;
+  };
+  /** 在文件管理器中定位保存时生成的标准配置文件 */
+  "agent:connection:openConfig": {
+    args: [{ agentId: string }];
+    result: boolean;
+  };
 
   "project:list": { args: []; result: Project[] };
   "project:create": { args: [{ name: string; cwd: string }]; result: Project };

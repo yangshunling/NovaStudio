@@ -32,8 +32,9 @@ import {
   AlertTriangle,
 } from "lucide-react";
 import type { AgentEvent, Message, ToolKind } from "@shared/types";
-import { useChatStore } from "../stores/chat";
+import { selectEffectiveAgentId, useChatStore } from "../stores/chat";
 import { MarkdownRenderer } from "./MarkdownRenderer";
+import { AgentAvatar, NovaAvatar } from "./ui/MessageAvatar";
 import { truncateText } from "../lib/utils";
 
 export function AssistantMessageList() {
@@ -110,10 +111,11 @@ function ThreadEmpty() {
 
 function UserMessage() {
   return (
-    <MessagePrimitive.Root className="mx-auto mb-4 flex max-w-[var(--c-layout-content)] justify-end">
+    <MessagePrimitive.Root className="mx-auto mb-4 flex max-w-[var(--c-layout-content)] items-start justify-end gap-2.5">
       <div className="max-w-[80%] rounded-2xl rounded-br-sm border border-border-strong bg-bubble-user px-4 py-2.5 text-body-lg text-bubble-user-text shadow-[var(--c-shadow-sm)]">
         <MessagePrimitive.Parts components={{ Text: UserTextPart }} />
       </div>
+      <NovaAvatar className="mt-0.5" />
     </MessagePrimitive.Root>
   );
 }
@@ -124,21 +126,27 @@ function UserTextPart() {
 }
 
 function AssistantMessage() {
+  const agents = useChatStore((s) => s.agents);
+  const agentId = useChatStore(selectEffectiveAgentId);
+
   return (
-    <MessagePrimitive.Root className="mx-auto mb-4 flex max-w-[var(--c-layout-content)] flex-col gap-1">
-      <MessagePrimitive.Parts
-        components={{
-          Text: AnswerPart,
-          Reasoning: ReasoningPart,
-          data: {
-            by_name: {
-              novaError: ErrorPart,
-              novaWarning: WarningPart,
+    <MessagePrimitive.Root className="mx-auto mb-4 flex max-w-[var(--c-layout-content)] items-start gap-2.5">
+      <AgentAvatar agents={agents} agentId={agentId} className="mt-0.5" />
+      <div className="flex min-w-0 flex-1 flex-col gap-1">
+        <MessagePrimitive.Parts
+          components={{
+            Text: AnswerPart,
+            Reasoning: ReasoningPart,
+            data: {
+              by_name: {
+                novaError: ErrorPart,
+                novaWarning: WarningPart,
+              },
             },
-          },
-          tools: { Fallback: ToolPart },
-        }}
-      />
+            tools: { Fallback: ToolPart },
+          }}
+        />
+      </div>
     </MessagePrimitive.Root>
   );
 }

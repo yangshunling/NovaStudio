@@ -32,6 +32,11 @@ export interface RunOptions {
    * 工作流节点用它注入独立的 CLAUDE_CONFIG_DIR，普通会话不传。
    */
   env?: Record<string, string>;
+  /**
+   * 本次子进程需要剔除的环境变量。
+   * 用于工作流节点：避免宿主进程里的 ANTHROPIC_* 覆盖节点自己的配置文件。
+   */
+  envRemove?: string[];
   /** CLI 配置目录；用于会话历史定位（没有则用用户默认目录） */
   configDir?: string | null;
   /** 事件回调。provider 保证事件已归一、语义正确 */

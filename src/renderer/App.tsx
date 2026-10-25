@@ -19,6 +19,7 @@ import { Sidebar } from "./components/Sidebar";
 import { SessionsView } from "./components/SessionsView";
 import { AutomationView } from "./components/AutomationView";
 import { EmployeesView } from "./components/employees/EmployeesView";
+import { AgentsView } from "./components/agents/AgentsView";
 import { SkillsView } from "./components/skills/SkillsView";
 import { McpView } from "./components/mcp/McpView";
 import { KnowledgeView } from "./components/knowledge/KnowledgeView";
@@ -66,6 +67,8 @@ export default function App() {
           <KnowledgeView />
         ) : viewMode === "workflow" ? (
           <WorkflowsView />
+        ) : viewMode === "agents" ? (
+          <AgentsView />
         ) : (
           <>
             <SessionsView />

@@ -102,6 +102,7 @@ export const provider: AgentProvider = {
         transport: "pty",
         timeoutMs: opts.timeoutMs,
         env: opts.env,
+        envRemove: opts.envRemove,
         extractSessionId,
         // 每次运行新建解码器：它记住本次运行内 tool_use id → 工具名，
         // 让随后到达的 tool_result 能补上工具名

@@ -7,6 +7,7 @@
 
 import { useChatStore } from "../stores/chat";
 import {
+  Bot,
   ChevronRight,
   Library,
   MessageSquarePlus,
@@ -130,16 +131,33 @@ export function Sidebar() {
         </button>
       </div>
 
+      {/* 运行环境分组 */}
+      <div className="px-3 pt-4 pb-1">
+        <span className="px-1 text-meta font-medium tracking-wide text-text-muted">
+          运行环境
+        </span>
+      </div>
+      <div className="space-y-1 px-2.5 pb-2">
+        <button
+          type="button"
+          onClick={() => setViewMode("agents")}
+          className={itemClass(viewMode === "agents")}
+        >
+          <Bot className="h-4 w-4 shrink-0" />
+          Agent 配置
+        </button>
+      </div>
+
       {/* 底部：设置入口 */}
-      <div className="relative mt-auto border-t border-border p-inset">
+      <div className="relative mt-auto border-t border-border p-2.5">
         <button
           type="button"
           onClick={() => setShowSettings(true)}
-          className={`ui-ring group flex w-full items-center gap-2.5 rounded-lg bg-input-bg px-inset py-inset text-left outline-none transition-all hover:border-input-border-focus focus:border-input-border-focus ${
+          className={`ui-ring group flex w-full items-center gap-2.5 rounded-lg bg-input-bg px-inset py-2 text-left outline-none transition-all hover:border-input-border-focus focus:border-input-border-focus ${
             showSettings ? "border-input-border-focus" : ""
           }`}
         >
-          <span className="flex size-avatar shrink-0 items-center justify-center rounded-md bg-accent-soft text-accent">
+          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-accent-soft text-accent">
             <Settings className="h-4 w-4" />
           </span>
           <span className="min-w-0 flex-1 truncate text-body font-medium text-text">

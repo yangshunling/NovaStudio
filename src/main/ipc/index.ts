@@ -12,8 +12,10 @@ import {
   type WorkflowRunner,
 } from "../workflow/runner";
 import { createScheduler, type AutomationScheduler } from "../automation/scheduler";
+import { ensureClaudeSettingsFile } from "../agents/claude/connection";
 import { push, setMainWindow } from "./push";
 import { registerAgentHandlers } from "./handlers/agent";
+import { registerAgentConnectionHandlers } from "./handlers/agent-connection";
 import { registerSessionHandlers } from "./handlers/session";
 import { registerProjectHandlers } from "./handlers/project";
 import { registerSettingsHandlers } from "./handlers/settings";
@@ -53,6 +55,11 @@ export function initIpcHandlers(window: BrowserWindow): void {
   workflowRunner = runner;
 
   registerAgentHandlers(service);
+  registerAgentConnectionHandlers();
+
+  // 升级迁移：把已有连接配置落成标准 settings.json（如果还没生成）
+  ensureClaudeSettingsFile();
+
   registerSessionHandlers(service);
   registerProjectHandlers(service, runner);
   registerSettingsHandlers();

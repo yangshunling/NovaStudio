@@ -44,6 +44,8 @@ export interface RunParams {
   opts?: SessionOptions;
   /** 子进程追加环境变量（工作流节点的独立配置目录等） */
   env?: Record<string, string>;
+  /** 子进程需要剔除的环境变量（避免宿主环境污染隔离配置） */
+  envRemove?: string[];
   /** 宿主侧旁路监听：除推送到渲染层外，引擎也需要实时拿到事件 */
   onEvent?: (event: AgentEvent) => void;
 }
@@ -162,7 +164,7 @@ export function createAgentService(emit: Emit): AgentService {
     },
 
     async run(params: RunParams): Promise<RunOutcome> {
-      const { sessionId, prompt, cwd, opts, env, onEvent } = params;
+      const { sessionId, prompt, cwd, opts, env, envRemove, onEvent } = params;
       const failed = (error: string): RunOutcome => ({
         ok: false,
         exitCode: -1,
@@ -203,6 +205,7 @@ export function createAgentService(emit: Emit): AgentService {
         sessionRef,
         opts,
         env,
+        envRemove,
         configDir: session.configDir ?? null,
         timeoutMs: resolveTimeoutMs(),
         onEvent: (event) => {

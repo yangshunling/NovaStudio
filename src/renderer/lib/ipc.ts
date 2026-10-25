@@ -14,6 +14,10 @@ import type {
   SendAgentResult,
 } from "@shared/contracts/ipc";
 import type {
+  AgentConnectionDraft,
+  AgentConnectionProbeInput,
+} from "@shared/contracts/agent";
+import type {
   AppSettings,
   DigitalEmployeeDraft,
   McpServerDraft,
@@ -55,6 +59,20 @@ export const ipc = {
     opts?: SessionOptions,
   ): Promise<SendAgentResult> => call("agent:send", { sessionId, prompt, opts }),
   abortAgent: (sessionId: string) => call("agent:abort", { sessionId }),
+
+  // === Agent 连接配置（Nova 自管） ===
+  getAgentConnection: (agentId: string) =>
+    call("agent:connection:get", { agentId }),
+  saveAgentConnection: (draft: AgentConnectionDraft) =>
+    call("agent:connection:save", { draft }),
+  probeAgentModels: (input: AgentConnectionProbeInput) =>
+    call("agent:connection:models", { input }),
+  testAgentConnection: (input: AgentConnectionProbeInput) =>
+    call("agent:connection:test", { input }),
+  importLocalAgentConnection: (agentId: string) =>
+    call("agent:connection:importLocal", { agentId }),
+  openAgentConfigFile: (agentId: string) =>
+    call("agent:connection:openConfig", { agentId }),
 
   // === 项目 ===
   listProjects: () => call("project:list"),

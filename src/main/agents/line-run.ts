@@ -37,6 +37,8 @@ export interface LineRunConfig {
   timeoutMs?: number;
   /** 子进程追加的环境变量 */
   env?: Record<string, string>;
+  /** 子进程需要剔除的环境变量 */
+  envRemove?: string[];
   /** 从一行输出中提取会话 id；返回 null 表示该行不含会话信息 */
   extractSessionId(line: string): string | null;
   /** 把一行输出解码为事件（可返回多个） */
@@ -124,8 +126,20 @@ export function startLineRun(
   try {
     transport =
       config.transport === "pty"
-        ? spawnPty(config.args, config.cwd, config.env, transportHandlers)
-        : spawnChild(config.args, config.cwd, config.env, transportHandlers);
+        ? spawnPty(
+            config.args,
+            config.cwd,
+            config.env,
+            config.envRemove,
+            transportHandlers,
+          )
+        : spawnChild(
+            config.args,
+            config.cwd,
+            config.env,
+            config.envRemove,
+            transportHandlers,
+          );
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     // 启动失败属于失败（不是用户中断），只是不需要再补一条重复的 error

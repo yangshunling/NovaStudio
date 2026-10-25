@@ -7,6 +7,7 @@
 import { useEffect, useState } from "react";
 import { Plus, Loader2 } from "lucide-react";
 import { Modal, ModalHeader } from "../ui/Modal";
+import { Select } from "../ui/Select";
 import { useAutomationStore } from "../../stores/automation";
 import { useChatStore } from "../../stores/chat";
 
@@ -64,35 +65,34 @@ export function TaskCreateModal({ onClose }: { onClose: () => void }) {
         {/* 项目选择 */}
         <div className="mb-3">
           <label className="mb-1.5 block text-meta font-medium text-text-muted">绑定项目</label>
-          <select
+          <Select
             value={projectId}
-            onChange={(e) => setProjectId(e.target.value)}
-            className="ui-ring w-full rounded-lg bg-input-bg px-inset py-inset text-body-lg text-text outline-none"
-          >
-            {projects.length === 0 && <option value="">无可用项目</option>}
-            {projects.map((p) => (
-              <option key={p.id} value={p.id}>{p.name}</option>
-            ))}
-          </select>
+            onChange={setProjectId}
+            placeholder={projects.length === 0 ? "无可用项目" : "选择项目"}
+            className="ui-ring w-full rounded-lg bg-input-bg px-inset py-inset text-body-lg text-text"
+            options={projects.map((project) => ({
+              value: project.id,
+              label: project.name,
+            }))}
+          />
         </div>
 
         {/* Agent 选择 */}
         <div className="mb-5">
           <label className="mb-1.5 block text-meta font-medium text-text-muted">绑定 Agent</label>
-          <select
+          <Select
             value={agentId}
-            onChange={(e) => setAgentId(e.target.value)}
-            className="ui-ring w-full rounded-lg bg-input-bg px-inset py-inset text-body-lg text-text outline-none"
-          >
-            {agents.length === 0 && <option value="">检测中…</option>}
-            {agents.map((agent) => (
-              <option key={agent.id} value={agent.id} disabled={!agent.status.installed}>
-                {agent.displayName}
-                {agent.status.version ? ` v${agent.status.version}` : ""}
-                {!agent.status.installed ? "（未安装）" : ""}
-              </option>
-            ))}
-          </select>
+            onChange={setAgentId}
+            placeholder={agents.length === 0 ? "检测中…" : "选择 Agent"}
+            className="ui-ring w-full rounded-lg bg-input-bg px-inset py-inset text-body-lg text-text"
+            options={agents.map((agent) => ({
+              value: agent.id,
+              label: `${agent.displayName}${
+                agent.status.version ? ` v${agent.status.version}` : ""
+              }${agent.status.installed ? "" : "（未安装）"}`,
+              disabled: !agent.status.installed,
+            }))}
+          />
         </div>
 
         {/* 操作按钮 */}

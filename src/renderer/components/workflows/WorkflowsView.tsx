@@ -568,7 +568,7 @@ export function WorkflowsView() {
                   onClick={() => void createWorkspace()}
                   disabled={creatingWorkspace}
                   title="新建工作区"
-                  className="rounded-lg p-1.5 text-text-muted transition-colors hover:bg-surface-hover hover:text-text active:scale-95 disabled:opacity-50"
+                  className="ui-btn-round ui-icon-action flex h-8 w-8 items-center justify-center rounded-full text-text-muted transition-colors active:scale-95 disabled:opacity-50"
                 >
                   {creatingWorkspace ? (
                     <Loader2 className="h-4 w-4 animate-spin" />

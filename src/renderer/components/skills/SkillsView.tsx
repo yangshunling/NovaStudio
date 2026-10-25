@@ -188,7 +188,7 @@ export function SkillsView() {
                 void load();
               }}
               title="重新扫描技能目录"
-              className="ui-btn-round flex h-9 w-9 shrink-0 items-center justify-center rounded-full"
+              className="ui-btn-round ui-icon-action flex h-9 w-9 shrink-0 items-center justify-center rounded-full"
             >
               <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
             </button>

@@ -58,7 +58,7 @@ export function BoardColumn({
           <button
             onClick={onAdd}
             title="新建任务"
-            className="ui-btn-round flex h-7 w-7 items-center justify-center rounded-full"
+            className="ui-btn-round ui-icon-action flex h-7 w-7 items-center justify-center rounded-full"
           >
             <Plus className="h-4 w-4" />
           </button>

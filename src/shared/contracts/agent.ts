@@ -111,9 +111,111 @@ export interface AgentModelOption {
   label: string;
   /** 补充说明（如 provider / 上下文窗口），可选 */
   hint?: string;
+  /**
+   * 若该项来自 Claude 的 `ANTHROPIC_DEFAULT_*_MODEL` 别名映射，
+   * 记录别名（fable / opus / sonnet / haiku）。运行时据此注入映射，
+   * 兼容老员工里保存的别名值。
+   */
+  alias?: string;
 }
 
 /** manifest + status 的合并视图，UI 只消费这一个结构 */
 export interface AgentInfo extends AgentManifest {
   status: AgentStatus;
+}
+
+// ============================================================================
+// 连接配置（Nova 自管，与数字员工 / 工作流运行时共用）
+// ============================================================================
+
+/**
+ * Agent 连接的脱敏视图。
+ *
+ * 密钥本身永远不返回渲染层：只给出是否已保存、脱敏尾号和存储方式。
+ * 运行时的真实密钥由主进程在启动子进程时解密并注入环境变量。
+ */
+export interface AgentConnection {
+  agentId: string;
+  /** 接口根地址；空字符串表示使用官方默认端点 */
+  baseUrl: string;
+  /** 数字员工未显式指定模型时使用的默认模型 */
+  defaultModel: string;
+  /** 最近一次从接口查询到的模型（缓存，供下拉快速展示） */
+  models: AgentModelOption[];
+  /** 是否已保存 API Key */
+  hasApiKey: boolean;
+  /** 脱敏提示，如 "••••abcd"；未保存时为空字符串 */
+  apiKeyHint: string;
+  /** 密钥存储方式：标准配置文件中的明文 / 未保存（encrypted 仅用于旧数据迁移） */
+  keyStorage: "encrypted" | "plaintext" | "none";
+  /**
+   * 库里存了密钥、但当前设备无法解密（常见于从其他设备复制数据库或还原备份）。
+   * UI 必须提示用户重新填写，而不是静默显示为“未配置”。
+   */
+  keyUnreadable: boolean;
+  /** 本机是否存在可直接复制的 Claude OAuth 凭证 */
+  oauthAvailable: boolean;
+  /**
+   * 保存时生成的标准 Claude 配置文件路径。
+   * 该文件是节点运行时的配置来源（包含明文 API Key）。
+   */
+  settingsPath: string;
+  /** 模型缓存时间 */
+  modelsUpdatedAt: number | null;
+  /** 配置最后保存时间；null 表示从未保存 */
+  updatedAt: number | null;
+}
+
+/** 保存连接配置的入参 */
+export interface AgentConnectionDraft {
+  agentId: string;
+  baseUrl: string;
+  defaultModel: string;
+  /**
+   * 密钥更新语义：
+   * - undefined：保持已保存的值不变（表单留空时的默认行为）
+   * - ""：清除已保存的密钥
+   * - 其他：写入新密钥
+   */
+  apiKey?: string;
+  /** 与表单一起落库的模型缓存；省略则保持原值 */
+  models?: AgentModelOption[];
+}
+
+/** 连接探测 / 连通性测试入参 */
+export interface AgentConnectionProbeInput {
+  agentId: string;
+  baseUrl: string;
+  /** 空字符串或省略时使用已保存的密钥 */
+  apiKey?: string;
+  /** 需要顺带验证的模型名；空字符串表示只验证连接 */
+  model?: string;
+}
+
+/** 连接探测 / 连通性测试结果 */
+export interface AgentConnectionProbeResult {
+  ok: boolean;
+  /** 网络往返耗时（毫秒） */
+  latencyMs: number;
+  /** 接口返回的 HTTP 状态码（如有） */
+  httpStatus?: number;
+  /** 面向用户的一句话结论 */
+  message: string;
+  /** 查询成功时返回的模型列表 */
+  models?: AgentModelOption[];
+  /** 模型是否确认可用；null 表示未验证 */
+  modelVerified?: boolean | null;
+}
+
+/** 从本机 Claude 配置导入的结果 */
+export interface AgentConnectionImportResult {
+  connection: AgentConnection;
+  /** 实际读取的配置文件路径 */
+  source: string;
+  warnings: string[];
+  imported: {
+    baseUrl: boolean;
+    apiKey: boolean;
+    models: number;
+  };
 }

@@ -38,6 +38,7 @@ import { assetToDraft } from "@shared/mcp";
 import { formatAssetTime, Meta, SourceTag, Tag } from "../assets/assetUi";
 import { Field, FORM_INPUT_CLASS as INPUT_CLASS } from "../ui/Field";
 import { Modal, ModalHeader } from "../ui/Modal";
+import { Select } from "../ui/Select";
 import {
   MCP_SOURCE_CLASS,
   MCP_SOURCE_LABEL,
@@ -197,7 +198,7 @@ export function McpView() {
                 void load();
               }}
               title="重新扫描 MCP 配置"
-              className="ui-btn-round flex h-9 w-9 shrink-0 items-center justify-center rounded-full"
+              className="ui-btn-round ui-icon-action flex h-9 w-9 shrink-0 items-center justify-center rounded-full"
             >
               <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
             </button>
@@ -613,17 +614,18 @@ function McpDrawer({
                 </Field>
 
                 <Field label="传输方式">
-                  <select
+                  <Select
                     value={draft.transport}
-                    onChange={(event) =>
-                      update({ transport: event.target.value as McpTransport })
+                    onChange={(transport) =>
+                      update({ transport: transport as McpTransport })
                     }
                     className={INPUT_CLASS}
-                  >
-                    <option value="stdio">stdio（本地进程）</option>
-                    <option value="http">HTTP（远程）</option>
-                    <option value="sse">SSE（远程）</option>
-                  </select>
+                    options={[
+                      { value: "stdio", label: "stdio（本地进程）" },
+                      { value: "http", label: "HTTP（远程）" },
+                      { value: "sse", label: "SSE（远程）" },
+                    ]}
+                  />
                 </Field>
 
                 {draft.transport === "stdio" ? (

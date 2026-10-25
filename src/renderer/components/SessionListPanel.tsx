@@ -24,18 +24,17 @@ import {
 } from "lucide-react";
 import { useChatStore } from "../stores/chat";
 import { useFileViewerStore } from "../stores/fileViewer";
-import { dirName, timeAgo } from "../lib/utils";
+import { agentTone, dirName, getAgentName, timeAgo } from "../lib/utils";
 import { toast } from "../stores/toast";
 import type { AgentInfo } from "@shared/contracts/agent";
 import type { Project, Session } from "@shared/types";
 import { AgentPill } from "./ui/AgentPill";
 import { ConfirmDeleteButton } from "./ui/ConfirmDeleteButton";
-import { FolderTypeIcon } from "./ui/FolderTypeIcon";
 import { StatusDot } from "./ui/StatusDot";
 
 /** 右键菜单尺寸：用于贴近视口边缘时收拢位置 */
 const MENU_WIDTH = 192;
-const MENU_HEIGHT = 160;
+const MENU_HEIGHT = 200;
 
 /** 项目副标题只保留末尾两级目录，避免长路径把行撑乱 */
 function shortPath(cwd: string): string {
@@ -193,14 +192,14 @@ export function SessionListPanel() {
           onClick={handleNewProject}
           title="选择文件夹新建项目"
           aria-label="选择文件夹新建项目"
-          className="ui-btn-round flex size-8 shrink-0 items-center justify-center rounded-full text-text-muted transition-colors hover:text-accent active:scale-95"
+          className="ui-btn-round ui-icon-action flex size-8 shrink-0 items-center justify-center rounded-full text-text-muted transition-colors active:scale-95"
         >
           <FolderPlus className="h-4 w-4" />
         </button>
       </div>
 
       {/* 项目 + 会话树 */}
-      <div className="ui-scroll-hidden min-h-0 flex-1 overflow-y-auto px-3 pb-5 pt-3">
+      <div className="ui-scroll-hidden min-h-0 flex-1 overflow-y-auto px-2 pb-4 pt-3">
         {projects.length === 0 ? (
           <div className="mx-auto mt-4 flex flex-col items-center gap-4 rounded-2xl border border-dashed border-border-strong/70 bg-surface-2/30 px-5 py-10 text-center">
             <span className="flex size-14 items-center justify-center rounded-2xl bg-accent-soft text-accent shadow-[var(--c-shadow-sm)]">
@@ -222,7 +221,7 @@ export function SessionListPanel() {
             </button>
           </div>
         ) : (
-          <div className="space-y-2.5">
+          <div className="space-y-1.5">
             {projects.map((project) => (
               <ProjectNode
                 key={project.id}
@@ -340,53 +339,53 @@ function ProjectNode({
   onContextMenu: (project: Project, event: React.MouseEvent) => void;
 }) {
   return (
-    <div
-      className={`group/proj relative overflow-hidden rounded-xl border transition-all ${
-        isActiveProject
-          ? "border-accent/30 bg-accent-soft/60 shadow-[var(--c-shadow-sm)]"
-          : "border-border/70 bg-surface-2/30 hover:border-border-strong hover:bg-surface-2/60"
-      }`}
-    >
-      {/* 选中项目：左侧强调条，比整块实色背景更克制 */}
-      {isActiveProject && (
-        <span
-          aria-hidden
-          className="absolute inset-y-2.5 left-0 w-0.5 rounded-full bg-accent"
-        />
-      )}
-
-      {/* 项目头：折叠箭头与选中主体分开 —— 点箭头只折叠，点主体才选中项目 */}
+    <div className="group/proj">
+      {/* 项目头：扁平行，不再用「卡片套卡片」；选中态只留浅色底 + 左侧短条 */}
       <div
         onContextMenu={(event) => onContextMenu(project, event)}
-        className="flex w-full items-center gap-1 px-1.5 py-1.5"
+        className={`relative flex w-full items-center gap-1.5 rounded-xl px-2 py-1 transition-colors ${
+          isActiveProject
+            ? "bg-accent-soft/60"
+            : "hover:bg-surface-hover/60"
+        }`}
       >
+        {isActiveProject && (
+          <span
+            aria-hidden
+            className="absolute inset-y-1.5 left-0 w-[3px] rounded-full bg-accent"
+          />
+        )}
+
         <button
           onClick={onToggle}
           title={isExpanded ? "折叠" : "展开"}
           aria-expanded={isExpanded}
-          className="flex size-6 shrink-0 items-center justify-center rounded-md text-text-muted transition-colors hover:bg-surface-hover hover:text-text"
+          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-text-muted transition-colors hover:bg-surface-hover hover:text-text"
         >
           <ChevronRight
-            className={`h-3.5 w-3.5 shrink-0 transition-transform ${isExpanded ? "rotate-90" : ""}`}
+            className={`h-3.5 w-3.5 shrink-0 transition-transform duration-200 ${
+              isExpanded ? "rotate-90" : ""
+            }`}
           />
         </button>
+
         <button
           onClick={onSelect}
-          className="flex min-w-0 flex-1 items-center gap-2.5 rounded-lg px-1 py-0.5 text-left"
+          className="flex min-w-0 flex-1 items-center gap-2.5 rounded-lg py-1 text-left"
           title={project.cwd || project.name}
         >
           <span
-            className={`flex size-8 shrink-0 items-center justify-center rounded-lg transition-colors ${
+            className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg transition-colors ${
               isActiveProject
                 ? "bg-accent-soft text-accent"
                 : "bg-surface-hover/80 text-text-muted group-hover/proj:text-text"
             }`}
           >
-            <FolderTypeIcon open={isExpanded} size={17} />
+            <Folder className="h-4 w-4" />
           </span>
           <span className="min-w-0 flex-1">
             <span
-              className={`block truncate text-body-lg font-semibold ${
+              className={`block truncate text-body font-semibold ${
                 isActiveProject
                   ? "text-text"
                   : "text-text-secondary group-hover/proj:text-text"
@@ -394,13 +393,13 @@ function ProjectNode({
             >
               {project.name}
             </span>
-            <span className="mt-0.5 block truncate font-mono text-meta text-text-muted">
+            <span className="mt-0.5 block truncate font-mono text-caption text-text-muted">
               {project.cwd ? shortPath(project.cwd) : "未设置工作目录"}
             </span>
           </span>
           <span
             title={`${sessions.length} 个会话`}
-            className={`flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full px-1.5 font-mono text-meta tabular-nums ${
+            className={`flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full px-1.5 font-mono text-caption tabular-nums ${
               isActiveProject
                 ? "bg-accent-soft text-accent"
                 : "bg-surface-hover text-text-muted"
@@ -411,32 +410,38 @@ function ProjectNode({
         </button>
       </div>
 
-      {/* 会话列表：竖线从文件夹图标下方延伸，保持树形层级 */}
-      {isExpanded && (
-        <div className="ml-[50px] border-l border-border/80 pb-2 pl-3 pr-2 pt-0.5">
-          <div className="space-y-0.5">
-            {sessions.map((session) => (
-              <SessionRow
-                key={session.id}
-                session={session}
-                isActive={session.id === activeSessionId}
-                isStreaming={!!streamingBySession[session.id]}
-                agents={agents}
-                onOpen={() => onOpenSession(session.id)}
-                onDelete={() => onDeleteSession(session.id)}
-                onAbort={() => onAbortSession(session.id)}
-                onRename={(title) => onRenameSession(session.id, title)}
-              />
-            ))}
-          </div>
-          {sessions.length === 0 && (
-            <div className="flex items-center gap-1.5 py-1.5 text-meta text-text-muted">
-              <MessageSquare className="h-3.5 w-3.5 opacity-60" />
-              暂无会话
+      {/* 会话树：竖线与文件夹图标中心对齐；用 grid 行高过渡实现平滑折叠 */}
+      <div
+        className={`grid transition-all duration-200 ease-out ${
+          isExpanded ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0"
+        }`}
+      >
+        <div className="min-h-0 overflow-hidden">
+          <div className="ml-[58px] border-l border-border/70 pb-2 pl-4 pt-0.5">
+            <div className="space-y-1">
+              {sessions.map((session) => (
+                <SessionRow
+                  key={session.id}
+                  session={session}
+                  isActive={session.id === activeSessionId}
+                  isStreaming={!!streamingBySession[session.id]}
+                  agents={agents}
+                  onOpen={() => onOpenSession(session.id)}
+                  onDelete={() => onDeleteSession(session.id)}
+                  onAbort={() => onAbortSession(session.id)}
+                  onRename={(title) => onRenameSession(session.id, title)}
+                />
+              ))}
+              {sessions.length === 0 && (
+                <div className="flex items-center gap-1.5 px-2.5 py-1.5 text-caption text-text-muted">
+                  <MessageSquare className="h-3.5 w-3.5 opacity-60" />
+                  暂无会话
+                </div>
+              )}
             </div>
-          )}
+          </div>
         </div>
-      )}
+      </div>
     </div>
   );
 }
@@ -558,8 +563,8 @@ function SessionRow({
   if (editing) {
     return (
       <div
-        className={`group flex items-center gap-2 rounded-lg py-1 pl-2.5 pr-1 ${
-          isActive ? "bg-surface-active shadow-[var(--c-shadow-sm)]" : ""
+        className={`group flex items-center gap-2 rounded-lg px-2.5 py-1.5 ${
+          isActive ? "bg-surface-active" : ""
         }`}
       >
         <input
@@ -601,30 +606,37 @@ function SessionRow({
           onOpen();
         }
       }}
-      className={`group relative cursor-pointer select-none rounded-lg py-2 pl-2.5 pr-1.5 transition-colors ${
+      className={`group relative cursor-pointer select-none rounded-lg px-2.5 py-1.5 transition-colors before:absolute before:-left-4 before:top-1/2 before:h-px before:w-[29px] before:bg-border/70 before:content-[''] ${
         isActive
-          ? "bg-surface-active text-text shadow-[var(--c-shadow-sm)]"
-          : "text-text-secondary hover:bg-surface-hover hover:text-text"
+          ? "bg-surface-active text-text"
+          : "text-text-secondary hover:bg-surface-hover/70 hover:text-text"
       }`}
     >
-      {/* 选中标识：贴左缘的一道强调色短条 */}
-      {isActive && (
-        <span
-          aria-hidden
-          className="absolute left-0 top-1/2 h-5 w-[3px] -translate-y-1/2 rounded-full bg-accent"
-        />
-      )}
-
-      {/* 单行：状态点 + 标题 + 右侧悬浮信息 / 操作 */}
+      {/* 单行：左侧状态点 + 标题 + 右侧悬浮信息 / 操作 */}
       <div className="flex items-center gap-2">
-        {isStreaming && <StatusDot status="streaming" />}
+        {isStreaming ? (
+          <StatusDot status="streaming" />
+        ) : (
+          <span
+            aria-hidden
+            className={`h-1.5 w-1.5 shrink-0 rounded-full ${
+              isActive ? "bg-accent" : "bg-border-strong/70"
+            }`}
+          />
+        )}
         <span
           className={`min-w-0 flex-1 truncate text-body ${isActive ? "font-medium" : ""}`}
         >
           {session.title}
         </span>
 
-        <div className="ml-auto flex shrink-0 items-center gap-0.5">
+        <div
+          className={`absolute right-1 top-1/2 flex -translate-y-1/2 items-center gap-0.5 rounded-lg border border-border/60 bg-surface/95 px-0.5 py-0.5 shadow-[var(--c-shadow-sm)] transition-opacity ${
+            isStreaming
+              ? "opacity-100"
+              : "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100"
+          }`}
+        >
           {isStreaming ? (
             <button
               onClick={(e) => {
@@ -637,14 +649,14 @@ function SessionRow({
               <Square className="h-4 w-4" />
             </button>
           ) : (
-            <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+            <div className="flex shrink-0 items-center gap-0.5">
               <button
                 onClick={(e) => {
                   e.stopPropagation();
                   startEdit();
                 }}
                 title="重命名"
-                className="rounded-md p-1.5 text-text-muted transition-colors hover:bg-surface-active hover:text-text"
+                className="rounded-md p-1 text-text-muted transition-colors hover:bg-surface-active hover:text-text"
               >
                 <PenLine className="h-4 w-4" />
               </button>

@@ -16,6 +16,20 @@ import type { AgentModelOption } from "@shared/contracts/agent";
 const cache = new Map<string, AgentModelOption[]>();
 const inflight = new Map<string, Promise<AgentModelOption[]>>();
 
+/**
+ * 清空模型缓存。
+ * 「运行环境 → Agent 配置」保存连接配置后调用，避免数字员工抽屉继续展示旧端点 / 旧模型的缓存。
+ */
+export function clearAgentModelsCache(agentId?: string): void {
+  if (agentId) {
+    cache.delete(agentId);
+    inflight.delete(agentId);
+    return;
+  }
+  cache.clear();
+  inflight.clear();
+}
+
 function load(agentId: string): Promise<AgentModelOption[]> {
   const cached = cache.get(agentId);
   if (cached) return Promise.resolve(cached);

@@ -12,6 +12,7 @@ import { useEffect, useRef, useState } from "react";
 import { SlidersHorizontal } from "lucide-react";
 import { useChatStore, selectEffectiveAgentId } from "../stores/chat";
 import { ModelSelect } from "./ui/ModelSelect";
+import { Select } from "./ui/Select";
 
 /** 无参数记录时的稳定空引用（避免 selector 每次返回新对象导致重渲染） */
 const EMPTY_OPTIONS: Record<string, string> = Object.freeze({});
@@ -30,7 +31,11 @@ export function AgentOptionsMenu() {
   useEffect(() => {
     if (!open) return;
     const onDown = (e: MouseEvent) => {
-      if (!rootRef.current?.contains(e.target as Node)) setOpen(false);
+      const target = e.target as Element | null;
+      if (rootRef.current?.contains(e.target as Node)) return;
+      // Select 的选项浮层挂在 body 上，不算「面板外部」
+      if (target?.closest?.("[data-nova-select-menu]")) return;
+      setOpen(false);
     };
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") setOpen(false);
@@ -77,20 +82,23 @@ export function AgentOptionsMenu() {
                 </span>
 
                 {field.type === "select" ? (
-                  <select
+                  <Select
                     value={options[field.key] ?? ""}
-                    onChange={(e) => setAgentOption(agentId, field.key, e.target.value)}
+                    onChange={(value) => setAgentOption(agentId, field.key, value)}
                     className={controlClass}
-                  >
-                    <option value="">
-                      {field.defaultValue ? `默认（${field.defaultValue}）` : "默认"}
-                    </option>
-                    {(field.choices ?? []).map((choice) => (
-                      <option key={choice} value={choice}>
-                        {choice}
-                      </option>
-                    ))}
-                  </select>
+                    options={[
+                      {
+                        value: "",
+                        label: field.defaultValue
+                          ? `默认（${field.defaultValue}）`
+                          : "默认",
+                      },
+                      ...(field.choices ?? []).map((choice) => ({
+                        value: choice,
+                        label: choice,
+                      })),
+                    ]}
+                  />
                 ) : field.type === "model" ? (
                   <ModelSelect
                     agentId={agentId}
@@ -123,7 +131,7 @@ export function AgentOptionsMenu() {
         title="运行参数"
         aria-haspopup="dialog"
         aria-expanded={open}
-        className={`ui-btn-round relative flex size-icon-btn items-center justify-center rounded-full ${
+        className={`ui-btn-round ui-icon-action relative flex size-icon-btn items-center justify-center rounded-full ${
           open ? "text-accent" : ""
         }`}
       >

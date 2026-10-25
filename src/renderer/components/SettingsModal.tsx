@@ -7,6 +7,7 @@
 import { useEffect, useRef, useState } from "react";
 import { SlidersHorizontal } from "lucide-react";
 import { Modal, ModalHeader } from "./ui/Modal";
+import { Select } from "./ui/Select";
 import { useChatStore } from "../stores/chat";
 import { useTheme } from "../hooks/useTheme";
 import { ipc } from "../lib/ipc";
@@ -95,17 +96,16 @@ function ConcurrencyControl() {
       <p className="mt-1 mb-3 text-meta text-text-muted">
         自动化看板同一时间最多执行的任务数，默认 {DEFAULT_SETTINGS.automationConcurrency}，修改后立即生效。
       </p>
-      <select
-        value={value}
-        onChange={(e) => handleChange(Number(e.target.value))}
-        className="ui-ring w-40 rounded-lg bg-input-bg px-inset py-inset text-body-lg text-text outline-none"
-      >
-        {CONCURRENCY_OPTIONS.map((n) => (
-          <option key={n} value={n}>
-            {n} 个
-          </option>
-        ))}
-      </select>
+      <Select
+        value={String(value)}
+        onChange={(next) => handleChange(Number(next))}
+        className="ui-ring w-40 rounded-lg bg-input-bg px-inset py-inset text-body-lg text-text"
+        minMenuWidth={160}
+        options={CONCURRENCY_OPTIONS.map((n) => ({
+          value: String(n),
+          label: `${n} 个`,
+        }))}
+      />
     </div>
   );
 }

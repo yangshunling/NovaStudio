@@ -394,7 +394,7 @@ export function KnowledgeView() {
                   type="button"
                   onClick={() => setCreateOpen(true)}
                   title="新建知识库"
-                  className="rounded-lg p-1.5 text-text-muted transition-colors hover:bg-surface-hover hover:text-text active:scale-95"
+                  className="ui-btn-round ui-icon-action flex h-8 w-8 items-center justify-center rounded-full text-text-muted transition-colors active:scale-95"
                 >
                   <FolderPlus className="h-4 w-4" />
                 </button>
@@ -589,7 +589,7 @@ export function KnowledgeView() {
                     type="button"
                     onClick={() => void refresh()}
                     title="刷新"
-                    className="ui-btn-round flex h-8 w-8 items-center justify-center rounded-full"
+                    className="ui-btn-round ui-icon-action flex h-8 w-8 items-center justify-center rounded-full"
                   >
                     <RefreshCw
                       className={`h-3.5 w-3.5 ${docsLoading ? "animate-spin" : ""}`}

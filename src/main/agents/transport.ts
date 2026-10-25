@@ -64,6 +64,24 @@ export function createLineBuffer() {
   };
 }
 
+/**
+ * 合并宿主环境与本次覆盖值，并剔除需要屏蔽的键。
+ *
+ * `envRemove` 必须最后生效：否则 process.env 里的同名变量会在展开时
+ * 重新出现，覆盖节点自己的隔离配置。
+ */
+function buildEnv(
+  overrides: Record<string, string> | undefined,
+  remove: string[] | undefined,
+): Record<string, string> {
+  const env: Record<string, string> = {
+    ...(process.env as Record<string, string>),
+    ...overrides,
+  };
+  for (const key of remove ?? []) delete env[key];
+  return env;
+}
+
 /** 需要引号包裹的字符：空白与 shell 元字符（避免参数被 shell 拆开或劫持） */
 const NEEDS_QUOTE = /[\s"&|<>^()]/;
 
@@ -131,6 +149,7 @@ export function spawnPty(
   args: string[],
   cwd: string,
   envOverrides: Record<string, string> | undefined,
+  envRemove: string[] | undefined,
   handlers: TransportHandlers,
 ): Transport {
   const win = process.platform === "win32";
@@ -143,7 +162,7 @@ export function spawnPty(
     cols: 9999,
     rows: 999,
     cwd,
-    env: { ...process.env, ...envOverrides } as Record<string, string>,
+    env: buildEnv(envOverrides, envRemove),
   });
 
   proc.onData((data) => handlers.onData(data));
@@ -168,13 +187,14 @@ export function spawnChild(
   args: string[],
   cwd: string,
   envOverrides: Record<string, string> | undefined,
+  envRemove: string[] | undefined,
   handlers: TransportHandlers,
 ): Transport {
   const child = spawn(args[0], args.slice(1), {
     cwd,
     shell: process.platform === "win32",
     windowsHide: true,
-    env: { ...process.env, ...envOverrides },
+    env: buildEnv(envOverrides, envRemove),
   });
 
   child.stdout.setEncoding("utf8");

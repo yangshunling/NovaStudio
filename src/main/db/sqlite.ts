@@ -97,6 +97,20 @@ export function initDatabase(): void {
       value TEXT NOT NULL
     );
 
+    -- Nova 自管的 Agent 连接配置。api_key 存的是加密后的字符串，
+    -- 绝不把明文写进库；渲染层永远拿不到密钥本体。
+    CREATE TABLE IF NOT EXISTS agent_connections (
+      agent_id TEXT PRIMARY KEY,
+      base_url TEXT NOT NULL DEFAULT '',
+      api_key TEXT NOT NULL DEFAULT '',
+      api_key_storage TEXT NOT NULL DEFAULT 'none',
+      default_model TEXT NOT NULL DEFAULT '',
+      models_json TEXT NOT NULL DEFAULT '[]',
+      models_updated_at INTEGER,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+
     CREATE TABLE IF NOT EXISTS automation_tasks (
       id TEXT PRIMARY KEY,
       prompt TEXT NOT NULL,
@@ -1555,6 +1569,52 @@ export function setSetting(key: string, value: string): void {
   db!.prepare(
     "INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = ?",
   ).run(key, value, value);
+}
+
+// ============================================================================
+// Agent 连接配置
+// ============================================================================
+
+/** agent_connections 的原始行；api_key 为已加密 / 已编码的字符串 */
+export interface AgentConnectionRow {
+  agentId: string;
+  baseUrl: string;
+  apiKey: string;
+  apiKeyStorage: string;
+  defaultModel: string;
+  modelsJson: string;
+  modelsUpdatedAt: number | null;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export function getAgentConnectionRow(agentId: string): AgentConnectionRow | null {
+  const row = db!
+    .prepare("SELECT * FROM agent_connections WHERE agent_id = ?")
+    .get(agentId) as any;
+  if (!row) return null;
+  return {
+    agentId: row.agent_id,
+    baseUrl: row.base_url,
+    apiKey: row.api_key,
+    apiKeyStorage: row.api_key_storage,
+    defaultModel: row.default_model,
+    modelsJson: row.models_json,
+    modelsUpdatedAt: row.models_updated_at ?? null,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+/**
+ * 删除旧的数据库连接记录。
+ *
+ * 新版本的连接配置以 `~/.novastudio/agent-connections/claude/` 下的文件为准，
+ * agent_connections 表只在升级时作为迁移来源；迁移完成后删除，避免文件被删后
+ * 又用旧记录“复活”一套过期配置。
+ */
+export function deleteAgentConnectionRow(agentId: string): void {
+  db!.prepare("DELETE FROM agent_connections WHERE agent_id = ?").run(agentId);
 }
 
 // ============================================================================

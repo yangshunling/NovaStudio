@@ -113,7 +113,7 @@ export function ChatArea({ embedded = false }: { embedded?: boolean } = {}) {
             title={showWorkspace ? "隐藏工作区文件" : "显示工作区文件"}
             aria-label={showWorkspace ? "隐藏工作区文件" : "显示工作区文件"}
             aria-pressed={showWorkspace}
-            className={`ui-btn-round flex size-icon-btn shrink-0 items-center justify-center rounded-full ${
+            className={`ui-btn-round ui-icon-action flex size-icon-btn shrink-0 items-center justify-center rounded-full ${
               showWorkspace ? "text-accent" : ""
             }`}
           >

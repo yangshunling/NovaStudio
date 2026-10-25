@@ -12,6 +12,7 @@
 
 import { Loader2, RefreshCw } from "lucide-react";
 import { useAgentModels } from "../../hooks/useAgentModels";
+import { Select } from "./Select";
 
 const CONTROL_CLASS =
   "ui-ring min-w-0 rounded-lg bg-input-bg px-inset py-inset text-body text-text placeholder-text-muted outline-none transition-colors focus:border-input-border-focus";
@@ -39,21 +40,22 @@ export function ModelSelect({
           正在获取模型…
         </div>
       ) : models.length > 0 ? (
-        <select
+        <Select
           value={value}
-          onChange={(event) => onChange(event.target.value)}
+          onChange={onChange}
           className={`${CONTROL_CLASS} flex-1`}
-        >
-          <option value="">默认（由 Agent 自动决定）</option>
-          {models.map((model) => (
-            <option key={model.value} value={model.value}>
-              {model.label}
-            </option>
-          ))}
-          {value && !models.some((model) => model.value === value) && (
-            <option value={value}>{value}（当前）</option>
-          )}
-        </select>
+          minMenuWidth={240}
+          options={[
+            { value: "", label: "默认（由 Agent 自动决定）" },
+            ...models.map((model) => ({
+              value: model.value,
+              label: model.label,
+            })),
+            ...(value && !models.some((model) => model.value === value)
+              ? [{ value, label: `${value}（当前）` }]
+              : []),
+          ]}
+        />
       ) : (
         <input
           value={value}

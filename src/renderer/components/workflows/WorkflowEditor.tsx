@@ -43,6 +43,7 @@ import { ipc } from "../../lib/ipc";
 import { newId } from "../../lib/utils";
 import { toast } from "../../stores/toast";
 import { EmployeeAvatar } from "../employees/EmployeeAvatar";
+import { Select } from "../ui/Select";
 import { WorkflowCanvas, WF_NODE_W } from "./WorkflowCanvas";
 import { WorkflowDebugPanel } from "./WorkflowDebugPanel";
 import { defaultNodeConfig } from "./defaults";
@@ -574,22 +575,22 @@ export function WorkflowEditor({
 
           {!workspace &&
             (workspaces.length > 0 ? (
-              <select
+              <Select
                 value={workspaceId}
-                onChange={(event) => {
-                  setWorkspaceId(event.target.value);
+                onChange={(next) => {
+                  setWorkspaceId(next);
                   setDirty(true);
                 }}
                 title="该工作流还没有归属工作区，选择后才可调试"
-                className="ui-ring h-8 shrink-0 rounded-lg bg-input-bg px-2.5 text-meta text-text outline-none transition-colors focus:border-input-border-focus"
-              >
-                <option value="">未归属 · 选择工作区…</option>
-                {workspaces.map((item) => (
-                  <option key={item.id} value={item.id}>
-                    {item.name}
-                  </option>
-                ))}
-              </select>
+                className="ui-ring h-8 shrink-0 rounded-lg bg-input-bg px-2.5 text-meta text-text transition-colors focus:border-input-border-focus"
+                options={[
+                  { value: "", label: "未归属 · 选择工作区…" },
+                  ...workspaces.map((item) => ({
+                    value: item.id,
+                    label: item.name,
+                  })),
+                ]}
+              />
             ) : (
               <span className="shrink-0 text-meta text-error">
                 未归属 · 请先创建工作区
@@ -894,21 +895,20 @@ function NodeInspector({
       {node.type === "employee" ? (
         <>
           <label className={LABEL_CLASS}>数字员工</label>
-          <select
+          <Select
             value={node.config.employeeId ?? ""}
-            onChange={(event) =>
-              onPatch(node.id, {}, { employeeId: event.target.value || null })
+            onChange={(next) =>
+              onPatch(node.id, {}, { employeeId: next || null })
             }
             className={`${INPUT_CLASS} mb-2`}
-          >
-            <option value="">选择数字员工…</option>
-            {employees.map((item) => (
-              <option key={item.id} value={item.id}>
-                {item.name}
-                {item.role ? ` · ${item.role}` : ""}
-              </option>
-            ))}
-          </select>
+            options={[
+              { value: "", label: "选择数字员工…" },
+              ...employees.map((item) => ({
+                value: item.id,
+                label: `${item.name}${item.role ? ` · ${item.role}` : ""}`,
+              })),
+            ]}
+          />
 
           {employee ? (
             <div className="flex items-center gap-3 rounded-xl bg-surface-hover/60 px-3 py-2.5">
