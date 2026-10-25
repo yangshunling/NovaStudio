@@ -1,20 +1,24 @@
 /**
  * MCP 服务资产
  *
- * 存储方式与 Skill 一致：一条服务一个 JSON 文件，放在 ~/.novastudio/mcp/。
- * 与 Skill 的区别在运行方式：MCP 不是把目录复制给 Agent，而是每次运行时
- * 把服务定义渲染成目标 Agent 的配置文件。
+ * Nova 不再维护自己的 MCP 库。所有 MCP 定义统一存放在 Claude Code 的用户配置
+ * `~/.claude.json` 的顶层 `mcpServers` 中：
+ * - Nova 新增 / 修改 / 删除都直接读写这份配置；
+ * - Claude Code 终端和 Nova 共用同一套 MCP；
+ * - `~/.claude.json` 里已经存在的条目（不是 Nova 创建的）保持只读；
+ * - 项目级 local scope 与项目 `.mcp.json` 只做只读发现。
  *
- * 只读来源目前只有 Claude 用户配置（~/.claude.json 的 mcpServers）。
- * Nova 不改原配置，只做发现与引用。
+ * `managed_assets` 表只记录哪些条目是 Nova 创建的，用于区分可编辑/只读。
  */
 
 import { existsSync } from "fs";
-import { mkdir, readFile, readdir, rm, stat, writeFile } from "fs/promises";
-import { homedir } from "os";
+import { readFile, stat } from "fs/promises";
 import { join } from "path";
-import { DATA_DIR } from "../utils/paths";
-import { formatKeyValue, parseKeyValueLines, splitArgs } from "../../shared/mcp";
+import {
+  formatKeyValue,
+  parseKeyValueLines,
+  splitArgs,
+} from "../../shared/mcp";
 import type {
   McpImportResult,
   McpServerAsset,
@@ -23,24 +27,20 @@ import type {
   McpTransport,
   McpWriteResult,
 } from "../../shared/types";
-
-/** Nova MCP 主库：唯一可写目录 */
-export const MCP_LIBRARY_DIR = join(DATA_DIR, "mcp");
+import * as db from "../db/sqlite";
+import {
+  claudeUserConfigPath,
+  readClaudeMcpServers,
+  writeClaudeMcpServers,
+} from "../agents/claude/config";
 
 /** Claude 用户配置（包含全局 mcpServers） */
-const CLAUDE_CONFIG_PATH = join(homedir(), ".claude.json");
+const CLAUDE_CONFIG_PATH = claudeUserConfigPath();
 
 /** 单文件 / 配置读取上限，防止异常文件拖垮主进程 */
 const MAX_JSON_BYTES = 5_000_000;
 
-const SOURCE_META: Record<McpSource, { readOnly: boolean; reason: string | null }> = {
-  library: { readOnly: false, reason: null },
-  "claude-global": {
-    readOnly: true,
-    reason:
-      "该服务来自 Claude 配置（用户级 ~/.claude.json 或项目级 .mcp.json），由 Claude Code 管理。Nova 只能引用，不能修改或删除；如需修改，请直接编辑对应配置文件。",
-  },
-};
+const SOURCE: McpSource = "claude-global";
 
 // ============================================================================
 // 通用解析
@@ -92,7 +92,10 @@ function normalizeTransport(value: unknown, url: string): McpTransport {
  * 只要值里用到了 ${VAR} 占位符就视为由环境注入（例如 `Bearer ${TOKEN}`），
  * 不标「含密钥」；完全字面量的值才提示用户。
  */
-function hasLiteralSecrets(env: Record<string, string>, headers: Record<string, string>): boolean {
+function hasLiteralSecrets(
+  env: Record<string, string>,
+  headers: Record<string, string>,
+): boolean {
   return [...Object.values(env), ...Object.values(headers)].some(
     (value) => value.trim() !== "" && !/\$\{[^}]+\}/.test(value),
   );
@@ -138,26 +141,6 @@ function validate(input: {
   return problems;
 }
 
-function toSlug(raw: string): string {
-  const slug = raw
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9._-]+/g, "-")
-    .replace(/-+/g, "-")
-    .replace(/^[-.]+|[-.]+$/g, "");
-  return slug || `mcp-${Date.now().toString(36)}`;
-}
-
-function uniqueSlug(base: string, existing: Set<string>): string {
-  let slug = base;
-  let index = 2;
-  while (existing.has(slug)) {
-    slug = `${base}-${index}`;
-    index += 1;
-  }
-  return slug;
-}
-
 // ============================================================================
 // 扫描
 // ============================================================================
@@ -178,11 +161,11 @@ interface ParsedServer {
  * - Nova 格式：{ name, description, transport, command, args, env, url, headers }
  * - Claude 格式：{ command, args, env } 或 { type: "http", url, headers }
  */
-function parseServerObject(
-  raw: unknown,
-  fallbackName: string,
-): ParsedServer {
-  const value = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
+function parseServerObject(raw: unknown, fallbackName: string): ParsedServer {
+  const value = (raw && typeof raw === "object" ? raw : {}) as Record<
+    string,
+    unknown
+  >;
   const url = toText(value.url);
   return {
     name: toText(value.name) || fallbackName,
@@ -202,12 +185,12 @@ function toAsset(
     id: string;
     slug: string;
     path: string;
-    source: McpSource;
+    managedByNova: boolean;
     updatedAt: number;
   },
 ): McpServerAsset {
-  const meta = SOURCE_META[input.source];
   const problems = validate(parsed);
+  const readOnly = !input.managedByNova;
   return {
     id: input.id,
     slug: input.slug,
@@ -220,97 +203,17 @@ function toAsset(
     url: parsed.url,
     headers: parsed.headers,
     path: input.path,
-    source: input.source,
-    readOnly: meta.readOnly,
-    readOnlyReason: meta.reason,
+    source: SOURCE,
+    managedByNova: input.managedByNova,
+    readOnly,
+    readOnlyReason: readOnly
+      ? "该服务由 Claude Code 配置直接提供（或来自项目配置），Nova 只读；如需修改请直接操作对应配置文件。"
+      : null,
     hasSecrets: hasLiteralSecrets(parsed.env, parsed.headers),
     valid: problems.length === 0,
     problems,
     updatedAt: input.updatedAt,
   };
-}
-
-async function scanLibrary(): Promise<McpServerAsset[]> {
-  await mkdir(MCP_LIBRARY_DIR, { recursive: true });
-
-  let names: string[];
-  try {
-    names = await readdir(MCP_LIBRARY_DIR);
-  } catch {
-    return [];
-  }
-
-  const result: McpServerAsset[] = [];
-  for (const fileName of names) {
-    if (!fileName.toLowerCase().endsWith(".json") || fileName.startsWith(".")) {
-      continue;
-    }
-
-    const slug = fileName.replace(/\.json$/i, "");
-    const filePath = join(MCP_LIBRARY_DIR, fileName);
-    let info;
-    try {
-      info = await stat(filePath);
-      if (!info.isFile() || info.size > MAX_JSON_BYTES) continue;
-      const raw = JSON.parse(await readFile(filePath, "utf8")) as unknown;
-      // 兼容误用 { mcpServers: { name: cfg } } 导出的文件
-      const container =
-        raw && typeof raw === "object" && "mcpServers" in raw
-          ? (raw as { mcpServers?: unknown }).mcpServers
-          : null;
-      if (container && typeof container === "object" && !Array.isArray(container)) {
-        const entries = Object.entries(container as Record<string, unknown>);
-        if (entries.length === 1) {
-          result.push(
-            toAsset(parseServerObject(entries[0][1], entries[0][0]), {
-              id: `library:${slug}`,
-              slug,
-              path: filePath,
-              source: "library",
-              updatedAt: info.mtimeMs,
-            }),
-          );
-          continue;
-        }
-      }
-      result.push(
-        toAsset(parseServerObject(raw, slug), {
-          id: `library:${slug}`,
-          slug,
-          path: filePath,
-          source: "library",
-          updatedAt: info.mtimeMs,
-        }),
-      );
-    } catch (err) {
-      // 损坏的文件仍然展示出来，允许用户删除或修复
-      const problems = [
-        `JSON 解析失败：${err instanceof Error ? err.message : String(err)}`,
-      ];
-      result.push({
-        id: `library:${slug}`,
-        slug,
-        name: slug,
-        description: "",
-        transport: "stdio",
-        command: "",
-        args: [],
-        env: {},
-        url: "",
-        headers: {},
-        path: filePath,
-        source: "library",
-        readOnly: false,
-        readOnlyReason: null,
-        hasSecrets: false,
-        valid: false,
-        problems,
-        updatedAt: Date.now(),
-      });
-    }
-  }
-
-  return result;
 }
 
 /** 从一份 Claude 配置对象的 mcpServers 里生成资产 */
@@ -319,8 +222,8 @@ function serversFromConfig(
   input: {
     idPrefix: string;
     path: string;
-    source: McpSource;
     updatedAt: number;
+    managedByNova: (name: string) => boolean;
   },
 ): McpServerAsset[] {
   const servers =
@@ -336,7 +239,7 @@ function serversFromConfig(
       id: `${input.idPrefix}:${name}`,
       slug: name,
       path: input.path,
-      source: input.source,
+      managedByNova: input.managedByNova(name),
       updatedAt: input.updatedAt,
     }),
   );
@@ -344,9 +247,9 @@ function serversFromConfig(
 
 /**
  * 扫描 Claude 的 MCP 配置，共三类：
- * - 用户级：~/.claude.json 顶层 mcpServers
- * - 项目 local scope：~/.claude.json 的 projects[<dir>].mcpServers
- * - 项目级文件：<dir>/.mcp.json（Claude 在项目里用 /mcp 添加的服务通常落在这里）
+ * - 用户级：~/.claude.json 顶层 mcpServers（Nova 可写；仅 Nova 创建的条目可编辑）
+ * - 项目 local scope：~/.claude.json 的 projects[<dir>].mcpServers（只读）
+ * - 项目级文件：<dir>/.mcp.json（只读）
  *
  * projects 的目录列表同样来自 ~/.claude.json，避免全盘扫描。
  */
@@ -363,11 +266,12 @@ async function scanClaudeConfigs(): Promise<McpServerAsset[]> {
     return [];
   }
 
+  const managedKeys = new Set(db.listManagedAssetKeys("mcp"));
   const result = serversFromConfig(data, {
     idPrefix: "claude-global",
     path: CLAUDE_CONFIG_PATH,
-    source: "claude-global",
     updatedAt: info.mtimeMs,
+    managedByNova: (name) => managedKeys.has(name),
   });
 
   const projects =
@@ -386,8 +290,8 @@ async function scanClaudeConfigs(): Promise<McpServerAsset[]> {
       ...serversFromConfig(projectConfig, {
         idPrefix: `claude-global:local:${projectDir}`,
         path: CLAUDE_CONFIG_PATH,
-        source: "claude-global",
         updatedAt: info.mtimeMs,
+        managedByNova: () => false,
       }),
     );
 
@@ -403,8 +307,8 @@ async function scanClaudeConfigs(): Promise<McpServerAsset[]> {
         ...serversFromConfig(fileData, {
           idPrefix: `claude-global:file:${projectDir}`,
           path: filePath,
-          source: "claude-global",
           updatedAt: fileInfo.mtimeMs,
+          managedByNova: () => false,
         }),
       );
     } catch {
@@ -415,15 +319,10 @@ async function scanClaudeConfigs(): Promise<McpServerAsset[]> {
   return result;
 }
 
-/** 聚合扫描：主库在前，组内按名称排序 */
+/** 聚合扫描，按名称排序 */
 export async function listMcpServers(): Promise<McpServerAsset[]> {
-  const [library, claudeConfigs] = await Promise.all([
-    scanLibrary(),
-    scanClaudeConfigs(),
-  ]);
-  const byName = (a: McpServerAsset, b: McpServerAsset) =>
-    a.slug.localeCompare(b.slug);
-  return [...library.sort(byName), ...claudeConfigs.sort(byName)];
+  const all = await scanClaudeConfigs();
+  return all.sort((a, b) => a.slug.localeCompare(b.slug));
 }
 
 export async function getMcpServer(id: string): Promise<McpServerAsset | null> {
@@ -450,11 +349,27 @@ function draftToParsed(draft: McpServerDraft): ParsedServer {
   };
 }
 
+/** 把解析后的服务转换成 Claude mcpServers 的原生结构 */
+function toClaudeServer(parsed: ParsedServer): Record<string, unknown> {
+  if (parsed.transport === "stdio") {
+    return {
+      command: parsed.command,
+      args: parsed.args,
+      env: parsed.env,
+    };
+  }
+  return {
+    type: parsed.transport,
+    url: parsed.url,
+    headers: parsed.headers,
+  };
+}
+
 /**
  * 用已知的目录快照完成一次保存。
  *
- * 导入多个服务时复用同一份 `all`，避免每条都全量扫描；
- * 写入后直接用 payload 构造资产，不再回读整个目录。
+ * 导入多个服务时复用同一份 `all`，避免每条都全量扫描。
+ * 所有写入都落到 `~/.claude.json` 顶层 mcpServers，并记录 Nova 管理标记。
  */
 async function saveWithCatalog(
   id: string | null,
@@ -467,46 +382,35 @@ async function saveWithCatalog(
     return { ok: false, error: problems.join("；") };
   }
 
-  const duplicate = all.find(
-    (server) =>
-      server.source === "library" &&
-      server.id !== id &&
-      server.name.toLowerCase() === parsed.name.toLowerCase(),
-  );
-  if (duplicate) {
-    return { ok: false, error: `已存在同名 MCP 服务：${parsed.name}` };
-  }
+  const servers = readClaudeMcpServers();
+  let oldName: string | null = null;
 
-  let slug: string;
   if (id) {
     const existing = all.find((server) => server.id === id);
     if (!existing) return { ok: false, error: "MCP 服务不存在，可能已被删除" };
-    if (existing.readOnly) {
-      return { ok: false, error: existing.readOnlyReason ?? "该服务为只读来源" };
+    if (!existing.managedByNova) {
+      return {
+        ok: false,
+        error: existing.readOnlyReason ?? "该服务为只读来源，不能从 Nova 修改",
+      };
     }
-    slug = existing.slug;
-  } else {
-    const existingSlugs = new Set(
-      all.filter((server) => server.source === "library").map((server) => server.slug),
-    );
-    slug = uniqueSlug(toSlug(parsed.name), existingSlugs);
+    oldName = existing.slug;
+    if (
+      oldName !== parsed.name &&
+      Object.prototype.hasOwnProperty.call(servers, parsed.name)
+    ) {
+      return { ok: false, error: `已存在同名 MCP 服务：${parsed.name}` };
+    }
+  } else if (Object.prototype.hasOwnProperty.call(servers, parsed.name)) {
+    return { ok: false, error: `已存在同名 MCP 服务：${parsed.name}` };
   }
 
-  const filePath = join(MCP_LIBRARY_DIR, `${slug}.json`);
-  const payload = {
-    name: parsed.name,
-    description: parsed.description,
-    transport: parsed.transport,
-    command: parsed.command,
-    args: parsed.args,
-    env: parsed.env,
-    url: parsed.url,
-    headers: parsed.headers,
-  };
-
   try {
-    await mkdir(MCP_LIBRARY_DIR, { recursive: true });
-    await writeFile(filePath, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
+    if (oldName && oldName !== parsed.name) {
+      delete servers[oldName];
+    }
+    servers[parsed.name] = toClaudeServer(parsed);
+    writeClaudeMcpServers(servers);
   } catch (err) {
     return {
       ok: false,
@@ -514,16 +418,44 @@ async function saveWithCatalog(
     };
   }
 
+  db.markManagedAsset("mcp", parsed.name);
+  if (oldName && oldName !== parsed.name) {
+    db.unmarkManagedAsset("mcp", oldName);
+    // 重命名后同步更新员工引用，避免绑定失效
+    remapEmployeeMcpRefs(oldName, parsed.name);
+  }
+
   return {
     ok: true,
     asset: toAsset(parsed, {
-      id: `library:${slug}`,
-      slug,
-      path: filePath,
-      source: "library",
+      id: `claude-global:${parsed.name}`,
+      slug: parsed.name,
+      path: CLAUDE_CONFIG_PATH,
+      managedByNova: true,
       updatedAt: Date.now(),
     }),
   };
+}
+
+/** MCP 重命名后，把员工里对旧服务名的引用同步到新名字 */
+function remapEmployeeMcpRefs(oldName: string, newName: string): void {
+  for (const employee of db.listDigitalEmployees()) {
+    let changed = false;
+    const next = employee.mcpServers.map((ref) => {
+      const key = ref.assetId.includes(":")
+        ? ref.assetId.slice(ref.assetId.indexOf(":") + 1)
+        : ref.assetId || ref.name;
+      if (key !== oldName) return ref;
+      changed = true;
+      return { ...ref, assetId: `claude-global:${newName}`, name: newName };
+    });
+    if (!changed) continue;
+    db.updateEmployeeBindings(
+      employee.id,
+      JSON.stringify(next),
+      JSON.stringify(employee.skills),
+    );
+  }
 }
 
 export async function saveMcpServer(
@@ -535,8 +467,17 @@ export async function saveMcpServer(
 
 export async function deleteMcpServer(id: string): Promise<boolean> {
   const asset = await getMcpServer(id);
-  if (!asset || asset.readOnly || asset.source !== "library") return false;
-  await rm(asset.path, { force: true });
+  if (!asset || !asset.managedByNova) return false;
+
+  try {
+    const servers = readClaudeMcpServers();
+    delete servers[asset.slug];
+    writeClaudeMcpServers(servers);
+  } catch {
+    return false;
+  }
+
+  db.unmarkManagedAsset("mcp", asset.slug);
   return true;
 }
 
@@ -549,7 +490,9 @@ function collectImportEntries(raw: unknown): Array<[string, unknown]> {
   if (Array.isArray(raw)) {
     return raw.map((item, index) => {
       const value =
-        item && typeof item === "object" ? (item as Record<string, unknown>) : {};
+        item && typeof item === "object"
+          ? (item as Record<string, unknown>)
+          : {};
       return [toText(value.name) || `mcp-${index + 1}`, item];
     });
   }
@@ -557,7 +500,11 @@ function collectImportEntries(raw: unknown): Array<[string, unknown]> {
   if (!raw || typeof raw !== "object") return [];
 
   const value = raw as Record<string, unknown>;
-  if (value.mcpServers && typeof value.mcpServers === "object" && !Array.isArray(value.mcpServers)) {
+  if (
+    value.mcpServers &&
+    typeof value.mcpServers === "object" &&
+    !Array.isArray(value.mcpServers)
+  ) {
     return Object.entries(value.mcpServers as Record<string, unknown>);
   }
 
@@ -584,20 +531,24 @@ export async function importMcpServers(json: string): Promise<McpImportResult> {
   const imported: McpServerAsset[] = [];
   const errors: string[] = [];
 
-  // 一次扫描，后续逐条在内存快照上做重名 / slug 去重，避免 O(N²) 全量扫描
+  // 一次扫描，后续逐条在内存快照上做重名判断
   const all = await listMcpServers();
   for (const [name, config] of entries) {
     const parsed = parseServerObject(config, name);
-    const result = await saveWithCatalog(null, {
-      name: parsed.name,
-      description: parsed.description,
-      transport: parsed.transport,
-      command: parsed.command,
-      args: parsed.args.join("\n"),
-      env: formatKeyValue(parsed.env),
-      url: parsed.url,
-      headers: formatKeyValue(parsed.headers),
-    }, all);
+    const result = await saveWithCatalog(
+      null,
+      {
+        name: parsed.name,
+        description: parsed.description,
+        transport: parsed.transport,
+        command: parsed.command,
+        args: parsed.args.join("\n"),
+        env: formatKeyValue(parsed.env),
+        url: parsed.url,
+        headers: formatKeyValue(parsed.headers),
+      },
+      all,
+    );
     if (result.ok) {
       imported.push(result.asset);
       all.push(result.asset);
@@ -621,7 +572,9 @@ export async function importMcpServers(json: string): Promise<McpImportResult> {
   };
 }
 
-export async function importMcpFromPath(filePath: string): Promise<McpImportResult> {
+export async function importMcpFromPath(
+  filePath: string,
+): Promise<McpImportResult> {
   let content: string;
   try {
     const info = await stat(filePath);
@@ -638,4 +591,3 @@ export async function importMcpFromPath(filePath: string): Promise<McpImportResu
   }
   return importMcpServers(content);
 }
-

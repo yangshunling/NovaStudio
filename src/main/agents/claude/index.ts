@@ -23,13 +23,16 @@
  *   会话 id（uuid）直接可复用，历史回放靠读 CLI 侧 JSONL 文件（见 sessions.ts）
  */
 
+import { existsSync } from "fs";
+import { homedir } from "os";
+import { join } from "path";
 import type { AgentProvider, RunOptions, RunSession } from "../types";
 import type { SessionOptions } from "../../../shared/types";
 import { startLineRun } from "../line-run";
 import { probeVersion } from "../probe";
 import { manifest } from "./manifest";
 import { createDecoder, extractSessionId } from "./parse";
-import { listModels as listAvailableModels } from "./models";
+import { prepareClaudeWorkflowRun } from "./prepare";
 import {
   deleteSession as deleteSessionFile,
   fileVersion,
@@ -45,7 +48,6 @@ const BIN = "claude";
  * 普通聊天不会传，因此对既有行为零影响。
  */
 const OPTION_FLAGS: Record<string, string> = {
-  model: "--model",
   systemPrompt: "--append-system-prompt",
   mcpConfig: "--mcp-config",
 };
@@ -78,7 +80,19 @@ export const provider: AgentProvider = {
 
   detect: () => probeVersion(BIN),
 
-  listModels: listAvailableModels,
+  configInfo() {
+    const configPath =
+      process.env.CLAUDE_CONFIG_DIR || join(homedir(), ".claude");
+    return {
+      configPath,
+      configExists: existsSync(configPath),
+      configNote: "直接使用本机 Claude Code 配置（登录、MCP、Skill、插件等）",
+    };
+  },
+
+  prepareRun(input) {
+    return prepareClaudeWorkflowRun(input);
+  },
 
   start(opts: RunOptions): RunSession {
     const args = [
@@ -92,6 +106,7 @@ export const provider: AgentProvider = {
     ];
     if (opts.sessionRef) args.push("--resume", opts.sessionRef);
     args.push(...optionArgs(opts.opts));
+    if (opts.extraArgs?.length) args.push(...opts.extraArgs);
 
     return startLineRun(
       {

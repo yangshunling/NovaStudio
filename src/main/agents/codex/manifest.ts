@@ -21,13 +21,8 @@ export const manifest: AgentManifest = {
     skills: false,
     mcp: false,
   },
+  installCommand: "npm install -g @openai/codex",
   options: [
-    {
-      key: "model",
-      label: "模型",
-      hint: "对应 codex 的 -m/--model；留空则由 codex 自己决定",
-      type: "model",
-    },
     {
       key: "sandbox",
       label: "沙箱策略",

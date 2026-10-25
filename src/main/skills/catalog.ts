@@ -1,21 +1,21 @@
 /**
  * 技能资产目录
  *
- * 技能以磁盘目录为唯一事实来源（目录内必须有 SKILL.md），本模块只做：
- * - 聚合扫描：Nova 主库 + Claude 全局 + 共享技能库
- * - 导入：把外部技能复制进主库（快照，后续源目录变化不影响已入库版本）
- * - 文档读写：主库可编辑，其余来源只读
+ * Nova 不再维护自己的技能主库。技能以磁盘目录为唯一事实来源：
+ * - `~/.claude/skills`：Claude Code 全局技能目录，Nova 的新增/导入写到这里；
+ * - `~/.agents/skills`：其他工具维护的共享技能库，只读发现。
  *
- * 只读来源（~/.claude/skills、~/.agents/skills）由各自工具管理。
- * Nova 不往里写，避免与 Claude Code / 第三方安装器的状态互相覆盖。
- * 运行时物化（复制给某个 Agent）在 agents/claude/skills.ts，不放在资产层。
+ * `managed_assets` 表记录哪些目录是 Nova 创建的：Claude 原有的技能只读，
+ * Nova 创建的技能可编辑/删除。
+ *
+ * 运行时投影（按员工选择复制子集）在 agents/claude/prepare.ts，不放在资产层。
  */
 
 import { existsSync } from "fs";
 import { cp, mkdir, readFile, readdir, rename, rm, stat, writeFile } from "fs/promises";
 import { homedir } from "os";
 import { basename, dirname, extname, join } from "path";
-import { DATA_DIR } from "../utils/paths";
+import * as db from "../db/sqlite";
 import { copyFilter } from "../utils/fs";
 import type {
   SkillAsset,
@@ -26,10 +26,7 @@ import type {
   SkillWriteResult,
 } from "../../shared/types";
 
-/** Nova 主库：唯一可写目录 */
-export const SKILL_LIBRARY_DIR = join(DATA_DIR, "skills");
-
-/** Claude Code 全局技能目录（遵循 CLAUDE_CONFIG_DIR 覆盖） */
+/** Claude Code 全局技能目录：Nova 新增/导入的目标 */
 function claudeSkillsDir(): string {
   const configDir = process.env.CLAUDE_CONFIG_DIR || join(homedir(), ".claude");
   return join(configDir, "skills");
@@ -39,23 +36,6 @@ function claudeSkillsDir(): string {
 function agentsSkillsDir(): string {
   return join(homedir(), ".agents", "skills");
 }
-
-const ORIGIN_META: Record<
-  SkillOrigin,
-  { readOnly: boolean; reason: string | null }
-> = {
-  library: { readOnly: false, reason: null },
-  "claude-global": {
-    readOnly: true,
-    reason:
-      "该技能位于 ~/.claude/skills，由 Claude Code 管理。Nova 只能引用，不能删除或编辑；如需修改，请直接操作原目录。",
-  },
-  "agents-store": {
-    readOnly: true,
-    reason:
-      "该技能位于 ~/.agents/skills（共享技能库），由 Codex / Cursor 等工具的安装器维护。Nova 只能引用，不能删除或编辑；如需修改，请使用对应工具或直接操作原目录。",
-  },
-};
 
 /** SKILL.md 读取上限，防止异常文件把渲染层拖垮 */
 const DOCUMENT_LIMIT = 1_000_000;
@@ -211,7 +191,11 @@ async function scanContents(
 }
 
 /** 扫描单个根目录下的技能 */
-async function scanRoot(root: string, origin: SkillOrigin): Promise<SkillAsset[]> {
+async function scanRoot(
+  root: string,
+  origin: SkillOrigin,
+  managedByNova: (slug: string) => boolean,
+): Promise<SkillAsset[]> {
   let names: string[];
   try {
     names = await readdir(root);
@@ -237,15 +221,14 @@ async function scanRoot(root: string, origin: SkillOrigin): Promise<SkillAsset[]
     const skillFile = join(dir, "SKILL.md");
     const hasSkillFile = existsSync(skillFile);
 
-    // 只读来源里没有 SKILL.md 的目录不是技能，直接忽略；
-    // 主库保留下来，让用户能看见并修复 / 删除导入失败的条目。
-    if (!hasSkillFile && origin !== "library") continue;
+    // 没有 SKILL.md 的目录不是可加载技能，直接忽略
+    if (!hasSkillFile) continue;
 
     const problems: string[] = [];
     let declaredName = "";
     let description = "";
     let updatedAt = info.mtimeMs;
-    let valid = hasSkillFile;
+    let valid: boolean = hasSkillFile;
 
     if (!hasSkillFile) {
       problems.push("缺少 SKILL.md，Agent 无法加载");
@@ -279,7 +262,13 @@ async function scanRoot(root: string, origin: SkillOrigin): Promise<SkillAsset[]
     }
 
     const contents = await scanContents(dir);
-    const meta = ORIGIN_META[origin];
+    const managed = managedByNova(name);
+    const readOnly = !managed;
+    const readOnlyReason = readOnly
+      ? origin === "claude-global"
+        ? "该技能位于 ~/.claude/skills，由 Claude Code 或其他工具创建。Nova 只读；如需修改请直接操作原目录。"
+        : "该技能来自外部共享技能库，Nova 只读；如需修改请使用对应工具或直接操作原目录。"
+      : null;
 
     result.push({
       id: `${origin}:${name}`,
@@ -288,8 +277,9 @@ async function scanRoot(root: string, origin: SkillOrigin): Promise<SkillAsset[]
       description,
       origin,
       path: dir,
-      readOnly: meta.readOnly,
-      readOnlyReason: meta.reason,
+      managedByNova: managed,
+      readOnly,
+      readOnlyReason,
       valid,
       problems,
       fileCount: contents.fileCount,
@@ -301,22 +291,17 @@ async function scanRoot(root: string, origin: SkillOrigin): Promise<SkillAsset[]
   return result;
 }
 
-/** 聚合扫描全部来源；主库在前，组内按名称排序 */
+/** 聚合扫描全部来源，组内按名称排序 */
 export async function listSkills(): Promise<SkillAsset[]> {
-  await mkdir(SKILL_LIBRARY_DIR, { recursive: true });
+  const managed = new Set(db.listManagedAssetKeys("skill"));
 
-  const [library, claudeGlobal, agentsStore] = await Promise.all([
-    scanRoot(SKILL_LIBRARY_DIR, "library"),
-    scanRoot(claudeSkillsDir(), "claude-global"),
-    scanRoot(agentsSkillsDir(), "agents-store"),
+  const [claudeGlobal, agentsStore] = await Promise.all([
+    scanRoot(claudeSkillsDir(), "claude-global", (slug) => managed.has(slug)),
+    scanRoot(agentsSkillsDir(), "agents-store", () => false),
   ]);
 
   const byName = (a: SkillAsset, b: SkillAsset) => a.slug.localeCompare(b.slug);
-  return [
-    ...library.sort(byName),
-    ...claudeGlobal.sort(byName),
-    ...agentsStore.sort(byName),
-  ];
+  return [...claudeGlobal.sort(byName), ...agentsStore.sort(byName)];
 }
 
 /** 按 id 取单个资产；供 IPC 层打开目录等操作复用 */
@@ -341,7 +326,7 @@ function toSlug(raw: string): string {
 function uniqueSlug(base: string): string {
   let slug = base;
   let index = 2;
-  while (existsSync(join(SKILL_LIBRARY_DIR, slug))) {
+  while (existsSync(join(claudeSkillsDir(), slug))) {
     slug = `${base}-${index}`;
     index += 1;
   }
@@ -405,7 +390,7 @@ async function importDirectory(source: string): Promise<string> {
   const raw = await readFile(skillFile, "utf8");
   const { name } = parseFrontmatter(raw);
   const slug = uniqueSlug(toSlug(name || basename(source)));
-  const target = join(SKILL_LIBRARY_DIR, slug);
+  const target = join(claudeSkillsDir(), slug);
 
   await mkdir(target, { recursive: true });
   await cp(source, target, { recursive: true, filter: copyFilter });
@@ -415,6 +400,7 @@ async function importDirectory(source: string): Promise<string> {
   if (copiedName !== "SKILL.md") {
     await rename(join(target, copiedName), join(target, "SKILL.md"));
   }
+  db.markManagedAsset("skill", slug);
   return target;
 }
 
@@ -425,10 +411,11 @@ async function importFile(source: string): Promise<string> {
   const fileBase = basename(source, extname(source));
   const fallback = fileBase.toLowerCase() === "skill" ? basename(dirname(source)) : fileBase;
   const slug = uniqueSlug(toSlug(name || fallback));
-  const target = join(SKILL_LIBRARY_DIR, slug);
+  const target = join(claudeSkillsDir(), slug);
 
   await mkdir(target, { recursive: true });
   await writeFile(join(target, "SKILL.md"), raw, "utf8");
+  db.markManagedAsset("skill", slug);
   return target;
 }
 
@@ -446,7 +433,7 @@ export async function importSkillsFromPath(
   const importedPaths: string[] = [];
 
   try {
-    await mkdir(SKILL_LIBRARY_DIR, { recursive: true });
+    await mkdir(claudeSkillsDir(), { recursive: true });
 
     if (kind === "file") {
       if (extname(selected).toLowerCase() !== ".md") {
@@ -486,9 +473,10 @@ export async function importSkillsFromPath(
 
 export async function deleteSkill(id: string): Promise<boolean> {
   const asset = await getSkillAsset(id);
-  if (!asset || asset.readOnly) return false;
+  if (!asset || !asset.managedByNova) return false;
 
   await rm(asset.path, { recursive: true, force: true });
+  db.unmarkManagedAsset("skill", asset.slug);
   return true;
 }
 
@@ -520,8 +508,11 @@ export async function saveSkillDocument(
 ): Promise<SkillWriteResult> {
   const asset = await getSkillAsset(id);
   if (!asset) return { ok: false, error: "技能不存在，可能已被删除" };
-  if (asset.readOnly) {
-    return { ok: false, error: asset.readOnlyReason ?? "该技能为只读来源" };
+  if (!asset.managedByNova) {
+    return {
+      ok: false,
+      error: asset.readOnlyReason ?? "该技能不是 Nova 创建的，不能从 Nova 编辑",
+    };
   }
   if (Buffer.byteLength(content, "utf8") > DOCUMENT_LIMIT) {
     return { ok: false, error: "SKILL.md 超过 1MB，请精简后再保存" };

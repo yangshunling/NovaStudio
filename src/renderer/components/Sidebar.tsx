@@ -144,7 +144,7 @@ export function Sidebar() {
           className={itemClass(viewMode === "agents")}
         >
           <Bot className="h-4 w-4 shrink-0" />
-          Agent 配置
+          Agent 平台
         </button>
       </div>
 

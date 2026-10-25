@@ -23,12 +23,6 @@ export const manifest: AgentManifest = {
   },
   options: [
     {
-      key: "model",
-      label: "模型",
-      hint: "对应 pi 的 --model；留空则由 pi 自己决定",
-      type: "model",
-    },
-    {
       key: "thinking",
       label: "思考档位",
       hint: "对应 pi 的 --thinking；留空则由 pi 自己决定",

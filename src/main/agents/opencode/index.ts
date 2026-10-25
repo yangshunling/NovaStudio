@@ -25,14 +25,12 @@ import { startLineRun } from "../line-run";
 import { probeVersion } from "../probe";
 import { manifest } from "./manifest";
 import { createDecoder, extractSessionId } from "./parse";
-import { listModels as listAvailableModels } from "./models";
 import { deleteSession as deleteSessionRemote, readHistory as readHistoryRemote } from "./sessions";
 
 const BIN = "opencode";
 
 /** 运行参数 key → 命令行开关。与 manifest.options 的 key 一一对应 */
 const OPTION_FLAGS: Record<string, string> = {
-  model: "-m",
   thinking: "--variant",
 };
 
@@ -52,7 +50,13 @@ export const provider: AgentProvider = {
 
   detect: () => probeVersion(BIN),
 
-  listModels: listAvailableModels,
+  configInfo() {
+    return {
+      configPath: null,
+      configExists: false,
+      configNote: "由 OpenCode 自行管理本机配置与登录",
+    };
+  },
 
   start(opts: RunOptions): RunSession {
     // --auto：自动批准未被显式 deny 的权限请求（CLI 里能达到的最高权限；
@@ -60,6 +64,7 @@ export const provider: AgentProvider = {
     const args = [BIN, "run", opts.prompt, "--format", "json", "--thinking", "--auto"];
     if (opts.sessionRef) args.push("--session", opts.sessionRef);
     args.push(...optionArgs(opts.opts));
+    if (opts.extraArgs?.length) args.push(...opts.extraArgs);
 
     return startLineRun(
       {

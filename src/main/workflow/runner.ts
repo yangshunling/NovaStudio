@@ -11,13 +11,9 @@
 
 import { randomUUID } from "crypto";
 import { existsSync } from "fs";
-import { join } from "path";
+import { rm, rmdir } from "fs/promises";
+import { dirname, join } from "path";
 import { getProvider } from "../agents/registry";
-import {
-  getClaudeConnection,
-  validateClaudeReadiness,
-  type ClaudeConnection,
-} from "../agents/claude/connection";
 import type { AgentService } from "../engine/agent-service";
 import * as db from "../db/sqlite";
 import type {
@@ -36,12 +32,9 @@ import {
   createRunArtifactDir,
   ensureArtifactsRoot,
   ensureDir,
-  prepareClaudeEnvironment,
-  removeClaudeRuntime,
   truncate,
   writeJson,
   writeText,
-  type ClaudeEnvironment,
 } from "./artifacts";
 import { GraphValidationError, validateGraph } from "./graph";
 import { resolveEmployeeKnowledge } from "../knowledge/runtime";
@@ -235,10 +228,9 @@ export function createWorkflowRunner(deps: WorkflowRunnerDeps): WorkflowRunner {
   }
 
   /**
-   * 启动前置校验：本工作流用到的每个 Agent 都必须可用。
+   * 启动前置校验：本工作流用到的每个 Agent 都必须已安装。
    *
-   * Claude 额外要求 Nova 自管的连接配置可用（API Key，或官方端点下的
-   * OAuth 凭证副本）。这样「完全不继承本机配置」才不会把节点跑成未登录状态。
+   * Nova 不再校验自己的连接配置——各 CLI 直接使用本机配置与登录。
    */
   async function assertAgentsReady(
     order: WorkflowNode[],
@@ -258,16 +250,9 @@ export function createWorkflowRunner(deps: WorkflowRunnerDeps): WorkflowRunner {
       const status = await provider.detect().catch(() => ({ installed: false }));
       if (!status.installed) {
         throw new Error(
-          agentId === "claude"
-            ? "Agent「Claude Code」未安装或不可用。请先安装，并在「运行环境 → Agent 配置」中完成连接配置。"
-            : `Agent「${provider.manifest.displayName}」未安装或不可用。请先完成安装。`,
+          `Agent「${provider.manifest.displayName}」未安装或不可用。请先完成安装。`,
         );
       }
-    }
-
-    if (agentIds.has("claude")) {
-      const readiness = validateClaudeReadiness();
-      if (!readiness.ok) throw new Error(readiness.message);
     }
   }
 
@@ -482,43 +467,35 @@ export function createWorkflowRunner(deps: WorkflowRunnerDeps): WorkflowRunner {
     );
     await ensureDir(attemptDir);
 
-    const runtimeWarnings: string[] = [];
-    let claudeEnv: ClaudeEnvironment | null = null;
-    let claudeConnection: ClaudeConnection | null = null;
-    // 员工未指定模型时，回落到「运行环境 → Agent 配置」里的默认模型
-    let model = employee.model;
-    if (employee.agentId === "claude") {
-      // 连接配置来自 Nova 自管存储，不读取本机 ~/.claude/settings.json
-      claudeConnection = getClaudeConnection();
-      model = employee.model || claudeConnection.defaultModel;
-      claudeEnv = await prepareClaudeEnvironment({
-        userDataDir: deps.userDataDir,
-        runId: active.id,
-        nodeId: node.id,
-        attempt,
-        workspacePath: active.workspacePath,
-        employee,
-        connection: claudeConnection,
-        model,
-      });
-      runtimeWarnings.push(...claudeEnv.warnings);
-    } else {
-      // 具体物化适配器目前只有 Claude；是否给出「不支持」告警由能力声明决定，
-      // 避免 UI 与运行时各自硬编码 agent id。
-      const capabilities = getProvider(employee.agentId)?.manifest.capabilities;
-      const enabledSkills = employee.skills.filter((skill) => skill.enabled);
-      if (enabledSkills.length > 0 && !capabilities?.skills) {
-        runtimeWarnings.push(
-          `当前 Agent（${employee.agentId}）暂未实现技能注入，本次已忽略 ${enabledSkills.length} 个技能。`,
-        );
-      }
-      const enabledMcp = employee.mcpServers.filter((server) => server.enabled);
-      if (enabledMcp.length > 0 && !capabilities?.mcp) {
-        runtimeWarnings.push(
-          `当前 Agent（${employee.agentId}）暂未实现 MCP 注入，本次已忽略 ${enabledMcp.length} 个 MCP 服务。`,
-        );
-      }
+    const provider = getProvider(employee.agentId);
+    if (!provider) {
+      throw new Error(`Agent「${employee.agentId}」不存在或未注册`);
     }
+
+    // 运行时投影目录：放在 userData 下，节点结束后删除；不写入工作区产物
+    const runtimeDir = join(
+      deps.userDataDir,
+      "workflow-runs",
+      active.id,
+      `${node.id}-attempt-${attempt}`,
+    );
+    await ensureDir(runtimeDir);
+
+    const runtimeWarnings: string[] = [];
+    const capabilities = provider.manifest.capabilities;
+    const enabledSkills = employee.skills.filter((skill) => skill.enabled);
+    const enabledMcp = employee.mcpServers.filter((server) => server.enabled);
+    if (enabledSkills.length > 0 && !capabilities.skills) {
+      runtimeWarnings.push(
+        `当前 Agent（${employee.agentId}）不支持技能注入，本次已忽略 ${enabledSkills.length} 个技能。`,
+      );
+    }
+    if (enabledMcp.length > 0 && !capabilities.mcp) {
+      runtimeWarnings.push(
+        `当前 Agent（${employee.agentId}）不支持 MCP 注入，本次已忽略 ${enabledMcp.length} 个 MCP 服务。`,
+      );
+    }
+
     // 知识库属于员工能力的一部分：解析成目录清单后写进系统提示词
     const knowledge = await resolveEmployeeKnowledge(employee.knowledgeBases);
     runtimeWarnings.push(...knowledge.warnings);
@@ -526,13 +503,6 @@ export function createWorkflowRunner(deps: WorkflowRunnerDeps): WorkflowRunner {
       await writeJson(join(attemptDir, "knowledge.json"), {
         bases: knowledge.bases,
       });
-    }
-
-    if (runtimeWarnings.length > 0) {
-      await writeText(
-        join(attemptDir, "warnings.txt"),
-        runtimeWarnings.join("\n"),
-      );
     }
 
     const prompt = buildPrompt(active, node, employee, attempt);
@@ -546,7 +516,7 @@ export function createWorkflowRunner(deps: WorkflowRunnerDeps): WorkflowRunner {
       active.workspaceId,
       active.workspacePath,
       `工作流「${active.workflow.name}」· ${node.name} · 第 ${attempt} 次`,
-      claudeEnv?.configDir ?? null,
+      null,
       "workflow",
     );
     db.updateWorkflowNodeRun(nodeRun.id, {
@@ -564,71 +534,69 @@ export function createWorkflowRunner(deps: WorkflowRunnerDeps): WorkflowRunner {
     });
     active.currentSessionId = session.id;
 
-    const texts: string[] = [];
-    const deltas: string[] = [];
-    const opts: SessionOptions = {};
-    if (model) opts.model = model;
     const systemPrompt = buildSystemPrompt(employee, knowledge.promptSection);
+    const opts: SessionOptions = {};
     if (systemPrompt) opts.systemPrompt = systemPrompt;
-    if (employee.agentId === "claude" && claudeEnv?.mcpConfigPath) {
-      opts.mcpConfig = claudeEnv.mcpConfigPath;
-      opts.strictMcpConfig = "1";
-    }
-
-    // 把「到底提交了什么」落成文件，运行详情里可以直接查看/审计
-    await writeText(
-      join(attemptDir, "system-prompt.md"),
-      systemPrompt || "（未设置系统提示词）",
-    );
-    await writeText(
-      join(attemptDir, "agent-options.json"),
-      JSON.stringify(
-        {
-          agentId: employee.agentId,
-          model: model || null,
-          mcpConfig: claudeEnv?.mcpConfigPath ? "mcp.json" : null,
-          strictMcpConfig: opts.strictMcpConfig === "1",
-          isolatedConfigDir: !!claudeEnv?.configDir,
-          // 审计「这次到底继承了什么」。连接配置来自 Nova，密钥本身永远不落盘。
-          connection: claudeConnection
-            ? {
-                source: "nova-settings-file",
-                settingsFile: claudeEnv?.settingsSource ?? null,
-                baseUrl: claudeConnection.baseUrl || "（官方默认）",
-                authMode: claudeEnv?.authMode ?? "none",
-                oauthCopied: claudeEnv?.oauthCopied ?? false,
-                keyStorage: claudeConnection.keyStorage,
-                defaultModel: claudeConnection.defaultModel || null,
-                // 本次写进节点 settings.json 副本的模型
-                settingsModel: model || null,
-                cachedModels: claudeConnection.models.length,
-                // 只记录键名（不含值）：现在接入值都来自复制的 settings.json，
-                // 进程环境只额外设置 CLAUDE_CONFIG_DIR。
-                envKeys: Object.keys(claudeEnv?.env ?? {}).sort(),
-                removedEnvKeys: claudeEnv?.envRemove ?? [],
-              }
-            : null,
-          mcpServers: claudeEnv?.mcpServers ?? [],
-          skills: claudeEnv?.skills ?? [],
-          knowledgeBases: knowledge.bases.map((base) => ({
-            id: base.id,
-            name: base.name,
-            fileCount: base.fileCount,
-          })),
-        },
-        null,
-        2,
-      ),
-    );
 
     try {
+      // 由 provider 决定是否需要运行时投影（Claude 按员工 MCP/Skill 子集生成临时配置）
+      const prepared =
+        (await provider.prepareRun?.({
+          mode: "workflow",
+          sessionId: session.id,
+          cwd: active.workspacePath,
+          runtimeDir,
+          employee,
+          opts,
+        })) ?? {};
+
+      if (prepared.configDir) {
+        db.updateSessionConfigDir(session.id, prepared.configDir);
+      }
+      runtimeWarnings.push(...(prepared.warnings ?? []));
+
+      if (runtimeWarnings.length > 0) {
+        await writeText(
+          join(attemptDir, "warnings.txt"),
+          runtimeWarnings.join("\n"),
+        );
+      }
+
+      // 把「到底提交了什么」落成文件，运行详情里可以直接查看/审计
+      await writeText(
+        join(attemptDir, "system-prompt.md"),
+        systemPrompt || "（未设置系统提示词）",
+      );
+      await writeText(
+        join(attemptDir, "agent-options.json"),
+        JSON.stringify(
+          {
+            agentId: employee.agentId,
+            // Nova 不再选择模型；使用各 CLI 本机配置里的默认模型
+            model: "由 Agent 本机配置决定",
+            configDir: prepared.configDir ? "projected" : null,
+            config: prepared.audit ?? null,
+            knowledgeBases: knowledge.bases.map((base) => ({
+              id: base.id,
+              name: base.name,
+              fileCount: base.fileCount,
+            })),
+          },
+          null,
+          2,
+        ),
+      );
+
+      const texts: string[] = [];
+      const deltas: string[] = [];
       const result = await deps.service.run({
         sessionId: session.id,
         prompt,
         cwd: active.workspacePath,
         opts,
-        env: claudeEnv?.env,
-        envRemove: claudeEnv?.envRemove,
+        env: prepared.env,
+        envRemove: prepared.envRemove,
+        extraArgs: prepared.extraArgs,
         onEvent: (event) => {
           if (event.type === "text") texts.push(event.content);
           else if (event.type === "text_delta") deltas.push(event.delta);
@@ -685,7 +653,21 @@ export function createWorkflowRunner(deps: WorkflowRunnerDeps): WorkflowRunner {
       };
     } finally {
       active.currentSessionId = null;
-      await removeClaudeRuntime(claudeEnv?.runtimeDir ?? null);
+      try {
+        await rm(runtimeDir, {
+          recursive: true,
+          force: true,
+          maxRetries: 4,
+          retryDelay: 120,
+        });
+      } catch {
+        // 清理失败不影响节点结果
+      }
+      try {
+        await rmdir(dirname(runtimeDir));
+      } catch {
+        // run 目录下还有其它节点时保留
+      }
     }
   }
 

@@ -24,7 +24,6 @@ import {
 } from "lucide-react";
 import { ipc } from "../../lib/ipc";
 import { Field, FORM_INPUT_CLASS as INPUT_CLASS } from "../ui/Field";
-import { ModelSelect } from "../ui/ModelSelect";
 import { Select } from "../ui/Select";
 import { EmployeeAvatar } from "./EmployeeAvatar";
 import { KnowledgeTab } from "./knowledge/KnowledgeTab";
@@ -59,7 +58,6 @@ function emptyDraft(agents: AgentInfo[]): DigitalEmployeeDraft {
     description: "",
     avatar: null,
     agentId: firstAgent?.id ?? "",
-    model: "",
     systemPrompt: "",
     mcpServers: [],
     skills: [],
@@ -76,7 +74,6 @@ function toDraft(employee: DigitalEmployee): DigitalEmployeeDraft {
     description: employee.description,
     avatar: employee.avatar,
     agentId: employee.agentId,
-    model: employee.model,
     systemPrompt: employee.systemPrompt,
     mcpServers: employee.mcpServers,
     skills: employee.skills,
@@ -177,6 +174,16 @@ export function EmployeeDrawer({
   const supportsSkills = activeAgent?.capabilities.skills ?? false;
   const supportsMcp = activeAgent?.capabilities.mcp ?? false;
 
+  // 切换 Agent 后，隐藏该 Agent 不支持的标签页
+  useEffect(() => {
+    if (tab === "mcp" && !supportsMcp) setTab("profile");
+    else if (tab === "skills" && !supportsSkills) setTab("profile");
+  }, [supportsMcp, supportsSkills, tab, setTab]);
+
+  const visibleTabs = TABS.filter(({ id }) =>
+    id === "mcp" ? supportsMcp : id === "skills" ? supportsSkills : true,
+  );
+
   return (
     <div
       className="fixed inset-0 z-50 flex justify-end"
@@ -222,7 +229,7 @@ export function EmployeeDrawer({
 
         {/* 标签栏 */}
         <div className="ui-scroll-hidden flex shrink-0 items-center gap-0.5 overflow-x-auto border-b border-border px-2">
-          {TABS.map(({ id, label, icon: Icon }) => {
+          {visibleTabs.map(({ id, label, icon: Icon }) => {
             const active = tab === id;
             const count =
               id === "mcp"
@@ -442,7 +449,7 @@ function ProfileTab({
             value={draft.agentId}
             onChange={(agentId) =>
               // 换 Agent 后旧模型名很可能不再有效，一并清空
-              update({ agentId, model: "" })
+              update({ agentId })
             }
             className={INPUT_CLASS}
             placeholder={draft.agentId || "未检测到 Agent"}
@@ -465,16 +472,9 @@ function ProfileTab({
             }
           />
         </Field>
-        <Field
-          label="模型"
-          hint="列表会自动从所选 Agent 获取；留空则由 Agent 自己决定。"
-        >
-          <ModelSelect
-            agentId={draft.agentId}
-            value={draft.model}
-            onChange={(model) => update({ model })}
-          />
-        </Field>
+        <div className="rounded-lg border border-border bg-surface-2/40 px-3 py-2.5 text-caption leading-relaxed text-text-muted">
+          模型由所选 Agent 的本机配置决定，Nova 不再单独选择模型。
+        </div>
       </div>
 
       <div className="flex items-center justify-between gap-3 rounded-lg border border-border bg-surface-2/40 px-3 py-2.5">

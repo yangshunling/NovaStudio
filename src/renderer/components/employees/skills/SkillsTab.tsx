@@ -46,7 +46,8 @@ export function SkillsTab({
       .listSkills()
       .then((list) => {
         if (cancelled) return;
-        setCatalog(list);
+        // 员工只绑定 Claude 全局技能；共享技能库只做只读发现
+        setCatalog(list.filter((asset) => asset.origin === "claude-global"));
         setLoadError(null);
       })
       .catch((err) => {

@@ -15,6 +15,7 @@ import { initIpcHandlers, stopAutomation, stopWorkflows } from "./ipc";
 import { initDatabase, closeDatabase } from "./db/sqlite";
 import { stopTerminals } from "./terminal/manager";
 import { purgeStaleWorkflowRuntimes } from "./workflow/artifacts";
+import { migrateLegacyAssets } from "./migration/legacy-assets";
 
 let mainWindow: BrowserWindow | null = null;
 
@@ -84,16 +85,19 @@ function createWindow(): BrowserWindow {
   return win;
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   // 初始化数据库
   initDatabase();
+
+  // 旧版 Nova MCP / Skill 主库 → Claude 配置（幂等，失败不影响启动）
+  await migrateLegacyAssets();
 
   // IPC 层持有窗口引用（initIpcHandlers 内部会 setMainWindow），
   // 因此必须先把窗口创建出来再注册，顺序不能反。
   const win = createWindow();
   initIpcHandlers(win);
 
-  // 清理异常退出遗留的节点配置目录（含凭证副本）；不阻塞窗口加载
+  // 清理异常退出遗留的运行时投影目录；不阻塞窗口加载
   void purgeStaleWorkflowRuntimes(app.getPath("userData"));
 
   app.on("activate", () => {

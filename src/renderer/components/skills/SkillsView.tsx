@@ -2,7 +2,7 @@
  * 技能资产页
  *
  * 聚合展示三类来源：
- * - Nova 技能库（~/.novastudio/skills）：可导入、编辑、删除
+ * - Claude 全局技能（~/.claude/skills）：Nova 可导入、编辑、删除自己创建的技能
  * - Claude 全局（~/.claude/skills）：只读发现，可被员工引用
  * - 共享技能库（~/.agents/skills）：只读发现，可被员工引用
  *
@@ -57,7 +57,6 @@ import type {
 
 const FILTERS: ReadonlyArray<{ id: "all" | SkillOrigin; label: string }> = [
   { id: "all", label: "全部" },
-  { id: "library", label: "Nova 技能库" },
   { id: "claude-global", label: "Claude 全局" },
   { id: "agents-store", label: "共享技能库" },
 ];
@@ -134,7 +133,9 @@ export function SkillsView() {
       }
       // 用户取消时导入结果为空，不打扰
       if (result.imported.length === 0) return;
-      toast.success(`已导入 ${result.imported.length} 个技能到 Nova 技能库`);
+      toast.success(
+        `已导入 ${result.imported.length} 个技能到 ~/.claude/skills`,
+      );
       await load();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : String(err));
@@ -447,7 +448,7 @@ function SkillDrawer({
       usedBy.length > 0
         ? `\n\n有 ${usedBy.length} 位数字员工正在使用它，删除后这些员工会失去该技能。`
         : "";
-    if (!window.confirm(`从 Nova 技能库删除「${skill.name}」？${suffix}`)) return;
+    if (!window.confirm(`从 Claude 技能目录删除「${skill.name}」？${suffix}`)) return;
 
     try {
       const ok = await ipc.deleteSkill(skill.id);
@@ -680,8 +681,9 @@ function EmptySkills({
         管理你的技能资产
       </h2>
       <p className="text-body-lg leading-relaxed">
-        把包含 SKILL.md 的技能文件夹导入 Nova 主库，然后在数字员工中勾选绑定。
-        Claude 全局与共享技能库会自动扫描，无需重复导入。
+        把包含 SKILL.md 的技能文件夹导入 Claude 全局技能目录
+        （~/.claude/skills），然后在数字员工中勾选绑定。共享技能库会自动扫描，
+        无需重复导入。
       </p>
       <button
         type="button"

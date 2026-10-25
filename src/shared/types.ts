@@ -249,16 +249,16 @@ export interface AutomationTask {
  * 兼容历史数据：运行时仍可直接用 command/args/env 注入，UI 会提示迁移。
  */
 export interface EmployeeMcpServer {
-  /** 引用的 MCP 资产 id；旧版内联配置为空字符串 */
+  /** Claude MCP 的引用键：通常为 mcpServers 里的服务名 */
   assetId: string;
-  /** 展示名快照 / 旧版名称 */
+  /** 展示名 / 服务名 */
   name: string;
   enabled: boolean;
-  /** 旧版内联字段；assetId 为空时使用 */
+  /** 旧版内联字段，仅用于迁移兼容；新数据不再写入 */
   command?: string;
-  /** 旧版参数文本（原样保存，由运行时拆分） */
+  /** 旧版参数文本，仅用于迁移兼容 */
   args?: string;
-  /** 旧版环境变量，每行 KEY=VALUE */
+  /** 旧版环境变量，仅用于迁移兼容 */
   env?: string;
 }
 
@@ -272,13 +272,12 @@ export type McpTransport = "stdio" | "http" | "sse";
 /**
  * MCP 来源。
  *
- * - library         Nova MCP 库（~/.novastudio/mcp/*.json）：可编辑
- * - claude-global   Claude 配置（用户级 ~/.claude.json 与项目级 .mcp.json）：只读发现
+ * - claude-global   Claude Code 配置（用户级 ~/.claude.json 与项目级 .mcp.json）
  *
- * 与 Skill 的分类方式保持一致：只区分「Nova 库」与「Claude 全局」，
- * 项目级配置不再单列来源，具体路径在详情里展示。
+ * Nova 不再维护自己的 MCP 库；新增/修改直接写入 Claude 配置。
+ * `managedByNova` 标记哪些条目是 Nova 创建的，用于决定是否允许编辑/删除。
  */
-export type McpSource = "library" | "claude-global";
+export type McpSource = "claude-global";
 
 /**
  * 一个 MCP 服务定义。
@@ -304,9 +303,11 @@ export interface McpServerAsset {
   url: string;
   /** http / sse 请求头 */
   headers: Record<string, string>;
-  /** 定义文件路径（发现型为 ~/.claude.json） */
+  /** 定义文件路径（通常为 ~/.claude.json） */
   path: string;
   source: McpSource;
+  /** 是否由 Nova 创建。Claude 原有的条目只读，Nova 创建的条目可编辑/删除 */
+  managedByNova: boolean;
   readOnly: boolean;
   readOnlyReason: string | null;
   /** env / headers 中是否包含字面量密钥（非 ${...} 占位符） */
@@ -432,15 +433,14 @@ export interface KnowledgeDocumentContent {
 // ============================================================================
 
 /**
- * 技能来源。
+ * Skill 来源。
  *
- * - library         Nova 主库（~/.novastudio/skills/）：可上传、编辑、删除
- * - claude-global   Claude Code 全局目录（~/.claude/skills/）：只读发现
- * - agents-store    共享技能库（~/.agents/skills/）：只读发现
+ * - claude-global   Claude Code 全局技能目录 ~/.claude/skills（Nova 可写）
+ * - agents-store    ~/.agents/skills（其他工具维护，只读）
  *
- * 只读来源由各自工具管理，Nova 只做索引与引用，避免两边同时写导致状态漂移。
+ * Nova 不再维护自己的技能主库。
  */
-export type SkillOrigin = "library" | "claude-global" | "agents-store";
+export type SkillOrigin = "claude-global" | "agents-store";
 
 /**
  * 一个技能资产 = 磁盘上的一个技能目录（含 SKILL.md）。
@@ -459,7 +459,9 @@ export interface SkillAsset {
   origin: SkillOrigin;
   /** 技能目录的绝对路径 */
   path: string;
-  /** 是否只读（非 Nova 主库的来源） */
+  /** 是否由 Nova 创建。Claude 原有的技能只读，Nova 创建的技能可编辑/删除 */
+  managedByNova: boolean;
+  /** 是否只读 */
   readOnly: boolean;
   /** 只读原因：UI 直接展示，说明为什么不能删除 / 编辑 */
   readOnlyReason: string | null;
@@ -499,11 +501,11 @@ export type SkillWriteResult =
 
 /** 数字员工绑定的技能：只存引用，技能内容由技能库统一管理 */
 export interface EmployeeSkill {
-  /** SkillAsset.id；旧版路径技能为空字符串 */
+  /** Claude Skill 的引用键：通常为 ~/.claude/skills 下的目录名 */
   assetId: string;
   /** 展示名快照，资产失效时仍可显示 */
   name: string;
-  /** 旧版路径来源；仅在 assetId 为空时用于兼容运行时 */
+  /** 旧版路径来源，仅用于迁移兼容 */
   source?: string;
   enabled: boolean;
 }
@@ -518,8 +520,6 @@ export interface DigitalEmployeeDraft {
   avatar: string | null;
   /** 绑定的 Agent（AgentManifest.id） */
   agentId: string;
-  /** 模型名；留空由 Agent 自己决定 */
-  model: string;
   systemPrompt: string;
   mcpServers: EmployeeMcpServer[];
   skills: EmployeeSkill[];

@@ -23,13 +23,15 @@
  *   3. 会话删除靠 `codex delete` 命令，而非删文件
  */
 
+import { existsSync } from "fs";
+import { homedir } from "os";
+import { join } from "path";
 import type { AgentProvider, RunOptions, RunSession } from "../types";
 import type { SessionOptions } from "../../../shared/types";
 import { startLineRun } from "../line-run";
 import { probeVersion } from "../probe";
 import { manifest } from "./manifest";
 import { createDecoder, extractSessionId } from "./parse";
-import { listModels as listAvailableModels } from "./models";
 import {
   deleteSession as deleteSessionRemote,
   fileVersion,
@@ -39,9 +41,7 @@ import {
 const BIN = "codex";
 
 /** 运行参数 key → 命令行开关。sandbox 见下方 optionArgs（它有默认行为） */
-const OPTION_FLAGS: Record<string, string> = {
-  model: "--model",
-};
+const OPTION_FLAGS: Record<string, string> = {};
 
 /**
  * 未显式选择沙箱策略时使用的开关：跳过全部确认且不使用沙箱（最高权限）。
@@ -73,7 +73,14 @@ export const provider: AgentProvider = {
 
   detect: () => probeVersion(BIN),
 
-  listModels: listAvailableModels,
+  configInfo() {
+    const configPath = join(homedir(), ".codex");
+    return {
+      configPath,
+      configExists: existsSync(configPath),
+      configNote: "直接使用本机 Codex 配置与登录",
+    };
+  },
 
   start(opts: RunOptions): RunSession {
     // 恢复会话是独立子命令：codex exec resume <thread_id> "<prompt>"
@@ -82,6 +89,7 @@ export const provider: AgentProvider = {
       : [BIN, "exec", opts.prompt];
     args.push("--json", "--skip-git-repo-check");
     args.push(...optionArgs(opts.opts));
+    if (opts.extraArgs?.length) args.push(...opts.extraArgs);
 
     return startLineRun(
       {

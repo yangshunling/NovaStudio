@@ -8,12 +8,10 @@
 import type { McpSource, McpTransport } from "@shared/types";
 
 export const MCP_SOURCE_LABEL: Record<McpSource, string> = {
-  library: "Nova MCP 库",
-  "claude-global": "Claude 全局",
+  "claude-global": "Claude 配置",
 };
 
 export const MCP_SOURCE_CLASS: Record<McpSource, string> = {
-  library: "bg-accent-soft text-accent",
   "claude-global": "bg-agent-violet/10 text-agent-violet",
 };
 

@@ -1,7 +1,7 @@
 /**
  * MCP 资产页
  *
- * 与 Skill 页同构：Nova 主库可编辑，Claude 用户配置只读发现，员工按 id 绑定。
+ * MCP 定义统一存放在 Claude 配置中：Nova 创建的条目可编辑，Claude 原有条目只读。
  * 差异在于 MCP 编辑的是服务定义（命令 / 参数 / env / URL / headers），
  * 运行时由 Nova 渲染成目标 Agent 的配置，而不是复制目录。
  */
@@ -59,8 +59,7 @@ import type {
 
 const FILTERS: ReadonlyArray<{ id: "all" | McpSource; label: string }> = [
   { id: "all", label: "全部" },
-  { id: "library", label: "Nova MCP 库" },
-  { id: "claude-global", label: "Claude 全局" },
+  { id: "claude-global", label: "Claude 配置" },
 ];
 
 function emptyDraft(): McpServerDraft {
@@ -785,7 +784,9 @@ function ImportMcpModal({
         <ModalHeader title="导入 MCP 服务" onClose={onClose} className="mb-2" />
         <p className="mb-3 text-meta leading-relaxed text-text-muted">
           支持常见的 <code className="font-mono">{`{ "mcpServers": { ... } }`}</code>
-          、单个服务对象或服务数组。导入后会复制到 Nova MCP 库，不改动原配置。
+          、单个服务对象或服务数组。导入后会写入 Claude 配置
+          <code className="mx-1 font-mono">~/.claude.json</code>
+          的 mcpServers，Claude 终端和 Nova 共用同一套配置。
         </p>
 
         <textarea

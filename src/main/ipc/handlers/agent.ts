@@ -2,7 +2,13 @@
  * Agent 相关 IPC：检测 / 发送 / 中断
  */
 
+import { shell } from "electron";
 import type { SendAgentResult } from "../../../shared/contracts/ipc";
+import { getProvider } from "../../agents/registry";
+import {
+  getClaudeSettingsView,
+  saveClaudeSettings,
+} from "../../agents/claude/settings";
 import type { AgentService } from "../../engine/agent-service";
 import * as db from "../../db/sqlite";
 import { flushEvents, push } from "../push";
@@ -15,8 +21,26 @@ export function registerAgentHandlers(service: AgentService): void {
     return agents;
   });
 
-  /** 模型列表由各 provider 自己查询（pi --list-models / codex debug models / …） */
-  handle("agent:models", ({ agentId }) => service.listAgentModels(agentId));
+  handle("agent:settings:get", ({ agentId }) => {
+    if (agentId !== "claude") {
+      throw new Error(`暂不支持编辑该 Agent 的本机配置：${agentId}`);
+    }
+    return getClaudeSettingsView();
+  });
+
+  handle("agent:settings:save", ({ draft }) => saveClaudeSettings(draft));
+
+  /** 打开某个 Agent 的本机配置目录 */
+  handle("agent:openConfigDir", async ({ agentId }) => {
+    const provider = getProvider(agentId);
+    const config = provider?.configInfo?.();
+    if (!config?.configPath) return false;
+
+    const error = await shell.openPath(config.configPath);
+    if (!error) return true;
+    shell.showItemInFolder(config.configPath);
+    return true;
+  });
 
   /**
    * 统一发送：主进程按会话是否已存会话引用、以及 provider 是否支持多轮，

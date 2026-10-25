@@ -57,7 +57,15 @@ export function McpTab({
       .listMcpServers()
       .then((list) => {
         if (cancelled) return;
-        setCatalog(list);
+        // 员工只绑定用户级 Claude MCP；项目级配置由具体工作区决定，不跨项目绑定
+        setCatalog(
+          list.filter(
+            (asset) =>
+              asset.id.startsWith("claude-global:") &&
+              !asset.id.startsWith("claude-global:local:") &&
+              !asset.id.startsWith("claude-global:file:"),
+          ),
+        );
         setLoadError(null);
       })
       .catch((err) => {
@@ -117,7 +125,7 @@ export function McpTab({
             : server,
         ),
       );
-      toast.success("已导入 Nova MCP 库");
+      toast.success("已写入 Claude MCP 配置");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : String(err));
     }
@@ -257,7 +265,7 @@ export function McpTab({
                     <button
                       type="button"
                       onClick={() => migrateLegacy(index)}
-                      title="导入到 Nova MCP 库"
+                      title="写入 Claude MCP 配置"
                       className="shrink-0 rounded-lg p-2 text-text-muted transition-colors hover:bg-accent-soft hover:text-accent"
                     >
                       <Upload className="h-4 w-4" />

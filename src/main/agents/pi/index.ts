@@ -14,13 +14,15 @@
  * 字节级解析与会话文件处理分别在 parse.ts / sessions.ts。
  */
 
+import { existsSync } from "fs";
+import { homedir } from "os";
+import { join } from "path";
 import type { AgentProvider, RunOptions, RunSession } from "../types";
 import type { SessionOptions } from "../../../shared/types";
 import { startLineRun } from "../line-run";
 import { probeVersion } from "../probe";
 import { manifest } from "./manifest";
 import { decode, extractSessionId } from "./parse";
-import { listModels as listAvailableModels } from "./models";
 import {
   deleteSession as deleteSessionFile,
   fileVersion,
@@ -32,7 +34,6 @@ const BIN = "pi";
 
 /** 运行参数 key → 命令行开关。与 manifest.options 的 key 一一对应 */
 const OPTION_FLAGS: Record<string, string> = {
-  model: "--model",
   thinking: "--thinking",
 };
 
@@ -52,12 +53,20 @@ export const provider: AgentProvider = {
 
   detect: () => probeVersion(BIN),
 
-  listModels: listAvailableModels,
+  configInfo() {
+    const configPath = join(homedir(), ".pi");
+    return {
+      configPath,
+      configExists: existsSync(configPath),
+      configNote: "直接使用本机 Pi 配置与登录",
+    };
+  },
 
   start(opts: RunOptions): RunSession {
     const args = [BIN, "-p", opts.prompt, "--mode", "json"];
     if (opts.sessionRef) args.push("--session", opts.sessionRef);
     args.push(...optionArgs(opts.opts));
+    if (opts.extraArgs?.length) args.push(...opts.extraArgs);
 
     return startLineRun(
       {

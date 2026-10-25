@@ -21,13 +21,8 @@ export const manifest: AgentManifest = {
     skills: true,
     mcp: true,
   },
+  installCommand: "npm install -g @anthropic-ai/claude-code",
   options: [
-    {
-      key: "model",
-      label: "模型",
-      hint: "对应 claude 的 --model；留空则由 claude 自己决定",
-      type: "model",
-    },
     {
       key: "permissionMode",
       label: "权限模式",

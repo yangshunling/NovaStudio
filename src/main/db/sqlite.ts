@@ -97,18 +97,14 @@ export function initDatabase(): void {
       value TEXT NOT NULL
     );
 
-    -- Nova 自管的 Agent 连接配置。api_key 存的是加密后的字符串，
-    -- 绝不把明文写进库；渲染层永远拿不到密钥本体。
-    CREATE TABLE IF NOT EXISTS agent_connections (
-      agent_id TEXT PRIMARY KEY,
-      base_url TEXT NOT NULL DEFAULT '',
-      api_key TEXT NOT NULL DEFAULT '',
-      api_key_storage TEXT NOT NULL DEFAULT 'none',
-      default_model TEXT NOT NULL DEFAULT '',
-      models_json TEXT NOT NULL DEFAULT '[]',
-      models_updated_at INTEGER,
+    -- Nova 创建的 MCP / Skill 标记。
+    -- 资产定义统一放在 Claude 配置里；这张表只记录「哪些条目是 Nova 创建的」，
+    -- 用于区分可编辑条目与 Claude 原有的只读条目。
+    CREATE TABLE IF NOT EXISTS managed_assets (
+      kind TEXT NOT NULL,
+      key TEXT NOT NULL,
       created_at INTEGER NOT NULL,
-      updated_at INTEGER NOT NULL
+      PRIMARY KEY (kind, key)
     );
 
     CREATE TABLE IF NOT EXISTS automation_tasks (
@@ -243,6 +239,9 @@ export function initDatabase(): void {
   migrateSessionsSource();
   migrateWorkflowWorkspace();
   migrateEmployeeKnowledge();
+
+  // 旧版本由 Nova 自己维护的 Agent 连接配置已废弃，统一改用各 CLI 本机配置
+  db.exec("DROP TABLE IF EXISTS agent_connections;");
 
   // === 数据迁移：孤儿会话归入"收件箱"项目 ===
   migrateOrphanSessions();
@@ -475,6 +474,16 @@ export function createSession(
 }
 
 /** 更新会话的 agent session 引用（用于多轮 --resume；pi 为会话文件路径） */
+/** 工作流/聊天在运行前确定使用哪个隔离配置目录时，回写会话记录 */
+export function updateSessionConfigDir(
+  sessionId: string,
+  configDir: string,
+): void {
+  db!
+    .prepare("UPDATE sessions SET config_dir = ? WHERE id = ?")
+    .run(configDir, sessionId);
+}
+
 export function updateAgentSessionId(sessionId: string, agentSessionId: string): void {
   db!.prepare(
     "UPDATE sessions SET agent_session_id = ?, updated_at = ? WHERE id = ?",
@@ -697,7 +706,6 @@ function rowToDigitalEmployee(row: any): DigitalEmployee {
     description: row.description ?? "",
     avatar: row.avatar ?? null,
     agentId: row.agent_id,
-    model: row.model ?? "",
     systemPrompt: row.system_prompt ?? "",
     mcpServers: normalizeEmployeeMcpServers(row.mcp_servers_json),
     skills: normalizeEmployeeSkills(row.skills_json),
@@ -716,7 +724,6 @@ function employeeParams(draft: DigitalEmployeeDraft): unknown[] {
     draft.description,
     draft.avatar,
     draft.agentId,
-    draft.model,
     draft.systemPrompt,
     JSON.stringify(draft.mcpServers),
     JSON.stringify(draft.skills),
@@ -742,10 +749,10 @@ export function createDigitalEmployee(draft: DigitalEmployeeDraft): DigitalEmplo
   const now = Date.now();
   db!.prepare(
     `INSERT INTO digital_employees (
-      id, name, role, description, avatar, agent_id, model,
+      id, name, role, description, avatar, agent_id,
       system_prompt, mcp_servers_json, skills_json, knowledge_json,
       enabled, created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(id, ...employeeParams(draft), now, now);
   return getDigitalEmployee(id)!;
 }
@@ -757,7 +764,7 @@ export function updateDigitalEmployee(
   const info = db!
     .prepare(
       `UPDATE digital_employees SET
-        name = ?, role = ?, description = ?, avatar = ?, agent_id = ?, model = ?,
+        name = ?, role = ?, description = ?, avatar = ?, agent_id = ?,
         system_prompt = ?, mcp_servers_json = ?, skills_json = ?, knowledge_json = ?,
         enabled = ?, updated_at = ?
       WHERE id = ?`,
@@ -768,6 +775,19 @@ export function updateDigitalEmployee(
 
 export function deleteDigitalEmployee(id: string): void {
   db!.prepare("DELETE FROM digital_employees WHERE id = ?").run(id);
+}
+
+/** 迁移时只更新员工的 MCP / Skill 引用，避免改动其它字段 */
+export function updateEmployeeBindings(
+  id: string,
+  mcpServersJson: string,
+  skillsJson: string,
+): void {
+  db!
+    .prepare(
+      "UPDATE digital_employees SET mcp_servers_json = ?, skills_json = ?, updated_at = ? WHERE id = ?",
+    )
+    .run(mcpServersJson, skillsJson, Date.now(), id);
 }
 
 // ============================================================================
@@ -1572,49 +1592,44 @@ export function setSetting(key: string, value: string): void {
 }
 
 // ============================================================================
-// Agent 连接配置
+// Nova 创建的资产标记
 // ============================================================================
 
-/** agent_connections 的原始行；api_key 为已加密 / 已编码的字符串 */
-export interface AgentConnectionRow {
-  agentId: string;
-  baseUrl: string;
-  apiKey: string;
-  apiKeyStorage: string;
-  defaultModel: string;
-  modelsJson: string;
-  modelsUpdatedAt: number | null;
-  createdAt: number;
-  updatedAt: number;
+export type ManagedAssetKind = "mcp" | "skill";
+
+export function listManagedAssetKeys(kind: ManagedAssetKind): string[] {
+  const rows = db!
+    .prepare("SELECT key FROM managed_assets WHERE kind = ?")
+    .all(kind) as Array<{ key: string }>;
+  return rows.map((row) => row.key);
 }
 
-export function getAgentConnectionRow(agentId: string): AgentConnectionRow | null {
-  const row = db!
-    .prepare("SELECT * FROM agent_connections WHERE agent_id = ?")
-    .get(agentId) as any;
-  if (!row) return null;
-  return {
-    agentId: row.agent_id,
-    baseUrl: row.base_url,
-    apiKey: row.api_key,
-    apiKeyStorage: row.api_key_storage,
-    defaultModel: row.default_model,
-    modelsJson: row.models_json,
-    modelsUpdatedAt: row.models_updated_at ?? null,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
-  };
+export function isManagedAsset(
+  kind: ManagedAssetKind,
+  key: string,
+): boolean {
+  return Boolean(
+    db!
+      .prepare("SELECT 1 FROM managed_assets WHERE kind = ? AND key = ?")
+      .get(kind, key),
+  );
 }
 
-/**
- * 删除旧的数据库连接记录。
- *
- * 新版本的连接配置以 `~/.novastudio/agent-connections/claude/` 下的文件为准，
- * agent_connections 表只在升级时作为迁移来源；迁移完成后删除，避免文件被删后
- * 又用旧记录“复活”一套过期配置。
- */
-export function deleteAgentConnectionRow(agentId: string): void {
-  db!.prepare("DELETE FROM agent_connections WHERE agent_id = ?").run(agentId);
+export function markManagedAsset(kind: ManagedAssetKind, key: string): void {
+  db!
+    .prepare(
+      "INSERT OR IGNORE INTO managed_assets (kind, key, created_at) VALUES (?, ?, ?)",
+    )
+    .run(kind, key, Date.now());
+}
+
+export function unmarkManagedAsset(
+  kind: ManagedAssetKind,
+  key: string,
+): void {
+  db!
+    .prepare("DELETE FROM managed_assets WHERE kind = ? AND key = ?")
+    .run(kind, key);
 }
 
 // ============================================================================
