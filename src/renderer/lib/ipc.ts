@@ -84,13 +84,14 @@ export const ipc = {
   killTerminal: (id: string) => call("terminal:kill", { id }),
 
   // === 会话 ===
-  createSession: (projectId: string, agentId: string) =>
+  createSession: (projectId: string | null, agentId: string) =>
     call("session:create", { projectId, agentId }),
   listSessions: () => call("session:list"),
   getSession: (id: string) => call("session:get", { id }),
   renameSession: (id: string, title: string) => call("session:rename", { id, title }),
   deleteSession: (id: string) => call("session:delete", { id }),
-  clearProjectSessions: (projectId: string) => call("session:clearProject", { projectId }),
+  setSessionProject: (sessionId: string, projectId: string | null) =>
+    call("session:setProject", { sessionId, projectId }),
 
   // === 原生对话框 ===
   pickDirectory: () => call("dialog:pickDirectory"),

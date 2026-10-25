@@ -100,10 +100,12 @@ function ThreadEmpty() {
         <Brain className="h-5 w-5" />
       </div>
       <h1 className="ui-serif text-hero font-semibold tracking-wide text-text-secondary">
-        {project ? "开始对话" : "Nova Studio"}
+        {project ? "开始对话" : "新对话"}
       </h1>
-      <p className="text-body-lg">
-        {project ? `在 ${project.name} 里与智能体对话` : "从左侧选择或创建一个项目"}
+      <p className="max-w-md text-center text-body-lg leading-relaxed">
+        {project
+          ? `在「${project.name}」工作目录中与智能体对话`
+          : "直接描述你的任务。需要读写本地文件时，在输入框旁绑定项目目录。"}
       </p>
     </div>
   );

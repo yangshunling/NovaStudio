@@ -25,6 +25,7 @@ import {
 } from "lucide-react";
 import { AgentOptionsMenu } from "./AgentOptionsMenu";
 import { AgentSelector } from "./AgentSelector";
+import { ProjectSelector } from "./ProjectSelector";
 import { useFileMention, FileMentionPopup } from "./FileMention";
 import { AssistantMessageList } from "./AssistantMessageList";
 import { FileTypeIcon } from "./ui/FileTypeIcon";
@@ -87,24 +88,20 @@ export function ChatArea({ embedded = false }: { embedded?: boolean } = {}) {
             : "ui-page relative z-10 flex flex-1 flex-col overflow-hidden rounded-xl"
         }
       >
-        {/* 顶栏：项目 › 会话 面包屑 */}
+        {/* 顶栏：会话标题 › 绑定的工作目录 */}
         <header className="ui-glass relative z-10 flex h-[var(--c-layout-header)] shrink-0 items-center justify-between border-b border-border px-4">
           <div className="flex min-w-0 items-center gap-1.5 text-body-lg">
-            {currentProject ? (
+            <span className="truncate text-text-secondary">
+              {currentSession?.title ?? "新会话"}
+            </span>
+            {currentProject && (
               <>
-                <FolderTypeIcon size={14} />
+                <ChevronRight className="h-3 w-3 shrink-0 text-text-muted" />
+                <FolderTypeIcon size={13} />
                 <span className="truncate font-mono text-caption text-text-muted">
                   {currentProject.cwd}
                 </span>
-                {currentSession && (
-                  <>
-                    <ChevronRight className="h-3 w-3 shrink-0 text-text-muted" />
-                    <span className="truncate text-text-secondary">{currentSession.title}</span>
-                  </>
-                )}
               </>
-            ) : (
-              <span className="text-text-muted">Nova</span>
             )}
           </div>
           <button
@@ -189,6 +186,8 @@ export function ChatArea({ embedded = false }: { embedded?: boolean } = {}) {
                     />
                   )}
                 </div>
+              {/* 工作目录：可选。绑定后 Agent 在该项目目录运行 */}
+              <ProjectSelector />
               {/* 本次会话使用的 Agent：新会话可选，会话开始后锁定 */}
               <AgentSelector
                 agents={agents}

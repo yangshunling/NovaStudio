@@ -11,8 +11,10 @@
  *   供应用重启后回放完整对话过程（含工具调用、思考等），不再依赖 CLI 侧回放。
  * - settings：键值对
  *
- * schema 变更走"加列 + 迁移"策略：检测到旧表缺列就 ALTER，
- * 孤儿会话（无 project_id）归入自动创建的"收件箱"项目。
+ * schema 变更走"加列 + 迁移"策略：检测到旧表缺列就 ALTER。
+ *
+ * 会话不再强依赖项目：project_id 为 NULL 表示未绑定工作目录，
+ * 用户可在会话输入框处随时绑定 / 切换项目。
  */
 
 import Database from "better-sqlite3";
@@ -49,9 +51,6 @@ let db: Database.Database | null = null;
  * 创建失败时检索会自动降级为 LIKE 扫描，不影响知识库的其它功能。
  */
 let knowledgeFtsReady = false;
-
-/** 收件箱项目名：迁移孤儿会话时用 */
-const INBOX_PROJECT_NAME = "收件箱";
 
 /** 初始化数据库连接和表结构 */
 export function initDatabase(): void {
@@ -237,14 +236,16 @@ export function initDatabase(): void {
   migrateSessionsMessageCount();
   migrateSessionsConfigDir();
   migrateSessionsSource();
+  // 先清理旧版占位项目，再让工作区迁移把空归属的工作流挂到有效项目上
+  migrateLegacyInboxProject();
   migrateWorkflowWorkspace();
   migrateEmployeeKnowledge();
 
   // 旧版本由 Nova 自己维护的 Agent 连接配置已废弃，统一改用各 CLI 本机配置
   db.exec("DROP TABLE IF EXISTS agent_connections;");
 
-  // === 数据迁移：孤儿会话归入"收件箱"项目 ===
-  migrateOrphanSessions();
+  // 未绑定项目的会话是合法状态，不再把孤儿会话收编到「收件箱」项目：
+  // 否则每次启动都会把用户有意留空的会话重新绑定上。
 
   // 上次进程遗留的运行不可能还活着：统一标记为中断
   interruptStaleWorkflowRuns();
@@ -358,26 +359,37 @@ function migrateWorkflowWorkspace(): void {
   }
 }
 
-/** 把无 project_id 的旧会话归入自动创建的"收件箱"项目 */
-function migrateOrphanSessions(): void {
-  const orphans = db!
-    .prepare("SELECT COUNT(*) AS n FROM sessions WHERE project_id IS NULL")
-    .get() as { n: number };
-  if (orphans.n === 0) return;
+/**
+ * 清理旧版自动创建的「收件箱」项目。
+ *
+ * 旧版本把无 project_id 的会话收编到 name='收件箱' 且 cwd='' 的项目里。
+ * 新模型允许会话不绑定项目，这个占位项目只会让项目选择器里出现一个
+ * 没有目录的空条目 —— 把会话解绑后删掉它。
+ */
+function migrateLegacyInboxProject(): void {
+  const inbox = db!
+    .prepare("SELECT id FROM projects WHERE name = ? AND cwd = ''")
+    .get("收件箱") as { id: string } | undefined;
+  if (!inbox) return;
 
-  // 找或建"收件箱"项目
-  let inbox = db!
-    .prepare("SELECT id FROM projects WHERE name = ?")
-    .get(INBOX_PROJECT_NAME) as { id: string } | undefined;
-  if (!inbox) {
-    const id = randomUUID();
-    const now = Date.now();
-    db!.prepare(
-      "INSERT INTO projects (id, name, cwd, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
-    ).run(id, INBOX_PROJECT_NAME, "", now, now);
-    inbox = { id };
-  }
-  db!.prepare("UPDATE sessions SET project_id = ? WHERE project_id IS NULL").run(inbox.id);
+  // 极旧的库还没有 workspace_id 列：此时工作流不可能指向该收件箱，
+  // 跳过工作流处理；随后的 migrateWorkflowWorkspace 会补列并重新归属。
+  const workflowCols = db!.prepare("PRAGMA table_info(workflows)").all() as {
+    name: string;
+  }[];
+  const hasWorkspaceId = workflowCols.some((c) => c.name === "workspace_id");
+
+  db!.transaction(() => {
+    db!.prepare("UPDATE sessions SET project_id = NULL WHERE project_id = ?").run(
+      inbox.id,
+    );
+    if (hasWorkspaceId) {
+      db!.prepare(
+        "UPDATE workflows SET workspace_id = NULL WHERE workspace_id = ?",
+      ).run(inbox.id);
+    }
+    db!.prepare("DELETE FROM projects WHERE id = ?").run(inbox.id);
+  })();
 }
 
 // ============================================================================
@@ -429,10 +441,13 @@ function rowToProject(row: any): Project {
 // 会话操作
 // ============================================================================
 
-/** 创建新会话。title 取首条用户消息前缀，cwd 继承项目 */
+/**
+ * 创建新会话。title 取首条用户消息前缀。
+ * projectId 可为 null —— 会话可以先创建、稍后再绑定工作目录。
+ */
 export function createSession(
   agentId: string,
-  projectId: string,
+  projectId: string | null,
   cwd: string,
   title?: string,
   configDir?: string | null,
@@ -482,6 +497,31 @@ export function updateSessionConfigDir(
   db!
     .prepare("UPDATE sessions SET config_dir = ? WHERE id = ?")
     .run(configDir, sessionId);
+}
+
+/**
+ * 绑定 / 切换 / 解绑会话的项目，并同步工作目录。
+ *
+ * resetAgentSession 为 true 时清空 CLI 会话引用：切换目录后旧引用
+ * （如 Claude 的会话文件按 cwd 归档）无法可靠恢复，主动开启新上下文，
+ * 本地已持久化的消息不受影响。
+ */
+export function setSessionProject(
+  sessionId: string,
+  projectId: string | null,
+  cwd: string,
+  resetAgentSession: boolean,
+): void {
+  const now = Date.now();
+  if (resetAgentSession) {
+    db!.prepare(
+      "UPDATE sessions SET project_id = ?, cwd = ?, agent_session_id = NULL, updated_at = ? WHERE id = ?",
+    ).run(projectId, cwd, now, sessionId);
+    return;
+  }
+  db!.prepare(
+    "UPDATE sessions SET project_id = ?, cwd = ?, updated_at = ? WHERE id = ?",
+  ).run(projectId, cwd, now, sessionId);
 }
 
 export function updateAgentSessionId(sessionId: string, agentSessionId: string): void {
@@ -587,16 +627,6 @@ export function getSession(id: string): Session | null {
 export function listSessionIdsByProject(projectId: string): string[] {
   const rows = db!
     .prepare("SELECT id FROM sessions WHERE project_id = ?")
-    .all(projectId) as Array<{ id: string }>;
-  return rows.map((r) => r.id);
-}
-
-/** 某项目下的聊天会话 id（「清空会话」只处理用户可见的聊天） */
-export function listChatSessionIdsByProject(projectId: string): string[] {
-  const rows = db!
-    .prepare(
-      "SELECT id FROM sessions WHERE project_id = ? AND COALESCE(source, 'chat') <> 'workflow'",
-    )
     .all(projectId) as Array<{ id: string }>;
   return rows.map((r) => r.id);
 }

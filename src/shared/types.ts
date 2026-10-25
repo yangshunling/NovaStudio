@@ -91,10 +91,16 @@ export interface Project {
 /** 会话来源：普通聊天 / 工作流节点执行 */
 export type SessionSource = "chat" | "workflow";
 
-/** 会话从属于一个项目 */
+/**
+ * 会话可选地绑定一个项目（工作目录）。
+ *
+ * 项目不再是会话的前置条件：用户可以直接新建会话，需要读写本地文件时
+ * 再在输入框处绑定项目。未绑定时会话在默认目录中运行。
+ */
 export interface Session {
   id: string;
-  projectId: string;
+  /** 绑定的项目；null 表示未绑定（使用默认工作目录） */
+  projectId: string | null;
   /** 未声明时视为 chat（兼容旧数据） */
   source?: SessionSource;
   /** 对应 AgentManifest.id */

@@ -6,7 +6,10 @@
  * - 事件带 sessionId 到达，路由到对应桶（即便该会话不在前台也持续累积）
  * - 切换会话只换 currentSessionId，后台会话继续跑
  *
- * 数据模型：项目(Project) → 会话(Session) → 消息(Message[]，带 role)。
+ * 数据模型：会话(Session) → 消息(Message[]，带 role)。
+ * 会话可选地绑定项目(Project = 工作目录)：项目不再出现在会话列表层级里，
+ * 而是在会话输入框处按需绑定，因此 currentProjectId 表示「当前会话的工作目录」，
+ * 未选中会话时表示「新会话将要绑定的项目」。
  * 流式 delta 通过 appendEvent 合并进对应会话当前 assistant 消息的块。
  */
 
@@ -40,6 +43,7 @@ interface ChatState {
   agents: AgentInfo[];
   projects: Project[];
   sessions: Session[];
+  /** 当前会话绑定的项目；新会话态下表示首条消息将使用的项目 */
   currentProjectId: string | null;
   currentSessionId: string | null;
   /** 每个会话的实时消息桶（含未落库的流式增量） */
@@ -62,11 +66,12 @@ interface ChatState {
   /** 右侧工作区文件面板是否展开 */
   showWorkspace: boolean;
 
-  // 项目
+  // 项目（工作目录）
   loadProjects: () => Promise<void>;
   createProject: (name: string, cwd: string) => Promise<Project | null>;
   deleteProject: (id: string) => Promise<void>;
-  selectProject: (id: string) => void;
+  /** 把当前会话（或新会话草稿）绑定到指定项目；null 表示解绑 */
+  bindProject: (projectId: string | null) => Promise<void>;
   newSession: () => void;
   pickDirectory: () => Promise<string | null>;
 
@@ -75,8 +80,6 @@ interface ChatState {
   selectSession: (id: string) => Promise<void>;
   renameSession: (id: string, title: string) => Promise<void>;
   deleteSession: (id: string) => Promise<void>;
-  /** 清空某项目下的全部会话 */
-  clearProjectSessions: (projectId: string) => Promise<void>;
 
   // Agent
   detectAgents: () => Promise<void>;
@@ -120,43 +123,85 @@ export const useChatStore = create<ChatState>((set, get) => ({
   // ==========================================================================
 
   loadProjects: async () => {
-    const projects = await ipc.listProjects();
-    set({ projects });
-    if (!get().currentProjectId && projects.length > 0) {
-      set({ currentProjectId: projects[0].id });
-    }
+    // 项目只作为「可绑定的工作目录」存在，不再自动选中第一个：
+    // 新会话默认不绑定项目，用户需要时在输入框处选择。
+    set({ projects: await ipc.listProjects() });
   },
 
   createProject: async (name, cwd) => {
     const project = await ipc.createProject(name, cwd);
-    set((s) => ({ projects: [project, ...s.projects], currentProjectId: project.id }));
-    await get().loadSessions();
+    set((s) => ({ projects: [project, ...s.projects] }));
     return project;
   },
 
   deleteProject: async (id) => {
     await ipc.deleteProject(id);
     set((state) => {
-      const wasCurrent = state.currentProjectId === id;
+      // 删除项目会级联删除其下所有会话，渲染层同步清空对应消息桶
+      const removed = new Set(
+        state.sessions.filter((s) => s.projectId === id).map((s) => s.id),
+      );
+      const messagesBySession = { ...state.messagesBySession };
+      const streamingBySession = { ...state.streamingBySession };
+      for (const sessionId of removed) {
+        delete messagesBySession[sessionId];
+        delete streamingBySession[sessionId];
+      }
       return {
         projects: state.projects.filter((p) => p.id !== id),
         sessions: state.sessions.filter((s) => s.projectId !== id),
-        currentProjectId: wasCurrent
-          ? (state.projects.find((p) => p.id !== id)?.id ?? null)
-          : state.currentProjectId,
-        currentSessionId: wasCurrent ? null : state.currentSessionId,
+        messagesBySession,
+        streamingBySession,
+        currentProjectId: state.currentProjectId === id ? null : state.currentProjectId,
+        currentSessionId:
+          state.currentSessionId && removed.has(state.currentSessionId)
+            ? null
+            : state.currentSessionId,
+        loadingHistoryFor:
+          state.loadingHistoryFor && removed.has(state.loadingHistoryFor)
+            ? null
+            : state.loadingHistoryFor,
       };
     });
   },
 
-  selectProject: (id) => {
-    set({ currentProjectId: id, currentSessionId: null });
+  bindProject: async (projectId) => {
+    const state = get();
+    const sessionId = state.currentSessionId;
+
+    // 新会话草稿：只记下选择，首条消息创建会话时一并写入
+    if (!sessionId) {
+      set({ currentProjectId: projectId });
+      return;
+    }
+
+    if (state.streamingBySession[sessionId]) {
+      throw new Error("会话正在运行，请先停止再切换项目");
+    }
+
+    const session = await ipc.setSessionProject(sessionId, projectId);
+    if (!session) throw new Error("会话不存在");
+
+    set((s) => ({
+      currentProjectId: session.projectId,
+      sessions: s.sessions.map((se) =>
+        se.id === session.id
+          ? {
+              ...se,
+              projectId: session.projectId,
+              cwd: session.cwd,
+              agentSessionId: session.agentSessionId,
+              updatedAt: session.updatedAt,
+            }
+          : se,
+      ),
+    }));
   },
 
   newSession: () => {
     // 只清空当前视图，不预建会话；首条消息时才 createSession，
-    // 避免产生大量空会话
-    set({ currentSessionId: null });
+    // 避免产生大量空会话。新会话默认不绑定项目。
+    set({ currentSessionId: null, currentProjectId: null });
   },
 
   pickDirectory: () => ipc.pickDirectory(),
@@ -170,8 +215,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
   },
 
   selectSession: async (id) => {
-    // 点会话时立刻把项目选中态同步到该会话所属项目 ——
-    // 不等历史回放，否则冷切换期间会话列表旧项目头的高亮仍在，看起来"没联动"。
+    // 点会话时立刻同步该项目绑定态，不等历史回放 —— 否则冷切换期间
+    // 输入框旁的项目标签仍是上一个会话的，看起来"没联动"。
     // projectId 从 store 里已持有的 sessions 查，不必等 ipc.getSession。
     const known = get().sessions.find((s) => s.id === id);
     if (known) {
@@ -192,7 +237,11 @@ export const useChatStore = create<ChatState>((set, get) => ({
       const session = await ipc.getSession(id);
       set((s) => ({
         messagesBySession: { ...s.messagesBySession, [id]: session?.messages ?? [] },
-        currentProjectId: session?.projectId ?? s.currentProjectId,
+        // 历史回放返回最新的绑定态（会话可能在别处被改过）
+        currentProjectId:
+          s.currentSessionId === id
+            ? (session?.projectId ?? null)
+            : s.currentProjectId,
         // 注意：不回写 selectedAgentId。selectedAgentId 现在唯一的语义是
         // 「新会话默认用谁」，只应由输入框旁的 Agent 选择器显式修改 ——
         // 浏览历史会话不应该悄悄改掉它（这正是旧侧栏选择器令人困惑的根源）。
@@ -218,34 +267,13 @@ export const useChatStore = create<ChatState>((set, get) => ({
       delete messagesBySession[id];
       const streamingBySession = { ...s.streamingBySession };
       delete streamingBySession[id];
+      const wasCurrent = s.currentSessionId === id;
       return {
         sessions: s.sessions.filter((se) => se.id !== id),
         messagesBySession,
         streamingBySession,
-        currentSessionId: s.currentSessionId === id ? null : s.currentSessionId,
-      };
-    });
-  },
-
-  clearProjectSessions: async (projectId) => {
-    await ipc.clearProjectSessions(projectId);
-    set((s) => {
-      const removed = new Set(
-        s.sessions.filter((se) => se.projectId === projectId).map((se) => se.id),
-      );
-      const messagesBySession = { ...s.messagesBySession };
-      const streamingBySession = { ...s.streamingBySession };
-      for (const id of removed) {
-        delete messagesBySession[id];
-        delete streamingBySession[id];
-      }
-      return {
-        sessions: s.sessions.filter((se) => se.projectId !== projectId),
-        messagesBySession,
-        streamingBySession,
-        // 被清掉的会话若正在前台，则回到"未选中"状态
-        currentSessionId:
-          s.currentSessionId && removed.has(s.currentSessionId) ? null : s.currentSessionId,
+        currentSessionId: wasCurrent ? null : s.currentSessionId,
+        currentProjectId: wasCurrent ? null : s.currentProjectId,
       };
     });
   },
@@ -309,8 +337,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
       // 已有会话：参数按该会话实际使用的 Agent 取，而不是当前选中的
       agentId = selectEffectiveAgentId(state);
     } else {
-      if (!state.currentProjectId) return; // 无项目：ChatArea 空态已提示
-
       // Agent 由「当前选中 → 第一个已安装」推导，不硬编码任何具体 Agent
       const picked =
         state.selectedAgentId ||
@@ -318,10 +344,12 @@ export const useChatStore = create<ChatState>((set, get) => ({
       if (!picked) return; // 没有可用 Agent
       agentId = picked;
 
+      // 项目可空：未绑定时主进程会回退到默认目录
       const session = await ipc.createSession(state.currentProjectId, agentId);
       sessionId = session.id;
       set((s) => ({
         currentSessionId: sessionId,
+        currentProjectId: session.projectId,
         messagesBySession: { ...s.messagesBySession, [sessionId]: [] },
         streamingBySession: { ...s.streamingBySession, [sessionId]: false },
       }));

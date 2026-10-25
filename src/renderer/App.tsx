@@ -2,8 +2,9 @@
  * Nova — 应用根组件
  *
  * 布局：
- * - 左侧 Sidebar：项目 / 会话树 + Agent 选择
- * - 右侧 ChatArea 或 AutomationView：两者互斥
+ * - 左侧 Sidebar：全局功能入口
+ * - 右侧 SessionsView / AutomationView 等：按 viewMode 切换
+ * - 会话页内部再分左右：扁平会话列表 + 对话区
  * - 设置弹框按需挂载
  *
  * 皮肤是横切关注点：这里不再把 themeId 往下传，需要皮肤信息的组件

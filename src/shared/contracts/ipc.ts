@@ -121,14 +121,23 @@ export interface IpcInvokeMap {
   };
 
   /** 预创建空会话，拿到 sessionId 后再 agent:send，事件才能按会话路由 */
-  "session:create": { args: [{ projectId: string; agentId: string }]; result: Session };
+  "session:create": {
+    args: [{ projectId: string | null; agentId: string }];
+    result: Session;
+  };
   "session:list": { args: []; result: Session[] };
   /** 返回带历史消息的会话；历史由 provider 回放 */
   "session:get": { args: [{ id: string }]; result: Session | null };
   "session:rename": { args: [{ id: string; title: string }]; result: boolean };
   "session:delete": { args: [{ id: string }]; result: boolean };
-  /** 清空某项目下的全部会话（含每个会话在 CLI 侧的数据） */
-  "session:clearProject": { args: [{ projectId: string }]; result: boolean };
+  /**
+   * 绑定 / 切换 / 解绑会话的项目（工作目录）。
+   * 会话已有 Agent 上下文时切换目录会清空 CLI 会话引用，开启新上下文。
+   */
+  "session:setProject": {
+    args: [{ sessionId: string; projectId: string | null }];
+    result: Session | null;
+  };
 
   /** 原生目录选择器 */
   "dialog:pickDirectory": { args: []; result: string | null };
