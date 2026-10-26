@@ -25,6 +25,7 @@ import {
   Trash2,
   Workflow as WorkflowIcon,
   X,
+  Zap,
   type LucideIcon,
 } from "lucide-react";
 import { ipc } from "../../lib/ipc";
@@ -36,11 +37,14 @@ import { WorkflowEditor } from "./WorkflowEditor";
 import { WorkflowRunView } from "./WorkflowRunView";
 import { WorkflowRunHistoryView } from "./WorkflowRunHistoryView";
 import { defaultNodeConfig } from "./defaults";
+import { describeTriggerSchedule } from "@shared/trigger-schedule";
 import type {
   DigitalEmployee,
   Project,
   Workflow,
   WorkflowGraph,
+  WorkflowTrigger,
+  WorkflowTriggerBinding,
 } from "@shared/types";
 
 /** 未归属分组的伪工作区 id；真实工作区 id 都是 uuid，不会冲突 */
@@ -49,7 +53,7 @@ const ORPHAN_ID = "__orphan__";
 /** 右键菜单尺寸：用于贴近视口边缘时收拢位置 */
 const MENU_WIDTH = 208;
 const WORKSPACE_MENU_HEIGHT = 88;
-const WORKFLOW_MENU_HEIGHT = 300;
+const WORKFLOW_MENU_HEIGHT = 340;
 
 /** 新建工作流时预置开始 / 结束两个锚点，画布不至于空得没有参照 */
 function seedGraph(): WorkflowGraph {
@@ -98,6 +102,17 @@ export function WorkflowsView() {
   const [renameName, setRenameName] = useState("");
   const [renameDescription, setRenameDescription] = useState("");
   const [renameBusy, setRenameBusy] = useState(false);
+
+  /** 触发器绑定关系：用于卡片上的触发器数量标记 */
+  const [triggerBindings, setTriggerBindings] = useState<
+    WorkflowTriggerBinding[]
+  >([]);
+  /** 正在配置触发器的工作流；null 表示弹框关闭 */
+  const [triggerTarget, setTriggerTarget] = useState<Workflow | null>(null);
+  const [allTriggers, setAllTriggers] = useState<WorkflowTrigger[]>([]);
+  const [selectedTriggerIds, setSelectedTriggerIds] = useState<string[]>([]);
+  const [triggerDialogLoading, setTriggerDialogLoading] = useState(false);
+  const [triggerSaving, setTriggerSaving] = useState(false);
 
   const [creatingWorkflow, setCreatingWorkflow] = useState(false);
   const [newName, setNewName] = useState("");
@@ -168,14 +183,17 @@ export function WorkflowsView() {
 
   const load = useCallback(async () => {
     try {
-      const [workflowList, employeeList, workspaceList] = await Promise.all([
-        ipc.listWorkflows(),
-        ipc.listEmployees(),
-        ipc.listProjects(),
-      ]);
+      const [workflowList, employeeList, workspaceList, bindingList] =
+        await Promise.all([
+          ipc.listWorkflows(),
+          ipc.listEmployees(),
+          ipc.listProjects(),
+          ipc.listTriggerBindings(),
+        ]);
       setWorkflows(workflowList);
       setEmployees(employeeList);
       setWorkspaces(workspaceList);
+      setTriggerBindings(bindingList);
       setSelectedWorkspaceId((current) =>
         current && workspaceList.some((item) => item.id === current)
           ? current
@@ -233,6 +251,15 @@ export function WorkflowsView() {
     }
     return map;
   }, [workflows]);
+
+  /** workflowId → 已绑定的触发器数量 */
+  const triggerCounts = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const binding of triggerBindings) {
+      map.set(binding.workflowId, (map.get(binding.workflowId) ?? 0) + 1);
+    }
+    return map;
+  }, [triggerBindings]);
 
   const selectedWorkflows = useMemo(() => {
     if (effectiveWorkspaceId === ORPHAN_ID) return orphanWorkflows;
@@ -399,6 +426,52 @@ export function WorkflowsView() {
       setEditorDebugRunId(run.id);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : String(err), 6000);
+    }
+  };
+
+  /** 卡片操作：选择该工作流由哪些触发器定时启动 */
+  const openTriggerDialog = async (workflow: Workflow) => {
+    setTriggerTarget(workflow);
+    setTriggerDialogLoading(true);
+    setSelectedTriggerIds([]);
+    try {
+      const [list, ids] = await Promise.all([
+        ipc.listTriggers(),
+        ipc.listWorkflowTriggerIds(workflow.id),
+      ]);
+      setAllTriggers(list);
+      setSelectedTriggerIds(ids);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : String(err), 5000);
+    } finally {
+      setTriggerDialogLoading(false);
+    }
+  };
+
+  const toggleTriggerSelection = (triggerId: string) => {
+    setSelectedTriggerIds((current) =>
+      current.includes(triggerId)
+        ? current.filter((id) => id !== triggerId)
+        : [...current, triggerId],
+    );
+  };
+
+  const saveWorkflowTriggers = async () => {
+    if (!triggerTarget || triggerSaving) return;
+    setTriggerSaving(true);
+    try {
+      await ipc.setWorkflowTriggers(triggerTarget.id, selectedTriggerIds);
+      setTriggerBindings(await ipc.listTriggerBindings());
+      toast.success(
+        selectedTriggerIds.length > 0
+          ? `已绑定 ${selectedTriggerIds.length} 个触发器`
+          : "已取消全部触发器",
+      );
+      setTriggerTarget(null);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : String(err), 5000);
+    } finally {
+      setTriggerSaving(false);
     }
   };
 
@@ -738,6 +811,7 @@ export function WorkflowsView() {
                       <WorkflowCard
                         key={workflow.id}
                         workflow={workflow}
+                        triggerCount={triggerCounts.get(workflow.id) ?? 0}
                         onOpen={() => openEditor(workflow)}
                         onContextMenu={(event) =>
                           openWorkflowMenu(workflow, event)
@@ -869,6 +943,111 @@ export function WorkflowsView() {
         </div>
       </Modal>
 
+      {/* 工作流 → 绑定触发器 */}
+      <Modal
+        open={triggerTarget !== null}
+        onClose={() => setTriggerTarget(null)}
+        widthClass="w-[460px] max-w-[90vw]"
+      >
+        <div className="p-card">
+          <ModalHeader
+            title={
+              triggerTarget ? `触发器 · ${triggerTarget.name}` : "触发器"
+            }
+            onClose={() => setTriggerTarget(null)}
+          />
+          <p className="mb-3 text-body leading-relaxed text-text-muted">
+            勾选后，触发器到点会自动启动这条工作流。触发器可在左侧「触发器」
+            页面统一创建与编辑，一个触发器也可以绑定多条工作流。
+          </p>
+
+          {triggerDialogLoading ? (
+            <div className="flex h-40 items-center justify-center gap-2 text-body text-text-muted">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              正在加载触发器
+            </div>
+          ) : allTriggers.length === 0 ? (
+            <div className="flex flex-col items-center gap-2 rounded-xl border border-dashed border-border-strong bg-surface-2/30 px-6 py-10 text-center text-text-muted">
+              <Zap className="h-7 w-7 opacity-50" />
+              <p className="text-body text-text-secondary">还没有触发器</p>
+              <p className="text-meta">
+                先创建一个定时规则，再回来把它绑定到这条工作流。
+              </p>
+              <button
+                type="button"
+                onClick={() => {
+                  setTriggerTarget(null);
+                  useChatStore.getState().setViewMode("triggers");
+                }}
+                className="ui-btn-primary mt-1 flex h-8 items-center gap-1.5 rounded-full px-4 text-meta font-medium active:scale-95"
+              >
+                <Plus className="h-3.5 w-3.5" />
+                去创建触发器
+              </button>
+            </div>
+          ) : (
+            <div className="max-h-[320px] space-y-1.5 overflow-y-auto pr-0.5">
+              {allTriggers.map((trigger) => {
+                const selected = selectedTriggerIds.includes(trigger.id);
+                return (
+                  <label
+                    key={trigger.id}
+                    className={`flex cursor-pointer items-start gap-2.5 rounded-lg border px-3 py-2.5 transition-colors ${
+                      selected
+                        ? "border-accent/50 bg-accent-soft/40"
+                        : "border-border bg-surface-2/40 hover:bg-surface-hover"
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={selected}
+                      onChange={() => toggleTriggerSelection(trigger.id)}
+                      className="mt-0.5 h-4 w-4 shrink-0"
+                      style={{ accentColor: "var(--c-accent)" }}
+                    />
+                    <span className="min-w-0 flex-1">
+                      <span className="flex items-center gap-1.5">
+                        <span className="truncate text-body font-medium text-text">
+                          {trigger.title}
+                        </span>
+                        {!trigger.enabled && (
+                          <span className="shrink-0 rounded-full bg-surface-hover px-1.5 py-0.5 text-caption text-text-muted">
+                            已停用
+                          </span>
+                        )}
+                      </span>
+                      <span className="mt-0.5 block truncate text-meta text-text-muted">
+                        {describeTriggerSchedule(trigger.schedule)}
+                        {trigger.description ? ` · ${trigger.description}` : ""}
+                      </span>
+                    </span>
+                  </label>
+                );
+              })}
+            </div>
+          )}
+
+          <div className="mt-4 flex items-center justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => setTriggerTarget(null)}
+              className="ui-btn-ghost h-9 rounded-full px-4 text-body font-medium active:scale-95"
+            >
+              取消
+            </button>
+            <button
+              type="button"
+              onClick={() => void saveWorkflowTriggers()}
+              disabled={triggerDialogLoading || triggerSaving}
+              className="ui-btn-primary flex h-9 items-center gap-1.5 rounded-full px-4 text-body font-medium active:scale-95 disabled:opacity-50"
+            >
+              {triggerSaving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+              保存
+            </button>
+          </div>
+        </div>
+      </Modal>
+
       {/* 右键菜单：工作区 / 工作流卡片共用 */}
       {contextMenu &&
         createPortal(
@@ -906,11 +1085,20 @@ export function WorkflowsView() {
                 />
                 <CardMenuItem
                   icon={Play}
-                  label="调试"
+                  label="运行"
                   onClick={() => {
                     const workflow = contextMenu.workflow;
                     setContextMenu(null);
                     void debugWorkflow(workflow);
+                  }}
+                />
+                <CardMenuItem
+                  icon={Zap}
+                  label="触发器"
+                  onClick={() => {
+                    const workflow = contextMenu.workflow;
+                    setContextMenu(null);
+                    void openTriggerDialog(workflow);
                   }}
                 />
                 <CardMenuItem
@@ -966,10 +1154,12 @@ export function WorkflowsView() {
 
 function WorkflowCard({
   workflow,
+  triggerCount,
   onOpen,
   onContextMenu,
 }: {
   workflow: Workflow;
+  triggerCount: number;
   onOpen: () => void;
   onContextMenu: (event: React.MouseEvent) => void;
 }) {
@@ -1017,6 +1207,12 @@ function WorkflowCard({
         <span className="rounded-full bg-surface-hover px-2.5 py-0.5">
           {employeeIds.size} 位数字员工
         </span>
+        {triggerCount > 0 && (
+          <span className="flex items-center gap-1 rounded-full bg-accent-soft px-2.5 py-0.5 text-accent">
+            <Zap className="h-3 w-3" />
+            {triggerCount} 个触发器
+          </span>
+        )}
         <span className="ml-auto">{timeAgo(workflow.updatedAt)}</span>
       </div>
     </div>

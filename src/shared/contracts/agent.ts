@@ -39,29 +39,6 @@ export interface AgentCapabilities {
 }
 
 /**
- * 运行参数的声明式描述。
- *
- * 宿主只负责「按声明渲染表单 + 原样传回键值」，不解释任何键的含义，
- * 也不硬编码任何具体参数 —— 参数名到命令行开关的映射由 provider 自己做。
- *
- * 注意：模型不再作为可配置参数暴露；各 CLI 使用自己配置里的默认模型。
- */
-export interface AgentOptionField {
-  /** 宿主存取用的键；provider 负责把它映射到自己的命令行开关 */
-  key: string;
-  /** 表单标签 */
-  label: string;
-  /** 一句话说明，展示在控件下方 */
-  hint?: string;
-  /** text = 自由输入；select = 从 choices 里选 */
-  type: "text" | "select";
-  /** type=select 时的候选项 */
-  choices?: readonly string[];
-  /** 缺省值；缺省表示该项默认不传，由 CLI 自己决定 */
-  defaultValue?: string;
-}
-
-/**
  * Agent 标识色槽位。
  *
  * 只声明「用哪个槽位」，具体色值由皮肤层提供（--c-agent-<tone>）。
@@ -79,8 +56,6 @@ export interface AgentManifest {
   /** 标识色槽位 */
   tone?: AgentTone;
   capabilities: AgentCapabilities;
-  /** 运行参数声明；缺省或空数组表示该 Agent 没有可调参数 */
-  options?: readonly AgentOptionField[];
   /** 未安装时展示的安装命令；缺省表示未提供 */
   installCommand?: string;
 }
@@ -147,8 +122,20 @@ export interface AgentSettingsView {
   modelAliases: Record<AgentModelAlias, AgentModelEntry>;
   /** 去重后的模型数量（按基础模型名统计） */
   modelCount: number;
-  /** Claude settings 的 permissions.defaultMode */
+  /**
+   * Claude settings 的 permissions.defaultMode。
+   *
+   * 这是 Nova 会话、工作流节点与终端 claude 共用的唯一权限配置：
+   * Nova 不再显式传 `--permission-mode`，一律由 CLI 读取本机配置。
+   */
   permissionMode: string;
+}
+
+/** 从 Base URL 的 /v1/models 拉取到的模型；value 使用 id */
+export interface AgentModelOption {
+  id: string;
+  /** 服务端返回的展示名；与 id 相同时可忽略 */
+  displayName?: string;
 }
 
 export interface AgentSettingsDraft {

@@ -2,7 +2,7 @@
  * 数字员工编辑器的共用小件
  */
 
-import type { LucideIcon } from "lucide-react";
+import { Plus, Trash2, type LucideIcon } from "lucide-react";
 
 export function Toggle({
   checked,
@@ -35,6 +35,45 @@ export function Toggle({
             : "translate-x-0 bg-text-secondary"
         }`}
       />
+    </button>
+  );
+}
+
+/**
+ * 绑定动作：未绑定显示「添加」，已绑定显示「移除」。
+ * 列表内联操作，避免「先点添加、再进弹窗选择」的二次跳转。
+ */
+export function BindAction({
+  bound,
+  onAdd,
+  onRemove,
+}: {
+  bound: boolean;
+  onAdd: () => void;
+  onRemove: () => void;
+}) {
+  if (!bound) {
+    return (
+      <button
+        type="button"
+        onClick={onAdd}
+        className="ui-btn-primary flex shrink-0 items-center gap-1 rounded-lg px-2.5 py-1.5 text-meta font-medium"
+      >
+        <Plus className="h-3 w-3" />
+        添加
+      </button>
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={onRemove}
+      title="从员工中移除"
+      className="flex shrink-0 items-center gap-1 rounded-lg border border-error/25 bg-error-bg px-2.5 py-1.5 text-meta font-medium text-error transition-colors hover:bg-error/10"
+    >
+      <Trash2 className="h-3 w-3" />
+      移除
     </button>
   );
 }

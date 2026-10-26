@@ -25,6 +25,7 @@ import { SkillsView } from "./components/skills/SkillsView";
 import { McpView } from "./components/mcp/McpView";
 import { KnowledgeView } from "./components/knowledge/KnowledgeView";
 import { WorkflowsView } from "./components/workflows/WorkflowsView";
+import { TriggersView } from "./components/triggers/TriggersView";
 import { SettingsModal } from "./components/SettingsModal";
 import { WorkspacePanel } from "./components/WorkspacePanel";
 import { ErrorBoundary } from "./components/ui/ErrorBoundary";
@@ -68,6 +69,8 @@ export default function App() {
           <KnowledgeView />
         ) : viewMode === "workflow" ? (
           <WorkflowsView />
+        ) : viewMode === "triggers" ? (
+          <TriggersView />
         ) : viewMode === "agents" ? (
           <AgentsView />
         ) : (

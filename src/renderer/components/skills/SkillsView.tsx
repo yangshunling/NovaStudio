@@ -344,11 +344,6 @@ function SkillCard({
       </p>
 
       <div className="mt-auto flex flex-wrap items-center gap-1.5 pt-3">
-        {skill.readOnly && (
-          <Tag icon={Lock} title="来源由其他工具管理，Nova 只能引用">
-            只读
-          </Tag>
-        )}
         {skill.hasScripts && (
           <Tag icon={ShieldAlert} tone="warning" title="技能目录里包含可执行脚本">
             含脚本
@@ -486,7 +481,6 @@ function SkillDrawer({
                 label={SKILL_ORIGIN_LABEL[skill.origin]}
                 className={SKILL_ORIGIN_CLASS[skill.origin]}
               />
-              {skill.readOnly && <Tag icon={Lock}>只读</Tag>}
             </div>
             <div className="truncate text-meta text-text-muted">
               {skill.slug}
@@ -514,8 +508,9 @@ function SkillDrawer({
                   <div>
                     <p>{skill.readOnlyReason}</p>
                     <p className="mt-1 text-text-muted">
-                      你仍然可以在数字员工中绑定它；Nova 会在每次运行时把技能复制到独立的
-                      Agent 配置目录，不会改动原目录。
+                      {skill.origin === "claude-global"
+                        ? "你仍然可以在数字员工中绑定它；Nova 会在每次运行时把技能复制到独立的 Agent 配置目录，不会改动原目录。"
+                        : "共享技能库中的技能不能直接绑定给员工；如需在数字员工中使用，请先导入到 Claude 全局技能库。"}
                     </p>
                   </div>
                 </div>

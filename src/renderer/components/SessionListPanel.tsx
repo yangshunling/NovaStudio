@@ -5,26 +5,22 @@
  * - 不再展示「项目 → 会话」树。项目是会话的可选上下文（工作目录），
  *   在输入框旁按需绑定，而不是浏览会话的前置层级。
  * - 顶部「+」直接进入新会话态；首条消息时才真正落库，避免空会话堆积。
- * - 每一行展示标题与上下文（绑定的项目或使用的 Agent）+ 更新时间；
- *   重命名 / 删除收进右键菜单，运行中单独显示停止按钮。
+ * - 每一行只展示会话标题；重命名 / 删除收进右键菜单，
+ *   运行中在左侧显示旋转的圆圈提示。
  */
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
   Check,
-  Folder,
+  Loader2,
   MessageSquare,
   MessageSquarePlus,
   PenLine,
-  Square,
   Trash2,
 } from "lucide-react";
 import { useChatStore } from "../stores/chat";
-import { getAgentName, timeAgo } from "../lib/utils";
-import type { AgentInfo } from "@shared/contracts/agent";
-import type { Project, Session } from "@shared/types";
-import { StatusDot } from "./ui/StatusDot";
+import type { Session } from "@shared/types";
 
 /** 右键菜单尺寸：用于贴近视口边缘时收拢位置 */
 const MENU_WIDTH = 176;
@@ -32,8 +28,6 @@ const MENU_HEIGHT = 88;
 
 export function SessionListPanel() {
   const sessions = useChatStore((s) => s.sessions);
-  const projects = useChatStore((s) => s.projects);
-  const agents = useChatStore((s) => s.agents);
   const currentSessionId = useChatStore((s) => s.currentSessionId);
   const streamingBySession = useChatStore((s) => s.streamingBySession);
   // 逐项订阅 action：避免无 selector 的 useChatStore() 让整个面板
@@ -42,14 +36,6 @@ export function SessionListPanel() {
   const deleteSession = useChatStore((s) => s.deleteSession);
   const renameSession = useChatStore((s) => s.renameSession);
   const newSession = useChatStore((s) => s.newSession);
-  const abort = useChatStore((s) => s.abort);
-
-  /** 会话 → 绑定的项目；解绑后为 undefined */
-  const projectById = useMemo(() => {
-    const map = new Map<string, Project>();
-    for (const project of projects) map.set(project.id, project);
-    return map;
-  }, [projects]);
 
   return (
     <aside className="flex w-[var(--c-layout-session-list)] shrink-0 flex-col border-r border-border bg-[var(--c-panel-bg)]">
@@ -98,17 +84,10 @@ export function SessionListPanel() {
               <SessionRow
                 key={session.id}
                 session={session}
-                project={
-                  session.projectId
-                    ? projectById.get(session.projectId)
-                    : undefined
-                }
                 isActive={session.id === currentSessionId}
                 isStreaming={!!streamingBySession[session.id]}
-                agents={agents}
                 onOpen={() => selectSession(session.id)}
                 onDelete={() => deleteSession(session.id)}
-                onAbort={() => abort(session.id)}
                 onRename={(title) => renameSession(session.id, title)}
               />
             ))}
@@ -120,28 +99,22 @@ export function SessionListPanel() {
 }
 
 // ============================================================================
-// 会话行：标题 + 上下文（项目 / Agent）+ 时间
+// 会话行：仅展示标题
 // ============================================================================
 
 function SessionRow({
   session,
-  project,
   isActive,
   isStreaming,
-  agents,
   onOpen,
   onDelete,
-  onAbort,
   onRename,
 }: {
   session: Session;
-  project?: Project;
   isActive: boolean;
   isStreaming: boolean;
-  agents: AgentInfo[];
   onOpen: () => void;
   onDelete: () => void;
-  onAbort: () => void;
   onRename: (title: string) => void;
 }) {
   const [editing, setEditing] = useState(false);
@@ -208,7 +181,7 @@ function SessionRow({
   if (editing) {
     return (
       <div
-        className={`group flex items-center gap-2 rounded-lg px-2.5 py-1.5 ${
+        className={`group flex items-center gap-2 rounded-lg px-2.5 py-2.5 ${
           isActive ? "bg-surface-active" : ""
         }`}
       >
@@ -234,11 +207,6 @@ function SessionRow({
     );
   }
 
-  // 项目绑定后副标题展示项目名，否则展示实际执行该会话的 Agent。
-  // 两者都比「无信息的空白行」更有用，且不额外占用高度。
-  const contextLabel = project ? project.name : getAgentName(agents, session.agentId);
-  const contextTitle = project ? project.cwd : "未绑定项目";
-
   return (
     <div
       role="button"
@@ -251,16 +219,19 @@ function SessionRow({
           onOpen();
         }
       }}
-      className={`relative cursor-pointer select-none rounded-lg px-2.5 py-1.5 transition-colors ${
+      className={`cursor-pointer select-none rounded-lg px-2.5 py-2.5 transition-colors ${
         isActive
           ? "bg-surface-active text-text"
           : "text-text-secondary hover:bg-surface-hover/70 hover:text-text"
       }`}
     >
-      <div className="flex items-start gap-2">
-        <span className="mt-[5px] flex h-2.5 w-2.5 shrink-0 items-center justify-center">
+      <div className="flex items-center gap-2">
+        <span className="flex h-3.5 w-3.5 shrink-0 items-center justify-center">
           {isStreaming ? (
-            <StatusDot status="streaming" />
+            <Loader2
+              aria-label="正在执行"
+              className="h-3.5 w-3.5 animate-spin text-accent"
+            />
           ) : (
             <span
               aria-hidden
@@ -271,44 +242,14 @@ function SessionRow({
           )}
         </span>
 
-        <div className={`min-w-0 flex-1 ${isStreaming ? "pr-7" : ""}`}>
-          <div
-            className={`truncate text-body leading-5 ${isActive ? "font-medium" : ""}`}
-          >
-            {session.title}
-          </div>
-          <div
-            title={contextTitle}
-            className="mt-0.5 flex items-center gap-1 truncate text-caption text-text-muted"
-          >
-            {project ? (
-              <Folder className="h-3 w-3 shrink-0" />
-            ) : (
-              <span
-                aria-hidden
-                className="size-1.5 shrink-0 rounded-full bg-border-strong/80"
-              />
-            )}
-            <span className="truncate">{contextLabel}</span>
-            <span className="shrink-0 opacity-50">·</span>
-            <span className="shrink-0">{timeAgo(session.updatedAt)}</span>
-          </div>
+        <div
+          className={`min-w-0 flex-1 truncate text-body leading-5 ${
+            isActive ? "font-medium" : ""
+          }`}
+        >
+          {session.title}
         </div>
       </div>
-
-      {/* 运行中的停止按钮：属于即时操作，不放进右键菜单 */}
-      {isStreaming && (
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            onAbort();
-          }}
-          title="停止运行"
-          className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded-md p-1 text-text-muted transition-colors hover:bg-error-bg hover:text-error"
-        >
-          <Square className="h-4 w-4" />
-        </button>
-      )}
 
       {/* 重命名 / 删除统一收进右键菜单，保持列表清爽 */}
       {menu &&

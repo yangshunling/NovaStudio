@@ -18,13 +18,7 @@ import { ipc } from "../lib/ipc";
 import { newId } from "../lib/utils";
 import { appendEvent } from "@shared/merge";
 import type { AgentInfo } from "@shared/contracts/agent";
-import type {
-  AgentEvent,
-  Message,
-  Project,
-  Session,
-  SessionOptions,
-} from "@shared/types";
+import type { AgentEvent, Message, Project, Session } from "@shared/types";
 
 /** 主视图标识：state 与 setter 共用，避免联合类型各写一份 */
 export type ViewMode =
@@ -32,6 +26,7 @@ export type ViewMode =
   | "automation"
   | "employees"
   | "workflow"
+  | "triggers"
   | "skills"
   | "mcp"
   | "knowledge"
@@ -54,11 +49,6 @@ interface ChatState {
   loadingHistoryFor: string | null;
   /** 当前选中的 Agent；空字符串表示尚未确定 */
   selectedAgentId: string;
-  /**
-   * 每个 Agent 的运行时参数取值（键来自该 Agent 的 manifest.options）。
-   * 宿主不理解键值含义，只负责按声明存取并原样回传。
-   */
-  optionValuesByAgent: Record<string, Record<string, string>>;
   /** 视图模式：会话 / 任务中心 / 数字员工 / 工作流 */
   viewMode: ViewMode;
   /** 设置弹框是否展开 */
@@ -84,8 +74,6 @@ interface ChatState {
   // Agent
   detectAgents: () => Promise<void>;
   selectAgent: (id: string) => void;
-  setAgentOption: (agentId: string, key: string, value: string) => void;
-  clearAgentOptions: (agentId: string) => void;
 
   // 对话
   sendMessage: (prompt: string) => Promise<void>;
@@ -113,7 +101,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
   streamingBySession: {},
   loadingHistoryFor: null,
   selectedAgentId: "",
-  optionValuesByAgent: {},
   viewMode: "chat",
   showSettings: false,
   showWorkspace: false,
@@ -304,23 +291,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
     void ipc.setSettings({ defaultAgent: id });
   },
 
-  setAgentOption: (agentId, key, value) => {
-    set((s) => ({
-      optionValuesByAgent: {
-        ...s.optionValuesByAgent,
-        [agentId]: { ...s.optionValuesByAgent[agentId], [key]: value },
-      },
-    }));
-  },
-
-  clearAgentOptions: (agentId) => {
-    set((s) => {
-      const next = { ...s.optionValuesByAgent };
-      delete next[agentId];
-      return { optionValuesByAgent: next };
-    });
-  },
-
   // ==========================================================================
   // 对话
   // ==========================================================================
@@ -373,9 +343,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }));
 
     try {
-      // 运行参数：键由该 Agent 的 manifest.options 声明，宿主只负责原样透传
-      const opts: SessionOptions = get().optionValuesByAgent[agentId] ?? {};
-      const result = await ipc.sendAgent(sessionId, prompt, opts);
+      // 运行方式完全由 Agent 平台的本机配置决定，会话不再单独传运行参数
+      const result = await ipc.sendAgent(sessionId, prompt);
       if (!result.ok) throw new Error(result.error);
       // done 事件会复位 streaming；此处不提前复位，避免中间闪烁
     } catch (err) {
@@ -478,7 +447,7 @@ export function selectCurrentStreaming(s: ChatState): boolean {
 /**
  * 选择器：当前生效的 Agent id。
  * 已有会话时以会话记录的 Agent 为准（会话可能由自动化创建，未必等于当前选中项），
- * 否则用当前选中的 Agent。运行参数与发送目标都以此为准。
+ * 否则用当前选中的 Agent。发送目标以此为准。
  */
 export function selectEffectiveAgentId(s: ChatState): string {
   if (s.currentSessionId) {

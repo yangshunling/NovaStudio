@@ -7,7 +7,7 @@
 
 import { shell } from "electron";
 import { readFile, readdir, stat } from "fs/promises";
-import { join } from "path";
+import { join, resolve, sep } from "path";
 import * as db from "../../db/sqlite";
 import type { WorkflowArtifactFile } from "../../../shared/types";
 import type { WorkflowRunner } from "../../workflow/runner";
@@ -99,12 +99,8 @@ export function registerWorkflowRunHandlers(runner: WorkflowRunner): void {
 
     const dir = nodeRun.artifactDir;
     return {
-      input: await readTextFile(nodeRun.inputPath),
-      systemPrompt: dir ? await readTextFile(join(dir, "system-prompt.md")) : "",
-      output: await readTextFile(nodeRun.outputPath),
-      handoff: await readTextFile(nodeRun.handoffPath),
-      options: dir ? await readTextFile(join(dir, "agent-options.json")) : "",
-      warnings: dir ? await readTextFile(join(dir, "warnings.txt")) : "",
+      request: await readTextFile(nodeRun.inputPath),
+      result: await readTextFile(nodeRun.outputPath),
       files: dir ? await listArtifactFiles(dir) : [],
     };
   });
@@ -115,4 +111,20 @@ export function registerWorkflowRunHandlers(runner: WorkflowRunner): void {
     const error = await shell.openPath(nodeRun.artifactDir);
     return !error;
   });
+
+  /** 打开节点产物目录里的单个文件；拒绝跳出产物目录的路径 */
+  handle(
+    "workflow:run:openNodeFile",
+    async ({ runId, nodeRunId, relativePath }) => {
+      const nodeRun = db.getWorkflowNodeRun(nodeRunId);
+      if (!nodeRun || nodeRun.runId !== runId || !nodeRun.artifactDir) {
+        return false;
+      }
+      const root = resolve(nodeRun.artifactDir);
+      const target = resolve(root, relativePath);
+      if (target !== root && !target.startsWith(`${root}${sep}`)) return false;
+      const error = await shell.openPath(target);
+      return !error;
+    },
+  );
 }

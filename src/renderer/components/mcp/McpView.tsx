@@ -368,11 +368,6 @@ function McpCard({
         <span className={`rounded-full px-2 py-0.5 text-meta ${MCP_TRANSPORT_CLASS[server.transport]}`}>
           {MCP_TRANSPORT_LABEL[server.transport]}
         </span>
-        {server.readOnly && (
-          <Tag icon={Lock} title={server.readOnlyReason ?? "只读来源"}>
-            只读
-          </Tag>
-        )}
         {server.hasSecrets && (
           <Tag icon={KeyRound} tone="warning" title="env / headers 中存在字面量密钥">
             含密钥
@@ -504,7 +499,6 @@ function McpDrawer({
                   {MCP_TRANSPORT_LABEL[server.transport]}
                 </span>
               )}
-              {readOnly && <Tag icon={Lock}>只读</Tag>}
             </div>
             <div className="truncate text-meta text-text-muted">{fileName}</div>
           </div>

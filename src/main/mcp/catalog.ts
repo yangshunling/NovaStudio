@@ -6,14 +6,14 @@
  * - Nova 新增 / 修改 / 删除都直接读写这份配置；
  * - Claude Code 终端和 Nova 共用同一套 MCP；
  * - `~/.claude.json` 里已经存在的条目（不是 Nova 创建的）保持只读；
- * - 项目级 local scope 与项目 `.mcp.json` 只做只读发现。
+ * - 只扫描用户级顶层 `mcpServers`；项目级 local scope 与项目 `.mcp.json`
+ *   属于具体工作区，不纳入 Nova 的 MCP 库。
  *
  * `managed_assets` 表只记录哪些条目是 Nova 创建的，用于区分可编辑/只读。
  */
 
 import { existsSync } from "fs";
 import { readFile, stat } from "fs/promises";
-import { join } from "path";
 import {
   formatKeyValue,
   parseKeyValueLines,
@@ -33,9 +33,6 @@ import {
   readClaudeMcpServers,
   writeClaudeMcpServers,
 } from "../agents/claude/config";
-
-/** Claude 用户配置（包含全局 mcpServers） */
-const CLAUDE_CONFIG_PATH = claudeUserConfigPath();
 
 /** 单文件 / 配置读取上限，防止异常文件拖垮主进程 */
 const MAX_JSON_BYTES = 5_000_000;
@@ -207,7 +204,7 @@ function toAsset(
     managedByNova: input.managedByNova,
     readOnly,
     readOnlyReason: readOnly
-      ? "该服务由 Claude Code 配置直接提供（或来自项目配置），Nova 只读；如需修改请直接操作对应配置文件。"
+      ? "该服务由 Claude Code 全局配置直接提供，Nova 只读；如需修改请直接操作 ~/.claude.json。"
       : null,
     hasSecrets: hasLiteralSecrets(parsed.env, parsed.headers),
     valid: problems.length === 0,
@@ -246,77 +243,32 @@ function serversFromConfig(
 }
 
 /**
- * 扫描 Claude 的 MCP 配置，共三类：
- * - 用户级：~/.claude.json 顶层 mcpServers（Nova 可写；仅 Nova 创建的条目可编辑）
- * - 项目 local scope：~/.claude.json 的 projects[<dir>].mcpServers（只读）
- * - 项目级文件：<dir>/.mcp.json（只读）
+ * 扫描 Claude 用户级 MCP 配置：只读取 `~/.claude.json` 顶层的 mcpServers。
  *
- * projects 的目录列表同样来自 ~/.claude.json，避免全盘扫描。
+ * 项目级 local scope（projects[<dir>].mcpServers）与项目 `.mcp.json` 属于
+ * 具体工作区，不纳入 Nova 的全局 MCP 库。
  */
 async function scanClaudeConfigs(): Promise<McpServerAsset[]> {
-  if (!existsSync(CLAUDE_CONFIG_PATH)) return [];
+  const configPath = claudeUserConfigPath();
+  if (!existsSync(configPath)) return [];
 
   let info;
   let data: unknown;
   try {
-    info = await stat(CLAUDE_CONFIG_PATH);
+    info = await stat(configPath);
     if (info.size > MAX_JSON_BYTES) return [];
-    data = JSON.parse(await readFile(CLAUDE_CONFIG_PATH, "utf8"));
+    data = JSON.parse(await readFile(configPath, "utf8"));
   } catch {
     return [];
   }
 
   const managedKeys = new Set(db.listManagedAssetKeys("mcp"));
-  const result = serversFromConfig(data, {
+  return serversFromConfig(data, {
     idPrefix: "claude-global",
-    path: CLAUDE_CONFIG_PATH,
+    path: configPath,
     updatedAt: info.mtimeMs,
     managedByNova: (name) => managedKeys.has(name),
   });
-
-  const projects =
-    data && typeof data === "object"
-      ? (data as { projects?: unknown }).projects
-      : null;
-  if (!projects || typeof projects !== "object" || Array.isArray(projects)) {
-    return result;
-  }
-
-  for (const [projectDir, projectConfig] of Object.entries(
-    projects as Record<string, unknown>,
-  )) {
-    // local scope：直接存在 ~/.claude.json 的项目条目里
-    result.push(
-      ...serversFromConfig(projectConfig, {
-        idPrefix: `claude-global:local:${projectDir}`,
-        path: CLAUDE_CONFIG_PATH,
-        updatedAt: info.mtimeMs,
-        managedByNova: () => false,
-      }),
-    );
-
-    // project scope：<项目>/.mcp.json
-    const filePath = join(projectDir, ".mcp.json");
-    if (!existsSync(filePath)) continue;
-
-    try {
-      const fileInfo = await stat(filePath);
-      if (fileInfo.size > MAX_JSON_BYTES) continue;
-      const fileData = JSON.parse(await readFile(filePath, "utf8"));
-      result.push(
-        ...serversFromConfig(fileData, {
-          idPrefix: `claude-global:file:${projectDir}`,
-          path: filePath,
-          updatedAt: fileInfo.mtimeMs,
-          managedByNova: () => false,
-        }),
-      );
-    } catch {
-      // 单个项目配置损坏不影响其它来源
-    }
-  }
-
-  return result;
 }
 
 /** 聚合扫描，按名称排序 */
@@ -430,7 +382,7 @@ async function saveWithCatalog(
     asset: toAsset(parsed, {
       id: `claude-global:${parsed.name}`,
       slug: parsed.name,
-      path: CLAUDE_CONFIG_PATH,
+      path: claudeUserConfigPath(),
       managedByNova: true,
       updatedAt: Date.now(),
     }),

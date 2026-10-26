@@ -12,6 +12,10 @@ import {
   type WorkflowRunner,
 } from "../workflow/runner";
 import { createScheduler, type AutomationScheduler } from "../automation/scheduler";
+import {
+  createTriggerScheduler,
+  type TriggerScheduler,
+} from "../workflow/trigger-scheduler";
 import { push, setMainWindow } from "./push";
 import { registerAgentHandlers } from "./handlers/agent";
 import { registerSessionHandlers } from "./handlers/session";
@@ -27,12 +31,16 @@ import { registerSkillHandlers } from "./handlers/skill";
 import { registerKnowledgeHandlers } from "./handlers/knowledge";
 import { registerWorkflowHandlers } from "./handlers/workflow";
 import { registerWorkflowRunHandlers } from "./handlers/workflow-run";
+import { registerTriggerHandlers } from "./handlers/trigger";
 
 /** 自动化轮询器实例；由本层（装配层）持有其生命周期 */
 let scheduler: AutomationScheduler | null = null;
 
 /** 工作流运行器；应用退出时需要中断运行中的节点 */
 let workflowRunner: WorkflowRunner | null = null;
+
+/** 定时触发器调度器 */
+let triggerScheduler: TriggerScheduler | null = null;
 
 /**
  * 注册全部 IPC 处理器。
@@ -65,11 +73,19 @@ export function initIpcHandlers(window: BrowserWindow): void {
   registerKnowledgeHandlers();
   registerWorkflowHandlers(service, runner);
   registerWorkflowRunHandlers(runner);
+  registerTriggerHandlers();
 
   // 调度器先于 handler 创建：停止任务的 handler 需要拿到调度器实例
   scheduler = createScheduler(service);
   registerAutomationHandlers(service, scheduler);
   scheduler.start();
+
+  // 触发器调度器依赖工作流运行器；启动时会把下次触发时间重算到未来
+  triggerScheduler = createTriggerScheduler({
+    runner,
+    emit: (trigger) => push("triggers:updated", trigger),
+  });
+  triggerScheduler.start();
 }
 
 /** 停止后台任务（应用退出时调用，避免遗留定时器） */
@@ -82,4 +98,10 @@ export function stopAutomation(): void {
 export function stopWorkflows(): void {
   workflowRunner?.shutdown();
   workflowRunner = null;
+}
+
+/** 停止触发器轮询（应用退出时调用） */
+export function stopTriggers(): void {
+  triggerScheduler?.stop();
+  triggerScheduler = null;
 }

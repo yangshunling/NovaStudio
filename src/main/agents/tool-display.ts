@@ -37,8 +37,8 @@ const KIND_BY_NAME: Record<string, ToolKind> = {
 /**
  * 不进消息流的工具名。
  *
- * shell 执行类：这两个 CLI 都会把命令的完整输出回吐（pi 还会额外回放
- * bashExecution 条目），逐条展示会淹没正文，因此约定不展示。
+ * shell 执行类：CLI 会把命令的完整输出回吐，逐条展示会淹没正文，
+ * 因此约定不展示。
  * 按名字而非分类匹配 —— 避免把未来某个叫法不同的 exec 类工具一并静默掉。
  */
 const SILENT_TOOLS: ReadonlySet<string> = new Set(["bash", "shell", "sh"]);

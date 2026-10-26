@@ -1,16 +1,17 @@
 /**
  * 左侧导航栏 — 品牌 / 功能入口 / 设置
  *
- * 项目与会话列表已迁到「新建会话」页面（SessionListPanel），
- * 这里只保留全局功能入口。
+ * 项目与会话列表已迁到「会话」页面（SessionListPanel），
+ * 这里只保留全局功能入口；新建会话在会话列表右上角。
  */
 
 import { useChatStore } from "../stores/chat";
 import {
+  AlarmClock,
   Bot,
   ChevronRight,
   Library,
-  MessageSquarePlus,
+  MessageSquare,
   Plug,
   Settings,
   Sparkles,
@@ -27,7 +28,6 @@ const FONT_BODY = "text-body-lg";
 export function Sidebar() {
   const viewMode = useChatStore((s) => s.viewMode);
   const setViewMode = useChatStore((s) => s.setViewMode);
-  const newSession = useChatStore((s) => s.newSession);
   const setShowSettings = useChatStore((s) => s.setShowSettings);
   const showSettings = useChatStore((s) => s.showSettings);
 
@@ -65,14 +65,11 @@ export function Sidebar() {
       <div className="space-y-1 px-2.5 pb-2">
         <button
           type="button"
-          onClick={() => {
-            newSession();
-            setViewMode("chat");
-          }}
+          onClick={() => setViewMode("chat")}
           className={itemClass(viewMode === "chat")}
         >
-          <MessageSquarePlus className="h-4 w-4 shrink-0" />
-          新建会话
+          <MessageSquare className="h-4 w-4 shrink-0" />
+          会话
         </button>
         <button
           type="button"
@@ -89,6 +86,14 @@ export function Sidebar() {
         >
           <Waypoints className="h-4 w-4 shrink-0" />
           工作流
+        </button>
+        <button
+          type="button"
+          onClick={() => setViewMode("triggers")}
+          className={itemClass(viewMode === "triggers")}
+        >
+          <AlarmClock className="h-4 w-4 shrink-0" />
+          触发器
         </button>
         <button
           type="button"

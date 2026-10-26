@@ -1,20 +1,18 @@
 /**
  * Agent 平台 — Agent 本机配置的统一入口
  *
- * 当前由 Claude Code 支持完整编辑：
- * - 显示 Base URL / API Key / 默认模型 / 模型别名 / 默认权限档位
+ * 当前只支持 Claude Code：
+ * - 显示 Base URL / API Key / 默认模型 / 模型别名 / 默认权限
  * - 修改直接写回 ~/.claude/settings.json，Claude CLI 与 Nova 共用同一份配置
- *
- * 其他 Agent 复用各自本机配置，这里展示安装状态与配置路径。
+ * - 未安装时展示安装命令与检测入口
  */
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import type { LucideIcon } from "lucide-react";
 import {
   AlertCircle,
   Bot,
-  CheckCircle2,
   Copy,
   Eye,
   EyeOff,
@@ -26,18 +24,19 @@ import {
   ShieldCheck,
   Sparkles,
   Terminal,
-  XCircle,
 } from "lucide-react";
 import type {
   AgentInfo,
   AgentModelAlias,
   AgentModelEntry,
+  AgentModelOption,
   AgentSettingsDraft,
   AgentSettingsView,
 } from "@shared/contracts/agent";
 import { ipc } from "../../lib/ipc";
 import { useChatStore } from "../../stores/chat";
 import { toast } from "../../stores/toast";
+import { Combobox } from "../ui/Combobox";
 import { Field, FORM_INPUT_CLASS } from "../ui/Field";
 import { Select } from "../ui/Select";
 
@@ -57,13 +56,30 @@ const MODEL_ALIASES: ReadonlyArray<{
   { key: "haiku", label: "Haiku", hint: "ANTHROPIC_DEFAULT_HAIKU_MODEL" },
 ];
 
+/** 上下文后缀候选；当前配置中的特殊值会自动追加 */
+const CONTEXT_OPTIONS = [
+  { value: "", label: "默认" },
+  { value: "200K", label: "200K" },
+  { value: "1M", label: "1M" },
+];
+
+/** 当前值不在预设内时补进候选项，避免打开下拉时显示为空 */
+function contextOptions(current: string) {
+  const value = current.trim();
+  if (!value || CONTEXT_OPTIONS.some((option) => option.value === value)) {
+    return CONTEXT_OPTIONS;
+  }
+  return [...CONTEXT_OPTIONS, { value, label: value }];
+}
+
+/** Claude Code 标准权限模式；label 直接使用官方模式名，避免意译造成的歧义 */
 const PERMISSION_OPTIONS = [
-  { value: "default", label: "默认（每次询问）" },
-  { value: "auto", label: "自动分类放行" },
-  { value: "acceptEdits", label: "自动接受编辑" },
-  { value: "plan", label: "只读规划" },
-  { value: "dontAsk", label: "未预授权即拒绝" },
-  { value: "bypassPermissions", label: "完全放行" },
+  { value: "default", label: "default" },
+  { value: "auto", label: "auto" },
+  { value: "acceptEdits", label: "acceptEdits" },
+  { value: "plan", label: "plan" },
+  { value: "dontAsk", label: "dontAsk" },
+  { value: "bypassPermissions", label: "bypassPermissions" },
 ];
 
 interface FormState {
@@ -103,6 +119,34 @@ export function AgentsView() {
   const [saving, setSaving] = useState(false);
   const [opening, setOpening] = useState(false);
   const [showKey, setShowKey] = useState(false);
+  const [remoteModels, setRemoteModels] = useState<AgentModelOption[]>([]);
+  const [modelsLoading, setModelsLoading] = useState(false);
+  const [modelsError, setModelsError] = useState<string | null>(null);
+  /** 只接受最后一次请求的结果，避免旧响应覆盖新列表 */
+  const modelRequestRef = useRef(0);
+
+  /** 按当前 Base URL / API Key 重新拉取模型列表 */
+  const refreshModelList = useCallback(async () => {
+    if (!form) return;
+    const requestId = ++modelRequestRef.current;
+    setModelsLoading(true);
+    setModelsError(null);
+    try {
+      const models = await ipc.listAgentModels({
+        agentId: CLAUDE_ID,
+        baseUrl: form.baseUrl,
+        apiKey: form.apiKey,
+      });
+      if (requestId !== modelRequestRef.current) return;
+      setRemoteModels(models);
+    } catch (err) {
+      if (requestId !== modelRequestRef.current) return;
+      setRemoteModels([]);
+      setModelsError(messageOf(err));
+    } finally {
+      if (requestId === modelRequestRef.current) setModelsLoading(false);
+    }
+  }, [form?.baseUrl, form?.apiKey]);
 
   useEffect(() => {
     if (selectedId || agents.length === 0) return;
@@ -150,6 +194,14 @@ export function AgentsView() {
     };
   }, [selected?.id]);
 
+  // 配置加载 / 保存完成后自动拉取一次；之后每次展开下拉时按最新输入刷新
+  useEffect(() => {
+    if (!settings || !form) return;
+    void refreshModelList();
+    // refreshModelList 依赖实时表单值，这里只在配置整体变化时触发
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [settings]);
+
   const dirty = useMemo(() => {
     if (!settings || !form) return false;
     return (
@@ -176,6 +228,36 @@ export function AgentsView() {
     ).size;
   }, [form]);
 
+  const modelNameOptions = useMemo(() => {
+    // 远端列表优先；当前配置里已有但远端未返回的模型名也要保留，
+    // 否则打开下拉时看不到当前值。
+    const options = new Map<string, string>();
+    for (const model of remoteModels) {
+      options.set(
+        model.id,
+        model.displayName && model.displayName !== model.id
+          ? `${model.displayName} (${model.id})`
+          : model.id,
+      );
+    }
+    if (settings) {
+      for (const entry of [
+        settings.defaultModel,
+        ...MODEL_ALIASES.map(({ key }) => settings.modelAliases[key]),
+      ]) {
+        const name = entry.name.trim();
+        if (name && !options.has(name)) options.set(name, name);
+      }
+    }
+    return Array.from(options, ([value, label]) => ({ value, label }));
+  }, [remoteModels, settings]);
+
+  const modelListHint = modelsLoading
+    ? "正在按当前 Base URL 与 API Key 获取模型列表…"
+    : modelsError
+      ? `模型列表获取失败：${modelsError}`
+      : "模型列表按当前 Base URL 与 API Key 动态获取；也可直接输入自定义模型名。";
+
   const permissionOptions = useMemo(() => {
     if (!form) return PERMISSION_OPTIONS;
     return PERMISSION_OPTIONS.some((option) => option.value === form.permissionMode)
@@ -183,7 +265,7 @@ export function AgentsView() {
       : [
           {
             value: form.permissionMode,
-            label: `${form.permissionMode}（当前）`,
+            label: `${form.permissionMode} (current)`,
           },
           ...PERMISSION_OPTIONS,
         ];
@@ -330,7 +412,7 @@ export function AgentsView() {
             </div>
             {agents.length === 0 ? (
               <p className="px-1 py-3 text-caption leading-relaxed text-text-muted">
-                尚未检测到任何 Agent。请先安装 Claude Code、Codex、OpenCode 或 Pi。
+                尚未检测到 Claude Code。请先安装 Claude Code。
               </p>
             ) : (
               agents.map((agent) => (
@@ -345,7 +427,7 @@ export function AgentsView() {
 
             <div className="mt-4 rounded-lg border border-border bg-surface-2/50 p-3 text-caption leading-relaxed text-text-muted">
               <p className="mb-1 font-medium text-text-secondary">共享配置</p>
-              Nova 直接编辑各 Agent 的本机配置：Claude 写入{" "}
+              Nova 直接编辑 Claude Code 的本机配置：写入{" "}
               <code className="font-mono">~/.claude/settings.json</code>，
               MCP 写入 <code className="font-mono">~/.claude.json</code>，
               Skill 写入 <code className="font-mono">~/.claude/skills</code>。
@@ -358,15 +440,6 @@ export function AgentsView() {
               <div className="mx-auto max-w-3xl space-y-4 pb-6">
                 {!selected ? (
                   <EmptyAgent />
-                ) : selected.id !== CLAUDE_ID ? (
-                  <OtherAgentPanel
-                    agent={selected}
-                    opening={opening}
-                    detecting={detecting}
-                    onOpenConfig={handleOpenConfig}
-                    onCopyInstall={handleCopyInstall}
-                    onDetect={refreshAgents}
-                  />
                 ) : loading ? (
                   <div className="flex h-60 items-center justify-center gap-2 text-body text-text-muted">
                     <Loader2 className="h-4 w-4 animate-spin" />
@@ -456,28 +529,27 @@ export function AgentsView() {
 
                         <Field
                           label="默认模型"
-                          hint="写入 ANTHROPIC_MODEL；模型名与上下文分开填写，上下文会以 [1M] 形式追加到模型 ID。"
+                          hint={`写入 ANTHROPIC_MODEL；${modelListHint}`}
                         >
                           <div className="flex items-center gap-2">
-                            <input
+                            <Combobox
                               value={form.defaultModel.name}
-                              onChange={(event) =>
-                                patchDefaultModel({ name: event.target.value })
-                              }
-                              placeholder="模型名，如 deepseek-flash"
-                              spellCheck={false}
-                              className={`${SPLIT_INPUT_CLASS} min-w-0 flex-1`}
+                              onChange={(name) => patchDefaultModel({ name })}
+                              options={modelNameOptions}
+                              onOpen={refreshModelList}
+                              placeholder="选择或输入模型名"
+                              aria-label="默认模型名称"
+                              className="min-w-0 flex-1"
                             />
-                            <input
+                            <Select
                               value={form.defaultModel.context}
-                              onChange={(event) =>
-                                patchDefaultModel({
-                                  context: event.target.value,
-                                })
+                              onChange={(context) =>
+                                patchDefaultModel({ context })
                               }
-                              placeholder="上下文，如 1M"
-                              spellCheck={false}
+                              options={contextOptions(form.defaultModel.context)}
+                              aria-label="默认模型上下文"
                               className={`${SPLIT_INPUT_CLASS} w-28 shrink-0`}
+                              minMenuWidth={120}
                             />
                           </div>
                         </Field>
@@ -486,7 +558,7 @@ export function AgentsView() {
 
                     <SectionCard
                       title="模型配置"
-                      description="模型名与上下文分开填写；上下文（如 1M）会以 [1M] 形式追加到模型 ID。"
+                      description="模型名与上下文分列选择；上下文（如 1M）会以 [1M] 形式追加到模型 ID。"
                       icon={Sparkles}
                       action={
                         <span
@@ -506,27 +578,28 @@ export function AgentsView() {
                               hint={`${alias.hint} · 模型名 / 上下文`}
                             >
                               <div className="flex items-center gap-2">
-                                <input
+                                <Combobox
                                   value={form.modelAliases[alias.key].name}
-                                  onChange={(event) =>
-                                    patchAlias(alias.key, {
-                                      name: event.target.value,
-                                    })
+                                  onChange={(name) =>
+                                    patchAlias(alias.key, { name })
                                   }
+                                  options={modelNameOptions}
+                                  onOpen={refreshModelList}
                                   placeholder="模型名"
-                                  spellCheck={false}
-                                  className={`${SPLIT_INPUT_CLASS} min-w-0 flex-1`}
+                                  aria-label={`${alias.label} 模型名称`}
+                                  className="min-w-0 flex-1"
                                 />
-                                <input
+                                <Select
                                   value={form.modelAliases[alias.key].context}
-                                  onChange={(event) =>
-                                    patchAlias(alias.key, {
-                                      context: event.target.value,
-                                    })
+                                  onChange={(context) =>
+                                    patchAlias(alias.key, { context })
                                   }
-                                  placeholder="上下文"
-                                  spellCheck={false}
+                                  options={contextOptions(
+                                    form.modelAliases[alias.key].context,
+                                  )}
+                                  aria-label={`${alias.label} 上下文`}
                                   className={`${SPLIT_INPUT_CLASS} w-24 shrink-0`}
+                                  minMenuWidth={120}
                                 />
                               </div>
                             </Field>
@@ -542,8 +615,8 @@ export function AgentsView() {
                     </SectionCard>
 
                     <SectionCard
-                      title="默认权限档位"
-                      description="写入 settings.json 的 permissions.defaultMode；未在运行参数中显式指定时使用。"
+                      title="默认权限"
+                      description="写入 settings.json 的 permissions.defaultMode；终端 claude、Nova 会话与工作流节点统一按此配置运行。无人值守运行建议使用 bypassPermissions。"
                       icon={ShieldCheck}
                     >
                       <Field label="权限模式">
@@ -736,96 +809,6 @@ function InstallCard({
   );
 }
 
-function OtherAgentPanel({
-  agent,
-  opening,
-  detecting,
-  onOpenConfig,
-  onCopyInstall,
-  onDetect,
-}: {
-  agent: AgentInfo;
-  opening: boolean;
-  detecting: boolean;
-  onOpenConfig: () => void;
-  onCopyInstall: () => void;
-  onDetect: () => void;
-}) {
-  return (
-    <div className="space-y-4">
-      {!agent.status.installed && (
-        <InstallCard
-          agent={agent}
-          onCopy={onCopyInstall}
-          onDetect={onDetect}
-          detecting={detecting}
-        />
-      )}
-      <section className="rounded-xl border border-border bg-surface-2/60 p-card">
-        <div className="flex items-start justify-between gap-3">
-          <div className="flex min-w-0 items-center gap-3">
-            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-accent-soft text-accent">
-              <Bot className="h-5 w-5" />
-            </span>
-            <div className="min-w-0">
-              <h2 className="truncate text-title font-semibold text-text">
-                {agent.displayName}
-              </h2>
-              <p className="mt-0.5 text-meta text-text-muted">
-                {agent.status.installed
-                  ? `已安装${agent.status.version ? ` · ${agent.status.version}` : ""}`
-                  : "未安装"}
-              </p>
-            </div>
-          </div>
-          <StatusBadge installed={agent.status.installed} />
-        </div>
-
-        <div className="mt-4 space-y-3">
-          <div>
-            <p className="mb-1.5 text-meta font-medium text-text-secondary">
-              本机配置目录
-            </p>
-            <div className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-input-bg px-inset py-2 text-caption text-text-muted">
-              <FolderOpen className="h-3.5 w-3.5 shrink-0" />
-              <span
-                title={agent.configPath ?? undefined}
-                className="min-w-0 flex-1 break-all font-mono text-[11px] leading-relaxed"
-              >
-                {agent.configPath ?? "由该 Agent 自行管理，没有固定路径"}
-              </span>
-              <button
-                type="button"
-                onClick={onOpenConfig}
-                disabled={!agent.configPath || opening}
-                className="flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-meta text-accent transition-colors hover:bg-accent-soft disabled:cursor-not-allowed disabled:opacity-40"
-              >
-                {opening ? (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                ) : (
-                  <FolderOpen className="h-3.5 w-3.5" />
-                )}
-                打开所在目录
-              </button>
-            </div>
-            <p className="mt-1 text-caption leading-relaxed text-text-muted">
-              {agent.configNote ?? "Nova 直接复用该 Agent 的本机配置。"}
-            </p>
-          </div>
-
-          <div className="flex items-start gap-2 rounded-lg bg-surface-hover/50 px-inset py-2.5 text-caption leading-relaxed text-text-muted">
-            <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-success" />
-            <span>
-              该 Agent 的配置编辑暂未实现；Nova 直接使用其本机登录与配置，
-              模型也由 CLI 自己决定。
-            </span>
-          </div>
-        </div>
-      </section>
-    </div>
-  );
-}
-
 function AgentListItem({
   agent,
   active,
@@ -871,29 +854,12 @@ function AgentListItem({
   );
 }
 
-function StatusBadge({ installed }: { installed: boolean }) {
-  return (
-    <span
-      className={`flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-caption font-medium ${
-        installed ? "bg-success/15 text-success" : "bg-error-bg text-error"
-      }`}
-    >
-      {installed ? (
-        <CheckCircle2 className="h-3 w-3" />
-      ) : (
-        <XCircle className="h-3 w-3" />
-      )}
-      {installed ? "可用" : "未安装"}
-    </span>
-  );
-}
-
 function EmptyAgent() {
   return (
     <div className="mx-auto flex max-w-md flex-col items-center gap-3 py-24 text-center text-text-muted">
       <Terminal className="h-8 w-8 opacity-50" />
-      <p className="text-body">没有可展示的 Agent</p>
-      <p className="text-meta">安装一个 CLI 后点击「重新检测」。</p>
+      <p className="text-body">没有可展示的 Claude Code</p>
+      <p className="text-meta">安装 Claude Code 后点击「重新检测」。</p>
     </div>
   );
 }

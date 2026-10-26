@@ -3,7 +3,7 @@
  *
  * 模型：工作流是编排器，每个节点是一次独立的数字员工执行。
  * - 严格串行：只有上一个节点成功/跳过后，下一个节点才启动
- * - 每节点独立会话；上下文只通过工作区里的产物与 handoff 传递
+ * - 每节点独立会话；上下文只通过上游节点的输出摘要传递
  * - Claude 节点使用独立 CLAUDE_CONFIG_DIR，MCP 走独立配置文件
  *
  * 运行状态全部落库，事件同时推送渲染层；渲染层断线后可重新拉取回放。
@@ -32,6 +32,7 @@ import {
   createRunArtifactDir,
   ensureArtifactsRoot,
   ensureDir,
+  nodeArtifactDir,
   truncate,
   writeJson,
   writeText,
@@ -40,7 +41,7 @@ import { GraphValidationError, validateGraph } from "./graph";
 import { resolveEmployeeKnowledge } from "../knowledge/runtime";
 
 /** 单节点输出交给下游时的摘要上限 */
-const HANDOFF_SUMMARY_LIMIT = 4000;
+const UPSTREAM_SUMMARY_LIMIT = 4000;
 /** 重试等待基数：第 N 次重试等待 N × 2s */
 const RETRY_BASE_MS = 2000;
 
@@ -154,9 +155,9 @@ export function createWorkflowRunner(deps: WorkflowRunnerDeps): WorkflowRunner {
       throw err;
     }
 
-    // 先确认 Agent 已安装、Claude 连接配置可用，再创建运行记录；
+    // 先确认节点选择的 Agent 已安装，再创建运行记录；
     // 否则用户会看到一条注定失败的运行记录，排查成本更高。
-    await assertAgentsReady(validated.order, employees);
+    await assertAgentsReady(validated.order);
 
     const runId = randomUUID();
     const runDir = createRunArtifactDir(workspace.cwd, workflow.id, runId);
@@ -184,7 +185,7 @@ export function createWorkflowRunner(deps: WorkflowRunnerDeps): WorkflowRunner {
         nodeType: node.type,
         employeeId: employee.id,
         employeeName: employee.name,
-        agentId: employee.agentId,
+        agentId: node.config.agentId,
         status: "pending",
         attempt: 1,
         maxRetries:
@@ -232,14 +233,10 @@ export function createWorkflowRunner(deps: WorkflowRunnerDeps): WorkflowRunner {
    *
    * Nova 不再校验自己的连接配置——各 CLI 直接使用本机配置与登录。
    */
-  async function assertAgentsReady(
-    order: WorkflowNode[],
-    employees: Map<string, DigitalEmployee>,
-  ): Promise<void> {
+  async function assertAgentsReady(order: WorkflowNode[]): Promise<void> {
     const agentIds = new Set<string>();
     for (const node of order) {
-      const employee = employees.get(node.config.employeeId ?? "");
-      if (employee?.agentId) agentIds.add(employee.agentId);
+      if (node.config.agentId) agentIds.add(node.config.agentId);
     }
 
     for (const agentId of agentIds) {
@@ -377,7 +374,6 @@ export function createWorkflowRunner(deps: WorkflowRunnerDeps): WorkflowRunner {
             artifactDir: outcome.attemptDir,
             inputPath: outcome.inputPath,
             outputPath: outcome.outputPath,
-            handoffPath: outcome.handoffPath,
             outputSummary: outcome.summary,
           });
           emitEvent(active.id, initial.id, "node_finished", {
@@ -387,7 +383,6 @@ export function createWorkflowRunner(deps: WorkflowRunnerDeps): WorkflowRunner {
             attempt,
             sessionId: outcome.sessionId,
             outputPath: outcome.outputPath,
-            handoffPath: outcome.handoffPath,
           });
           return "succeeded";
         }
@@ -448,7 +443,6 @@ export function createWorkflowRunner(deps: WorkflowRunnerDeps): WorkflowRunner {
     attemptDir: string;
     inputPath: string;
     outputPath: string;
-    handoffPath: string;
     summary: string;
   }
 
@@ -459,17 +453,21 @@ export function createWorkflowRunner(deps: WorkflowRunnerDeps): WorkflowRunner {
     attempt: number,
   ): Promise<AttemptOutcome> {
     const nodeRun = nodeRunOf(active, node.id);
-    const attemptDir = join(
+    const attemptDir = nodeArtifactDir(
       active.runDir,
-      "nodes",
-      node.id,
-      `attempt-${attempt}`,
+      node,
+      active.order.findIndex((item) => item.id === node.id),
+      attempt,
     );
     await ensureDir(attemptDir);
 
-    const provider = getProvider(employee.agentId);
+    const agentId = node.config.agentId;
+    if (!agentId) {
+      throw new Error(`节点「${node.name}」未选择执行 Agent`);
+    }
+    const provider = getProvider(agentId);
     if (!provider) {
-      throw new Error(`Agent「${employee.agentId}」不存在或未注册`);
+      throw new Error(`Agent「${agentId}」不存在或未注册`);
     }
 
     // 运行时投影目录：放在 userData 下，节点结束后删除；不写入工作区产物
@@ -487,32 +485,36 @@ export function createWorkflowRunner(deps: WorkflowRunnerDeps): WorkflowRunner {
     const enabledMcp = employee.mcpServers.filter((server) => server.enabled);
     if (enabledSkills.length > 0 && !capabilities.skills) {
       runtimeWarnings.push(
-        `当前 Agent（${employee.agentId}）不支持技能注入，本次已忽略 ${enabledSkills.length} 个技能。`,
+        `当前 Agent（${agentId}）不支持技能注入，本次已忽略 ${enabledSkills.length} 个技能。`,
       );
     }
     if (enabledMcp.length > 0 && !capabilities.mcp) {
       runtimeWarnings.push(
-        `当前 Agent（${employee.agentId}）不支持 MCP 注入，本次已忽略 ${enabledMcp.length} 个 MCP 服务。`,
+        `当前 Agent（${agentId}）不支持 MCP 注入，本次已忽略 ${enabledMcp.length} 个 MCP 服务。`,
       );
     }
 
     // 知识库属于员工能力的一部分：解析成目录清单后写进系统提示词
     const knowledge = await resolveEmployeeKnowledge(employee.knowledgeBases);
     runtimeWarnings.push(...knowledge.warnings);
-    if (knowledge.bases.length > 0) {
-      await writeJson(join(attemptDir, "knowledge.json"), {
-        bases: knowledge.bases,
-      });
-    }
 
+    const systemPrompt = buildSystemPrompt(employee, knowledge.promptSection);
     const prompt = buildPrompt(active, node, employee, attempt);
-    const inputPath = join(attemptDir, "input.md");
-    const outputPath = join(attemptDir, "output.md");
-    const handoffPath = join(attemptDir, "handoff.md");
-    await writeText(inputPath, prompt);
+    // 每个节点只落两份文本：提交给 Agent 的完整请求 + Agent 最终返回
+    const inputPath = join(attemptDir, "request.md");
+    const outputPath = join(attemptDir, "result.md");
+    await writeText(
+      inputPath,
+      [
+        systemPrompt ? `# 系统提示词\n\n${systemPrompt}` : "",
+        `# 任务输入\n\n${prompt}`,
+      ]
+        .filter(Boolean)
+        .join("\n\n---\n\n"),
+    );
 
     const session = db.createSession(
-      employee.agentId,
+      agentId,
       active.workspaceId,
       active.workspacePath,
       `工作流「${active.workflow.name}」· ${node.name} · 第 ${attempt} 次`,
@@ -534,7 +536,8 @@ export function createWorkflowRunner(deps: WorkflowRunnerDeps): WorkflowRunner {
     });
     active.currentSessionId = session.id;
 
-    const systemPrompt = buildSystemPrompt(employee, knowledge.promptSection);
+    // 只注入宿主自己生成的内容；模型 / 权限 / 接入等运行方式
+    // 完全继承 Agent 平台的本机配置。
     const opts: SessionOptions = {};
     if (systemPrompt) opts.systemPrompt = systemPrompt;
 
@@ -555,37 +558,14 @@ export function createWorkflowRunner(deps: WorkflowRunnerDeps): WorkflowRunner {
       }
       runtimeWarnings.push(...(prepared.warnings ?? []));
 
-      if (runtimeWarnings.length > 0) {
-        await writeText(
-          join(attemptDir, "warnings.txt"),
-          runtimeWarnings.join("\n"),
-        );
+      // 告警不再单独落文件，直接写进事件日志；运行详情按节点读取
+      for (const message of runtimeWarnings) {
+        emitEvent(active.id, nodeRun.id, "log", {
+          level: "warning",
+          message,
+          attempt,
+        });
       }
-
-      // 把「到底提交了什么」落成文件，运行详情里可以直接查看/审计
-      await writeText(
-        join(attemptDir, "system-prompt.md"),
-        systemPrompt || "（未设置系统提示词）",
-      );
-      await writeText(
-        join(attemptDir, "agent-options.json"),
-        JSON.stringify(
-          {
-            agentId: employee.agentId,
-            // Nova 不再选择模型；使用各 CLI 本机配置里的默认模型
-            model: "由 Agent 本机配置决定",
-            configDir: prepared.configDir ? "projected" : null,
-            config: prepared.audit ?? null,
-            knowledgeBases: knowledge.bases.map((base) => ({
-              id: base.id,
-              name: base.name,
-              fileCount: base.fileCount,
-            })),
-          },
-          null,
-          2,
-        ),
-      );
 
       const texts: string[] = [];
       const deltas: string[] = [];
@@ -604,13 +584,13 @@ export function createWorkflowRunner(deps: WorkflowRunnerDeps): WorkflowRunner {
       });
 
       if (active.canceled) {
-        return failedAttempt("运行已取消", true, session.id, attemptDir, inputPath, outputPath, handoffPath);
+        return failedAttempt("运行已取消", true, session.id, attemptDir, inputPath, outputPath);
       }
       if (result.aborted) {
-        return failedAttempt("运行被中断", true, session.id, attemptDir, inputPath, outputPath, handoffPath);
+        return failedAttempt("运行被中断", true, session.id, attemptDir, inputPath, outputPath);
       }
       if (!result.ok) {
-        return failedAttempt(result.error ?? "Agent 启动失败", false, session.id, attemptDir, inputPath, outputPath, handoffPath);
+        return failedAttempt(result.error ?? "Agent 启动失败", false, session.id, attemptDir, inputPath, outputPath);
       }
       if (result.exitCode !== 0) {
         return failedAttempt(
@@ -620,26 +600,12 @@ export function createWorkflowRunner(deps: WorkflowRunnerDeps): WorkflowRunner {
           attemptDir,
           inputPath,
           outputPath,
-          handoffPath,
         );
       }
 
       const output =
         texts.join("\n\n").trim() || deltas.join("").trim() || "（无文本输出）";
       await writeText(outputPath, output);
-      await writeText(
-        handoffPath,
-        [
-          `# ${node.name}`,
-          "",
-          `- 执行者：${employee.name}`,
-          `- 结束时间：${new Date().toISOString()}`,
-          "",
-          "## 产出",
-          "",
-          output,
-        ].join("\n"),
-      );
 
       return {
         ok: true,
@@ -648,8 +614,7 @@ export function createWorkflowRunner(deps: WorkflowRunnerDeps): WorkflowRunner {
         attemptDir,
         inputPath,
         outputPath,
-        handoffPath,
-        summary: truncate(output, HANDOFF_SUMMARY_LIMIT),
+        summary: truncate(output, UPSTREAM_SUMMARY_LIMIT),
       };
     } finally {
       active.currentSessionId = null;
@@ -678,7 +643,6 @@ export function createWorkflowRunner(deps: WorkflowRunnerDeps): WorkflowRunner {
     attemptDir: string,
     inputPath: string,
     outputPath: string,
-    handoffPath: string,
   ): AttemptOutcome {
     return {
       ok: false,
@@ -688,7 +652,6 @@ export function createWorkflowRunner(deps: WorkflowRunnerDeps): WorkflowRunner {
       attemptDir,
       inputPath,
       outputPath,
-      handoffPath,
       summary: "",
     };
   }
@@ -853,16 +816,12 @@ export function createWorkflowRunner(deps: WorkflowRunnerDeps): WorkflowRunner {
         if (nodeRun.status === "skipped") {
           return `### 上游节点：${predecessor?.name ?? predecessorId}\n状态：已跳过，无产物。`;
         }
-        const handoff = nodeRun.handoffPath
-          ? `交接单：${nodeRun.handoffPath}`
-          : "交接单：无";
         return [
           `### 上游节点：${predecessor?.name ?? predecessorId}`,
           `状态：${nodeRun.status}`,
-          handoff,
           nodeRun.outputSummary
-            ? `摘要：\n${nodeRun.outputSummary}`
-            : "摘要：无",
+            ? `输出摘要：\n${nodeRun.outputSummary}`
+            : "输出摘要：无",
         ].join("\n");
       });
       parts.push(`## 上游产物\n\n${blocks.filter(Boolean).join("\n\n")}`);

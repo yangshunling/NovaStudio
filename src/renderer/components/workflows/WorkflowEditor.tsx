@@ -39,8 +39,10 @@ import {
   Zap,
   type LucideIcon,
 } from "lucide-react";
+import type { AgentInfo } from "@shared/contracts/agent";
 import { ipc } from "../../lib/ipc";
 import { newId } from "../../lib/utils";
+import { useChatStore } from "../../stores/chat";
 import { toast } from "../../stores/toast";
 import { EmployeeAvatar } from "../employees/EmployeeAvatar";
 import { Select } from "../ui/Select";
@@ -166,6 +168,8 @@ export function WorkflowEditor({
   const [workspaceId, setWorkspaceId] = useState(workflow.workspaceId);
   const workspace =
     workspaces.find((item) => item.id === workspaceId) ?? null;
+  /** 已检测到的 Agent：节点只选择由哪个 Agent 执行，运行方式继承 Agent 平台配置 */
+  const agents = useChatStore((state) => state.agents);
   const [nodes, setNodes] = useState<WorkflowNode[]>(workflow.graph.nodes);
   const [edges, setEdges] = useState<WorkflowEdge[]>(workflow.graph.edges);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
@@ -232,6 +236,12 @@ export function WorkflowEditor({
       config: {
         ...defaultNodeConfig(),
         employeeId: employee?.id ?? null,
+        // 执行 Agent 默认取本机已安装的第一个（当前通常就是唯一的 Claude），
+        // 避免新建节点后还要手动再选一次
+        agentId:
+          type === "employee"
+            ? (agents.find((item) => item.status.installed)?.id ?? null)
+            : null,
       },
     };
     setNodes((current) => [...current, node]);
@@ -768,6 +778,7 @@ export function WorkflowEditor({
                 <NodeInspector
                   node={selectedNode}
                   employees={employees}
+                  agents={agents}
                   onPatch={patchNode}
                   onDelete={deleteNode}
                   onClose={() => setSelectedNodeId(null)}
@@ -828,12 +839,14 @@ function PaletteItem({
 function NodeInspector({
   node,
   employees,
+  agents,
   onPatch,
   onDelete,
   onClose,
 }: {
   node: WorkflowNode;
   employees: DigitalEmployee[];
+  agents: AgentInfo[];
   onPatch: (
     id: string,
     patch: Partial<Pick<WorkflowNode, "name">>,
@@ -894,6 +907,39 @@ function NodeInspector({
 
       {node.type === "employee" ? (
         <>
+          <label className={LABEL_CLASS}>执行 Agent</label>
+          <Select
+            value={node.config.agentId ?? ""}
+            onChange={(next) =>
+              onPatch(node.id, {}, { agentId: next || null })
+            }
+            className={`${INPUT_CLASS} mb-2`}
+            options={[
+              { value: "", label: "选择 Agent…" },
+              ...agents.map((item) => ({
+                value: item.id,
+                label: `${item.displayName}${
+                  item.status.installed
+                    ? item.status.version
+                      ? ` v${item.status.version}`
+                      : ""
+                    : "（未安装）"
+                }`,
+                disabled: !item.status.installed,
+              })),
+            ]}
+          />
+
+          {!node.config.agentId ? (
+            <p className="mb-2 rounded-lg bg-error-bg px-3 py-2 text-meta text-error">
+              尚未选择执行 Agent，该节点无法执行。
+            </p>
+          ) : (
+            <p className="mb-2 text-meta leading-relaxed text-text-muted">
+              模型、权限等运行配置继承「Agent 平台」。
+            </p>
+          )}
+
           <label className={LABEL_CLASS}>数字员工</label>
           <Select
             value={node.config.employeeId ?? ""}
@@ -1016,7 +1062,7 @@ function NodeInspector({
       <button
         type="button"
         onClick={() => onDelete(node.id)}
-        className="mt-4 flex h-9 items-center justify-center gap-2 rounded-lg border border-border text-body font-medium text-error transition-colors hover:bg-error-bg active:scale-[0.99]"
+        className="mt-4 flex items-center justify-center gap-2 rounded-lg border border-error/25 bg-error-bg px-3 py-2 text-body font-medium text-error transition-colors hover:bg-error/10 active:scale-[0.99]"
       >
         <Trash2 className="h-4 w-4" />
         删除节点

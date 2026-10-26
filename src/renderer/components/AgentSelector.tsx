@@ -2,7 +2,7 @@
  * 智能体选择器 — 输入框旁的紧凑下拉
  *
  * 为什么放在输入框旁：Agent 的选择属于「这次提问用谁来答」，
- * 放在提问处才符合直觉（参考 Claude Code / Codex 的输入框内模型选择）。
+ * 放在提问处才符合直觉（参考 Claude Code 输入框内的模型选择）。
  *
  * 关键约束：**只在会话开始前可选**。
  * 会话一旦开始（currentSessionId 已确定），本次会话由哪个 Agent 执行就定死了，
@@ -195,6 +195,9 @@ export function AgentSelector({
               </li>
             );
           })}
+          <li className="px-2.5 pt-1.5 text-caption text-text-muted">
+            模型、权限等运行配置继承「Agent 平台」
+          </li>
         </ul>
       )}
     </div>

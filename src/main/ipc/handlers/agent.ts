@@ -9,6 +9,7 @@ import {
   getClaudeSettingsView,
   saveClaudeSettings,
 } from "../../agents/claude/settings";
+import { listClaudeModels } from "../../agents/claude/models";
 import type { AgentService } from "../../engine/agent-service";
 import * as db from "../../db/sqlite";
 import { flushEvents, push } from "../push";
@@ -30,6 +31,14 @@ export function registerAgentHandlers(service: AgentService): void {
 
   handle("agent:settings:save", ({ draft }) => saveClaudeSettings(draft));
 
+  /** 按当前 Base URL / API Key 拉取可用模型（仅 Claude 兼容端点） */
+  handle("agent:models:list", ({ agentId, baseUrl, apiKey }) => {
+    if (agentId !== "claude") {
+      throw new Error(`暂不支持获取该 Agent 的模型列表：${agentId}`);
+    }
+    return listClaudeModels(baseUrl, apiKey);
+  });
+
   /** 打开某个 Agent 的本机配置目录 */
   handle("agent:openConfigDir", async ({ agentId }) => {
     const provider = getProvider(agentId);
@@ -46,7 +55,7 @@ export function registerAgentHandlers(service: AgentService): void {
    * 统一发送：主进程按会话是否已存会话引用、以及 provider 是否支持多轮，
    * 决定新建还是恢复（判断逻辑在 AgentService 内，此处不重复）。
    */
-  handle("agent:send", async ({ sessionId, prompt, opts }): Promise<SendAgentResult> => {
+  handle("agent:send", async ({ sessionId, prompt }): Promise<SendAgentResult> => {
     const session = db.getSession(sessionId);
     if (!session) return { ok: false, error: `会话不存在: ${sessionId}` };
 
@@ -58,7 +67,7 @@ export function registerAgentHandlers(service: AgentService): void {
       countDelta: 1,
     });
 
-    const outcome = await service.run({ sessionId, prompt, cwd, opts });
+    const outcome = await service.run({ sessionId, prompt, cwd });
     if (!outcome.ok) return { ok: false, error: outcome.error ?? "运行失败" };
 
     flushEvents();

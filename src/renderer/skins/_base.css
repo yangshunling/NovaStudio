@@ -86,7 +86,7 @@
 
   /* === Agent 标识色（跨皮肤共享的默认值，皮肤可按需覆盖） ===
    *
-   * 同一台机器上并存多个 Agent（pi / opencode / 将来的 Codex …），
+   * 同一台机器上可能并存多个 Agent（当前为 Claude Code，未来可扩展），
    * 靠这组槽位区分身份：manifest 只声明槽位名（AgentManifest.tone），
    * 色值由 token 提供。于是新增一个 Agent 只需挑一个空闲槽位，
    * 不必改皮肤；某套皮肤若觉得某个色相不搭，在自己的 tokens.css 里

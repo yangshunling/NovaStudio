@@ -32,7 +32,7 @@ function claudeSkillsDir(): string {
   return join(configDir, "skills");
 }
 
-/** 共享技能库：Codex / Cursor / Gemini CLI 等工具安装器的公共落点 */
+/** 共享技能库：其他 AI 工具安装器的公共落点，只读发现 */
 function agentsSkillsDir(): string {
   return join(homedir(), ".agents", "skills");
 }

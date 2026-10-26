@@ -11,7 +11,12 @@
 import { app, BrowserWindow } from "electron";
 import { join } from "path";
 import { existsSync } from "fs";
-import { initIpcHandlers, stopAutomation, stopWorkflows } from "./ipc";
+import {
+  initIpcHandlers,
+  stopAutomation,
+  stopTriggers,
+  stopWorkflows,
+} from "./ipc";
 import { initDatabase, closeDatabase } from "./db/sqlite";
 import { stopTerminals } from "./terminal/manager";
 import { purgeStaleWorkflowRuntimes } from "./workflow/artifacts";
@@ -110,6 +115,7 @@ app.whenReady().then(async () => {
 app.on("window-all-closed", () => {
   // 先停止自动化轮询定时器，避免应用退出后定时器仍在运行
   stopAutomation();
+  stopTriggers();
   stopWorkflows();
   stopTerminals();
   closeDatabase();

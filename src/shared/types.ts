@@ -16,11 +16,10 @@
 // ============================================================================
 
 /**
- * 单次调用的运行参数。
+ * 宿主内部注入的单次运行参数（工作流系统提示词、MCP 配置等）。
  *
- * 宿主**不解释**这里的键与值 —— 键由 AgentManifest.options 声明，
- * provider 负责把键映射到自己的命令行开关。因此任何 Agent 新增自己
- * 独有的参数（模型 / 思考档位 / 权限模式 / 温度 / 轮数上限 …）都无需改动本文件。
+ * 不是用户可配置项：会话与工作流如何运行（模型 / 权限 / 接入）完全由
+ * Agent 平台的本机配置决定。key → 命令行开关的映射由 provider 负责。
  */
 export type SessionOptions = Record<string, string>;
 
@@ -278,7 +277,7 @@ export type McpTransport = "stdio" | "http" | "sse";
 /**
  * MCP 来源。
  *
- * - claude-global   Claude Code 配置（用户级 ~/.claude.json 与项目级 .mcp.json）
+ * - claude-global   Claude Code 用户级配置（~/.claude.json 顶层 mcpServers）
  *
  * Nova 不再维护自己的 MCP 库；新增/修改直接写入 Claude 配置。
  * `managedByNova` 标记哪些条目是 Nova 创建的，用于决定是否允许编辑/删除。
@@ -516,7 +515,12 @@ export interface EmployeeSkill {
   enabled: boolean;
 }
 
-/** 数字员工的可编辑字段；新建与更新共用 */
+/**
+ * 数字员工的可编辑字段；新建与更新共用。
+ *
+ * 员工不绑定 Agent：执行平台由工作流节点在选择员工时一并指定，
+ * 这样同一位员工可以在不同工作流 / 节点里使用不同的 Agent。
+ */
 export interface DigitalEmployeeDraft {
   name: string;
   /** 职位 / 角色，如「产品分析」 */
@@ -524,8 +528,6 @@ export interface DigitalEmployeeDraft {
   description: string;
   /** 头像 data URL；null 表示未设置 */
   avatar: string | null;
-  /** 绑定的 Agent（AgentManifest.id） */
-  agentId: string;
   systemPrompt: string;
   mcpServers: EmployeeMcpServer[];
   skills: EmployeeSkill[];
@@ -569,6 +571,12 @@ export type WorkflowReviewMode = "auto" | "manual";
 export interface WorkflowNodeConfig {
   /** 绑定的数字员工 id；仅 employee 节点使用，未配置时为 null */
   employeeId: string | null;
+  /**
+   * 执行该节点的 Agent（AgentManifest.id）；仅 employee 节点使用。
+   *
+   * Agent 属于节点而不是员工：同一位员工可以在不同节点里交给不同的 CLI 执行。
+   */
+  agentId: string | null;
   /** 任务详情：节点执行时交给数字员工的完整指令 */
   taskDetail: string;
   failureStrategy: WorkflowFailureStrategy;
@@ -613,6 +621,53 @@ export interface Workflow extends WorkflowDraft {
 }
 
 // ============================================================================
+// 工作流触发器
+// ============================================================================
+
+/**
+ * 定时方式：
+ * - daily    每天固定时刻
+ * - weekly   每周选定的星期固定时刻
+ * - interval 每隔 N 分钟
+ *
+ * 规则刻意不引入 cron：配置项少、出错了也容易解释。
+ * time 为本地时间，格式 HH:mm；weekdays 0=周日 … 6=周六。
+ */
+export type WorkflowTriggerSchedule =
+  | { kind: "daily"; time: string }
+  | { kind: "weekly"; time: string; weekdays: number[] }
+  | { kind: "interval"; minutes: number };
+
+/** 触发器：可在「触发器」页面统一创建，再绑定到任意多个工作流 */
+export interface WorkflowTrigger {
+  id: string;
+  title: string;
+  description: string;
+  schedule: WorkflowTriggerSchedule;
+  enabled: boolean;
+  /** 上次触发时间；从未触发为 null */
+  lastFiredAt: number | null;
+  /** 下次触发时间；停用时为 null */
+  nextFireAt: number | null;
+  createdAt: number;
+  updatedAt: number;
+}
+
+/** 可编辑字段；新建与更新共用 */
+export interface WorkflowTriggerDraft {
+  title: string;
+  description: string;
+  schedule: WorkflowTriggerSchedule;
+  enabled: boolean;
+}
+
+/** 触发器与工作流的绑定关系（多对多） */
+export interface WorkflowTriggerBinding {
+  triggerId: string;
+  workflowId: string;
+}
+
+// ============================================================================
 // 工作流运行
 // ============================================================================
 
@@ -643,7 +698,7 @@ export interface WorkflowRun {
   workspacePath: string;
   /** 运行时的工作流图快照；运行中改工作流不影响本次执行 */
   graph: WorkflowGraph;
-  /** 产物根目录（工作区下 .novastudio/workflows/<workflowId>/runs/<runId>） */
+  /** 产物根目录（工作区下 .novastudio/workflows/<workflowId>/<run>） */
   artifactDir: string;
   status: WorkflowRunStatus;
   error: string | null;
@@ -669,7 +724,6 @@ export interface WorkflowNodeRun {
   artifactDir: string | null;
   inputPath: string | null;
   outputPath: string | null;
-  handoffPath: string | null;
   outputSummary: string | null;
   error: string | null;
   decision: "approved" | "rejected" | null;
@@ -713,21 +767,15 @@ export interface WorkflowArtifactFile {
 
 /**
  * 单个节点的执行详情。
- * 文本内容来自产物目录，按需读取；mcp.json 含环境变量，不对外暴露。
+ *
+ * 每个节点只保留两份文本：提交给 Agent 的完整请求、Agent 的最终返回。
+ * 文本按需从产物目录读取；mcp.json 含环境变量，不对外暴露。
  */
 export interface WorkflowNodeRunDetail {
-  /** 实际拼装后交给 Agent 的任务输入 */
-  input: string;
-  /** 员工人设 / 系统提示词 */
-  systemPrompt: string;
+  /** 提交给 Agent 的完整请求（系统提示词 + 任务输入） */
+  request: string;
   /** Agent 最终返回 */
-  output: string;
-  /** 结构化交接单 */
-  handoff: string;
-  /** 本次调用的运行参数（模型 / MCP 是否隔离等） */
-  options: string;
-  /** 隔离环境告警 */
-  warnings: string;
+  result: string;
   files: WorkflowArtifactFile[];
 }
 

@@ -41,7 +41,11 @@ import type {
   WorkflowRunEvent,
   WorkflowRunEventType,
   WorkflowRunStatus,
+  WorkflowTrigger,
+  WorkflowTriggerBinding,
+  WorkflowTriggerDraft,
 } from "../../shared/types";
+import { normalizeTriggerSchedule } from "../../shared/trigger-schedule";
 import { DB_PATH, ensureDataDirs } from "../utils/paths";
 
 let db: Database.Database | null = null;
@@ -129,6 +133,29 @@ export function initDatabase(): void {
       updated_at INTEGER NOT NULL
     );
 
+    -- 触发器与工作流是多对多：一个触发器可定时启动多条工作流，
+    -- 一条工作流也可以被多个触发器驱动。
+    CREATE TABLE IF NOT EXISTS workflow_triggers (
+      id TEXT PRIMARY KEY,
+      title TEXT NOT NULL,
+      description TEXT NOT NULL DEFAULT '',
+      schedule_json TEXT NOT NULL,
+      enabled INTEGER NOT NULL DEFAULT 1,
+      last_fired_at INTEGER,
+      next_fire_at INTEGER,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS workflow_trigger_bindings (
+      trigger_id TEXT NOT NULL,
+      workflow_id TEXT NOT NULL,
+      PRIMARY KEY (trigger_id, workflow_id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_workflow_trigger_bindings_workflow
+      ON workflow_trigger_bindings (workflow_id);
+
     CREATE TABLE IF NOT EXISTS workflow_runs (
       id TEXT PRIMARY KEY,
       workflow_id TEXT NOT NULL,
@@ -160,7 +187,6 @@ export function initDatabase(): void {
       artifact_dir TEXT,
       input_path TEXT,
       output_path TEXT,
-      handoff_path TEXT,
       output_summary TEXT,
       error TEXT,
       decision TEXT,
@@ -201,8 +227,6 @@ export function initDatabase(): void {
       role TEXT NOT NULL DEFAULT '',
       description TEXT NOT NULL DEFAULT '',
       avatar TEXT,
-      agent_id TEXT NOT NULL,
-      model TEXT NOT NULL DEFAULT '',
       system_prompt TEXT NOT NULL DEFAULT '',
       mcp_servers_json TEXT NOT NULL DEFAULT '[]',
       skills_json TEXT NOT NULL DEFAULT '[]',
@@ -240,6 +264,8 @@ export function initDatabase(): void {
   migrateLegacyInboxProject();
   migrateWorkflowWorkspace();
   migrateEmployeeKnowledge();
+  // Agent 从员工迁移到工作流节点；必须在员工表重建前完成
+  migrateEmployeeAgentToWorkflowNode();
 
   // 旧版本由 Nova 自己维护的 Agent 连接配置已废弃，统一改用各 CLI 本机配置
   db.exec("DROP TABLE IF EXISTS agent_connections;");
@@ -290,6 +316,90 @@ function migrateEmployeeKnowledge(): void {
       "ALTER TABLE digital_employees ADD COLUMN knowledge_json TEXT NOT NULL DEFAULT '[]'",
     );
   }
+}
+
+/**
+ * 员工 Agent 迁移到工作流节点。
+ *
+ * 旧版把 Agent 绑在员工上；现在改由节点指定。升级时把员工原有的 Agent
+ * 写进引用它的 employee 节点，然后重建员工表，去掉 agent_id 与废弃的 model 列。
+ * 已显式指定 agentId 的节点保持不变。
+ */
+function migrateEmployeeAgentToWorkflowNode(): void {
+  const columns = db!
+    .prepare("PRAGMA table_info(digital_employees)")
+    .all() as { name: string }[];
+  if (!columns.some((column) => column.name === "agent_id")) return;
+
+  const employeeAgents = new Map<string, string>();
+  const employees = db!
+    .prepare("SELECT id, agent_id FROM digital_employees")
+    .all() as any[];
+  for (const row of employees) {
+    if (typeof row.agent_id === "string" && row.agent_id) {
+      employeeAgents.set(row.id, row.agent_id);
+    }
+  }
+
+  // 1) 把员工的 Agent 落到引用它的工作流节点上
+  const updateWorkflow = db!.prepare(
+    "UPDATE workflows SET graph_json = ? WHERE id = ?",
+  );
+  const workflows = db!.prepare("SELECT id, graph_json FROM workflows").all() as any[];
+  for (const row of workflows) {
+    let graph: any;
+    try {
+      graph = JSON.parse(row.graph_json);
+    } catch {
+      continue;
+    }
+    if (!Array.isArray(graph?.nodes)) continue;
+
+    let changed = false;
+    for (const node of graph.nodes) {
+      if (node?.type !== "employee") continue;
+      if (typeof node.config?.agentId === "string" && node.config.agentId) {
+        continue;
+      }
+      const agentId = employeeAgents.get(node.config?.employeeId);
+      if (!agentId) continue;
+      node.config = { ...(node.config ?? {}), agentId };
+      changed = true;
+    }
+    if (changed) updateWorkflow.run(JSON.stringify(graph), row.id);
+  }
+
+  // 2) 重建员工表：同时移除历史遗留的 model 列。
+  // 不用 DROP COLUMN，兼容旧 SQLite，并让 NOT NULL 约束一并消失。
+  db!.transaction(() => {
+    db!.exec(`
+      CREATE TABLE digital_employees_new (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        role TEXT NOT NULL DEFAULT '',
+        description TEXT NOT NULL DEFAULT '',
+        avatar TEXT,
+        system_prompt TEXT NOT NULL DEFAULT '',
+        mcp_servers_json TEXT NOT NULL DEFAULT '[]',
+        skills_json TEXT NOT NULL DEFAULT '[]',
+        knowledge_json TEXT NOT NULL DEFAULT '[]',
+        enabled INTEGER NOT NULL DEFAULT 1,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
+      INSERT INTO digital_employees_new (
+        id, name, role, description, avatar,
+        system_prompt, mcp_servers_json, skills_json, knowledge_json,
+        enabled, created_at, updated_at
+      )
+      SELECT id, name, role, description, avatar,
+             system_prompt, mcp_servers_json, skills_json, knowledge_json,
+             enabled, created_at, updated_at
+      FROM digital_employees;
+      DROP TABLE digital_employees;
+      ALTER TABLE digital_employees_new RENAME TO digital_employees;
+    `);
+  })();
 }
 
 /** 检测并给 sessions 表补 project_id 列 */
@@ -488,7 +598,7 @@ export function createSession(
   };
 }
 
-/** 更新会话的 agent session 引用（用于多轮 --resume；pi 为会话文件路径） */
+/** 更新会话的 agent session 引用（用于多轮 --resume；引用形态由 provider 解释） */
 /** 工作流/聊天在运行前确定使用哪个隔离配置目录时，回写会话记录 */
 export function updateSessionConfigDir(
   sessionId: string,
@@ -735,7 +845,6 @@ function rowToDigitalEmployee(row: any): DigitalEmployee {
     role: row.role ?? "",
     description: row.description ?? "",
     avatar: row.avatar ?? null,
-    agentId: row.agent_id,
     systemPrompt: row.system_prompt ?? "",
     mcpServers: normalizeEmployeeMcpServers(row.mcp_servers_json),
     skills: normalizeEmployeeSkills(row.skills_json),
@@ -753,7 +862,6 @@ function employeeParams(draft: DigitalEmployeeDraft): unknown[] {
     draft.role,
     draft.description,
     draft.avatar,
-    draft.agentId,
     draft.systemPrompt,
     JSON.stringify(draft.mcpServers),
     JSON.stringify(draft.skills),
@@ -779,10 +887,10 @@ export function createDigitalEmployee(draft: DigitalEmployeeDraft): DigitalEmplo
   const now = Date.now();
   db!.prepare(
     `INSERT INTO digital_employees (
-      id, name, role, description, avatar, agent_id,
+      id, name, role, description, avatar,
       system_prompt, mcp_servers_json, skills_json, knowledge_json,
       enabled, created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(id, ...employeeParams(draft), now, now);
   return getDigitalEmployee(id)!;
 }
@@ -794,7 +902,7 @@ export function updateDigitalEmployee(
   const info = db!
     .prepare(
       `UPDATE digital_employees SET
-        name = ?, role = ?, description = ?, avatar = ?, agent_id = ?,
+        name = ?, role = ?, description = ?, avatar = ?,
         system_prompt = ?, mcp_servers_json = ?, skills_json = ?, knowledge_json = ?,
         enabled = ?, updated_at = ?
       WHERE id = ?`,
@@ -1115,6 +1223,7 @@ function normalizeWorkflowNode(raw: any, index: number): WorkflowNode {
     config: {
       employeeId:
         typeof config.employeeId === "string" ? config.employeeId : null,
+      agentId: typeof config.agentId === "string" ? config.agentId : null,
       taskDetail:
         typeof config.taskDetail === "string"
           ? config.taskDetail
@@ -1224,7 +1333,175 @@ export function listWorkflowsByWorkspace(workspaceId: string): Workflow[] {
 }
 
 export function deleteWorkflow(id: string): void {
-  db!.prepare("DELETE FROM workflows WHERE id = ?").run(id);
+  db!.transaction(() => {
+    db!.prepare("DELETE FROM workflow_trigger_bindings WHERE workflow_id = ?").run(
+      id,
+    );
+    db!.prepare("DELETE FROM workflows WHERE id = ?").run(id);
+  })();
+}
+
+// ============================================================================
+// 工作流触发器
+// ============================================================================
+
+function rowToWorkflowTrigger(row: any): WorkflowTrigger {
+  let rawSchedule: unknown = null;
+  try {
+    rawSchedule = JSON.parse(row.schedule_json);
+  } catch {
+    // 损坏的规则回退到默认值（normalize 内部兜底）
+  }
+  return {
+    id: row.id,
+    title: row.title,
+    description: row.description ?? "",
+    schedule: normalizeTriggerSchedule(rawSchedule),
+    enabled: row.enabled === 1,
+    lastFiredAt: row.last_fired_at ?? null,
+    nextFireAt: row.next_fire_at ?? null,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+export function listWorkflowTriggers(): WorkflowTrigger[] {
+  const rows = db!
+    .prepare("SELECT * FROM workflow_triggers ORDER BY created_at DESC")
+    .all() as any[];
+  return rows.map(rowToWorkflowTrigger);
+}
+
+export function getWorkflowTrigger(id: string): WorkflowTrigger | null {
+  const row = db!
+    .prepare("SELECT * FROM workflow_triggers WHERE id = ?")
+    .get(id) as any;
+  return row ? rowToWorkflowTrigger(row) : null;
+}
+
+export function createWorkflowTrigger(
+  draft: WorkflowTriggerDraft,
+  nextFireAt: number | null,
+): WorkflowTrigger {
+  const id = randomUUID();
+  const now = Date.now();
+  db!.prepare(
+    "INSERT INTO workflow_triggers (id, title, description, schedule_json, enabled, last_fired_at, next_fire_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+  ).run(
+    id,
+    draft.title,
+    draft.description,
+    JSON.stringify(draft.schedule),
+    draft.enabled ? 1 : 0,
+    null,
+    nextFireAt,
+    now,
+    now,
+  );
+  return getWorkflowTrigger(id)!;
+}
+
+export function updateWorkflowTrigger(
+  id: string,
+  draft: WorkflowTriggerDraft,
+  nextFireAt: number | null,
+): WorkflowTrigger | null {
+  const info = db!
+    .prepare(
+      "UPDATE workflow_triggers SET title = ?, description = ?, schedule_json = ?, enabled = ?, next_fire_at = ?, updated_at = ? WHERE id = ?",
+    )
+    .run(
+      draft.title,
+      draft.description,
+      JSON.stringify(draft.schedule),
+      draft.enabled ? 1 : 0,
+      nextFireAt,
+      Date.now(),
+      id,
+    );
+  return info.changes > 0 ? getWorkflowTrigger(id) : null;
+}
+
+/** 只更新运行状态字段（调度器触发后 / 启动时重算下次时间用） */
+export function updateWorkflowTriggerRuntime(
+  id: string,
+  patch: { lastFiredAt?: number; nextFireAt?: number | null },
+): WorkflowTrigger | null {
+  const current = getWorkflowTrigger(id);
+  if (!current) return null;
+
+  db!.prepare(
+    "UPDATE workflow_triggers SET last_fired_at = ?, next_fire_at = ?, updated_at = ? WHERE id = ?",
+  ).run(
+    patch.lastFiredAt !== undefined ? patch.lastFiredAt : current.lastFiredAt,
+    patch.nextFireAt !== undefined ? patch.nextFireAt : current.nextFireAt,
+    Date.now(),
+    id,
+  );
+  return getWorkflowTrigger(id);
+}
+
+export function deleteWorkflowTrigger(id: string): boolean {
+  let deleted = false;
+  db!.transaction(() => {
+    db!.prepare("DELETE FROM workflow_trigger_bindings WHERE trigger_id = ?").run(
+      id,
+    );
+    deleted =
+      db!.prepare("DELETE FROM workflow_triggers WHERE id = ?").run(id).changes >
+      0;
+  })();
+  return deleted;
+}
+
+export function listWorkflowTriggerBindings(): WorkflowTriggerBinding[] {
+  const rows = db!
+    .prepare("SELECT trigger_id, workflow_id FROM workflow_trigger_bindings")
+    .all() as any[];
+  return rows.map((row) => ({
+    triggerId: row.trigger_id,
+    workflowId: row.workflow_id,
+  }));
+}
+
+export function listWorkflowTriggerIdsForWorkflow(workflowId: string): string[] {
+  const rows = db!
+    .prepare(
+      "SELECT trigger_id FROM workflow_trigger_bindings WHERE workflow_id = ?",
+    )
+    .all(workflowId) as { trigger_id: string }[];
+  return rows.map((row) => row.trigger_id);
+}
+
+/** 绑定到某个触发器的工作流 id（调度器触发时使用） */
+export function listWorkflowIdsForTrigger(triggerId: string): string[] {
+  const rows = db!
+    .prepare(
+      "SELECT workflow_id FROM workflow_trigger_bindings WHERE trigger_id = ?",
+    )
+    .all(triggerId) as { workflow_id: string }[];
+  return rows.map((row) => row.workflow_id);
+}
+
+/** 用给定集合整体替换某个工作流的触发器绑定 */
+export function setWorkflowTriggers(
+  workflowId: string,
+  triggerIds: string[],
+): void {
+  const unique = [...new Set(triggerIds)];
+  db!.transaction(() => {
+    db!.prepare(
+      "DELETE FROM workflow_trigger_bindings WHERE workflow_id = ?",
+    ).run(workflowId);
+    const insert = db!.prepare(
+      "INSERT OR IGNORE INTO workflow_trigger_bindings (trigger_id, workflow_id) VALUES (?, ?)",
+    );
+    for (const triggerId of unique) {
+      // 只接受真实存在的触发器，避免渲染层传入过期 id 造成孤儿绑定
+      if (!getWorkflowTrigger(triggerId)) continue;
+      insert.run(triggerId, workflowId);
+    }
+  })();
 }
 
 /**
@@ -1302,7 +1579,6 @@ function rowToWorkflowNodeRun(row: any): WorkflowNodeRun {
     artifactDir: row.artifact_dir ?? null,
     inputPath: row.input_path ?? null,
     outputPath: row.output_path ?? null,
-    handoffPath: row.handoff_path ?? null,
     outputSummary: row.output_summary ?? null,
     error: row.error ?? null,
     decision: row.decision ?? null,
@@ -1509,7 +1785,6 @@ const NODE_RUN_COLUMNS: Record<string, string> = {
   artifactDir: "artifact_dir",
   inputPath: "input_path",
   outputPath: "output_path",
-  handoffPath: "handoff_path",
   outputSummary: "output_summary",
   error: "error",
   decision: "decision",
@@ -1529,7 +1804,6 @@ export function updateWorkflowNodeRun(
       | "artifactDir"
       | "inputPath"
       | "outputPath"
-      | "handoffPath"
       | "outputSummary"
       | "error"
       | "decision"

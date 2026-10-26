@@ -8,7 +8,7 @@
  * 避免把原图整张塞进数据库。
  */
 
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import {
   Eraser,
   Library,
@@ -24,13 +24,11 @@ import {
 } from "lucide-react";
 import { ipc } from "../../lib/ipc";
 import { Field, FORM_INPUT_CLASS as INPUT_CLASS } from "../ui/Field";
-import { Select } from "../ui/Select";
 import { EmployeeAvatar } from "./EmployeeAvatar";
 import { KnowledgeTab } from "./knowledge/KnowledgeTab";
 import { McpTab } from "./mcp/McpTab";
 import { SkillsTab } from "./skills/SkillsTab";
 import { Toggle } from "./ui";
-import type { AgentInfo } from "@shared/contracts/agent";
 import type { DigitalEmployee, DigitalEmployeeDraft } from "@shared/types";
 
 // ============================================================================
@@ -49,15 +47,13 @@ const TABS: ReadonlyArray<{ id: TabId; label: string; icon: LucideIcon }> = [
 
 const MAX_AVATAR_BYTES = 8 * 1024 * 1024;
 
-/** 草稿默认值：优先绑定第一个已安装的 Agent */
-function emptyDraft(agents: AgentInfo[]): DigitalEmployeeDraft {
-  const firstAgent = agents.find((agent) => agent.status.installed) ?? agents[0];
+/** 草稿默认值 */
+function emptyDraft(): DigitalEmployeeDraft {
   return {
     name: "",
     role: "",
     description: "",
     avatar: null,
-    agentId: firstAgent?.id ?? "",
     systemPrompt: "",
     mcpServers: [],
     skills: [],
@@ -73,7 +69,6 @@ function toDraft(employee: DigitalEmployee): DigitalEmployeeDraft {
     role: employee.role,
     description: employee.description,
     avatar: employee.avatar,
-    agentId: employee.agentId,
     systemPrompt: employee.systemPrompt,
     mcpServers: employee.mcpServers,
     skills: employee.skills,
@@ -89,7 +84,6 @@ function toDraft(employee: DigitalEmployee): DigitalEmployeeDraft {
 interface EmployeeDrawerProps {
   /** null 表示新建 */
   employee: DigitalEmployee | null;
-  agents: AgentInfo[];
   onClose: () => void;
   /** 保存 / 删除成功后刷新列表 */
   onSaved: () => void | Promise<void>;
@@ -97,12 +91,11 @@ interface EmployeeDrawerProps {
 
 export function EmployeeDrawer({
   employee,
-  agents,
   onClose,
   onSaved,
 }: EmployeeDrawerProps) {
   const [draft, setDraft] = useState<DigitalEmployeeDraft>(() =>
-    employee ? toDraft(employee) : emptyDraft(agents),
+    employee ? toDraft(employee) : emptyDraft(),
   );
   const [tab, setTab] = useState<TabId>("profile");
   const [saving, setSaving] = useState(false);
@@ -112,14 +105,6 @@ export function EmployeeDrawer({
 
   const update = (fields: Partial<DigitalEmployeeDraft>) =>
     setDraft((current) => ({ ...current, ...fields }));
-
-  // Agent 检测是异步的：打开抽屉时可能还没拿到候选列表。
-  // 列表到达后补上默认 Agent，避免保存出「未绑定 Agent」的档案。
-  useEffect(() => {
-    if (draft.agentId || agents.length === 0) return;
-    const first = agents.find((agent) => agent.status.installed) ?? agents[0];
-    if (first) setDraft((current) => ({ ...current, agentId: first.id }));
-  }, [agents, draft.agentId]);
 
   const handleAvatarFile = async (file: File) => {
     if (!file.type.startsWith("image/")) {
@@ -169,20 +154,9 @@ export function EmployeeDrawer({
     }
   };
 
-  const activeAgent = agents.find((agent) => agent.id === draft.agentId) ?? null;
-  const agentLabel = activeAgent?.displayName ?? draft.agentId;
-  const supportsSkills = activeAgent?.capabilities.skills ?? false;
-  const supportsMcp = activeAgent?.capabilities.mcp ?? false;
-
-  // 切换 Agent 后，隐藏该 Agent 不支持的标签页
-  useEffect(() => {
-    if (tab === "mcp" && !supportsMcp) setTab("profile");
-    else if (tab === "skills" && !supportsSkills) setTab("profile");
-  }, [supportsMcp, supportsSkills, tab, setTab]);
-
-  const visibleTabs = TABS.filter(({ id }) =>
-    id === "mcp" ? supportsMcp : id === "skills" ? supportsSkills : true,
-  );
+  // 员工本身不绑定 Agent，所有能力标签页始终可见；
+  // 运行时是否支持由工作流节点选择的 Agent 决定。
+  const visibleTabs = TABS;
 
   return (
     <div
@@ -275,7 +249,6 @@ export function EmployeeDrawer({
           {tab === "profile" && (
             <ProfileTab
               draft={draft}
-              agents={agents}
               update={update}
               onPickAvatar={() => avatarInputRef.current?.click()}
             />
@@ -289,16 +262,12 @@ export function EmployeeDrawer({
           {tab === "mcp" && (
             <McpTab
               servers={draft.mcpServers}
-              agentLabel={agentLabel}
-              supportsMcp={supportsMcp}
               onChange={(mcpServers) => update({ mcpServers })}
             />
           )}
           {tab === "skills" && (
             <SkillsTab
               skills={draft.skills}
-              agentLabel={agentLabel}
-              supportsSkills={supportsSkills}
               onChange={(skills) => update({ skills })}
             />
           )}
@@ -372,12 +341,10 @@ export function EmployeeDrawer({
 
 function ProfileTab({
   draft,
-  agents,
   update,
   onPickAvatar,
 }: {
   draft: DigitalEmployeeDraft;
-  agents: AgentInfo[];
   update: (fields: Partial<DigitalEmployeeDraft>) => void;
   onPickAvatar: () => void;
 }) {
@@ -443,40 +410,6 @@ function ProfileTab({
         />
       </Field>
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-        <Field label="执行 Agent" hint="数字员工复用该 Agent 的运行时与工具生态。">
-          <Select
-            value={draft.agentId}
-            onChange={(agentId) =>
-              // 换 Agent 后旧模型名很可能不再有效，一并清空
-              update({ agentId })
-            }
-            className={INPUT_CLASS}
-            placeholder={draft.agentId || "未检测到 Agent"}
-            options={
-              agents.length === 0
-                ? draft.agentId
-                  ? [{ value: draft.agentId, label: draft.agentId }]
-                  : []
-                : agents.map((agent) => ({
-                    value: agent.id,
-                    label: `${agent.displayName}${
-                      agent.status.installed
-                        ? agent.status.version
-                          ? ` v${agent.status.version}`
-                          : ""
-                        : "（未安装）"
-                    }`,
-                    disabled: !agent.status.installed,
-                  }))
-            }
-          />
-        </Field>
-        <div className="rounded-lg border border-border bg-surface-2/40 px-3 py-2.5 text-caption leading-relaxed text-text-muted">
-          模型由所选 Agent 的本机配置决定，Nova 不再单独选择模型。
-        </div>
-      </div>
-
       <div className="flex items-center justify-between gap-3 rounded-lg border border-border bg-surface-2/40 px-3 py-2.5">
         <div>
           <div className="text-body text-text">启用状态</div>
@@ -507,9 +440,9 @@ function PromptTab({
 }) {
   return (
     <div className="space-y-3">
-      <div className="rounded-lg border border-border bg-surface-2/40 px-3 py-2.5 text-meta leading-relaxed text-text-secondary">
+      <p className="text-meta leading-relaxed text-text-muted">
         系统提示词定义员工的身份、职责与行为边界，会作为每次对话的基础设定。
-      </div>
+      </p>
       <textarea
         value={value}
         onChange={(event) => onChange(event.target.value)}

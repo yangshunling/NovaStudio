@@ -10,17 +10,15 @@
  *   检测安装：claude --version
  *   工作目录：claude 无 -C 选项，通过进程的 cwd 设置
  *   模型选择：--model
- *   权限模式：--permission-mode <acceptEdits|auto|bypassPermissions|manual|dontAsk|plan>
- *            未显式指定时默认 bypassPermissions（最高权限）——宿主尚无授权弹窗，
- *            否则需要授权的工具会被静默拒绝（见 optionArgs）
+ *   权限模式：不传 --permission-mode，由 CLI 读取本机 settings.json 的
+ *            permissions.defaultMode —— 与 Agent 平台、终端 claude 完全一致
  *
  * 两个开关的取舍（都只影响本包，宿主不知情）：
  *   --verbose              -p 模式下输出 stream-json 需要它，否则 claude 直接拒绝
  *   --include-partial-messages  提供 content_block_delta 增量，界面才有打字机效果；
  *                          最终内容仍由 assistant 权威消息收敛（见 parse.ts）
  *
- * 与 Pi / OpenCode 的差异：
- *   会话 id（uuid）直接可复用，历史回放靠读 CLI 侧 JSONL 文件（见 sessions.ts）
+ * 会话 id（uuid）直接可复用，历史回放靠读 CLI 侧 JSONL 文件（见 sessions.ts）
  */
 
 import { existsSync } from "fs";
@@ -42,34 +40,23 @@ import {
 const BIN = "claude";
 
 /**
- * 运行参数 key → 命令行开关。permissionMode 见下方 optionArgs（它有默认值）。
+ * 宿主内部注入的运行参数 key → 命令行开关。
  *
- * systemPrompt / mcpConfig / strictMcpConfig 是工作流运行注入的扩展参数：
- * 普通聊天不会传，因此对既有行为零影响。
+ * systemPrompt / mcpConfig / strictMcpConfig 由工作流运行按需注入，
+ * 不是用户可配置项；普通聊天不会传。
  */
 const OPTION_FLAGS: Record<string, string> = {
   systemPrompt: "--append-system-prompt",
   mcpConfig: "--mcp-config",
 };
 
-/**
- * 未显式选择权限模式时使用的档位：最高权限。
- *
- * 宿主目前没有实现授权弹窗（无人应答 canUseTool），若沿用 CLI 默认档位，
- * 任何需要授权的工具都会被直接拒绝，用户只会看到"工具没执行"而不知原因。
- * 因此默认放到最高权限；用户显式选了别的档位则以用户为准。
- */
-const DEFAULT_PERMISSION_MODE = "bypassPermissions";
-
-/** 把宿主回传的参数对象翻译成命令行开关；未声明的 key 一律忽略 */
+/** 把宿主内部注入的参数翻译成命令行开关；未声明的 key 一律忽略 */
 function optionArgs(opts?: SessionOptions): string[] {
   const args: string[] = [];
   for (const [key, flag] of Object.entries(OPTION_FLAGS)) {
     const value = opts?.[key];
     if (value) args.push(flag, value);
   }
-  // 权限模式总有值：用户选了用用户的，没选则取最高权限
-  args.push("--permission-mode", opts?.permissionMode || DEFAULT_PERMISSION_MODE);
   // 只使用显式传入的 MCP，屏蔽全局 / 项目配置（工作流隔离用）
   if (opts?.strictMcpConfig === "1") args.push("--strict-mcp-config");
   return args;

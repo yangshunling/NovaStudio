@@ -4,7 +4,8 @@
  * 「Agent 平台」直接编辑这份文件，Claude CLI 与 Nova 共用同一套配置：
  * - env.ANTHROPIC_BASE_URL / AUTH_TOKEN / API_KEY
  * - env.ANTHROPIC_MODEL + ANTHROPIC_DEFAULT_*_MODEL
- * - permissions.defaultMode
+ * - permissions.defaultMode（终端 claude、Nova 会话与工作流节点共用；
+ *   Nova 不再显式传 --permission-mode，完全交给 CLI 读取本机配置）
  *
  * 写入时只改上述键，保留 settings.json 里的其它内容（hooks / plugins / statusLine 等）。
  */

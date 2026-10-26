@@ -27,7 +27,6 @@ import type {
   Project,
   ReadFileResult,
   Session,
-  SessionOptions,
   SkillAsset,
   SkillDocument,
   SkillImportKind,
@@ -42,9 +41,13 @@ import type {
   WorkflowRun,
   WorkflowRunDetail,
   WorkflowRunEvent,
+  WorkflowTrigger,
+  WorkflowTriggerBinding,
+  WorkflowTriggerDraft,
 } from "../types";
 import type {
   AgentInfo,
+  AgentModelOption,
   AgentSettingsDraft,
   AgentSettingsView,
 } from "./agent";
@@ -72,9 +75,14 @@ export interface IpcInvokeMap {
     args: [{ draft: AgentSettingsDraft }];
     result: AgentSettingsView;
   };
+  /** 按当前 Base URL / API Key 拉取可用模型列表 */
+  "agent:models:list": {
+    args: [{ agentId: string; baseUrl: string; apiKey: string }];
+    result: AgentModelOption[];
+  };
   /** 统一发送：主进程按会话是否已有会话引用决定新建 / 恢复 */
   "agent:send": {
-    args: [{ sessionId: string; prompt: string; opts?: SessionOptions }];
+    args: [{ sessionId: string; prompt: string }];
     result: SendAgentResult;
   };
   /** 中断指定会话（多会话并发时互不影响） */
@@ -292,6 +300,33 @@ export interface IpcInvokeMap {
     args: [{ runId: string; nodeRunId: string }];
     result: boolean;
   };
+  "workflow:run:openNodeFile": {
+    args: [{ runId: string; nodeRunId: string; relativePath: string }];
+    result: boolean;
+  };
+
+  /** 触发器：全局定义 + 工作流绑定 */
+  "triggers:list": { args: []; result: WorkflowTrigger[] };
+  "triggers:create": {
+    args: [{ draft: WorkflowTriggerDraft }];
+    result: WorkflowTrigger;
+  };
+  "triggers:update": {
+    args: [{ id: string; draft: WorkflowTriggerDraft }];
+    result: WorkflowTrigger | null;
+  };
+  "triggers:delete": { args: [{ id: string }]; result: boolean };
+  /** 全部绑定关系（工作流卡片 / 触发器页面展示已绑定数量） */
+  "triggers:bindings": { args: []; result: WorkflowTriggerBinding[] };
+  "triggers:bindingsForWorkflow": {
+    args: [{ workflowId: string }];
+    result: string[];
+  };
+  /** 用给定集合整体替换某个工作流的触发器 */
+  "triggers:setForWorkflow": {
+    args: [{ workflowId: string; triggerIds: string[] }];
+    result: boolean;
+  };
 }
 
 /** 主进程 → 渲染进程（push）通道表。事件均带 sessionId，供多会话并发路由。 */
@@ -305,6 +340,8 @@ export interface IpcPushMap {
   "terminal:exit": TerminalExitPayload;
   /** 工作流运行的实时状态事件（同时已落库，可断线重放） */
   "workflow:run:event": WorkflowRunEvent;
+  /** 触发器状态变更（调度器触发 / 重算下次时间） */
+  "triggers:updated": WorkflowTrigger;
 }
 
 export type IpcInvokeChannel = keyof IpcInvokeMap;

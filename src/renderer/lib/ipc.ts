@@ -18,9 +18,9 @@ import type {
   AppSettings,
   DigitalEmployeeDraft,
   McpServerDraft,
-  SessionOptions,
   SkillImportKind,
   WorkflowDraft,
+  WorkflowTriggerDraft,
 } from "@shared/types";
 
 /** preload 暴露的桥（运行时结构，类型在下面统一收敛） */
@@ -55,11 +55,13 @@ export const ipc = {
     call("agent:settings:get", { agentId }),
   saveAgentSettings: (draft: AgentSettingsDraft) =>
     call("agent:settings:save", { draft }),
-  sendAgent: (
-    sessionId: string,
-    prompt: string,
-    opts?: SessionOptions,
-  ): Promise<SendAgentResult> => call("agent:send", { sessionId, prompt, opts }),
+  listAgentModels: (input: {
+    agentId: string;
+    baseUrl: string;
+    apiKey: string;
+  }) => call("agent:models:list", input),
+  sendAgent: (sessionId: string, prompt: string): Promise<SendAgentResult> =>
+    call("agent:send", { sessionId, prompt }),
   abortAgent: (sessionId: string) => call("agent:abort", { sessionId }),
 
   // === 项目 ===
@@ -190,6 +192,25 @@ export const ipc = {
     call("workflow:run:nodeDetail", { runId, nodeRunId }),
   openWorkflowNodeArtifacts: (runId: string, nodeRunId: string) =>
     call("workflow:run:openNodeArtifacts", { runId, nodeRunId }),
+  openWorkflowNodeFile: (
+    runId: string,
+    nodeRunId: string,
+    relativePath: string,
+  ) =>
+    call("workflow:run:openNodeFile", { runId, nodeRunId, relativePath }),
+
+  // === 工作流触发器 ===
+  listTriggers: () => call("triggers:list"),
+  createTrigger: (draft: WorkflowTriggerDraft) =>
+    call("triggers:create", { draft }),
+  updateTrigger: (id: string, draft: WorkflowTriggerDraft) =>
+    call("triggers:update", { id, draft }),
+  deleteTrigger: (id: string) => call("triggers:delete", { id }),
+  listTriggerBindings: () => call("triggers:bindings"),
+  listWorkflowTriggerIds: (workflowId: string) =>
+    call("triggers:bindingsForWorkflow", { workflowId }),
+  setWorkflowTriggers: (workflowId: string, triggerIds: string[]) =>
+    call("triggers:setForWorkflow", { workflowId, triggerIds }),
 
   // === 主进程推送订阅（返回取消订阅函数） ===
   on: {
@@ -207,5 +228,7 @@ export const ipc = {
     workflowRunEvent: (
       cb: (payload: IpcPushMap["workflow:run:event"]) => void,
     ) => on("workflow:run:event", cb),
+    triggersUpdated: (cb: (payload: IpcPushMap["triggers:updated"]) => void) =>
+      on("triggers:updated", cb),
   },
 };

@@ -18,15 +18,11 @@ import {
   X,
 } from "lucide-react";
 import { ipc } from "../../lib/ipc";
-import { useChatStore } from "../../stores/chat";
-import { AgentPill } from "../ui/AgentPill";
 import { EmployeeAvatar } from "./EmployeeAvatar";
 import { EmployeeDrawer } from "./EmployeeDrawer";
-import type { AgentInfo } from "@shared/contracts/agent";
 import type { DigitalEmployee } from "@shared/types";
 
 export function EmployeesView() {
-  const agents = useChatStore((state) => state.agents);
   const [employees, setEmployees] = useState<DigitalEmployee[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -150,7 +146,6 @@ export function EmployeesView() {
                 <EmployeeCard
                   key={employee.id}
                   employee={employee}
-                  agents={agents}
                   onOpen={() => setEditing(employee)}
                 />
               ))}
@@ -164,7 +159,6 @@ export function EmployeesView() {
         <EmployeeDrawer
           key={editing?.id ?? "new"}
           employee={editing}
-          agents={agents}
           onClose={() => setEditing(undefined)}
           onSaved={load}
         />
@@ -179,11 +173,9 @@ export function EmployeesView() {
 
 function EmployeeCard({
   employee,
-  agents,
   onOpen,
 }: {
   employee: DigitalEmployee;
-  agents: AgentInfo[];
   onOpen: () => void;
 }) {
   const mcpCount = employee.mcpServers.filter((server) => server.enabled).length;
@@ -216,15 +208,6 @@ function EmployeeCard({
           <p className="mt-0.5 truncate text-meta text-text-muted">
             {employee.role || "未设置职位"}
           </p>
-          {employee.agentId && (
-            <div className="mt-1.5">
-              <AgentPill
-                agents={agents}
-                agentId={employee.agentId}
-                maxWidth="max-w-[120px]"
-              />
-            </div>
-          )}
         </div>
       </div>
 

@@ -2,7 +2,9 @@
  * 工作流产物与临时运行目录
  *
  * 产物（用户可见、可追溯）落在工作区：
- *   <workspace>/.novastudio/workflows/<workflowId>/runs/<run>/nodes/<node>/attempt-N/
+ *   <workspace>/.novastudio/workflows/<workflowId>/<run>/<node>/
+ * - run 目录名：时间戳 + 运行 id 前缀
+ * - node 目录名：执行序号 + 节点名称；重试使用同级的 `<node>.try-N`
  *
  * Provider 的运行时投影（临时 mcp.json / 配置目录副本）落在应用数据目录：
  *   <userData>/workflow-runs/<runId>/<node>-attempt-N/
@@ -12,6 +14,7 @@
 import { mkdir, readdir, rm, rmdir, stat, writeFile } from "fs/promises";
 import { existsSync } from "fs";
 import { join } from "path";
+import type { WorkflowNode } from "../../shared/types";
 
 /** 一次运行在工作区里的产物根目录 */
 export function createRunArtifactDir(
@@ -29,9 +32,38 @@ export function createRunArtifactDir(
     ".novastudio",
     "workflows",
     workflowId,
-    "runs",
     `${stamp}_${runId.slice(0, 8)}`,
   );
+}
+
+/** 去掉文件系统不允许的字符，并压掉首尾空白 */
+function safeSegment(value: string): string {
+  return value
+    .replace(/[\\/:*?"<>|\u0000-\u001f]/g, "-")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/[. ]+$/g, "");
+}
+
+/**
+ * 单次节点尝试的产物目录。
+ *
+ * 首次尝试直接用 `<序号>-<节点名>`；重试使用同级 `<序号>-<节点名>.try-N`，
+ * 不再为每次尝试多加一层目录。序号保证同名节点不会互相覆盖。
+ */
+export function nodeArtifactDir(
+  runDir: string,
+  node: WorkflowNode,
+  index: number,
+  attempt: number,
+): string {
+  const label =
+    safeSegment(node.name).slice(0, 40) || node.id.slice(0, 8);
+  const base = join(
+    runDir,
+    `${String(Math.max(0, index) + 1).padStart(2, "0")}-${label}`,
+  );
+  return attempt > 1 ? `${base}.try-${attempt}` : base;
 }
 
 /**

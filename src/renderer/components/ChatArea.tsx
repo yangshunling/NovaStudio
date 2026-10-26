@@ -23,7 +23,6 @@ import {
   PanelRightOpen,
   X,
 } from "lucide-react";
-import { AgentOptionsMenu } from "./AgentOptionsMenu";
 import { AgentSelector } from "./AgentSelector";
 import { ProjectSelector } from "./ProjectSelector";
 import { useFileMention, FileMentionPopup } from "./FileMention";
@@ -195,8 +194,6 @@ export function ChatArea({ embedded = false }: { embedded?: boolean } = {}) {
                 locked={agentLocked}
                 onSelect={selectAgent}
               />
-              {/* 运行参数：由当前 Agent 的 manifest.options 决定是否出现 */}
-              <AgentOptionsMenu />
               {isStreaming ? (
                 <button
                   onClick={() => abort()}

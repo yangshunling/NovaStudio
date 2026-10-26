@@ -60,10 +60,8 @@ export async function prepareClaudeWorkflowRun(
 
   // 1. 复制 Claude 全局连接配置与登录凭证
   const settingsSource = claudeSettingsPath();
-  let settingsCopied = false;
   if (existsSync(settingsSource)) {
     await cp(settingsSource, join(configDir, "settings.json"));
-    settingsCopied = true;
   } else {
     warnings.push(
       "未找到本机 Claude settings.json，节点将使用 Claude 内置默认配置。",
@@ -71,14 +69,11 @@ export async function prepareClaudeWorkflowRun(
   }
 
   const credentialsSource = claudeCredentialsPath();
-  let credentialsCopied = false;
   if (existsSync(credentialsSource)) {
     await cp(credentialsSource, join(configDir, ".credentials.json"));
-    credentialsCopied = true;
   }
 
   // 2. 只复制该员工选中的 skills
-  const installedSkills: string[] = [];
   const seenSkills = new Set<string>();
   for (const ref of employee.skills.filter((item) => item.enabled)) {
     const key = skillKey(ref);
@@ -93,14 +88,12 @@ export async function prepareClaudeWorkflowRun(
       continue;
     }
     await cp(source, join(skillsDir, key), { recursive: true });
-    installedSkills.push(key);
   }
 
   // 3. 只把该员工选中的 MCP 交给 CLI；即使一个都没选也传空配置，
   //    配合 --strict-mcp-config 防止全局 MCP 意外泄漏给节点。
   const globalMcp = readClaudeMcpServers();
   const mcpServers: Record<string, unknown> = {};
-  const selectedMcp: string[] = [];
   const seenMcp = new Set<string>();
   for (const ref of employee.mcpServers.filter((item) => item.enabled)) {
     const key = mcpKey(ref);
@@ -115,7 +108,6 @@ export async function prepareClaudeWorkflowRun(
       continue;
     }
     mcpServers[key] = definition;
-    selectedMcp.push(key);
   }
 
   const mcpConfigPath = join(input.runtimeDir, "mcp.json");
@@ -135,14 +127,5 @@ export async function prepareClaudeWorkflowRun(
       "--no-session-persistence",
     ],
     warnings,
-    audit: {
-      configSource: "claude-global-projection",
-      settingsCopied,
-      credentialsCopied,
-      mcpServers: selectedMcp,
-      skills: installedSkills,
-      sessionPersistence: false,
-      model: "由 Claude 本机配置决定",
-    },
   };
 }

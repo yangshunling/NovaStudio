@@ -4,8 +4,8 @@
  * 数据目录放在用户主目录下，与 app 安装目录物理隔离。
  * 卸载应用时数据不受影响。
  *
- * 对话正文不在此目录存储：由各 CLI（pi/claude/...）自行持久化到其
- * ~/.<agent>/ 会话目录，Nova 仅在 SQLite 索引中记录引用，回放时读取。
+ * 对话正文不在此目录存储：由 CLI（Claude Code）自行持久化到其
+ * ~/.claude/ 会话目录，Nova 仅在 SQLite 索引中记录引用，回放时读取。
  */
 
 import { homedir } from "os";

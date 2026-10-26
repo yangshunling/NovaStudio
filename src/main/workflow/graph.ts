@@ -108,8 +108,8 @@ export function validateGraph(
     if (!employee.enabled) {
       issues.push(`节点「${node.name}」绑定的数字员工「${employee.name}」已停用`);
     }
-    if (!employee.agentId) {
-      issues.push(`数字员工「${employee.name}」未指定 Agent`);
+    if (!node.config.agentId) {
+      issues.push(`节点「${node.name}」未选择执行 Agent`);
     }
   }
 

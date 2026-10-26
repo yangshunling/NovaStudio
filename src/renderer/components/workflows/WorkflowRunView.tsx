@@ -2,8 +2,7 @@
  * 工作流运行详情
  *
  * 左侧：本次运行的全部节点，点击切换。
- * 右侧：选中节点的完整执行信息 —— 提交给 Agent 的系统提示词与输入、
- *       Agent 返回、交接单、运行参数、产物文件列表。
+ * 右侧：选中节点的执行信息 —— 结果优先展示，输入与上下文、诊断信息默认折叠。
  * 页面底部保留事件日志，便于排查调度顺序。
  */
 
@@ -22,6 +21,7 @@ import {
 } from "lucide-react";
 import { ipc } from "../../lib/ipc";
 import { toast } from "../../stores/toast";
+import { MarkdownRenderer } from "../MarkdownRenderer";
 import { formatDateTime, formatDuration, formatSize } from "../../lib/workflowFormat";
 import {
   ACTIVE_RUN_STATUSES,
@@ -126,6 +126,23 @@ export function WorkflowRunView({
     () => nodes.find((node) => node.id === selectedNodeRunId) ?? null,
     [nodes, selectedNodeRunId],
   );
+
+  /** 隔离告警以事件形式落库，按当前节点筛选 */
+  const selectedWarnings = useMemo(() => {
+    if (!detail || !selectedNode) return [];
+    return detail.events
+      .filter(
+        (event) =>
+          event.nodeRunId === selectedNode.id &&
+          event.type === "log" &&
+          event.payload.level === "warning" &&
+          event.payload.attempt === selectedNode.attempt,
+      )
+      .map((event) =>
+        typeof event.payload.message === "string" ? event.payload.message : "",
+      )
+      .filter(Boolean);
+  }, [detail, selectedNode]);
 
   // 节点详情：随选中节点或该节点状态变化重新读取
   useEffect(() => {
@@ -384,6 +401,7 @@ export function WorkflowRunView({
                   detail={nodeDetail}
                   loading={nodeDetailLoading}
                   now={now}
+                  warnings={selectedWarnings}
                   onCopy={copyText}
                   onOpenFolder={async () => {
                     const ok = await ipc.openWorkflowNodeArtifacts(
@@ -391,6 +409,14 @@ export function WorkflowRunView({
                       selectedNode.id,
                     );
                     if (!ok) toast.error("无法打开节点产物目录");
+                  }}
+                  onOpenFile={async (relativePath) => {
+                    const ok = await ipc.openWorkflowNodeFile(
+                      runId,
+                      selectedNode.id,
+                      relativePath,
+                    );
+                    if (!ok) toast.error("无法打开文件");
                   }}
                 />
               ) : (
@@ -421,7 +447,9 @@ export function WorkflowRunView({
                     const message =
                       typeof event.payload.error === "string"
                         ? event.payload.error
-                        : "";
+                        : typeof event.payload.message === "string"
+                          ? event.payload.message
+                          : "";
                     return (
                       <div
                         key={event.seq}
@@ -447,7 +475,14 @@ export function WorkflowRunView({
                           </span>
                         )}
                         {message && (
-                          <span className="min-w-0 truncate text-error" title={message}>
+                          <span
+                            className={`min-w-0 truncate ${
+                              event.payload.level === "warning"
+                                ? "text-agent-amber"
+                                : "text-error"
+                            }`}
+                            title={message}
+                          >
                             {message}
                           </span>
                         )}
@@ -524,17 +559,25 @@ function NodeDetailPanel({
   detail,
   loading,
   now,
+  warnings,
   onCopy,
   onOpenFolder,
+  onOpenFile,
 }: {
   node: WorkflowNodeRun;
   detail: WorkflowNodeRunDetail | null;
   loading: boolean;
   now: number;
+  warnings: string[];
   onCopy: (label: string, text: string) => void;
   onOpenFolder: () => void;
+  onOpenFile: (relativePath: string) => void;
 }) {
   const meta = NODE_STATUS[node.status];
+  const request = detail?.request ?? "";
+  const result = detail?.result ?? "";
+  const files = detail?.files ?? [];
+  const hasDiagnostics = warnings.length > 0 || files.length > 0;
 
   return (
     <div className="space-y-3">
@@ -577,131 +620,137 @@ function NodeDetailPanel({
         </div>
       ) : (
         <>
-          <TextBlock
-            title="系统提示词"
-            content={detail?.systemPrompt ?? ""}
-            empty="（未设置系统提示词）"
-            onCopy={() => onCopy("系统提示词", detail?.systemPrompt ?? "")}
-          />
-          <TextBlock
-            title="提交给 Agent 的任务输入"
-            content={detail?.input ?? ""}
-            empty="（没有记录到输入）"
-            onCopy={() => onCopy("任务输入", detail?.input ?? "")}
-          />
-          <TextBlock
-            title="Agent 返回"
-            content={detail?.output ?? ""}
-            empty="（还没有返回内容）"
-            onCopy={() => onCopy("Agent 返回", detail?.output ?? "")}
-          />
-          <TextBlock
-            title="交接单"
-            content={detail?.handoff ?? ""}
-            empty="（还没有交接单）"
-            onCopy={() => onCopy("交接单", detail?.handoff ?? "")}
-          />
-
-          <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
-            <TextBlock
-              title="运行参数"
-              content={detail?.options ?? ""}
-              empty="（没有记录到参数）"
-              onCopy={() => onCopy("运行参数", detail?.options ?? "")}
-              compact
-            />
-            <TextBlock
-              title="隔离环境告警"
-              content={detail?.warnings ?? ""}
-              empty="（无告警）"
-              onCopy={() => onCopy("告警", detail?.warnings ?? "")}
-              compact
-            />
-          </div>
-
-          {/* 产物文件 */}
+          {/* 结果：节点最主要的输出，放在最前面 */}
           <section className="rounded-xl border border-border bg-surface-2/50">
             <header className="flex items-center gap-2 border-b border-border px-3 py-2.5">
-              <FolderOpen className="h-4 w-4 text-text-muted" />
               <span className="min-w-0 flex-1 text-body font-medium text-text">
-                产物文件
+                结果
               </span>
-              <button
-                type="button"
-                onClick={onOpenFolder}
-                className="ui-btn-ghost rounded-md px-2 py-1 text-caption font-medium"
-              >
-                打开目录
-              </button>
+              {result && (
+                <button
+                  type="button"
+                  onClick={() => onCopy("结果", result)}
+                  title="复制结果"
+                  className="flex items-center gap-1 rounded-md px-1.5 py-0.5 text-caption text-text-muted transition-colors hover:bg-surface-hover hover:text-text"
+                >
+                  <Copy className="h-3 w-3" />
+                  复制
+                </button>
+              )}
             </header>
-
-            {!detail || detail.files.length === 0 ? (
-              <p className="px-3 py-3 text-meta text-text-muted">
-                （该节点还没有产物文件）
-              </p>
-            ) : (
-              <div className="divide-y divide-border">
-                {detail.files.map((file) => (
-                  <div
-                    key={file.relativePath}
-                    className="flex items-center gap-2.5 px-3 py-2 text-meta"
-                  >
-                    <FileText className="h-3.5 w-3.5 shrink-0 text-text-muted" />
-                    <span className="min-w-0 flex-1 truncate font-mono text-text-secondary">
-                      {file.relativePath}
-                    </span>
-                    <span className="shrink-0 font-mono text-caption text-text-muted">
-                      {formatSize(file.size)}
-                    </span>
-                  </div>
-                ))}
+            {result ? (
+              <div className="max-h-[28rem] overflow-y-auto p-3">
+                <MarkdownRenderer content={result} />
               </div>
+            ) : (
+              <p className="px-3 py-3 text-meta italic text-text-muted">
+                （还没有返回内容）
+              </p>
             )}
           </section>
+
+          {/* 输入与上下文：默认折叠 */}
+          <details className="rounded-xl border border-border bg-surface-2/50">
+            <summary className="flex cursor-pointer list-none items-center gap-2 px-3 py-2.5 text-body font-medium text-text-secondary">
+              <ChevronDown className="details-chevron h-4 w-4 transition-transform" />
+              输入与上下文
+            </summary>
+            <div className="border-t border-border p-3">
+              {request ? (
+                <>
+                  <div className="mb-2 flex justify-end">
+                    <button
+                      type="button"
+                      onClick={() => onCopy("输入", request)}
+                      title="复制输入"
+                      className="flex items-center gap-1 rounded-md px-1.5 py-0.5 text-caption text-text-muted transition-colors hover:bg-surface-hover hover:text-text"
+                    >
+                      <Copy className="h-3 w-3" />
+                      复制
+                    </button>
+                  </div>
+                  <div className="max-h-96 overflow-y-auto">
+                    <MarkdownRenderer content={request} />
+                  </div>
+                </>
+              ) : (
+                <p className="text-meta italic text-text-muted">
+                  （没有记录到输入）
+                </p>
+              )}
+            </div>
+          </details>
+
+          {/* 诊断：告警 / 记录文件，默认折叠 */}
+          {hasDiagnostics && (
+            <details className="rounded-xl border border-border bg-surface-2/50">
+              <summary className="flex cursor-pointer list-none items-center gap-2 px-3 py-2.5 text-body font-medium text-text-secondary">
+                <ChevronDown className="details-chevron h-4 w-4 transition-transform" />
+                诊断
+              </summary>
+              <div className="space-y-3 border-t border-border p-3">
+                {warnings.length > 0 && (
+                  <div>
+                    <p className="mb-1.5 text-meta font-medium text-text-secondary">
+                      告警
+                    </p>
+                    <ul className="space-y-1">
+                      {warnings.map((warning, index) => (
+                        <li
+                          key={`${index}-${warning}`}
+                          className="text-meta leading-relaxed text-agent-amber"
+                        >
+                          {warning}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                <div>
+                  <div className="mb-1.5 flex items-center justify-between gap-2">
+                    <p className="text-meta font-medium text-text-secondary">
+                      记录文件
+                    </p>
+                    <button
+                      type="button"
+                      onClick={onOpenFolder}
+                      className="ui-btn-ghost rounded-md px-2 py-1 text-caption font-medium"
+                    >
+                      打开目录
+                    </button>
+                  </div>
+                  {files.length === 0 ? (
+                    <p className="text-meta italic text-text-muted">
+                      （该节点还没有记录文件）
+                    </p>
+                  ) : (
+                    <div className="divide-y divide-border">
+                      {files.map((file) => (
+                        <button
+                          key={file.relativePath}
+                          type="button"
+                          onClick={() => onOpenFile(file.relativePath)}
+                          title={`打开 ${file.relativePath}`}
+                          className="flex w-full items-center gap-2.5 px-1 py-2 text-left text-meta transition-colors hover:bg-surface-hover"
+                        >
+                          <FileText className="h-3.5 w-3.5 shrink-0 text-text-muted" />
+                          <span className="min-w-0 flex-1 truncate font-mono text-text-secondary">
+                            {file.relativePath}
+                          </span>
+                          <span className="shrink-0 font-mono text-caption text-text-muted">
+                            {formatSize(file.size)}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </details>
+          )}
         </>
       )}
     </div>
-  );
-}
-
-function TextBlock({
-  title,
-  content,
-  empty,
-  onCopy,
-  compact = false,
-}: {
-  title: string;
-  content: string;
-  empty: string;
-  onCopy: () => void;
-  compact?: boolean;
-}) {
-  return (
-    <section className="rounded-xl border border-border bg-surface-2/50">
-      <header className="flex items-center gap-2 border-b border-border px-3 py-2.5">
-        <span className="min-w-0 flex-1 text-body font-medium text-text">
-          {title}
-        </span>
-        {content && (
-          <button
-            type="button"
-            onClick={onCopy}
-            title={`复制${title}`}
-            className="flex items-center gap-1 rounded-md px-1.5 py-0.5 text-caption text-text-muted transition-colors hover:bg-surface-hover hover:text-text"
-          >
-            <Copy className="h-3 w-3" />
-            复制
-          </button>
-        )}
-      </header>
-      <pre
-        className={`overflow-auto whitespace-pre-wrap break-words p-3 font-sans leading-relaxed text-text-secondary ${
-          compact ? "max-h-40 text-meta" : "max-h-72 text-body"
-        } ${content ? "" : "italic text-text-muted"}`}
-      >
-        {content || empty}
-      </pre>
-    </section>
   );
 }

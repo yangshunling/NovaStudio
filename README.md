@@ -6,7 +6,7 @@
 
 **一个窗口，管理你的整个 AI 数字团队**
 
-从多 Agent 对话、数字员工，到可调试的工作流与本地知识库 —— 全部在本地完成。
+从 Claude Code 对话、数字员工，到可调试的工作流与本地知识库 —— 全部在本地完成。
 
 <p>
 <img alt="Electron 31" src="https://img.shields.io/badge/Electron-31-00B4D8?style=for-the-badge&logo=electron&logoColor=white">
@@ -36,9 +36,9 @@
 
 大部分 AI 工具只解决“聊天”这一件事。Nova Studio 想解决的是：
 
-> **当你有多个 Agent、多个项目、多个角色时，如何把它们组织成一条真正能跑起来的生产线。**
+> **当你有多个项目、多个角色时，如何把它们组织成一条真正能跑起来的生产线。**
 
-- **不用在多个 CLI 之间来回切换** —— 一个窗口接入 Pi、OpenCode、Claude Code、Codex；
+- **不用在终端和文件之间来回切换** —— 一个窗口接入 Claude Code；
 - **不用每次重新写提示词** —— 把角色、MCP、技能、知识库固化成“数字员工”；
 - **不用靠人肉传递上下文** —— 把员工串成工作流，节点产物自动交给下一个节点；
 - **不用把资料散落在各处** —— 把 Markdown 文档收进知识库，员工按需读取并引用；
@@ -49,11 +49,11 @@
 
 ## 🚀 核心功能
 
-### 1. 多 Agent 对话工作台
+### 1. Claude Code 对话工作台
 
-- 自动扫描本机已安装的 Agent CLI，一个窗口统一使用；
+- 自动检测本机 Claude Code CLI，一个窗口统一使用；
 - 流式渲染 **思考过程 / 工具调用 / 正文**，工具调用带分类图标与目标摘要；
-- 多轮对话复用 CLI 自带 session，完整继承该 Agent 的工具生态；
+- 多轮对话复用 CLI 自带 session，完整继承 Claude Code 的工具生态；
 - 支持 Markdown、GFM 表格、代码高亮；
 - 完整事件流落库，重启后仍可回放含思考与工具调用的历史对话；
 - 多会话可同时运行，互不阻塞；
@@ -69,10 +69,10 @@
 
 ### 3. 数字员工
 
-把一份 Agent 运行配置固化成可复用的“员工”：
+把一份可复用的人设与能力固化成“员工”：
 
 - 头像、姓名、职位、简介；
-- 绑定 Agent 运行平台（Claude Code / Codex / OpenCode / Pi）；
+- 加入工作流节点时由 Claude Code 执行，同一员工可在多个节点复用；
 - 独立的系统提示词 / 人设；
 - 从 Claude MCP 配置勾选服务（服务定义统一在「MCP」页管理，员工只保存引用）；
 - 从 Claude 全局技能勾选技能（技能内容统一在「Skill」页管理，员工只保存引用）；
@@ -114,12 +114,9 @@
 
 - 每次执行都有独立记录：状态、开始时间、完成时间、总耗时；
 - 点击详情可查看每个节点：
-  - 提交给 Agent 的系统提示词与完整输入；
-  - Agent 的返回内容；
-  - 结构化交接单；
-  - 本次注入的知识库与文件清单；
-  - 运行参数与隔离环境告警；
-  - 产物文件列表，可一键打开目录；
+  - 结果优先展示（Markdown 渲染）；
+  - 输入与上下文、告警与记录文件收在折叠区，默认不打扰；
+  - 记录文件可点击直接打开；
 - 每个节点独立会话；Claude 节点按员工勾选的 MCP / Skill 生成**临时运行投影**（复制本机 `settings.json` + 选中技能，MCP 通过 `--mcp-config` 精确指定），节点结束即删除；连接、登录和默认模型直接复用本机 Claude 配置；
 - 产物落在工作区 `.novastudio/` 下，按工作流 ID 与运行 ID 分目录，互不覆盖；
 - 工作流会话不会出现在普通会话列表中，避免干扰日常聊天。
@@ -144,8 +141,7 @@
 - 环境变量与请求头支持 `${VAR}` 占位符，运行时从环境解析；字面量密钥会在列表标记「含密钥」；
 - 服务卡片带来源、传输方式、只读、含密钥、使用人数等标签；
 - 数字员工按引用绑定；运行时只把该员工选中的 MCP 渲染成临时 `mcp.json`，通过 `--mcp-config --strict-mcp-config` 加载；
-- 旧版 Nova MCP 主库会一次性迁移到 `~/.claude.json`；
-- 其他 Agent 暂未适配，运行时会在告警中明确说明。
+- 旧版 Nova MCP 主库会一次性迁移到 `~/.claude.json`。
 
 ### 7. 知识库
 
@@ -215,25 +211,21 @@
 | Agent | 会话恢复 | 说明 |
 |---|:---:|---|
 | **Claude Code** | ✅ | 完整支持工具调用流式解析、历史回放；直接复用本机配置，按员工投影 MCP / Skill |
-| **Codex** | ✅ | 自动检测与多轮会话 |
-| **OpenCode** | ✅ | 自动检测与多轮会话 |
-| **Pi** | ✅ | 自动检测与多轮会话 |
 
-> 新增 Agent 只需增加一个适配器目录，对话界面、会话管理、工作流引擎与 IPC 无需改动。
+> 当前只支持 Claude Code。架构上仍保留 provider 适配层，未来新增 Agent 只需增加一个适配器目录。
 >
-> 知识库通过系统提示词注入，对所有 Agent 生效；MCP / Skill 的按员工投影目前由 Claude Code 支持。
+> 知识库通过系统提示词注入，对 Claude Code 生效。
 
 ### Agent 平台（运行环境）
 
-- 侧栏「运行环境 → Agent 平台」是各 Agent 本机配置的统一入口；
+- 侧栏「运行环境 → Agent 平台」是 Claude Code 本机配置的统一入口；
 - 显示已安装状态、版本、本机配置路径；未安装时给出安装命令，支持一键复制与重新检测；
 - **Claude Code 支持完整编辑**：
   - Base URL、API Key；
   - 默认模型 + Fable / Opus / Sonnet / Haiku 四个别名槽位，并显示已配置模型数量；
-  - 默认权限档位（`permissions.defaultMode`）；
+  - 默认权限（`permissions.defaultMode`）；终端 CLI、Nova 会话与工作流节点统一按它运行；
 - 所有修改**直接写回 `~/.claude/settings.json`**，Claude CLI 与 Nova 共用同一份配置，不维护第二份副本；
-- 其他 Agent 复用各自本机配置；配置编辑入口目前仅 Claude Code 完整支持；
-- 工作流节点的连接与默认模型来自本机 CLI 配置；员工只选择 MCP / Skill 子集，不再选择模型；
+- 工作流节点由 Claude Code 执行，连接、默认模型与权限全部来自本机 CLI 配置；员工只选择 MCP / Skill 子集，不再提供节点级运行参数；
 - MCP 的新增 / 修改统一写入 `~/.claude.json`，Skill 的新增 / 修改统一写入 `~/.claude/skills`；
 - 每个员工的 MCP / Skill 子集在运行时投影为临时配置，节点结束即删除；
 - 旧版 Nova 的 MCP / Skill 主库与 `agent-connections` 会在启动时迁移并归档到 `~/.novastudio/legacy-assets/`。
@@ -246,7 +238,7 @@
 ## ⚡ 快速开始
 
 > [!IMPORTANT]
-> 需要 **Node.js 20+（推荐）**、**npm 9+**，以及至少一个本地 Agent CLI（Claude Code / Codex / OpenCode / Pi 任选其一）。
+> 需要 **Node.js 20+（推荐）**、**npm 9+**，以及本机安装的 **Claude Code CLI**。
 > 当前主要面向 Windows；其他平台可通过源码运行，但未做完整验证。
 
 ```bash
@@ -262,7 +254,7 @@ npm run package:win
 
 首次启动后：
 
-1. Nova 会自动扫描本机已安装的 Agent；
+1. Nova 会自动检测本机 Claude Code 是否已安装；
 2. 点击「新建会话」直接开始对话；
 3. 需要读写本地文件时，在输入框旁「绑定项目」选择一个工作目录（没有项目则使用默认目录）。
 
@@ -278,8 +270,7 @@ npm run package:win
 
 进入「数字员工」，为不同角色配置：
 
-- 绑定 Agent 运行平台；
-- 写清职责边界与输出要求；
+- 写清职责边界与输出要求（加入工作流节点后由 Claude Code 执行）；
 - 按需启用 MCP、技能与知识库。
 
 ### 3. 创建知识库
@@ -312,8 +303,8 @@ npm run package:win
 点击「运行记录」：
 
 - 列表展示每次执行的状态、开始时间、完成时间、总耗时；
-- 点击详情查看每个节点的输入、返回、交接单和产物文件；
-- 产物目录可直接打开。
+- 点击详情查看每个节点的结果、输入与上下文和诊断信息；
+- 记录文件可直接点击打开，也可以打开整个节点目录。
 
 ---
 
@@ -323,18 +314,18 @@ npm run package:win
 
 ```
 <workspace>/.novastudio/
-└── workflows/<workflowId>/runs/<runId>/
+└── workflows/<workflowId>/<时间戳>_<runId>/
     ├── run.json
-    └── nodes/<nodeId>/attempt-1/
-        ├── input.md              # 实际提交给 Agent 的输入
-        ├── system-prompt.md      # 员工人设 / 系统提示词（含知识库清单）
-        ├── output.md             # Agent 返回
-        ├── handoff.md            # 结构化交接单
-        ├── agent-options.json    # 配置投影 / MCP / 技能 / 知识库等运行参数
-        ├── knowledge.json        # 本次注入的知识库与文件清单（如有）
-        └── warnings.txt          # 隔离环境告警（如有）
+    ├── 01-需求分析/
+    │   ├── request.md            # 提交给 Agent 的完整请求（系统提示词 + 任务输入）
+    │   └── result.md             # Agent 返回
+    └── 02-开发.try-2/            # 重试与首次尝试同级，不额外加层
+        ├── request.md
+        └── result.md
 ```
 
+- 节点目录名 = 执行序号 + 节点名称；同名节点不会互相覆盖；
+- 首次尝试直接落在节点目录，重试使用同级的 `.try-N` 目录；
 - 不同工作流、不同运行互不覆盖；
 - `.novastudio` 内置 `.gitignore`，不会污染业务仓库；
 - 运行失败或被取消也会保留已产生的输入与产物，便于排查。
@@ -355,12 +346,12 @@ npm run package:win
 
 ## 🔒 数据与安全
 
-- **本地优先**：对话、员工、工作流、知识库与运行记录存储在 `~/.novastudio/`；MCP、Skill、CLI 会话与登录复用各 CLI 的本机配置；
+- **本地优先**：对话、员工、工作流、知识库与运行记录存储在 `~/.novastudio/`；MCP、Skill、CLI 会话与登录复用 Claude Code 的本机配置；
 - **知识库透明**：文档以 Markdown 明文存放，可直接用编辑器修改；全文索引保存在本地 SQLite，删除知识库会同步清理索引；
 - **进程隔离**：渲染进程关闭 `nodeIntegration`，开启 `contextIsolation` 与 `sandbox`，Agent 子进程仅在主进程启动；
 - **工作区隔离**：每个工作流运行有独立产物目录；Claude 节点按员工 MCP / Skill 生成临时投影目录，节点结束即删除；
 - **Agent 配置**：直接复用各 CLI 的本机配置（Claude 为 `~/.claude`）；Agent 平台的 Base URL / Key / 模型 / 权限编辑写入 `~/.claude/settings.json`，MCP 写入 `~/.claude.json`，Skill 写入 `~/.claude/skills`；旧版 Nova 主库迁移后归档到 `~/.novastudio/legacy-assets/`；
-- **可审计**：每次运行保留输入、返回、交接单、运行参数、知识库清单与事件日志；
+- **可审计**：每次运行保留提交给 Agent 的请求、Agent 返回与完整事件日志；
 - **不会动你的业务目录**：删除工作区只清理 Nova 生成的内容，工作区文件夹本身不会删除。
 
 > [!CAUTION]
@@ -370,7 +361,7 @@ npm run package:win
 
 ## 🗺️ Roadmap
 
-- [x] 多 Agent 统一对话
+- [x] Claude Code 统一对话
 - [x] 数字员工（人设 / MCP / 技能 / 知识库）
 - [x] 工作流可视化编排
 - [x] 画布内调试与节点实时状态
@@ -380,13 +371,11 @@ npm run package:win
 - [x] MCP：统一写入 Claude 配置，员工按引用绑定
 - [x] 知识库：Markdown 管理、全文检索与员工绑定
 - [x] Agent 平台：复用本机 CLI 配置，按员工投影 MCP / Skill
-- [x] 移除模型选择，统一使用各 CLI 本机配置里的默认模型
-- [ ] Codex / OpenCode / Pi 的 MCP / Skill 投影适配
+- [x] 移除模型选择，统一使用 Claude Code 本机配置里的默认模型
 - [ ] 工作流并行分支
 - [ ] 中断恢复与断点续跑
 - [ ] 知识库文档在线编辑与新建
 - [ ] 超大文档后台索引
-- [ ] 更多 Agent 后端的运行时投影能力
 
 ---
 
@@ -411,6 +400,6 @@ npm run package:win
 
 <div align="center">
 
-**Nova Studio** · 让每个 Agent 都有自己的工位
+**Nova Studio** · 让每个数字员工都有自己的工位
 
 </div>

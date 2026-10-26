@@ -24,7 +24,7 @@ export interface RunOptions {
   cwd: string;
   /** 要恢复的会话引用；null 表示新建会话。引用语义由 provider 自己解释 */
   sessionRef: string | null;
-  /** 运行参数。键由本 provider 的 manifest.options 声明，值由宿主原样回传 */
+  /** 宿主内部注入的运行参数（如工作流系统提示词）；不是用户可配置项 */
   opts?: SessionOptions;
   /** 单次运行超时（毫秒）。由宿主从设置读出后传入；缺省则用 provider 自己的默认值 */
   timeoutMs?: number;
@@ -67,6 +67,7 @@ export interface AgentRunInput {
   runtimeDir?: string;
   /** 工作流节点绑定的数字员工 */
   employee?: DigitalEmployee;
+  /** 宿主内部注入的运行参数（如工作流系统提示词） */
   opts?: SessionOptions;
 }
 
@@ -78,8 +79,6 @@ export interface PreparedAgentRun {
   envRemove?: string[];
   extraArgs?: string[];
   warnings?: string[];
-  /** 写进 agent-options.json 的脱敏审计信息 */
-  audit?: Record<string, unknown>;
 }
 
 /** 一次运行的终态 */
@@ -132,7 +131,7 @@ export interface AgentProvider {
 
   /**
    * 把首次运行拿到的原始会话 id 规范化为可长期复用的引用。
-   * 例：pi 需要把 uuid 升级为会话 JSONL 文件路径；opencode 直接返回原 id。
+   * 例：Claude 直接返回会话 uuid；其他 CLI 可能返回会话文件路径。
    */
   normalizeSessionRef(rawId: string, ctx: SessionContext): string;
 
