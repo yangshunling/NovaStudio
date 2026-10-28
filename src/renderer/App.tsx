@@ -24,8 +24,10 @@ import { AgentsView } from "./components/agents/AgentsView";
 import { SkillsView } from "./components/skills/SkillsView";
 import { McpView } from "./components/mcp/McpView";
 import { KnowledgeView } from "./components/knowledge/KnowledgeView";
+import { WorkspacesView } from "./components/workspaces/WorkspacesView";
 import { WorkflowsView } from "./components/workflows/WorkflowsView";
 import { TriggersView } from "./components/triggers/TriggersView";
+import { TerminalsView } from "./components/terminal/TerminalsView";
 import { SettingsModal } from "./components/SettingsModal";
 import { WorkspacePanel } from "./components/WorkspacePanel";
 import { ErrorBoundary } from "./components/ui/ErrorBoundary";
@@ -57,7 +59,7 @@ export default function App() {
     <ErrorBoundary>
       <div className="flex h-screen w-screen overflow-hidden bg-bg text-text">
         <Sidebar />
-        {viewMode === "automation" ? (
+        {viewMode === "terminals" ? null : viewMode === "automation" ? (
           <AutomationView />
         ) : viewMode === "employees" ? (
           <EmployeesView />
@@ -67,6 +69,8 @@ export default function App() {
           <McpView />
         ) : viewMode === "knowledge" ? (
           <KnowledgeView />
+        ) : viewMode === "workspaces" ? (
+          <WorkspacesView />
         ) : viewMode === "workflow" ? (
           <WorkflowsView />
         ) : viewMode === "triggers" ? (
@@ -79,6 +83,14 @@ export default function App() {
             {showWorkspace && <WorkspacePanel />}
           </>
         )}
+        {/*
+          终端页常驻挂载：切换到其他侧栏页面时只隐藏、不卸载，
+          这样多个工作区的 PTY 与输出不会因切换而丢失。
+        */}
+        <div className={viewMode === "terminals" ? "contents" : "hidden"}>
+          <TerminalsView />
+        </div>
+
         {showSettings && <SettingsModal />}
         {/* 全局提醒：顶部居中，所有页面共用同一套 */}
         <ToastViewport />

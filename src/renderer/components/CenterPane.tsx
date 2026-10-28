@@ -6,7 +6,6 @@ import { useFileViewerStore } from "../stores/fileViewer";
 import { ChatArea } from "./ChatArea";
 import { CenterTabs } from "./CenterTabs";
 import { FilePreview } from "./FilePreview";
-import { TerminalView } from "./TerminalView";
 
 export function CenterPane() {
   const tabs = useFileViewerStore((s) => s.tabs);
@@ -25,11 +24,7 @@ export function CenterPane() {
             key={tab.id}
             className={activeTabId === tab.id ? "h-full" : "hidden"}
           >
-            {tab.kind === "file" ? (
-              <FilePreview tab={tab} />
-            ) : (
-              <TerminalView tab={tab} />
-            )}
+            <FilePreview tab={tab} />
           </div>
         ))}
       </div>

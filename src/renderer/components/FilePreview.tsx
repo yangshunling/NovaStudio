@@ -13,6 +13,7 @@ import {
   FileCode2,
   Loader2,
   RotateCw,
+  X,
 } from "lucide-react";
 import type {
   FilePreview as FilePreviewData,
@@ -24,7 +25,17 @@ import { MarkdownRenderer } from "./MarkdownRenderer";
 import { FileTypeIcon } from "./ui/FileTypeIcon";
 import type { FileTab } from "../stores/fileViewer";
 
-export function FilePreview({ tab }: { tab: FileTab }) {
+export function FilePreview({
+  tab,
+  onClose,
+  embedded = false,
+}: {
+  tab: FileTab;
+  /** 传入时在标题栏末尾展示关闭按钮（终端页内嵌预览使用） */
+  onClose?: () => void;
+  /** 内嵌到终端页时可用宽度更窄，标题栏省略相对路径等次要信息 */
+  embedded?: boolean;
+}) {
   const [file, setFile] = useState<FilePreviewData | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -77,9 +88,11 @@ export function FilePreview({ tab }: { tab: FileTab }) {
         <div className="flex min-w-0 items-center gap-2">
           <FileTypeIcon name={tab.name} size={17} />
           <span className="truncate text-body-lg font-medium text-text">{tab.name}</span>
-          <span className="hidden min-w-0 truncate font-mono text-caption text-text-muted min-[1100px]:inline">
-            {tab.relativePath}
-          </span>
+          {!embedded && (
+            <span className="hidden min-w-0 truncate font-mono text-caption text-text-muted min-[1100px]:inline">
+              {tab.relativePath}
+            </span>
+          )}
         </div>
         <div className="ml-3 flex shrink-0 items-center gap-1">
           {file && (
@@ -132,6 +145,16 @@ export function FilePreview({ tab }: { tab: FileTab }) {
           >
             <ExternalLink className="h-4 w-4" />
           </button>
+          {onClose && (
+            <button
+              type="button"
+              onClick={onClose}
+              title="关闭预览"
+              className="rounded p-2 text-text-muted transition-colors hover:bg-surface-hover hover:text-text"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          )}
         </div>
       </header>
 

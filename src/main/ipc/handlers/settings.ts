@@ -23,6 +23,7 @@ const SETTING_CODECS: {
   theme: { encode: String, decode: (raw) => raw },
   fontSize: { encode: String, decode: (raw) => Number(raw) },
   chatFontSize: { encode: String, decode: (raw) => Number(raw) },
+  terminalFontSize: { encode: String, decode: (raw) => Number(raw) },
   automationConcurrency: { encode: String, decode: (raw) => Number(raw) },
   automationPollIntervalSec: { encode: String, decode: (raw) => Number(raw) },
   agentTimeoutMinutes: { encode: String, decode: (raw) => Number(raw) },

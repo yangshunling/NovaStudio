@@ -67,6 +67,8 @@ export const ipc = {
   // === 项目 ===
   listProjects: () => call("project:list"),
   createProject: (name: string, cwd: string) => call("project:create", { name, cwd }),
+  renameProject: (id: string, name: string) =>
+    call("project:update", { id, name }),
   deleteProject: (id: string) => call("project:delete", { id }),
   listFiles: (cwd: string, subPath?: string) =>
     call("project:listFiles", { cwd, subPath }),

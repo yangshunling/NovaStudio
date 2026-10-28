@@ -525,6 +525,16 @@ export function createProject(name: string, cwd: string): Project {
   return { id, name, cwd, createdAt: now, updatedAt: now };
 }
 
+/** 重命名项目；不存在时返回 null。只改展示名，不动目录本身。 */
+export function updateProjectName(id: string, name: string): Project | null {
+  const now = Date.now();
+  const result = db!
+    .prepare("UPDATE projects SET name = ?, updated_at = ? WHERE id = ?")
+    .run(name, now, id);
+  if (result.changes === 0) return null;
+  return { ...getProject(id)!, updatedAt: now };
+}
+
 /**
  * 删除项目及其下所有会话（sessions/messages 经外键级联删除）。
  * CLI 侧会话文件的清理由 IPC handler 在调用本函数前完成。

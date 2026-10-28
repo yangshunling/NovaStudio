@@ -23,6 +23,7 @@ import type { AgentEvent, Message, Project, Session } from "@shared/types";
 /** 主视图标识：state 与 setter 共用，避免联合类型各写一份 */
 export type ViewMode =
   | "chat"
+  | "terminals"
   | "automation"
   | "employees"
   | "workflow"
@@ -30,6 +31,7 @@ export type ViewMode =
   | "skills"
   | "mcp"
   | "knowledge"
+  | "workspaces"
   | "agents";
 
 interface ChatState {
@@ -59,6 +61,7 @@ interface ChatState {
   // 项目（工作目录）
   loadProjects: () => Promise<void>;
   createProject: (name: string, cwd: string) => Promise<Project | null>;
+  renameProject: (id: string, name: string) => Promise<void>;
   deleteProject: (id: string) => Promise<void>;
   /** 把当前会话（或新会话草稿）绑定到指定项目；null 表示解绑 */
   bindProject: (projectId: string | null) => Promise<void>;
@@ -119,6 +122,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
     const project = await ipc.createProject(name, cwd);
     set((s) => ({ projects: [project, ...s.projects] }));
     return project;
+  },
+
+  renameProject: async (id, name) => {
+    const updated = await ipc.renameProject(id, name);
+    if (!updated) throw new Error("工作区不存在");
+    set((s) => ({
+      projects: s.projects.map((p) => (p.id === id ? updated : p)),
+    }));
   },
 
   deleteProject: async (id) => {

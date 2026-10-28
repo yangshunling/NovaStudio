@@ -67,6 +67,42 @@ function FontSizeControl() {
 }
 
 // ============================================================================
+// 终端字号
+// ============================================================================
+
+/** 终端字号刻度比界面略宽：终端里常需要更大字号 */
+const TERMINAL_FONT_SIZE_OPTIONS = [11, 12, 13, 14, 15, 16, 18, 20] as const;
+
+function TerminalFontSizeControl() {
+  const { terminalFontSize, setTerminalFontSize } = useTheme();
+
+  return (
+    <div className="mb-7">
+      <h3 className="text-body font-semibold text-text">终端</h3>
+      <p className="mt-1 mb-3 text-meta text-text-muted">
+        终端字号独立于界面字号，修改后立即生效；字体固定使用系统等宽字体。
+      </p>
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="w-20 shrink-0 text-meta text-text-muted">字号</span>
+        {TERMINAL_FONT_SIZE_OPTIONS.map((size) => (
+          <button
+            key={size}
+            onClick={() => setTerminalFontSize(size)}
+            className={`rounded-md border px-3 py-1.5 text-meta transition-colors ${
+              terminalFontSize === size
+                ? "border-accent bg-accent-soft text-accent"
+                : "border-border text-text-secondary hover:border-border-strong hover:text-text"
+            }`}
+          >
+            {size}px
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ============================================================================
 // 自动化并发数
 // ============================================================================
 
@@ -247,6 +283,7 @@ function GeneralPanel() {
       </div>
 
       <FontSizeControl />
+      <TerminalFontSizeControl />
       <ConcurrencyControl />
       <PollIntervalControl />
       <TimeoutControl />

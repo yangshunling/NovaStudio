@@ -105,7 +105,7 @@ function ThreadEmpty() {
       <p className="max-w-md text-center text-body-lg leading-relaxed">
         {project
           ? `在「${project.name}」工作目录中与智能体对话`
-          : "直接描述你的任务。需要读写本地文件时，在输入框旁绑定项目目录。"}
+          : "直接描述你的任务。需要读写本地文件时，在输入框旁绑定工作区。"}
       </p>
     </div>
   );

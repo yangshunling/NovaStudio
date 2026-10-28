@@ -1,7 +1,7 @@
 /**
  * 左侧导航栏 — 品牌 / 功能入口 / 设置
  *
- * 项目与会话列表已迁到「会话」页面（SessionListPanel），
+ * 项目与会话列表已迁到「会话管理」页面（SessionListPanel），
  * 这里只保留全局功能入口；新建会话在会话列表右上角。
  */
 
@@ -11,10 +11,12 @@ import {
   Bot,
   ChevronRight,
   Library,
+  FolderKanban,
   MessageSquare,
   Plug,
   Settings,
   Sparkles,
+  SquareTerminal,
   Users,
   Waypoints,
   Workflow,
@@ -69,7 +71,15 @@ export function Sidebar() {
           className={itemClass(viewMode === "chat")}
         >
           <MessageSquare className="h-4 w-4 shrink-0" />
-          会话
+          会话管理
+        </button>
+        <button
+          type="button"
+          onClick={() => setViewMode("terminals")}
+          className={itemClass(viewMode === "terminals")}
+        >
+          <SquareTerminal className="h-4 w-4 shrink-0" />
+          终端管理
         </button>
         <button
           type="button"
@@ -133,6 +143,14 @@ export function Sidebar() {
         >
           <Library className="h-4 w-4 shrink-0" />
           知识库
+        </button>
+        <button
+          type="button"
+          onClick={() => setViewMode("workspaces")}
+          className={itemClass(viewMode === "workspaces")}
+        >
+          <FolderKanban className="h-4 w-4 shrink-0" />
+          工作区
         </button>
       </div>
 

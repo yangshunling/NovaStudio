@@ -53,6 +53,12 @@ export function ChatArea({ embedded = false }: { embedded?: boolean } = {}) {
   const effectiveAgentId = useChatStore(selectEffectiveAgentId);
   const agents = useChatStore((s) => s.agents);
   const selectAgent = useChatStore((s) => s.selectAgent);
+  /**
+   * 只有一个可用 Agent 时选择器没有意义（当前只有 Claude Code）：
+   * 自动选中即可，不占输入框的空间。将来接入第二个 Agent 时自动出现。
+   */
+  const hasAgentChoice =
+    agents.filter((agent) => agent.status.installed).length > 1;
   const showWorkspace = useChatStore((s) => s.showWorkspace);
   const setShowWorkspace = useChatStore((s) => s.setShowWorkspace);
   const [input, setInput] = useState("");
@@ -187,13 +193,15 @@ export function ChatArea({ embedded = false }: { embedded?: boolean } = {}) {
                 </div>
               {/* 工作目录：可选。绑定后 Agent 在该项目目录运行 */}
               <ProjectSelector />
-              {/* 本次会话使用的 Agent：新会话可选，会话开始后锁定 */}
-              <AgentSelector
-                agents={agents}
-                agentId={effectiveAgentId}
-                locked={agentLocked}
-                onSelect={selectAgent}
-              />
+              {/* 有多个可用 Agent 时才需要选择；否则自动使用唯一的那个 */}
+              {hasAgentChoice && (
+                <AgentSelector
+                  agents={agents}
+                  agentId={effectiveAgentId}
+                  locked={agentLocked}
+                  onSelect={selectAgent}
+                />
+              )}
               {isStreaming ? (
                 <button
                   onClick={() => abort()}

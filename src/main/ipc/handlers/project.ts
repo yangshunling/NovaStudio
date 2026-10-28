@@ -18,6 +18,12 @@ export function registerProjectHandlers(
 
   handle("project:create", ({ name, cwd }) => db.createProject(name, cwd));
 
+  handle("project:update", ({ id, name }) => {
+    const trimmed = name.trim();
+    if (!trimmed) throw new Error("工作区名称不能为空");
+    return db.updateProjectName(id, trimmed);
+  });
+
   handle("project:delete", async ({ id }) => {
     if (runner.hasActiveRunInWorkspace(id)) {
       throw new Error("该工作区有运行中的工作流，请先终止运行");

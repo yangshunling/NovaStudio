@@ -62,13 +62,13 @@ export function TaskCreateModal({ onClose }: { onClose: () => void }) {
           />
         </div>
 
-        {/* 项目选择 */}
+        {/* 工作区选择 */}
         <div className="mb-3">
-          <label className="mb-1.5 block text-meta font-medium text-text-muted">绑定项目</label>
+          <label className="mb-1.5 block text-meta font-medium text-text-muted">绑定工作区</label>
           <Select
             value={projectId}
             onChange={setProjectId}
-            placeholder={projects.length === 0 ? "无可用项目" : "选择项目"}
+            placeholder={projects.length === 0 ? "无可用工作区" : "选择工作区"}
             className="ui-ring w-full rounded-lg bg-input-bg px-inset py-inset text-body-lg text-text"
             options={projects.map((project) => ({
               value: project.id,

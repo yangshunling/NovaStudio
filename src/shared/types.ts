@@ -793,6 +793,8 @@ export interface AppSettings {
   fontSize: number;
   /** 聊天记录区域的独立字号（px）；与全局字号解耦，便于单独调大 */
   chatFontSize: number;
+  /** 终端字号（px）；终端字体固定使用系统等宽字体 */
+  terminalFontSize: number;
   /** 自动化看板同时执行的任务数上限 */
   automationConcurrency: number;
   /** 自动化看板扫描待执行任务的间隔（秒） */
@@ -807,6 +809,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   theme: "",
   fontSize: 13,
   chatFontSize: 13,
+  terminalFontSize: 15,
   automationConcurrency: 3,
   automationPollIntervalSec: 30,
   agentTimeoutMinutes: 30,

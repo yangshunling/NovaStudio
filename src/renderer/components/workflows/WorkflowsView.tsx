@@ -14,7 +14,7 @@ import { createPortal } from "react-dom";
 import {
   Copy,
   Folder,
-  FolderPlus,
+  FolderKanban,
   History,
   Loader2,
   PenLine,
@@ -29,10 +29,11 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { ipc } from "../../lib/ipc";
-import { dirName, newId, timeAgo } from "../../lib/utils";
+import { newId, timeAgo } from "../../lib/utils";
 import { useChatStore } from "../../stores/chat";
 import { toast } from "../../stores/toast";
 import { Modal, ModalHeader } from "../ui/Modal";
+import { NoWorkspaceState } from "../ui/NoWorkspaceState";
 import { WorkflowEditor } from "./WorkflowEditor";
 import { WorkflowRunView } from "./WorkflowRunView";
 import { WorkflowRunHistoryView } from "./WorkflowRunHistoryView";
@@ -52,7 +53,6 @@ const ORPHAN_ID = "__orphan__";
 
 /** 右键菜单尺寸：用于贴近视口边缘时收拢位置 */
 const MENU_WIDTH = 208;
-const WORKSPACE_MENU_HEIGHT = 88;
 const WORKFLOW_MENU_HEIGHT = 340;
 
 /** 新建工作流时预置开始 / 结束两个锚点，画布不至于空得没有参照 */
@@ -118,20 +118,14 @@ export function WorkflowsView() {
   const [newName, setNewName] = useState("");
   const [newDescription, setNewDescription] = useState("");
   const [busy, setBusy] = useState(false);
-  const [creatingWorkspace, setCreatingWorkspace] = useState(false);
-  const [deletingWorkspaceId, setDeletingWorkspaceId] = useState<string | null>(
-    null,
-  );
   /** 运行记录列表的作用域：工作流级或工作区级 */
   const [historyScope, setHistoryScope] = useState<
     { workflowId: string } | { workspaceId: string } | null
   >(null);
 
-  /** 右键菜单：工作区与工作流卡片共用一套，同一时间只开一个 */
+  /** 右键菜单：工作流卡片使用，同一时间只开一个 */
   const [contextMenu, setContextMenu] = useState<
-    | { kind: "workspace"; workspace: Project; x: number; y: number }
-    | { kind: "workflow"; workflow: Workflow; x: number; y: number }
-    | null
+    { workflow: Workflow; x: number; y: number } | null
   >(null);
   const contextMenuRef = useRef<HTMLDivElement>(null);
 
@@ -163,19 +157,9 @@ export function WorkflowsView() {
     y: Math.max(8, Math.min(event.clientY, window.innerHeight - height - 8)),
   });
 
-  const openWorkspaceMenu = (workspace: Project, event: React.MouseEvent) => {
-    event.preventDefault();
-    setContextMenu({
-      kind: "workspace",
-      workspace,
-      ...menuPosition(event, WORKSPACE_MENU_HEIGHT),
-    });
-  };
-
   const openWorkflowMenu = (workflow: Workflow, event: React.MouseEvent) => {
     event.preventDefault();
     setContextMenu({
-      kind: "workflow",
       workflow,
       ...menuPosition(event, WORKFLOW_MENU_HEIGHT),
     });
@@ -285,73 +269,8 @@ export function WorkflowsView() {
     setQuery("");
   };
 
-  /** 新建工作区 = 选一个目录并登记为项目（与侧栏「新建项目」同源） */
-  const createWorkspace = async () => {
-    if (creatingWorkspace) return;
-    const cwd = await ipc.pickDirectory();
-    if (!cwd) return;
-
-    const existing = workspaces.find((workspace) => workspace.cwd === cwd);
-    if (existing) {
-      selectWorkspace(existing.id);
-      return;
-    }
-
-    setCreatingWorkspace(true);
-    try {
-      // 走 chat store，保证全局侧栏的项目列表同步更新
-      const project = await useChatStore.getState().createProject(dirName(cwd), cwd);
-      if (!project) {
-        throw new Error("创建工作区失败");
-      }
-      setWorkspaces((current) => [...current, project]);
-      selectWorkspace(project.id);
-      setError(null);
-      toast.success(`工作区「${project.name}」已创建`);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      setError(message);
-      toast.error(`创建工作区失败：${message}`);
-    } finally {
-      setCreatingWorkspace(false);
-    }
-  };
-
-  /**
-   * 删除工作区（= 项目）。
-   * 主进程会级联清理工作流、运行记录、节点会话、.novastudio 产物与运行配置副本，
-   * 但不会删除工作区目录本身。
-   */
-  const deleteWorkspace = async (workspace: Project) => {
-    if (workspace.id === ORPHAN_ID || deletingWorkspaceId) return;
-    const count = counts.get(workspace.id) ?? 0;
-
-    const confirmed = window.confirm(
-      [
-        `删除工作区「${workspace.name}」？`,
-        "",
-        "将同时删除：",
-        `· ${count} 个工作流`,
-        "· 全部运行记录与节点会话",
-        "· 工作区下的 .novastudio 产物",
-        "",
-        "工作区目录本身不会被删除。此操作不可恢复。",
-      ].join("\n"),
-    );
-    if (!confirmed) return;
-
-    setDeletingWorkspaceId(workspace.id);
-    try {
-      // 走 chat store，侧栏会同步移除项目、清理当前选中状态
-      await useChatStore.getState().deleteProject(workspace.id);
-      toast.success(`工作区「${workspace.name}」已删除`);
-      await load();
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : String(err), 5000);
-    } finally {
-      setDeletingWorkspaceId(null);
-    }
-  };
+  /** 工作区的新增 / 删除统一在「工作区」页面完成 */
+  const manageWorkspaces = () => useChatStore.getState().setViewMode("workspaces");
 
   const openCreateWorkflow = () => {
     if (!selectedWorkspace || selectedWorkspace.id === ORPHAN_ID) return;
@@ -625,8 +544,8 @@ export function WorkflowsView() {
           </div>
         ) : workspaceOptions.length === 0 ? (
           <NoWorkspaceState
-            creating={creatingWorkspace}
-            onCreate={() => void createWorkspace()}
+            description="工作区是一个根目录。工作流、运行产物和 Agent 的工作目录都会落在里面。工作区统一在「工作区」页面登记，这里直接选用即可。"
+            onManage={manageWorkspaces}
           />
         ) : (
           <div className="flex min-h-0 flex-1">
@@ -638,16 +557,11 @@ export function WorkflowsView() {
                 </p>
                 <button
                   type="button"
-                  onClick={() => void createWorkspace()}
-                  disabled={creatingWorkspace}
-                  title="新建工作区"
-                  className="ui-btn-round ui-icon-action flex h-8 w-8 items-center justify-center rounded-full text-text-muted transition-colors active:scale-95 disabled:opacity-50"
+                  onClick={manageWorkspaces}
+                  title="管理工作区（新增 / 删除）"
+                  className="ui-btn-round ui-icon-action flex h-8 w-8 items-center justify-center rounded-full text-text-muted transition-colors active:scale-95"
                 >
-                  {creatingWorkspace ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <FolderPlus className="h-4 w-4" />
-                  )}
+                  <FolderKanban className="h-4 w-4" />
                 </button>
               </div>
 
@@ -662,7 +576,6 @@ export function WorkflowsView() {
                   return (
                     <div
                       key={workspace.id}
-                      onContextMenu={(event) => openWorkspaceMenu(workspace, event)}
                       className={`group flex w-full items-center rounded-xl transition-colors ${
                         active
                           ? "bg-surface-active text-text shadow-[var(--c-shadow-sm)]"
@@ -780,15 +693,15 @@ export function WorkflowsView() {
                     <Folder className="h-6 w-6 opacity-50" />
                     <p className="text-body leading-relaxed">
                       这些工作流创建于「工作区」功能之前，还没有归属。
-                      请先新建工作区，再把它们重新归入。
+                      请先到「工作区」页面登记目录，再把它们重新归入。
                     </p>
                     <button
                       type="button"
-                      onClick={() => void createWorkspace()}
-                      className="ui-btn-primary mt-1 flex h-8 items-center gap-1.5 rounded-full px-4 text-body font-medium"
+                      onClick={manageWorkspaces}
+                      className="ui-btn-primary mt-1 flex h-8 items-center gap-1.5 rounded-full px-4 text-body font-medium active:scale-95"
                     >
-                      <FolderPlus className="h-4 w-4" />
-                      新建工作区
+                      <FolderKanban className="h-4 w-4" />
+                      去管理工作区
                     </button>
                   </div>
                 ) : selectedWorkflows.length === 0 ? (
@@ -1056,91 +969,71 @@ export function WorkflowsView() {
             style={{ top: contextMenu.y, left: contextMenu.x, width: MENU_WIDTH }}
             className="ui-dropdown-in ui-glass-strong ui-ring fixed z-[60] rounded-xl p-1.5"
           >
-            {contextMenu.kind === "workspace" ? (
-              <CardMenuItem
-                icon={Trash2}
-                label={
-                  contextMenu.workspace.id === ORPHAN_ID
-                    ? "未归属工作区不可删除"
-                    : "删除工作区"
-                }
-                danger={contextMenu.workspace.id !== ORPHAN_ID}
-                disabled={contextMenu.workspace.id === ORPHAN_ID}
-                onClick={() => {
-                  const workspace = contextMenu.workspace;
-                  setContextMenu(null);
-                  void deleteWorkspace(workspace);
-                }}
-              />
-            ) : (
-              <>
-                <CardMenuItem
-                  icon={SquarePen}
-                  label="编辑"
-                  onClick={() => {
-                    const workflow = contextMenu.workflow;
-                    setContextMenu(null);
-                    openEditor(workflow);
-                  }}
-                />
-                <CardMenuItem
-                  icon={Play}
-                  label="运行"
-                  onClick={() => {
-                    const workflow = contextMenu.workflow;
-                    setContextMenu(null);
-                    void debugWorkflow(workflow);
-                  }}
-                />
-                <CardMenuItem
-                  icon={Zap}
-                  label="触发器"
-                  onClick={() => {
-                    const workflow = contextMenu.workflow;
-                    setContextMenu(null);
-                    void openTriggerDialog(workflow);
-                  }}
-                />
-                <CardMenuItem
-                  icon={History}
-                  label="运行记录"
-                  onClick={() => {
-                    const workflow = contextMenu.workflow;
-                    setContextMenu(null);
-                    setHistoryScope({ workflowId: workflow.id });
-                  }}
-                />
-                <CardMenuItem
-                  icon={PenLine}
-                  label="重命名 / 说明"
-                  onClick={() => {
-                    const workflow = contextMenu.workflow;
-                    setContextMenu(null);
-                    openRename(workflow);
-                  }}
-                />
-                <CardMenuItem
-                  icon={Copy}
-                  label="复制工作流"
-                  onClick={() => {
-                    const workflow = contextMenu.workflow;
-                    setContextMenu(null);
-                    void duplicateWorkflow(workflow);
-                  }}
-                />
-                <div className="my-1 h-px bg-border" />
-                <CardMenuItem
-                  icon={Trash2}
-                  label="删除工作流"
-                  danger
-                  onClick={() => {
-                    const workflow = contextMenu.workflow;
-                    setContextMenu(null);
-                    void deleteWorkflow(workflow);
-                  }}
-                />
-              </>
-            )}
+            <CardMenuItem
+              icon={SquarePen}
+              label="编辑"
+              onClick={() => {
+                const workflow = contextMenu.workflow;
+                setContextMenu(null);
+                openEditor(workflow);
+              }}
+            />
+            <CardMenuItem
+              icon={Play}
+              label="运行"
+              onClick={() => {
+                const workflow = contextMenu.workflow;
+                setContextMenu(null);
+                void debugWorkflow(workflow);
+              }}
+            />
+            <CardMenuItem
+              icon={Zap}
+              label="触发器"
+              onClick={() => {
+                const workflow = contextMenu.workflow;
+                setContextMenu(null);
+                void openTriggerDialog(workflow);
+              }}
+            />
+            <CardMenuItem
+              icon={History}
+              label="运行记录"
+              onClick={() => {
+                const workflow = contextMenu.workflow;
+                setContextMenu(null);
+                setHistoryScope({ workflowId: workflow.id });
+              }}
+            />
+            <CardMenuItem
+              icon={PenLine}
+              label="重命名 / 说明"
+              onClick={() => {
+                const workflow = contextMenu.workflow;
+                setContextMenu(null);
+                openRename(workflow);
+              }}
+            />
+            <CardMenuItem
+              icon={Copy}
+              label="复制工作流"
+              onClick={() => {
+                const workflow = contextMenu.workflow;
+                setContextMenu(null);
+                void duplicateWorkflow(workflow);
+              }}
+            />
+            <div className="my-1 h-px bg-border" />
+            <CardMenuItem
+              icon={Trash2}
+              label="删除工作流"
+              danger
+              onClick={() => {
+                const workflow = contextMenu.workflow;
+                setContextMenu(null);
+                void deleteWorkflow(workflow);
+              }}
+            />
           </div>,
           document.body,
         )}
@@ -1252,42 +1145,6 @@ function CardMenuItem({
 // ============================================================================
 // 空态
 // ============================================================================
-
-function NoWorkspaceState({
-  creating,
-  onCreate,
-}: {
-  creating: boolean;
-  onCreate: () => void;
-}) {
-  return (
-    <div className="mx-auto flex max-w-md flex-col items-center justify-center gap-3 py-24 text-center text-text-muted">
-      <div className="ui-btn-round flex h-16 w-16 items-center justify-center rounded-2xl">
-        <Folder className="h-6 w-6" />
-      </div>
-      <h2 className="ui-serif text-heading font-semibold text-text-secondary">
-        先创建一个工作区
-      </h2>
-      <p className="text-body leading-relaxed">
-        工作区是一个根目录。工作流、运行产物和 Agent 的工作目录都会落在里面，
-        选一个项目文件夹开始吧。
-      </p>
-      <button
-        type="button"
-        onClick={onCreate}
-        disabled={creating}
-        className="ui-btn-primary mt-2 flex items-center gap-1.5 rounded-full px-4 py-2 text-body font-medium disabled:opacity-60"
-      >
-        {creating ? (
-          <Loader2 className="h-4 w-4 animate-spin" />
-        ) : (
-          <FolderPlus className="h-4 w-4" />
-        )}
-        创建第一个工作区
-      </button>
-    </div>
-  );
-}
 
 function EmptyState({ onCreate }: { onCreate: () => void }) {
   return (

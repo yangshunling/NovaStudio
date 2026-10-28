@@ -45,7 +45,7 @@ export function SessionListPanel() {
           <span className="flex size-6 shrink-0 items-center justify-center rounded-md bg-accent-soft text-accent">
             <MessageSquare className="h-3.5 w-3.5" />
           </span>
-          <span className="truncate text-body-lg font-semibold text-text">会话</span>
+          <span className="truncate text-body-lg font-semibold text-text">会话管理</span>
           {sessions.length > 0 && (
             <span className="rounded-full bg-surface-hover px-2 py-0.5 font-mono text-caption leading-none text-text-muted">
               {sessions.length}

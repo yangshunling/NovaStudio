@@ -21,6 +21,7 @@ import type {
   FileEntry,
   GitStatusKind,
   GitStatusSummary,
+  Project,
 } from "@shared/types";
 
 const WORKSPACE_WIDTH_KEY = "nova-workspace-width";
@@ -147,12 +148,47 @@ function overlayDeletedEntries(
   });
 }
 
-export function WorkspacePanel() {
-  const project = useChatStore(
+export interface WorkspacePanelProps {
+  /**
+   * 要展示的工作区。会话页不传，取当前会话绑定的工作区；
+   * 终端页传入当前选中的工作区。
+   */
+  project?: Project | null;
+  /** 点击文件时的处理；不传则打开到会话页的文件标签 */
+  onOpenFile?: (file: {
+    projectId: string;
+    relativePath: string;
+    name: string;
+  }) => void;
+  /** 高亮的已打开文件 id（`${projectId}:${relativePath}`）；不传则跟随文件标签 */
+  activeFileId?: string | null;
+}
+
+export function WorkspacePanel({
+  project: projectProp,
+  onOpenFile,
+  activeFileId,
+}: WorkspacePanelProps = {}) {
+  const storeProject = useChatStore(
     (s) => s.projects.find((p) => p.id === s.currentProjectId) ?? null,
   );
+  const project = projectProp === undefined ? storeProject : projectProp;
   const openFile = useFileViewerStore((s) => s.openFile);
-  const activeTabId = useFileViewerStore((s) => s.activeTabId);
+  const storeActiveTabId = useFileViewerStore((s) => s.activeTabId);
+  const activeTabId =
+    activeFileId === undefined ? storeActiveTabId : activeFileId;
+
+  const handleOpenFile = (entry: FileEntry, owner: Project) => {
+    if (onOpenFile) {
+      onOpenFile({
+        projectId: owner.id,
+        relativePath: entry.relativePath,
+        name: entry.name,
+      });
+      return;
+    }
+    openFile(owner.id, entry.relativePath, entry.name);
+  };
 
   const cwd = project?.cwd ?? "";
   const cwdRef = useRef(cwd);
@@ -390,7 +426,7 @@ export function WorkspacePanel() {
               </span>
             </div>
             <p className="mt-0.5 truncate font-mono text-caption text-text-muted" title={cwd}>
-              {cwd || "尚未选择项目"}
+              {cwd || "尚未选择工作区"}
             </p>
           </div>
           <div className="ml-2 flex shrink-0 items-center gap-1">
@@ -432,7 +468,7 @@ export function WorkspacePanel() {
 
         <div className="min-h-0 flex-1 overflow-y-auto p-1.5">
           {!hasWorkspace ? (
-            <PanelEmpty icon={<FolderTypeIcon size={28} />} text="选择项目后查看工作区文件" />
+            <PanelEmpty icon={<FolderTypeIcon size={28} />} text="选择工作区后查看文件" />
           ) : isLoadingRoot ? (
             <PanelEmpty
               icon={<Loader2 className="h-6 w-6 animate-spin" />}
@@ -455,7 +491,7 @@ export function WorkspacePanel() {
               projectId={project?.id ?? ""}
               activeTabId={activeTabId}
               onOpenFile={(entry) => {
-                if (project) openFile(project.id, entry.relativePath, entry.name);
+                if (project) handleOpenFile(entry, project);
               }}
               onToggleDirectory={toggleDirectory}
             />

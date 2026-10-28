@@ -202,6 +202,29 @@ body {
   height: 0;
 }
 
+/* 终端：xterm 的滚动条常驻右侧，会占掉字符区宽度，视觉上像凭空多了一条
+   右边距。终端用滚轮即可滚动，这里隐藏滚动条，让字符区铺满容器。 */
+.xterm .xterm-viewport {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.xterm .xterm-viewport::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+
+/* overview ruler 只服务装饰标记；宽度压到 1px 后它仍会在最右侧画一条
+   1px 白线。终端不用装饰标记，直接隐藏。 */
+.xterm .xterm-decoration-overview-ruler {
+  display: none;
+}
+
+/* 终端主体四周留白。padding 必须加在 .xterm 上：FitAddon 计算行列时只扣
+   .xterm 自身的 padding，加在外层容器上会导致终端溢出并被裁切。 */
+.ui-terminal .xterm {
+  padding: 10px;
+}
+
 /* ============================================================================
  * 结构原语（ui-*）
  *

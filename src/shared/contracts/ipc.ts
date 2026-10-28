@@ -90,6 +90,8 @@ export interface IpcInvokeMap {
 
   "project:list": { args: []; result: Project[] };
   "project:create": { args: [{ name: string; cwd: string }]; result: Project };
+  /** 重命名工作区；项目不存在时返回 null */
+  "project:update": { args: [{ id: string; name: string }]; result: Project | null };
   "project:delete": { args: [{ id: string }]; result: boolean };
   /** 列出项目目录下的文件，供 @ 提及选择 */
   "project:listFiles": {

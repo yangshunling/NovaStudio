@@ -25,11 +25,14 @@ interface SkinState {
   fontSize: number;
   /** 聊天记录区域的独立字号（px） */
   chatFontSize: number;
+  /** 终端字号（px） */
+  terminalFontSize: number;
 
   load: () => Promise<void>;
   setTheme: (id: string) => void;
   setFontSize: (px: number) => void;
   setChatFontSize: (px: number) => void;
+  setTerminalFontSize: (px: number) => void;
 }
 
 /**
@@ -128,6 +131,7 @@ export const useThemeStore = create<SkinState>((set, get) => ({
   currentTheme: cached.currentTheme,
   fontSize: cached.fontSize,
   chatFontSize: cached.chatFontSize,
+  terminalFontSize: DEFAULT_SETTINGS.terminalFontSize,
 
   /** 从主进程设置同步（应用启动后调用一次），以设置里的值为准 */
   load: async () => {
@@ -143,8 +147,17 @@ export const useThemeStore = create<SkinState>((set, get) => ({
       settings.chatFontSize && settings.chatFontSize > 0
         ? settings.chatFontSize
         : fontSize;
+    const terminalFontSize =
+      settings.terminalFontSize && settings.terminalFontSize > 0
+        ? settings.terminalFontSize
+        : DEFAULT_SETTINGS.terminalFontSize;
 
-    set({ currentTheme: theme, fontSize, chatFontSize });
+    set({
+      currentTheme: theme,
+      fontSize,
+      chatFontSize,
+      terminalFontSize,
+    });
     applyTheme(getSkin(theme));
     applyFontSize(fontSize);
     applyChatFontSize(chatFontSize);
@@ -174,6 +187,12 @@ export const useThemeStore = create<SkinState>((set, get) => ({
     writeCache(get().currentTheme, get().fontSize, px);
     void ipc.setSettings({ chatFontSize: px });
   },
+
+  setTerminalFontSize: (px) => {
+    if (!(px > 0)) return;
+    set({ terminalFontSize: px });
+    void ipc.setSettings({ terminalFontSize: px });
+  },
 }));
 
 // 首次渲染前应用缓存值，避免无主题变量的 FOUC
@@ -194,14 +213,18 @@ export function useTheme() {
   const setTheme = useThemeStore((s) => s.setTheme);
   const setFontSize = useThemeStore((s) => s.setFontSize);
   const setChatFontSize = useThemeStore((s) => s.setChatFontSize);
+  const terminalFontSize = useThemeStore((s) => s.terminalFontSize);
+  const setTerminalFontSize = useThemeStore((s) => s.setTerminalFontSize);
 
   return {
     currentTheme,
     fontSize,
     chatFontSize,
+    terminalFontSize,
     setTheme,
     setFontSize,
     setChatFontSize,
+    setTerminalFontSize,
     skins,
   };
 }

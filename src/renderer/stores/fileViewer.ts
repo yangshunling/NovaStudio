@@ -2,10 +2,10 @@
  * 文件预览标签状态
  *
  * activeTabId 为 null 表示显示对话；文件标签只在当前聊天视图内保持。
+ * 终端标签由 stores/terminal.ts 独立管理（需要跨页面常驻）。
  */
 
 import { create } from "zustand";
-import { newId } from "../lib/utils";
 
 export interface FileTab {
   kind: "file";
@@ -15,21 +15,13 @@ export interface FileTab {
   name: string;
 }
 
-export interface TerminalTab {
-  kind: "terminal";
-  id: string;
-  cwd: string;
-  name: string;
-}
-
-export type CenterTab = FileTab | TerminalTab;
+export type CenterTab = FileTab;
 
 interface FileViewerState {
   tabs: CenterTab[];
   activeTabId: string | null;
 
   openFile: (projectId: string, relativePath: string, name: string) => void;
-  openTerminal: (cwd: string, name?: string) => string;
   activateTab: (id: string | null) => void;
   closeTab: (id: string) => void;
   closeAll: () => void;
@@ -54,15 +46,6 @@ export const useFileViewerStore = create<FileViewerState>((set) => ({
         activeTabId: id,
       };
     });
-  },
-
-  openTerminal: (cwd, name = "终端") => {
-    const id = `terminal:${newId()}`;
-    set((state) => ({
-      tabs: [...state.tabs, { kind: "terminal", id, cwd, name }],
-      activeTabId: id,
-    }));
-    return id;
   },
 
   activateTab: (id) => {
