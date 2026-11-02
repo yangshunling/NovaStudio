@@ -32,6 +32,7 @@ import { SettingsModal } from "./components/SettingsModal";
 import { WorkspacePanel } from "./components/WorkspacePanel";
 import { ErrorBoundary } from "./components/ui/ErrorBoundary";
 import { ToastViewport } from "./components/ui/ToastViewport";
+import { ConfirmDialog } from "./components/ui/ConfirmDialog";
 import { validateSkins } from "./skins/validate";
 
 export default function App() {
@@ -92,6 +93,8 @@ export default function App() {
         </div>
 
         {showSettings && <SettingsModal />}
+        {/* 全局确认框：替代 window.confirm，避免原生对话框抢走键盘焦点 */}
+        <ConfirmDialog />
         {/* 全局提醒：顶部居中，所有页面共用同一套 */}
         <ToastViewport />
       </div>

@@ -94,3 +94,21 @@ export function agentTone(
 export function isToolResultError(result: { isError?: boolean }): boolean {
   return result.isError === true;
 }
+
+/**
+ * 把任意 thrown 值转成可读字符串。
+ *
+ * 全项目统一用它替代散落的 `err instanceof Error ? err.message : String(err)`。
+ * Error 取 message；其他取 String()；空值给兜底文案。
+ */
+export function toMessage(err: unknown, fallback = "发生未知错误"): string {
+  if (err instanceof Error) return err.message || fallback;
+  if (typeof err === "string") return err || fallback;
+  if (err == null) return fallback;
+  try {
+    const s = String(err);
+    return s === "[object Object]" ? fallback : s;
+  } catch {
+    return fallback;
+  }
+}

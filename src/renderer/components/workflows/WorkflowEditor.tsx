@@ -44,6 +44,7 @@ import { ipc } from "../../lib/ipc";
 import { newId } from "../../lib/utils";
 import { useChatStore } from "../../stores/chat";
 import { toast } from "../../stores/toast";
+import { confirmDialog } from "../../stores/confirm";
 import { EmployeeAvatar } from "../employees/EmployeeAvatar";
 import { Select } from "../ui/Select";
 import { WorkflowCanvas, WF_NODE_W } from "./WorkflowCanvas";
@@ -506,8 +507,17 @@ export function WorkflowEditor({
     previousDebugStatus.current = null;
   };
 
-  const back = () => {
-    if (dirty && !window.confirm("有未保存的修改，确定退出编辑？")) return;
+  const back = async () => {
+    if (dirty) {
+      const confirmed = await confirmDialog({
+        title: "有未保存的修改，确定退出编辑？",
+        message: "未保存的修改会丢失。",
+        confirmLabel: "退出编辑",
+        cancelLabel: "继续编辑",
+        tone: "danger",
+      });
+      if (!confirmed) return;
+    }
     onBack();
   };
 

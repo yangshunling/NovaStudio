@@ -11,11 +11,9 @@
  */
 
 import {
-  useCallback,
   useEffect,
   useMemo,
   useState,
-  type CSSProperties,
 } from "react";
 import {
   AlertTriangle,
@@ -31,11 +29,26 @@ import {
   Trash2,
   Upload,
   Users,
-  X,
 } from "lucide-react";
 import { ipc } from "../../lib/ipc";
+import { toMessage } from "../../lib/utils";
 import { useSkillFontSize } from "../../hooks/useTheme";
+import { useLoad } from "../../hooks/useLoad";
 import { toast } from "../../stores/toast";
+import { confirmDialog } from "../../stores/confirm";
+import { countUsage, useEmployeesStore } from "../../stores/employees";
+import {
+  Drawer,
+  DrawerBody,
+  DrawerCloseButton,
+  DrawerFooter,
+  DrawerHeader,
+} from "../ui/Drawer";
+import { Button } from "../ui/Button";
+import { EmptyState, ErrorState, LoadingState } from "../ui/EmptyState";
+import { Page, PageBody, PageHeader, PageToolbar } from "../ui/Page";
+import { SearchInput } from "../ui/SearchInput";
+import { OptionChips } from "../ui/OptionChips";
 import {
   formatAssetTime,
   Meta,
@@ -68,46 +81,23 @@ const FILTERS: ReadonlyArray<{ id: "all" | SkillOrigin; label: string }> = [
 export function SkillsView() {
   // 技能页整体比全局字号大一档，避免标签 / 路径 / 正文过小
   const skillFontSize = useSkillFontSize();
-  const [skills, setSkills] = useState<SkillAsset[]>([]);
-  const [employees, setEmployees] = useState<DigitalEmployee[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const employees = useEmployeesStore((s) => s.employees);
+  const loadEmployees = useEmployeesStore((s) => s.load);
+  const { data: skills, loading, error, reload } =
+    useLoad(() => ipc.listSkills(), []);
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<"all" | SkillOrigin>("all");
   const [importing, setImporting] = useState<SkillImportKind | null>(null);
   const [activeId, setActiveId] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
-    try {
-      const [list, staff] = await Promise.all([
-        ipc.listSkills(),
-        ipc.listEmployees(),
-      ]);
-      setSkills(list);
-      setEmployees(staff);
-      setError(null);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
   useEffect(() => {
-    void load();
-  }, [load]);
+    void loadEmployees();
+  }, [loadEmployees]);
 
-  const usageCount = useMemo(() => {
-    const map = new Map<string, number>();
-    for (const employee of employees) {
-      for (const skill of employee.skills) {
-        if (skill.enabled && skill.assetId) {
-          map.set(skill.assetId, (map.get(skill.assetId) ?? 0) + 1);
-        }
-      }
-    }
-    return map;
-  }, [employees]);
+  const usageCount = useMemo(
+    () => countUsage(employees, (employee) => employee.skills),
+    [employees],
+  );
 
   const filtered = useMemo(() => {
     const keyword = query.trim().toLowerCase();
@@ -136,58 +126,32 @@ export function SkillsView() {
       toast.success(
         `已导入 ${result.imported.length} 个技能到 ~/.claude/skills`,
       );
-      await load();
+      reload();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : String(err));
+      toast.error(toMessage(err));
     } finally {
       setImporting(null);
     }
   };
 
   return (
-    <main
-      className="relative flex flex-1 flex-col overflow-hidden"
-      style={{ "--c-font-size": `${skillFontSize}px` } as CSSProperties}
-    >
-      <div className="ui-page relative z-10 flex flex-1 flex-col overflow-hidden rounded-xl">
-        {/* 顶栏 */}
-        <header className="ui-glass relative z-10 flex h-[var(--c-layout-header)] shrink-0 items-center justify-between gap-3 border-b border-border px-card">
-          <div className="flex min-w-0 items-center gap-2">
-            <span className="ui-serif text-title font-semibold tracking-wide text-text-secondary">
-              技能
-            </span>
-            <span className="rounded-full bg-surface-hover px-2 py-0.5 text-meta font-mono text-text-muted">
-              {skills.length} 个
-            </span>
-          </div>
-
-          <div className="flex min-w-0 items-center gap-2">
-            <div className="ui-ring flex h-9 w-64 items-center gap-1.5 rounded-full bg-input-bg px-3.5">
-              <Search className="h-4 w-4 shrink-0 text-text-muted" />
-              <input
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-                placeholder="搜索名称 / 描述"
-                className="min-w-0 flex-1 bg-transparent text-body text-text placeholder-text-muted outline-none"
-              />
-              {query && (
-                <button
-                  type="button"
-                  onClick={() => setQuery("")}
-                  title="清除搜索"
-                  className="shrink-0 rounded-full p-0.5 text-text-muted transition-colors hover:text-text"
-                >
-                  <X className="h-3.5 w-3.5" />
-                </button>
-              )}
-            </div>
+    <Page fontSize={skillFontSize}>
+      {/* 顶栏 */}
+      <PageHeader
+        title="技能"
+        count={skills.length}
+        countSuffix=" 个"
+        actions={
+          <>
+            <SearchInput
+              value={query}
+              onChange={setQuery}
+              placeholder="搜索名称 / 描述"
+            />
 
             <button
               type="button"
-              onClick={() => {
-                setLoading(true);
-                void load();
-              }}
+              onClick={reload}
               title="重新扫描技能目录"
               className="ui-btn-round ui-icon-action flex h-9 w-9 shrink-0 items-center justify-center rounded-full"
             >
@@ -208,77 +172,52 @@ export function SkillsView() {
               )}
               导入技能 SKILL
             </button>
-          </div>
-        </header>
+          </>
+        }
+      />
 
-        {/* 来源过滤 */}
-        <div className="flex shrink-0 flex-wrap items-center gap-1.5 border-b border-border px-card py-2">
-          {FILTERS.map((item) => {
-            const count =
+      {/* 来源过滤 */}
+      <PageToolbar>
+        <OptionChips
+          mode="single"
+          items={FILTERS.map((item) => ({
+            id: item.id,
+            label: item.label,
+            count:
               item.id === "all"
                 ? skills.length
-                : skills.filter((skill) => skill.origin === item.id).length;
-            const activeFilter = filter === item.id;
-            return (
-              <button
-                key={item.id}
-                type="button"
-                onClick={() => setFilter(item.id)}
-                className={`rounded-full px-2.5 py-1 text-meta transition-colors ${
-                  activeFilter
-                    ? "bg-accent-soft font-medium text-accent"
-                    : "bg-surface-2/60 text-text-secondary hover:bg-surface-hover hover:text-text"
-                }`}
-              >
-                {item.label}
-                <span className="ml-1 opacity-70">{count}</span>
-              </button>
-            );
-          })}
-          <span className="ml-auto text-meta text-text-muted">
-            只读来源可引用，不可编辑或删除
-          </span>
-        </div>
+                : skills.filter((skill) => skill.origin === item.id).length,
+          }))}
+          selected={filter}
+          onSelect={(id) => setFilter(id as "all" | SkillOrigin)}
+          trailing="只读来源可引用，不可编辑或删除"
+        />
+      </PageToolbar>
 
-        {/* 列表 */}
-        <div className="min-h-0 flex-1 overflow-y-auto p-section">
+      {/* 列表 */}
+      <PageBody>
           {loading ? (
-            <div className="flex h-60 items-center justify-center gap-2 text-body text-text-muted">
-              <Loader2 className="h-4 w-4 animate-spin" />
-              正在扫描技能
-            </div>
+            <LoadingState text="正在扫描技能" />
           ) : error ? (
-            <div className="mx-auto flex max-w-md flex-col items-center gap-3 py-20 text-center">
-              <p className="text-body text-error">{error}</p>
-              <button
-                type="button"
-                onClick={() => {
-                  setLoading(true);
-                  void load();
-                }}
-                className="ui-btn-ghost rounded-lg px-3 py-2 text-body"
-              >
-                重新加载
-              </button>
-            </div>
+            <ErrorState message={error} onRetry={reload} />
           ) : skills.length === 0 ? (
             <EmptySkills onImport={handleImport} importing={importing} />
           ) : filtered.length === 0 ? (
-            <div className="flex flex-col items-center gap-2 py-20 text-center text-text-muted">
-              <Search className="h-6 w-6 opacity-50" />
-              <p className="text-body">
-                {query ? `没有匹配「${query}」的技能` : "该来源下还没有技能"}
-              </p>
-              {query && (
-                <button
-                  type="button"
-                  onClick={() => setQuery("")}
-                  className="text-body text-accent hover:underline"
-                >
-                  清除搜索
-                </button>
-              )}
-            </div>
+            <EmptyState
+              icon={<Search />}
+              title={query ? `没有匹配「${query}」的技能` : "该来源下还没有技能"}
+              action={
+                query ? (
+                  <button
+                    type="button"
+                    onClick={() => setQuery("")}
+                    className="text-body text-accent hover:underline"
+                  >
+                    清除搜索
+                  </button>
+                ) : undefined
+              }
+            />
           ) : (
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
               {filtered.map((skill) => (
@@ -291,22 +230,21 @@ export function SkillsView() {
               ))}
             </div>
           )}
-        </div>
-      </div>
+      </PageBody>
 
       {active && (
         <SkillDrawer
           skill={active}
           employees={employees}
           onClose={() => setActiveId(null)}
-          onChanged={load}
+          onChanged={async () => reload()}
           onDeleted={() => {
             setActiveId(null);
-            void load();
+            reload();
           }}
         />
       )}
-    </main>
+    </Page>
   );
 }
 
@@ -431,7 +369,7 @@ function SkillDrawer({
       toast.success("SKILL.md 已保存");
       await onChanged();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : String(err));
+      toast.error(toMessage(err));
     } finally {
       setSaving(false);
     }
@@ -439,11 +377,16 @@ function SkillDrawer({
 
   const handleDelete = async () => {
     if (skill.readOnly) return;
-    const suffix =
-      usedBy.length > 0
-        ? `\n\n有 ${usedBy.length} 位数字员工正在使用它，删除后这些员工会失去该技能。`
-        : "";
-    if (!window.confirm(`从 Claude 技能目录删除「${skill.name}」？${suffix}`)) return;
+    const confirmed = await confirmDialog({
+      title: `从 Claude 技能目录删除「${skill.name}」？`,
+      message:
+        usedBy.length > 0
+          ? `有 ${usedBy.length} 位数字员工正在使用它，删除后这些员工会失去该技能。`
+          : undefined,
+      confirmLabel: "删除",
+      tone: "danger",
+    });
+    if (!confirmed) return;
 
     try {
       const ok = await ipc.deleteSkill(skill.id);
@@ -454,24 +397,15 @@ function SkillDrawer({
       toast.success("技能已删除");
       onDeleted();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : String(err));
+      toast.error(toMessage(err));
     }
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex justify-end" onClick={onClose} role="presentation">
-      <div className="absolute inset-0 bg-bg/40 backdrop-blur-sm" />
-
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-label="技能详情"
-        className="ui-glass-strong relative flex h-full w-[720px] max-w-[94vw] flex-col border-l border-border-strong shadow-[var(--c-shadow)]"
-        onClick={(event) => event.stopPropagation()}
-      >
-        {/* 头部 */}
-        <div className="flex h-[var(--c-layout-header)] shrink-0 items-center gap-3 border-b border-border px-card">
-          <Sparkles className="h-5 w-5 shrink-0 text-accent" />
+    <Drawer onClose={onClose} ariaLabel="技能详情" widthClass="w-[720px]">
+      {/* 头部 */}
+      <DrawerHeader>
+        <Sparkles className="h-5 w-5 shrink-0 text-accent" />
           <div className="min-w-0 flex-1">
             <div className="flex min-w-0 items-center gap-2">
               <span className="truncate text-title font-semibold text-text">
@@ -486,17 +420,10 @@ function SkillDrawer({
               {skill.slug}
             </div>
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            title="关闭"
-            className="rounded-md p-1.5 text-text-muted transition-colors hover:bg-surface-hover hover:text-text"
-          >
-            <X className="h-4 w-4" />
-          </button>
-        </div>
+        <DrawerCloseButton onClose={onClose} />
+      </DrawerHeader>
 
-        <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-section py-card">
+      <DrawerBody className="flex flex-col">
           <div className="flex min-h-0 flex-1 flex-col gap-4">
             {/* 顶部信息固定高度：剩余空间全部留给 SKILL.md */}
             <div className="shrink-0 space-y-4">
@@ -618,41 +545,39 @@ function SkillDrawer({
               )}
             </div>
           </div>
-        </div>
+      </DrawerBody>
 
-        {/* 底部操作 */}
-        <div className="flex shrink-0 items-center justify-between gap-3 border-t border-border px-card py-3">
-          <div>
-            {!skill.readOnly && (
-              <button
-                type="button"
-                onClick={handleDelete}
-                className="flex items-center gap-1.5 rounded-lg border border-error/25 bg-error-bg px-3 py-2 text-body font-medium text-error transition-colors hover:bg-error/10"
-              >
-                <Trash2 className="h-4 w-4" />
-                从技能库删除
-              </button>
-            )}
-            {skill.readOnly && (
-              <span className="text-meta text-text-muted">
-                只读来源：删除请到原目录或对应工具中操作
-              </span>
-            )}
-          </div>
-          <button
-            type="button"
-            onClick={async () => {
-              const ok = await ipc.revealSkill(skill.id);
-              if (!ok) toast.error("无法打开技能目录，可能已被移动或删除");
-            }}
-            className="flex items-center gap-1.5 rounded-lg border border-accent/30 bg-accent-soft px-3.5 py-2 text-body font-medium text-accent transition-colors hover:bg-accent/15"
-          >
-            <FolderOpen className="h-4 w-4" />
-            打开目录
-          </button>
+      {/* 底部操作 */}
+      <DrawerFooter>
+        <div>
+          {!skill.readOnly && (
+            <Button
+              size="sm"
+              variant="dangerLink"
+              onClick={handleDelete}
+              icon={<Trash2 className="h-4 w-4" />}
+            >
+              从技能库删除
+            </Button>
+          )}
+          {skill.readOnly && (
+            <span className="text-meta text-text-muted">
+              只读来源：删除请到原目录或对应工具中操作
+            </span>
+          )}
         </div>
-      </div>
-    </div>
+        <Button
+          size="sm"
+          icon={<FolderOpen className="h-4 w-4" />}
+          onClick={async () => {
+            const ok = await ipc.revealSkill(skill.id);
+            if (!ok) toast.error("无法打开技能目录，可能已被移动或删除");
+          }}
+        >
+          打开目录
+        </Button>
+      </DrawerFooter>
+    </Drawer>
   );
 }
 
@@ -668,31 +593,21 @@ function EmptySkills({
   importing: SkillImportKind | null;
 }) {
   return (
-    <div className="mx-auto flex max-w-lg flex-col items-center justify-center gap-3 py-20 text-center text-text-muted">
-      <div className="ui-btn-round flex h-16 w-16 items-center justify-center rounded-2xl">
-        <Sparkles className="h-6 w-6" />
-      </div>
-      <h2 className="ui-serif text-heading font-semibold text-text-secondary">
-        管理你的技能资产
-      </h2>
-      <p className="text-body-lg leading-relaxed">
-        把包含 SKILL.md 的技能文件夹导入 Claude 全局技能目录
-        （~/.claude/skills），然后在数字员工中勾选绑定。共享技能库会自动扫描，
-        无需重复导入。
-      </p>
-      <button
-        type="button"
-        onClick={() => onImport("directory")}
-        disabled={importing !== null}
-        className="ui-btn-primary mt-2 flex h-8 items-center gap-1.5 rounded-full px-4 text-body font-medium disabled:opacity-60"
-      >
-        {importing === "directory" ? (
-          <Loader2 className="h-4 w-4 animate-spin" />
-        ) : (
-          <Upload className="h-4 w-4" />
-        )}
-        导入技能 SKILL
-      </button>
-    </div>
+    <EmptyState
+      icon={<Sparkles />}
+      title="管理你的技能资产"
+      description="把包含 SKILL.md 的技能文件夹导入 Claude 全局技能目录（~/.claude/skills），然后在数字员工中勾选绑定。共享技能库会自动扫描，无需重复导入。"
+      action={
+        <Button
+          variant="primary"
+          onClick={() => onImport("directory")}
+          disabled={importing !== null}
+          loading={importing === "directory"}
+          icon={<Upload className="h-4 w-4" />}
+        >
+          导入技能 SKILL
+        </Button>
+      }
+    />
   );
 }

@@ -4,11 +4,33 @@
  * 头像、MCP、员工等表单共用，避免各页面各写一份同样的小组件。
  */
 
-import type { ReactNode } from "react";
+import type {
+  InputHTMLAttributes,
+  ReactNode,
+  TextareaHTMLAttributes,
+} from "react";
 
 /** 表单输入框统一外观（input / select / textarea 共用） */
 export const FORM_INPUT_CLASS =
   "ui-ring w-full rounded-lg bg-input-bg px-inset py-inset text-body text-text placeholder-text-muted outline-none transition-colors focus:border-input-border-focus";
+
+/** 单行输入框：外观固定，宽度默认撑满（固定宽度用外层 div 控制） */
+export function TextInput({
+  className = "",
+  ...props
+}: InputHTMLAttributes<HTMLInputElement>) {
+  return <input className={`${FORM_INPUT_CLASS} ${className}`.trim()} {...props} />;
+}
+
+/** 多行输入框 */
+export function TextArea({
+  className = "",
+  ...props
+}: TextareaHTMLAttributes<HTMLTextAreaElement>) {
+  return (
+    <textarea className={`${FORM_INPUT_CLASS} ${className}`.trim()} {...props} />
+  );
+}
 
 export function Field({
   label,

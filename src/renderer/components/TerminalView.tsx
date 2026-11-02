@@ -2,7 +2,8 @@
  * 系统终端标签
  *
  * xterm.js 负责终端渲染与键盘输入；真实 shell 运行在主进程 node-pty 中。
- * 颜色通过 Nova 的语义 token 读取，昼夜皮肤会自动适配。
+ * 终端固定纯黑，不随皮肤明暗切换 —— 它是界面里唯一的高对比工作台，
+ * 与白色工区形成清晰边界。
  */
 
 import { useEffect, useRef, useState } from "react";
@@ -63,7 +64,7 @@ export function TerminalView({ tab }: { tab: TerminalSession }) {
       // 目的是给右侧滚动条 / 概览标尺留位。终端不需要它，压到 1px，
       // 字符区才能铺满容器宽度，不会只剩右边一条空白。
       overviewRuler: { width: 1 },
-      theme: terminalTheme(skin.appearance),
+      theme: terminalTheme(),
     });
     const fit = new FitAddon();
     term.loadAddon(fit);
@@ -201,8 +202,14 @@ export function TerminalView({ tab }: { tab: TerminalSession }) {
 
   useEffect(() => {
     const term = terminalRef.current;
-    if (term) term.options.theme = terminalTheme(skin.appearance);
-  }, [skin.appearance, skin.id]);
+    if (term) term.options.theme = terminalTheme();
+    // 把终端背景色写到容器变量上：.xterm-viewport 残留 xterm.css 的 #000 背景，
+    // 需要用同一变量覆盖，否则字符区四周留白会被涂成黑/灰边。
+    containerRef.current?.style.setProperty(
+      "--c-terminal-bg",
+      terminalBackground(),
+    );
+  }, [skin.id]);
 
   return (
     <main className="flex h-full min-h-0 flex-col overflow-hidden">
@@ -224,11 +231,19 @@ export function TerminalView({ tab }: { tab: TerminalSession }) {
   );
 }
 
-function terminalTheme(appearance: "light" | "dark") {
-  const background = readCssValue("--c-bg", "#0d1117");
-  const foreground = readCssValue("--c-text", "#e6edf3");
+function terminalBackground(): string {
+  // 终端固定纯黑（与夜间皮肤一致），屏幕上的高对比工作台：
+  // 不跟随皮肤的明暗，白色皮肤下也保持纯黑，避免浅色终端里
+  // 的大片空白与亮色 ANSI 文字互相干扰。
+  return "#000000";
+}
+
+function terminalTheme() {
+  const background = terminalBackground();
+  // 前景固定在纯黑上的可读亮灰，不读 --c-text（白天皮肤是深灰文字，黑底上看不清）。
+  const foreground = "#e6edf3";
   const accent = readCssValue("--c-accent", "#2f81f7");
-  const selection = readCssValue("--c-accent-soft", "rgba(47,129,247,.25)");
+  const selection = "rgba(56, 139, 253, 0.25)";
 
   const dark = {
     black: "#484f58",
@@ -248,24 +263,6 @@ function terminalTheme(appearance: "light" | "dark") {
     brightCyan: "#56d4dd",
     brightWhite: "#f0f6fc",
   };
-  const light = {
-    black: "#24292f",
-    red: "#cf222e",
-    green: "#116329",
-    yellow: "#9a6700",
-    blue: "#0969da",
-    magenta: "#8250df",
-    cyan: "#1b7c83",
-    white: "#6e7781",
-    brightBlack: "#57606a",
-    brightRed: "#a40e26",
-    brightGreen: "#1a7f37",
-    brightYellow: "#7d4e00",
-    brightBlue: "#218bff",
-    brightMagenta: "#a475f9",
-    brightCyan: "#3192aa",
-    brightWhite: "#24292f",
-  };
 
   return {
     background,
@@ -273,7 +270,7 @@ function terminalTheme(appearance: "light" | "dark") {
     cursor: accent,
     cursorAccent: background,
     selectionBackground: selection,
-    ...(appearance === "dark" ? dark : light),
+    ...dark,
   };
 }
 

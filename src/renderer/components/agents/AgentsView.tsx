@@ -34,11 +34,14 @@ import type {
   AgentSettingsView,
 } from "@shared/contracts/agent";
 import { ipc } from "../../lib/ipc";
+import { toMessage } from "../../lib/utils";
 import { useChatStore } from "../../stores/chat";
 import { toast } from "../../stores/toast";
 import { Combobox } from "../ui/Combobox";
 import { Field, FORM_INPUT_CLASS } from "../ui/Field";
 import { Select } from "../ui/Select";
+import { Page, PageHeader } from "../ui/Page";
+import { EmptyState } from "../ui/EmptyState";
 
 const CLAUDE_ID = "claude";
 
@@ -142,7 +145,7 @@ export function AgentsView() {
     } catch (err) {
       if (requestId !== modelRequestRef.current) return;
       setRemoteModels([]);
-      setModelsError(messageOf(err));
+      setModelsError(toMessage(err));
     } finally {
       if (requestId === modelRequestRef.current) setModelsLoading(false);
     }
@@ -183,7 +186,7 @@ export function AgentsView() {
         if (cancelled) return;
         setSettings(null);
         setForm(null);
-        setLoadError(messageOf(err));
+        setLoadError(toMessage(err));
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -277,7 +280,7 @@ export function AgentsView() {
       await detectAgents();
       toast.success("已重新检测本机 Agent");
     } catch (err) {
-      toast.error(messageOf(err));
+      toast.error(toMessage(err));
     } finally {
       setDetecting(false);
     }
@@ -304,7 +307,7 @@ export function AgentsView() {
       const opened = await ipc.openAgentConfigDir(selected.id);
       if (!opened) toast.error("配置目录不存在或无法打开");
     } catch (err) {
-      toast.error(messageOf(err));
+      toast.error(toMessage(err));
     } finally {
       setOpening(false);
     }
@@ -319,7 +322,7 @@ export function AgentsView() {
       setSettings(view);
       setForm(toForm(view));
     } catch (err) {
-      setLoadError(messageOf(err));
+      setLoadError(toMessage(err));
     } finally {
       setLoading(false);
     }
@@ -348,7 +351,7 @@ export function AgentsView() {
       setForm(toForm(updated));
       toast.success("已写入 ~/.claude/settings.json，Claude 与 Nova 同步生效");
     } catch (err) {
-      toast.error(messageOf(err));
+      toast.error(toMessage(err));
     } finally {
       setSaving(false);
     }
@@ -381,17 +384,11 @@ export function AgentsView() {
     );
 
   return (
-    <main className="relative flex flex-1 flex-col overflow-hidden">
-      <div className="ui-page relative z-10 flex flex-1 flex-col overflow-hidden rounded-xl">
-        <header className="ui-glass relative z-10 flex h-[var(--c-layout-header)] shrink-0 items-center justify-between gap-3 border-b border-border px-card">
-          <div className="flex min-w-0 items-center gap-2">
-            <span className="ui-serif text-title font-semibold tracking-wide text-text-secondary">
-              Agent 平台
-            </span>
-            <span className="rounded-full bg-surface-hover px-2 py-0.5 text-caption font-mono text-text-muted">
-              本机配置
-            </span>
-          </div>
+    <Page>
+      <PageHeader
+        title="Agent 平台"
+        badge="本机配置"
+        actions={
           <button
             type="button"
             onClick={refreshAgents}
@@ -403,9 +400,10 @@ export function AgentsView() {
             />
             重新检测
           </button>
-        </header>
+        }
+      />
 
-        <div className="flex min-h-0 flex-1">
+      <div className="flex min-h-0 flex-1">
           <aside className="flex w-60 shrink-0 flex-col overflow-y-auto border-r border-border bg-surface-2/30 p-3">
             <div className="px-1 pb-2 text-meta font-medium tracking-wide text-text-muted">
               已检测到的 Agent
@@ -703,8 +701,7 @@ export function AgentsView() {
             )}
           </section>
         </div>
-      </div>
-    </main>
+    </Page>
   );
 }
 
@@ -856,14 +853,12 @@ function AgentListItem({
 
 function EmptyAgent() {
   return (
-    <div className="mx-auto flex max-w-md flex-col items-center gap-3 py-24 text-center text-text-muted">
-      <Terminal className="h-8 w-8 opacity-50" />
-      <p className="text-body">没有可展示的 Claude Code</p>
-      <p className="text-meta">安装 Claude Code 后点击「重新检测」。</p>
-    </div>
+    <EmptyState
+      size="compact"
+      icon={<Terminal />}
+      title="没有可展示的 Claude Code"
+      description="安装 Claude Code 后点击「重新检测」。"
+      className="py-24"
+    />
   );
-}
-
-function messageOf(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
 }

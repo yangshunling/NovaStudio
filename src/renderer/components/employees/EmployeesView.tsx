@@ -9,43 +9,36 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   Library,
-  Loader2,
   Plug,
   Plus,
   Search,
   Sparkles,
   Users,
-  X,
 } from "lucide-react";
-import { ipc } from "../../lib/ipc";
+import { useEmployeesStore } from "../../stores/employees";
+import { EmptyState, ErrorState, LoadingState } from "../ui/EmptyState";
+import { Page, PageBody, PageHeader } from "../ui/Page";
+import { Button } from "../ui/Button";
+import { SearchInput } from "../ui/SearchInput";
 import { EmployeeAvatar } from "./EmployeeAvatar";
 import { EmployeeDrawer } from "./EmployeeDrawer";
 import type { DigitalEmployee } from "@shared/types";
 
 export function EmployeesView() {
-  const [employees, setEmployees] = useState<DigitalEmployee[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  // 员工列表以全局 store 为唯一来源（其他资产页也读同一份）
+  const employees = useEmployeesStore((s) => s.employees);
+  const loading = useEmployeesStore((s) => s.loading);
+  const error = useEmployeesStore((s) => s.error);
+  const load = useEmployeesStore((s) => s.load);
   const [query, setQuery] = useState("");
   /** undefined = 抽屉关闭；null = 新建；对象 = 编辑 */
   const [editing, setEditing] = useState<DigitalEmployee | null | undefined>(
     undefined,
   );
 
-  const load = async () => {
-    try {
-      setEmployees(await ipc.listEmployees());
-      setError(null);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setLoading(false);
-    }
-  };
-
   useEffect(() => {
     void load();
-  }, []);
+  }, [load]);
 
   const filtered = useMemo(() => {
     const keyword = query.trim().toLowerCase();
@@ -60,39 +53,21 @@ export function EmployeesView() {
   const openCreate = () => setEditing(null);
 
   return (
-    <main className="relative flex flex-1 flex-col overflow-hidden">
-      <div className="ui-page relative z-10 flex flex-1 flex-col overflow-hidden rounded-xl">
-        {/* 顶栏：标题 / 搜索 / 新建 */}
-        <header className="ui-glass relative z-10 flex h-[var(--c-layout-header)] shrink-0 items-center justify-between gap-3 border-b border-border px-card">
-          <div className="flex min-w-0 items-center gap-2">
-            <span className="ui-serif text-title font-semibold tracking-wide text-text-secondary">
-              数字员工
-            </span>
-            <span className="rounded-full bg-surface-hover px-2 py-0.5 text-caption font-mono text-text-muted">
-              {employees.length} 位
-            </span>
-          </div>
-
-          <div className="flex min-w-0 items-center gap-2">
-            <div className="ui-ring flex h-8 w-52 items-center gap-1.5 rounded-full bg-input-bg px-3">
-              <Search className="h-3.5 w-3.5 shrink-0 text-text-muted" />
-              <input
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-                placeholder="搜索名称 / 职位"
-                className="min-w-0 flex-1 bg-transparent text-meta text-text placeholder-text-muted outline-none"
-              />
-              {query && (
-                <button
-                  type="button"
-                  onClick={() => setQuery("")}
-                  title="清除搜索"
-                  className="shrink-0 rounded-full p-0.5 text-text-muted transition-colors hover:text-text"
-                >
-                  <X className="h-3 w-3" />
-                </button>
-              )}
-            </div>
+    <Page>
+      {/* 顶栏：标题 / 搜索 / 新建 */}
+      <PageHeader
+        title="数字员工"
+        count={employees.length}
+        countSuffix=" 位"
+        actions={
+          <>
+            <SearchInput
+              size="sm"
+              widthClass="w-52"
+              value={query}
+              onChange={setQuery}
+              placeholder="搜索名称 / 职位"
+            />
 
             <button
               type="button"
@@ -102,44 +77,32 @@ export function EmployeesView() {
               <Plus className="h-4 w-4" />
               新建数字员工
             </button>
-          </div>
-        </header>
+          </>
+        }
+      />
 
-        {/* 画廊 */}
-        <div className="min-h-0 flex-1 overflow-y-auto p-section">
+      {/* 画廊 */}
+      <PageBody>
           {loading ? (
-            <div className="flex h-60 items-center justify-center gap-2 text-body text-text-muted">
-              <Loader2 className="h-4 w-4 animate-spin" />
-              正在加载数字员工
-            </div>
+            <LoadingState text="正在加载数字员工" />
           ) : error ? (
-            <div className="mx-auto flex max-w-md flex-col items-center gap-3 py-20 text-center">
-              <p className="text-body text-error">{error}</p>
-              <button
-                type="button"
-                onClick={() => {
-                  setLoading(true);
-                  void load();
-                }}
-                className="ui-btn-ghost rounded-lg px-3 py-2 text-meta"
-              >
-                重新加载
-              </button>
-            </div>
+            <ErrorState message={error} onRetry={() => void load(true)} />
           ) : employees.length === 0 ? (
-            <EmptyState onCreate={openCreate} />
+            <EmptyEmployees onCreate={openCreate} />
           ) : filtered.length === 0 ? (
-            <div className="flex flex-col items-center gap-2 py-20 text-center text-text-muted">
-              <Search className="h-6 w-6 opacity-50" />
-              <p className="text-body">没有匹配「{query}」的数字员工</p>
-              <button
-                type="button"
-                onClick={() => setQuery("")}
-                className="text-meta text-accent hover:underline"
-              >
-                清除搜索
-              </button>
-            </div>
+            <EmptyState
+              icon={<Search />}
+              title={`没有匹配「${query}」的数字员工`}
+              action={
+                <button
+                  type="button"
+                  onClick={() => setQuery("")}
+                  className="text-meta text-accent hover:underline"
+                >
+                  清除搜索
+                </button>
+              }
+            />
           ) : (
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
               {filtered.map((employee) => (
@@ -151,8 +114,7 @@ export function EmployeesView() {
               ))}
             </div>
           )}
-        </div>
-      </div>
+      </PageBody>
 
       {/* 编辑抽屉 */}
       {editing !== undefined && (
@@ -160,10 +122,10 @@ export function EmployeesView() {
           key={editing?.id ?? "new"}
           employee={editing}
           onClose={() => setEditing(undefined)}
-          onSaved={load}
+          onSaved={() => void load(true)}
         />
       )}
-    </main>
+    </Page>
   );
 }
 
@@ -238,28 +200,24 @@ function EmployeeCard({
 // ============================================================================
 // 空态
 // ============================================================================
+// 空态（首页专用的大号引导）
+// ============================================================================
 
-function EmptyState({ onCreate }: { onCreate: () => void }) {
+function EmptyEmployees({ onCreate }: { onCreate: () => void }) {
   return (
-    <div className="mx-auto flex max-w-md flex-col items-center justify-center gap-3 py-20 text-center text-text-muted">
-      <div className="ui-btn-round flex h-16 w-16 items-center justify-center rounded-2xl">
-        <Users className="h-6 w-6" />
-      </div>
-      <h2 className="ui-serif text-heading font-semibold text-text-secondary">
-        组建你的数字团队
-      </h2>
-      <p className="text-body leading-relaxed">
-        每位数字员工都可以拥有独立的头像、人设、系统提示词、MCP
-        服务、技能与知识库。
-      </p>
-      <button
-        type="button"
-        onClick={onCreate}
-        className="ui-btn-primary mt-2 flex h-8 items-center gap-1.5 rounded-full px-4 text-body font-medium"
-      >
-        <Plus className="h-4 w-4" />
-        新建数字员工
-      </button>
-    </div>
+    <EmptyState
+      icon={<Users />}
+      title="组建你的数字团队"
+      description="每位数字员工都可以拥有独立的头像、人设、系统提示词、MCP 服务、技能与知识库。"
+      action={
+        <Button
+          variant="primary"
+          onClick={onCreate}
+          icon={<Plus className="h-4 w-4" />}
+        >
+          新建数字员工
+        </Button>
+      }
+    />
   );
 }

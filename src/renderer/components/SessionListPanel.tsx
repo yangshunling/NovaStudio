@@ -20,6 +20,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { useChatStore } from "../stores/chat";
+import { confirmDialog } from "../stores/confirm";
 import type { Session } from "@shared/types";
 
 /** 右键菜单尺寸：用于贴近视口边缘时收拢位置 */
@@ -139,11 +140,14 @@ function SessionRow({
     });
   };
 
-  const requestDelete = () => {
+  const requestDelete = async () => {
     setMenu(null);
-    const confirmed = window.confirm(
-      `删除会话「${session.title}」？\n\n此操作不可恢复。`,
-    );
+    const confirmed = await confirmDialog({
+      title: `删除会话「${session.title}」？`,
+      message: "此操作不可恢复。",
+      confirmLabel: "删除",
+      tone: "danger",
+    });
     if (confirmed) onDelete();
   };
 

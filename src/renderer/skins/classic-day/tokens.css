@@ -1,10 +1,12 @@
 /**
  * 经典 · 昼 — token 值
  *
- * 参考 GitHub Light / VS Code Light 的色调，重点在**层叠**而非配色：
- * - 画布（--c-bg）是冷灰蓝，主体（.ui-page）是纯白纸面，侧栏也是白 ——
- *   白纸浮在灰画布上，由阴影与 hairline 描边给出厚度，不再是平铺的 2D 色块
- * - GitHub Blue (#0969da) 为强调色
+ * 参考 GitHub Light / VS Code Light 的色调：
+ * - 菜单（侧栏）与工区（画布 / 列表 / 纸面）统一为纯白，界面不再有暖灰底，
+ *   层次只由 hairline 描边与浅灰控件给出
+ * - 终端是整张界面唯一的高对比区：固定纯黑背景（见 TerminalView），
+ *   与纯白界面形成清晰的「工作台」边界
+ * - 强调色 GitHub Blue (#0969da) 是白色界面唯一的蓝色来源
  * - 标准圆角、无衬线字体，干净利落
  *
  * 分层：字体栈、圆角刻度、布局尺寸来自 _base.css，
@@ -14,14 +16,14 @@
 @import "../_base.css";
 
 [data-theme="classic-day"] {
-  /* === 画布：衬托白纸的底色（App 根容器 / 纸面四周的留白） === */
-  --c-bg: #e8edf4;
+  /* === 画布：纯白，与菜单 / 工区一致（终端另由 TerminalView 固定为纯黑） === */
+  --c-bg: #ffffff;
 
-  /* === 表面：主纸面纯白，次级表面带一点冷调，形成层次 === */
+  /* === 表面：纸面白，次级表面只留极浅的中性灰，靠描边与控件灰度区分层次 === */
   --c-surface: #ffffff;
-  --c-surface-2: #f1f5fa;
+  --c-surface-2: #f5f5f5;
   --c-surface-hover: rgba(31, 35, 40, 0.06);
-  --c-surface-active: #dbeafe;
+  --c-surface-active: #f0f0f0;
 
   /* === 玻璃（顶栏 / 输入区 / 工具行：更明显的模糊与半透明） === */
   --c-glass-bg: rgba(255, 255, 255, 0.72);
@@ -29,8 +31,8 @@
   --c-glass-strong-bg: rgba(255, 255, 255, 0.92);
   --c-glass-strong-filter: blur(14px);
 
-  /* === 边框（比 GitHub 默认灰稍深，保证白色背景上板块分割线清晰可见） === */
-  --c-border: #b9c3cc;
+  /* === 边框（中性灰，保证白色背景上板块分割线清晰可见） === */
+  --c-border: #d9d9d9;
   --c-border-strong: #0969da;
 
   /* === 文本 === */
@@ -46,7 +48,7 @@
 
   /* === 语义色 === */
   --c-thinking: #6e7781;
-  --c-thinking-bg: rgba(246, 248, 250, 0.9);
+  --c-thinking-bg: rgba(245, 245, 245, 0.9);
   --c-tool: #0969da;
   --c-error: #cf222e;
   --c-error-bg: rgba(248, 230, 230, 0.85);
@@ -55,12 +57,12 @@
   /* === 用户消息气泡（实心蓝，靠投影离开纸面） === */
   --c-bubble-user: #0969da;
   --c-bubble-user-text: #ffffff;
-  --c-bubble-border: #e0e5ea;
+  --c-bubble-border: #e4e4e4;
   --c-bubble-shadow: 0 1px 2px rgba(31, 35, 40, 0.05), 0 1px 1px rgba(31, 35, 40, 0.03);
 
-  /* === 输入框（白纸上略浅的表面，靠描边与轻投影成形） === */
-  --c-input-bg: #f8fafc;
-  --c-input-border: #ccd5de;
+  /* === 输入框（白纸上略浅的中性表面，靠描边与轻投影成形） === */
+  --c-input-bg: #fafafa;
+  --c-input-border: #dcdcdc;
   --c-input-border-focus: #0969da;
 
   /* === 滚动条 === */
@@ -108,17 +110,17 @@
   --c-ring-border: #d0d7de;
   --c-ring-shadow: 0 1px 2px rgba(31, 35, 40, 0.05);
 
-  /* === 侧栏（略浅于主纸面，靠右侧细线与投影拉开层次） === */
-  --c-sidebar-bg: #f6f9fc;
-  --c-sidebar-shadow: inset -1px 0 0 #c9d2db;
+  /* === 侧栏（菜单）：纯白，靠右侧细线拉开层次 === */
+  --c-sidebar-bg: #ffffff;
+  --c-sidebar-shadow: inset -1px 0 0 #e0e0e0;
   --c-sidebar-texture: none;
 
-  /* === 列表侧栏（会话 / 工作区） === */
-  --c-panel-bg: #f3f7fb;
+  /* === 列表侧栏（会话 / 工作区 / 工区列表）：纯白，与工区一致 === */
+  --c-panel-bg: #ffffff;
 
   /* === 历史回放进度条（纤细、纯色、无光晕） === */
   --c-progress-height: 2px;
-  --c-progress-track: #eaeef2;
+  --c-progress-track: #e8e8e8;
   --c-progress-fill: #0969da;
   --c-progress-glow: none;
 }

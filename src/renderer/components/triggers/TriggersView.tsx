@@ -19,9 +19,16 @@ import {
   Zap,
 } from "lucide-react";
 import { ipc } from "../../lib/ipc";
+import { toMessage } from "../../lib/utils";
+import { useLoad } from "../../hooks/useLoad";
+import { EmptyState, ErrorState, LoadingState } from "../ui/EmptyState";
+import { Page, PageBody, PageHeader } from "../ui/Page";
+import { OptionChips } from "../ui/OptionChips";
 import { toast } from "../../stores/toast";
-import { Modal, ModalHeader } from "../ui/Modal";
-import { Field, FORM_INPUT_CLASS } from "../ui/Field";
+import { confirmDialog } from "../../stores/confirm";
+import { Dialog, DialogActions } from "../ui/Dialog";
+import { Button } from "../ui/Button";
+import { Field, TextArea, TextInput } from "../ui/Field";
 import { Toggle } from "../employees/ui";
 import {
   describeTriggerSchedule,
@@ -54,35 +61,33 @@ const KIND_OPTIONS: ReadonlyArray<{
 const INTERVAL_PRESETS = [15, 30, 60, 180, 720];
 
 export function TriggersView() {
-  const [triggers, setTriggers] = useState<WorkflowTrigger[]>([]);
-  const [bindings, setBindings] = useState<WorkflowTriggerBinding[]>([]);
-  const [workflows, setWorkflows] = useState<Workflow[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  /** null 表示弹框关闭；"new" 表示新建；否则为正在编辑的触发器 */
-  const [editing, setEditing] = useState<WorkflowTrigger | "new" | null>(null);
-
-  const load = useCallback(async () => {
-    try {
-      const [triggerList, bindingList, workflowList] = await Promise.all([
+  // 三份数据一次拉齐：触发器是主体，bindings/workflows 用于展示「绑定了哪些工作流」
+  const { data, loading, error, reload, setData } = useLoad(
+    async () => {
+      const [triggers, bindings, workflows] = await Promise.all([
         ipc.listTriggers(),
         ipc.listTriggerBindings(),
         ipc.listWorkflows(),
       ]);
-      setTriggers(triggerList);
-      setBindings(bindingList);
-      setWorkflows(workflowList);
-      setError(null);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+      return { triggers, bindings, workflows };
+    },
+    { triggers: [] as WorkflowTrigger[], bindings: [] as WorkflowTriggerBinding[], workflows: [] as Workflow[] },
+  );
+  const { triggers, bindings, workflows } = data;
+  /** 只更新三元组中的某一项，保持 useLoad 单一数据源 */
+  const patch = <K extends keyof typeof data>(
+    key: K,
+    next: typeof data[K] | ((prev: typeof data[K]) => typeof data[K]),
+  ) =>
+    setData((prev) => ({
+      ...prev,
+      [key]: typeof next === "function" ? (next as (p: typeof data[K]) => typeof data[K])(prev[key]) : next,
+    }));
+  const setTriggers = (next: Parameters<typeof patch<"triggers">>[1]) => patch("triggers", next);
+  const setBindings = (next: Parameters<typeof patch<"bindings">>[1]) => patch("bindings", next);
 
-  useEffect(() => {
-    void load();
-  }, [load]);
+  /** null 表示弹框关闭；"new" 表示新建；否则为正在编辑的触发器 */
+  const [editing, setEditing] = useState<WorkflowTrigger | "new" | null>(null);
 
   // 调度器触发后会推送新的 lastFiredAt / nextFireAt，直接就地更新卡片
   useEffect(
@@ -147,22 +152,23 @@ export function TriggersView() {
         enabled ? `已启用「${trigger.title}」` : `已停用「${trigger.title}」`,
       );
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : String(err), 5000);
+      toast.error(toMessage(err), 5000);
     }
   };
 
   const deleteTrigger = async (trigger: WorkflowTrigger) => {
     const boundCount = boundWorkflowNames.get(trigger.id)?.length ?? 0;
-    const confirmed = window.confirm(
-      [
-        `删除触发器「${trigger.title}」？`,
-        "",
+    const confirmed = await confirmDialog({
+      title: `删除触发器「${trigger.title}」？`,
+      message: [
         boundCount > 0
           ? `它绑定了 ${boundCount} 条工作流，删除后将不再定时启动这些工作流（工作流本身不受影响）。`
           : "该触发器尚未绑定任何工作流。",
         "此操作不可恢复。",
       ].join("\n"),
-    );
+      confirmLabel: "删除",
+      tone: "danger",
+    });
     if (!confirmed) return;
 
     try {
@@ -173,23 +179,17 @@ export function TriggersView() {
       );
       toast.success(`触发器「${trigger.title}」已删除`);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : String(err), 5000);
+      toast.error(toMessage(err), 5000);
     }
   };
 
   return (
-    <main className="relative flex flex-1 flex-col overflow-hidden">
-      <div className="ui-page relative z-10 flex flex-1 flex-col overflow-hidden rounded-xl">
-        <header className="ui-glass relative z-10 flex h-[var(--c-layout-header)] shrink-0 items-center justify-between gap-3 border-b border-border px-card">
-          <div className="flex min-w-0 items-center gap-2">
-            <span className="ui-serif text-title font-semibold tracking-wide text-text-secondary">
-              触发器
-            </span>
-            <span className="rounded-full bg-surface-hover px-2 py-0.5 text-meta font-mono text-text-muted">
-              {triggers.length} 个
-            </span>
-          </div>
-
+    <Page>
+      <PageHeader
+        title="触发器"
+        count={triggers.length}
+        countSuffix=" 个"
+        actions={
           <button
             type="button"
             onClick={() => setEditing("new")}
@@ -198,28 +198,14 @@ export function TriggersView() {
             <Plus className="h-4 w-4" />
             新建触发器
           </button>
-        </header>
+        }
+      />
 
-        <div className="min-h-0 flex-1 overflow-y-auto p-section">
+      <PageBody>
           {loading ? (
-            <div className="flex h-60 items-center justify-center gap-2 text-body text-text-muted">
-              <Loader2 className="h-4 w-4 animate-spin" />
-              正在加载触发器
-            </div>
+            <LoadingState text="正在加载触发器" />
           ) : error ? (
-            <div className="mx-auto flex max-w-md flex-col items-center gap-3 py-20 text-center">
-              <p className="text-body text-error">{error}</p>
-              <button
-                type="button"
-                onClick={() => {
-                  setLoading(true);
-                  void load();
-                }}
-                className="ui-btn-ghost rounded-lg px-3 py-2 text-body"
-              >
-                重新加载
-              </button>
-            </div>
+            <ErrorState message={error} onRetry={reload} />
           ) : triggers.length === 0 ? (
             <EmptyTriggers onCreate={() => setEditing("new")} />
           ) : (
@@ -236,8 +222,7 @@ export function TriggersView() {
               ))}
             </div>
           )}
-        </div>
-      </div>
+      </PageBody>
 
       <TriggerDialog
         open={editing !== null}
@@ -245,7 +230,7 @@ export function TriggersView() {
         onClose={() => setEditing(null)}
         onSubmit={saveTrigger}
       />
-    </main>
+    </Page>
   );
 }
 
@@ -436,7 +421,7 @@ function TriggerDialog({
         enabled,
       });
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : String(err), 5000);
+      toast.error(toMessage(err), 5000);
     } finally {
       setBusy(false);
     }
@@ -446,20 +431,15 @@ function TriggerDialog({
     KIND_OPTIONS.find((item) => item.kind === kind)?.hint ?? "";
 
   return (
-    <Modal
+    <Dialog
       open={open}
       onClose={onClose}
+      title={trigger ? "编辑触发器" : "新建触发器"}
       widthClass="w-[500px] max-w-[92vw]"
     >
-      <div className="p-card">
-        <ModalHeader
-          title={trigger ? "编辑触发器" : "新建触发器"}
-          onClose={onClose}
-        />
-
         <div className="space-y-3">
           <Field label="标题" required>
-            <input
+            <TextInput
               autoFocus
               value={title}
               onChange={(event) => setTitle(event.target.value)}
@@ -467,17 +447,16 @@ function TriggerDialog({
                 if (event.key === "Enter") void submit();
               }}
               placeholder="例如：每日站会汇总"
-              className={FORM_INPUT_CLASS}
             />
           </Field>
 
           <Field label="描述" hint="说明这条触发器在什么场景下使用，便于团队辨认。">
-            <textarea
+            <TextArea
               value={description}
               onChange={(event) => setDescription(event.target.value)}
               rows={2}
               placeholder="例如：每天上班前汇总昨天的待办与风险"
-              className={`${FORM_INPUT_CLASS} resize-none`}
+              className="resize-none"
             />
           </Field>
 
@@ -485,25 +464,16 @@ function TriggerDialog({
             <div className="mb-1.5 text-meta font-medium text-text-secondary">
               定时方式
             </div>
-            <div className="flex gap-1.5">
-              {KIND_OPTIONS.map((option) => {
-                const active = kind === option.kind;
-                return (
-                  <button
-                    key={option.kind}
-                    type="button"
-                    onClick={() => setKind(option.kind)}
-                    className={`flex-1 rounded-lg px-3 py-2 text-body font-medium transition-colors ${
-                      active
-                        ? "bg-accent-soft text-accent shadow-[var(--c-shadow-sm)]"
-                        : "bg-surface-2/60 text-text-secondary hover:bg-surface-hover hover:text-text"
-                    }`}
-                  >
-                    {option.label}
-                  </button>
-                );
-              })}
-            </div>
+            <OptionChips
+              mode="single"
+              variant="rect"
+              items={KIND_OPTIONS.map((option) => ({
+                id: option.kind,
+                label: option.label,
+              }))}
+              selected={kind}
+              onSelect={(id) => setKind(id as ScheduleKind)}
+            />
             <p className="mt-1 text-meta text-text-muted">{kindHint}</p>
           </div>
 
@@ -513,34 +483,30 @@ function TriggerDialog({
               hint={`范围 ${TRIGGER_INTERVAL_MIN} - ${TRIGGER_INTERVAL_MAX} 分钟；应用运行期间按此间隔循环触发。`}
             >
               <div className="flex items-center gap-2">
-                <input
-                  type="number"
-                  min={TRIGGER_INTERVAL_MIN}
-                  max={TRIGGER_INTERVAL_MAX}
-                  value={minutes}
-                  onChange={(event) =>
-                    setMinutes(Number(event.target.value) || 0)
-                  }
-                  className="ui-ring w-32 rounded-lg bg-input-bg px-inset py-inset text-body text-text outline-none transition-colors focus:border-input-border-focus"
-                />
+                <div className="w-32">
+                  <TextInput
+                    type="number"
+                    min={TRIGGER_INTERVAL_MIN}
+                    max={TRIGGER_INTERVAL_MAX}
+                    value={minutes}
+                    onChange={(event) =>
+                      setMinutes(Number(event.target.value) || 0)
+                    }
+                  />
+                </div>
                 <span className="text-body text-text-muted">分钟</span>
               </div>
-              <div className="mt-2 flex flex-wrap gap-1.5">
-                {INTERVAL_PRESETS.map((preset) => (
-                  <button
-                    key={preset}
-                    type="button"
-                    onClick={() => setMinutes(preset)}
-                    className={`rounded-full px-2.5 py-1 text-meta transition-colors ${
-                      minutes === preset
-                        ? "bg-accent-soft font-medium text-accent"
-                        : "bg-surface-2/60 text-text-secondary hover:bg-surface-hover hover:text-text"
-                    }`}
-                  >
-                    {preset >= 60 ? `${preset / 60} 小时` : `${preset} 分钟`}
-                  </button>
-                ))}
-              </div>
+              <OptionChips
+                mode="single"
+                size="sm"
+                className="mt-2"
+                items={INTERVAL_PRESETS.map((preset) => ({
+                  id: preset,
+                  label: preset >= 60 ? `${preset / 60} 小时` : `${preset} 分钟`,
+                }))}
+                selected={minutes}
+                onSelect={(id) => setMinutes(Number(id))}
+              />
             </Field>
           ) : (
             <>
@@ -549,25 +515,16 @@ function TriggerDialog({
                   <div className="mb-1.5 text-meta font-medium text-text-secondary">
                     星期
                   </div>
-                  <div className="flex flex-wrap gap-1.5">
-                    {TRIGGER_WEEKDAYS.map((day) => {
-                      const active = weekdays.includes(day.value);
-                      return (
-                        <button
-                          key={day.value}
-                          type="button"
-                          onClick={() => toggleWeekday(day.value)}
-                          className={`rounded-full px-3 py-1.5 text-meta transition-colors ${
-                            active
-                              ? "bg-accent-soft font-medium text-accent"
-                              : "bg-surface-2/60 text-text-secondary hover:bg-surface-hover hover:text-text"
-                          }`}
-                        >
-                          {day.label}
-                        </button>
-                      );
-                    })}
-                  </div>
+                  <OptionChips
+                    mode="multi"
+                    size="md"
+                    items={TRIGGER_WEEKDAYS.map((day) => ({
+                      id: day.value,
+                      label: day.label,
+                    }))}
+                    selected={weekdays}
+                    onToggle={(id) => toggleWeekday(Number(id))}
+                  />
                   {weekdays.length === 0 && (
                     <p className="mt-1 text-meta text-error">
                       至少选择一天
@@ -577,12 +534,13 @@ function TriggerDialog({
               )}
 
               <Field label="触发时刻" hint="使用本机时间；应用需保持运行。">
-                <input
-                  type="time"
-                  value={time}
-                  onChange={(event) => setTime(event.target.value)}
-                  className="ui-ring w-36 rounded-lg bg-input-bg px-inset py-inset text-body text-text outline-none transition-colors focus:border-input-border-focus"
-                />
+                <div className="w-36">
+                  <TextInput
+                    type="time"
+                    value={time}
+                    onChange={(event) => setTime(event.target.value)}
+                  />
+                </div>
               </Field>
             </>
           )}
@@ -607,26 +565,18 @@ function TriggerDialog({
           </div>
         </div>
 
-        <div className="mt-4 flex items-center justify-end gap-2">
-          <button
-            type="button"
-            onClick={onClose}
-            className="ui-btn-ghost h-9 rounded-full px-4 text-body font-medium active:scale-95"
-          >
-            取消
-          </button>
-          <button
-            type="button"
+        <DialogActions>
+          <Button onClick={onClose}>取消</Button>
+          <Button
+            variant="primary"
             onClick={() => void submit()}
-            disabled={!title.trim() || busy || (kind === "weekly" && weekdays.length === 0)}
-            className="ui-btn-primary flex h-9 items-center gap-1.5 rounded-full px-4 text-body font-medium active:scale-95 disabled:opacity-50"
+            disabled={!title.trim() || (kind === "weekly" && weekdays.length === 0)}
+            loading={busy}
           >
-            {busy && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
             保存
-          </button>
-        </div>
-      </div>
-    </Modal>
+          </Button>
+        </DialogActions>
+    </Dialog>
   );
 }
 
@@ -636,26 +586,20 @@ function TriggerDialog({
 
 function EmptyTriggers({ onCreate }: { onCreate: () => void }) {
   return (
-    <div className="mx-auto flex max-w-md flex-col items-center justify-center gap-3 py-24 text-center text-text-muted">
-      <div className="ui-btn-round flex h-16 w-16 items-center justify-center rounded-2xl">
-        <Zap className="h-6 w-6" />
-      </div>
-      <h2 className="ui-serif text-heading font-semibold text-text-secondary">
-        让工作流按时自己跑起来
-      </h2>
-      <p className="text-body leading-relaxed">
-        先创建一个触发器，设置每天几点、每周哪几天或每隔多久触发；
-        再在工作流卡片的右键菜单里把触发器绑上去。
-      </p>
-      <button
-        type="button"
-        onClick={onCreate}
-        className="ui-btn-primary mt-2 flex h-8 items-center gap-1.5 rounded-full px-4 text-body font-medium active:scale-95"
-      >
-        <Plus className="h-4 w-4" />
-        新建触发器
-      </button>
-    </div>
+    <EmptyState
+      icon={<Zap />}
+      title="让工作流按时自己跑起来"
+      description="先创建一个触发器，设置每天几点、每周哪几天或每隔多久触发；再在工作流卡片的右键菜单里把触发器绑上去。"
+      action={
+        <Button
+          variant="primary"
+          onClick={onCreate}
+          icon={<Plus className="h-4 w-4" />}
+        >
+          新建触发器
+        </Button>
+      }
+    />
   );
 }
 

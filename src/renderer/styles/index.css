@@ -219,6 +219,14 @@ body {
   display: none;
 }
 
+/* xterm v6 的滚动区域由 ScrollableElement（.xterm-scrollable-element）负责并
+   内联涂上主题背景色，但 .xterm-viewport 仍残留 xterm.css 里的 #000 背景，
+   且绝对定位铺满整个终端 —— 字符区四周的留白会被它涂成黑边（浅色皮肤下一眼可见）。
+   这里让它跟随终端自身的背景色（--c-terminal-bg 由 TerminalView 写入，恒为纯黑）。 */
+.xterm .xterm-viewport {
+  background-color: var(--c-terminal-bg, #000000);
+}
+
 /* 终端主体四周留白。padding 必须加在 .xterm 上：FitAddon 计算行列时只扣
    .xterm 自身的 padding，加在外层容器上会导致终端溢出并被裁切。 */
 .ui-terminal .xterm {
@@ -231,6 +239,45 @@ body {
  * 命名与皮肤无关：这些是应用的通用 UI 构件，不是某一套皮肤专属的装饰。
  * 每个原语只消费 token，因此皮肤文件里不需要写任何覆写规则。
  * ============================================================================ */
+
+/* 按钮基座：尺寸 / 排布 / 圆角。颜色由 ui-btn-* 变体决定 */
+.ui-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 36px;
+  padding: 0 var(--c-space-card);
+  border-radius: 999px;
+  font-size: var(--c-font-size-body);
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: color var(--c-motion-fast) var(--c-ease-standard),
+    border-color var(--c-motion-fast) var(--c-ease-standard),
+    background var(--c-motion-fast) var(--c-ease-standard),
+    filter var(--c-motion-fast) var(--c-ease-standard),
+    transform var(--c-motion-fast) var(--c-ease-standard);
+}
+.ui-btn:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+.ui-btn:focus-visible {
+  outline: 2px solid var(--c-accent);
+  outline-offset: 2px;
+}
+.ui-btn-danger:focus-visible,
+.ui-btn-danger-link:focus-visible {
+  outline-color: var(--c-error);
+}
+
+/* 小号按钮（抽屉页脚 / 头部辅助操作） */
+.ui-btn-sm {
+  height: 30px;
+  padding: 0 10px;
+  font-size: var(--c-font-size-meta);
+}
 
 /* 主按钮（发送 / 确认 / 下发任务） */
 .ui-btn-primary {
@@ -266,6 +313,35 @@ body {
   color: var(--c-btn-ghost-hover-text);
   border-color: var(--c-btn-ghost-hover-border);
   background: var(--c-btn-ghost-hover-bg);
+}
+
+/* 危险按钮（删除等不可恢复操作） */
+.ui-btn-danger {
+  border: 1px solid var(--c-error);
+  background: var(--c-error);
+  color: var(--c-bg);
+  transition: filter var(--c-motion-fast) var(--c-ease-standard),
+    transform var(--c-motion-fast) var(--c-ease-standard);
+}
+.ui-btn-danger:hover:not(:disabled) {
+  filter: brightness(1.08);
+  transform: translateY(-1px);
+}
+.ui-btn-danger:active:not(:disabled) {
+  transform: translateY(0);
+}
+.ui-btn-danger:disabled {
+  opacity: 0.55;
+}
+
+/* 危险操作的次级入口（抽屉页脚的“删除”） */
+.ui-btn-danger-link {
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--c-error);
+}
+.ui-btn-danger-link:hover:not(:disabled) {
+  background: var(--c-error-bg);
 }
 
 /* 次级圆形图标按钮（新建 / 折叠 / 加号） */

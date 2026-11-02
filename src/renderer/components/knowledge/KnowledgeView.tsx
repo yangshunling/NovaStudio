@@ -15,7 +15,6 @@ import {
   useMemo,
   useRef,
   useState,
-  type CSSProperties,
 } from "react";
 import { createPortal } from "react-dom";
 import {
@@ -35,17 +34,30 @@ import {
   Trash2,
   Upload,
   Users,
-  X,
   type LucideIcon,
 } from "lucide-react";
 import { ipc } from "../../lib/ipc";
+import { toMessage } from "../../lib/utils";
 import { useSkillFontSize } from "../../hooks/useTheme";
+import { useLoad } from "../../hooks/useLoad";
 import { toast } from "../../stores/toast";
+import { confirmDialog } from "../../stores/confirm";
+import { countUsage, useEmployeesStore } from "../../stores/employees";
 import { formatAssetTime } from "../assets/assetUi";
 import { MarkdownRenderer } from "../MarkdownRenderer";
-import { Field, FORM_INPUT_CLASS as INPUT_CLASS } from "../ui/Field";
+import { Field, TextArea, TextInput } from "../ui/Field";
+import { Page } from "../ui/Page";
+import { SearchInput } from "../ui/SearchInput";
+import { EmptyState, ErrorState, LoadingState } from "../ui/EmptyState";
 import { FileTypeIcon } from "../ui/FileTypeIcon";
-import { Modal, ModalHeader } from "../ui/Modal";
+import { Dialog, DialogActions } from "../ui/Dialog";
+import { Button } from "../ui/Button";
+import {
+  Drawer,
+  DrawerBody,
+  DrawerCloseButton,
+  DrawerHeader,
+} from "../ui/Drawer";
 import type {
   DigitalEmployee,
   KnowledgeBaseAsset,
@@ -78,10 +90,10 @@ const KB_MENU_HEIGHT = 132;
 
 export function KnowledgeView() {
   const skillFontSize = useSkillFontSize();
-  const [bases, setBases] = useState<KnowledgeBaseAsset[]>([]);
-  const [employees, setEmployees] = useState<DigitalEmployee[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const employees = useEmployeesStore((s) => s.employees);
+  const loadEmployees = useEmployeesStore((s) => s.load);
+  const { data: bases, loading, error, reload } =
+    useLoad(() => ipc.listKnowledgeBases(), []);
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [subPath, setSubPath] = useState("");
@@ -114,31 +126,20 @@ export function KnowledgeView() {
   } | null>(null);
   const contextMenuRef = useRef<HTMLDivElement>(null);
 
-  const load = useCallback(async (preferredId?: string) => {
-    try {
-      const [list, staff] = await Promise.all([
-        ipc.listKnowledgeBases(),
-        ipc.listEmployees(),
-      ]);
-      setBases(list);
-      setEmployees(staff);
-      setSelectedId((current) => {
-        const wanted = preferredId ?? current;
-        return wanted && list.some((asset) => asset.id === wanted)
-          ? wanted
-          : (list[0]?.id ?? null);
-      });
-      setError(null);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
   useEffect(() => {
-    void load();
-  }, [load]);
+    void loadEmployees();
+  }, [loadEmployees]);
+
+  // 列表变化后校正选中项：被删则回退到第一个；新建后通过 setSelectedId 选中
+  useEffect(() => {
+    if (!selectedId && bases.length > 0) {
+      setSelectedId(bases[0].id);
+      return;
+    }
+    if (selectedId && !bases.some((asset) => asset.id === selectedId)) {
+      setSelectedId(bases[0]?.id ?? null);
+    }
+  }, [bases, selectedId]);
 
   // 文档列表：切换知识库 / 目录 / 版本号时重新拉取
   useEffect(() => {
@@ -157,10 +158,8 @@ export function KnowledgeView() {
         setDocuments(list);
         setSelectedPaths(new Set());
       })
-      .catch((err) => {
-        if (!cancelled) {
-          setError(err instanceof Error ? err.message : String(err));
-        }
+      .catch(() => {
+        // 文档列表加载失败保持静默；主列表错误由 useLoad 独立管理
       })
       .finally(() => {
         if (!cancelled) setDocsLoading(false);
@@ -190,9 +189,7 @@ export function KnowledgeView() {
         );
         if (!cancelled) setSearchResult(result);
       } catch (err) {
-        if (!cancelled) {
-          toast.error(err instanceof Error ? err.message : String(err), 5000);
-        }
+        if (!cancelled) toast.error(toMessage(err), 5000);
       } finally {
         if (!cancelled) setSearching(false);
       }
@@ -229,17 +226,10 @@ export function KnowledgeView() {
   const selected = bases.find((asset) => asset.id === selectedId) ?? null;
   const searchingNow = query.trim().length > 0;
 
-  const usageCount = useMemo(() => {
-    const map = new Map<string, number>();
-    for (const employee of employees) {
-      for (const base of employee.knowledgeBases) {
-        if (base.enabled && base.assetId) {
-          map.set(base.assetId, (map.get(base.assetId) ?? 0) + 1);
-        }
-      }
-    }
-    return map;
-  }, [employees]);
+  const usageCount = useMemo(
+    () => countUsage(employees, (employee) => employee.knowledgeBases),
+    [employees],
+  );
 
   const crumbs = subPath ? subPath.split("/") : [];
   const allSelected =
@@ -247,9 +237,9 @@ export function KnowledgeView() {
     documents.every((document) => selectedPaths.has(document.relativePath));
 
   const refresh = useCallback(async () => {
-    await load(selectedId ?? undefined);
+    reload();
     setVersion((current) => current + 1);
-  }, [load, selectedId]);
+  }, [reload]);
 
   const selectBase = (id: string) => {
     setSelectedId(id);
@@ -287,7 +277,7 @@ export function KnowledgeView() {
       }
       if (result.uploaded.length > 0) await refresh();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : String(err));
+      toast.error(toMessage(err));
     } finally {
       setUploading(false);
     }
@@ -297,13 +287,13 @@ export function KnowledgeView() {
     if (!selected || paths.length === 0) return;
     const label =
       paths.length === 1 ? `「${paths[0]}」` : `选中的 ${paths.length} 项`;
-    if (
-      !window.confirm(
-        `删除${label}？\n\n文档会从知识库目录中永久删除，此操作不可恢复。`,
-      )
-    ) {
-      return;
-    }
+    const confirmed = await confirmDialog({
+      title: `删除${label}？`,
+      message: "文档会从知识库目录中永久删除，此操作不可恢复。",
+      confirmLabel: "删除",
+      tone: "danger",
+    });
+    if (!confirmed) return;
 
     try {
       const ok = await ipc.deleteKnowledgeDocuments(selected.id, paths);
@@ -315,23 +305,27 @@ export function KnowledgeView() {
       setSelectedPaths(new Set());
       await refresh();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : String(err));
+      toast.error(toMessage(err));
     }
   };
 
   const handleDeleteBase = async (asset: KnowledgeBaseAsset) => {
     const users = usageCount.get(asset.id) ?? 0;
-    const extra =
-      users > 0
-        ? `\n\n有 ${users} 位数字员工正在引用它，删除后这些引用会显示为「已失效」。`
-        : "";
-    if (
-      !window.confirm(
-        `删除知识库「${asset.name}」？\n\n将删除其中全部 ${asset.documentCount} 个 Markdown 文档（${formatBytes(asset.totalBytes)}）。${extra}\n\n此操作不可恢复。`,
-      )
-    ) {
-      return;
-    }
+    const confirmed = await confirmDialog({
+      title: `删除知识库「${asset.name}」？`,
+      message: [
+        `将删除其中全部 ${asset.documentCount} 个 Markdown 文档（${formatBytes(asset.totalBytes)}）。`,
+        users > 0
+          ? `有 ${users} 位数字员工正在引用它，删除后这些引用会显示为「已失效」。`
+          : "",
+        "此操作不可恢复。",
+      ]
+        .filter(Boolean)
+        .join("\n"),
+      confirmLabel: "删除",
+      tone: "danger",
+    });
+    if (!confirmed) return;
 
     try {
       const ok = await ipc.deleteKnowledgeBase(asset.id);
@@ -342,10 +336,10 @@ export function KnowledgeView() {
       toast.success("知识库已删除");
       setSubPath("");
       setQuery("");
-      await load();
+      reload();
       setVersion((current) => current + 1);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : String(err));
+      toast.error(toMessage(err));
     }
   };
 
@@ -356,30 +350,11 @@ export function KnowledgeView() {
   };
 
   return (
-    <main
-      className="relative flex flex-1 flex-col overflow-hidden"
-      style={{ "--c-font-size": `${skillFontSize}px` } as CSSProperties}
-    >
-      <div className="ui-page relative z-10 flex flex-1 flex-col overflow-hidden rounded-xl">
+    <Page fontSize={skillFontSize}>
         {loading ? (
-          <div className="flex h-full items-center justify-center gap-2 text-body text-text-muted">
-            <Loader2 className="h-4 w-4 animate-spin" />
-            正在扫描知识库
-          </div>
+          <LoadingState text="正在扫描知识库" className="h-full" />
         ) : error && bases.length === 0 ? (
-          <div className="mx-auto flex max-w-md flex-col items-center gap-3 py-20 text-center">
-            <p className="text-body text-error">{error}</p>
-            <button
-              type="button"
-              onClick={() => {
-                setLoading(true);
-                void load();
-              }}
-              className="ui-btn-ghost rounded-lg px-3 py-2 text-meta"
-            >
-              重新加载
-            </button>
-          </div>
+          <ErrorState message={error} onRetry={reload} />
         ) : bases.length === 0 ? (
           <EmptyKnowledge onCreate={() => setCreateOpen(true)} />
         ) : (
@@ -563,27 +538,15 @@ export function KnowledgeView() {
                     {scopeAll ? "全部知识库" : "当前知识库"}
                   </button>
 
-                  <div className="ui-ring flex h-8 w-64 items-center gap-1.5 rounded-full bg-input-bg px-3">
-                    <Search className="h-3.5 w-3.5 shrink-0 text-text-muted" />
-                    <input
-                      value={query}
-                      onChange={(event) => setQuery(event.target.value)}
-                      placeholder={
-                        scopeAll ? "全文搜索全部知识库" : "全文搜索当前知识库"
-                      }
-                      className="min-w-0 flex-1 bg-transparent text-body text-text placeholder-text-muted outline-none"
-                    />
-                    {query && (
-                      <button
-                        type="button"
-                        onClick={() => setQuery("")}
-                        title="清除搜索"
-                        className="shrink-0 rounded-full p-0.5 text-text-muted transition-colors hover:text-text"
-                      >
-                        <X className="h-3 w-3" />
-                      </button>
-                    )}
-                  </div>
+                  <SearchInput
+                    size="sm"
+                    widthClass="w-64"
+                    value={query}
+                    onChange={setQuery}
+                    placeholder={
+                      scopeAll ? "全文搜索全部知识库" : "全文搜索当前知识库"
+                    }
+                  />
 
                   <button
                     type="button"
@@ -762,7 +725,6 @@ export function KnowledgeView() {
             </div>
           </div>
         )}
-      </div>
 
       {/* 知识库右键菜单：与工作流的工作区菜单同一套交互 */}
       {contextMenu &&
@@ -815,7 +777,7 @@ export function KnowledgeView() {
           setCreateOpen(false);
           setSelectedId(asset.id);
           setSubPath("");
-          await load(asset.id);
+          reload();
           setVersion((current) => current + 1);
         }}
       />
@@ -860,7 +822,7 @@ export function KnowledgeView() {
           onClose={() => setPreview(null)}
         />
       )}
-    </main>
+    </Page>
   );
 }
 
@@ -1034,54 +996,33 @@ function KnowledgePreview({
   const name = relativePath.split("/").pop() ?? relativePath;
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex justify-end"
-      onClick={onClose}
-      role="presentation"
-    >
-      <div className="absolute inset-0 bg-bg/40 backdrop-blur-sm" />
-
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-label={name}
-        className="ui-glass-strong relative flex h-full w-[760px] max-w-[94vw] flex-col border-l border-border-strong shadow-[var(--c-shadow)]"
-        onClick={(event) => event.stopPropagation()}
-      >
-        <div className="flex h-[var(--c-layout-header)] shrink-0 items-center gap-3 border-b border-border px-card">
-          <FileTypeIcon name={name} size={20} className="shrink-0" />
-          <div className="min-w-0 flex-1">
-            <div className="truncate text-title font-semibold text-text">
-              {name}
-            </div>
-            <div className="truncate font-mono text-caption text-text-muted">
-              {relativePath}
-              {meta ? ` · ${formatBytes(meta.size)}` : ""}
-            </div>
+    <Drawer onClose={onClose} ariaLabel={name} widthClass="w-[760px]">
+      <DrawerHeader>
+        <FileTypeIcon name={name} size={20} className="shrink-0" />
+        <div className="min-w-0 flex-1">
+          <div className="truncate text-title font-semibold text-text">
+            {name}
           </div>
-          <button
-            type="button"
-            onClick={async () => {
-              const ok = await ipc.openKnowledgeDocument(kbId, relativePath);
-              if (!ok) toast.error("无法用系统程序打开该文档");
-            }}
-            title="用系统程序打开"
-            className="ui-btn-ghost flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-meta"
-          >
-            <ExternalLink className="h-3.5 w-3.5" />
-            用系统程序打开
-          </button>
-          <button
-            type="button"
-            onClick={onClose}
-            title="关闭"
-            className="rounded-md p-1.5 text-text-muted transition-colors hover:bg-surface-hover hover:text-text"
-          >
-            <X className="h-4 w-4" />
-          </button>
+          <div className="truncate font-mono text-caption text-text-muted">
+            {relativePath}
+            {meta ? ` · ${formatBytes(meta.size)}` : ""}
+          </div>
         </div>
+        <Button
+          size="sm"
+          icon={<ExternalLink className="h-3.5 w-3.5" />}
+          onClick={async () => {
+            const ok = await ipc.openKnowledgeDocument(kbId, relativePath);
+            if (!ok) toast.error("无法用系统程序打开该文档");
+          }}
+          title="用系统程序打开"
+        >
+          用系统程序打开
+        </Button>
+        <DrawerCloseButton onClose={onClose} />
+      </DrawerHeader>
 
-        <div className="min-h-0 flex-1 overflow-y-auto px-section py-card">
+        <DrawerBody>
           {loading ? (
             <div className="flex h-40 items-center justify-center gap-2 text-body text-text-muted">
               <Loader2 className="h-4 w-4 animate-spin" />
@@ -1102,9 +1043,8 @@ function KnowledgePreview({
               <MarkdownRenderer content={content ?? ""} />
             </>
           )}
-        </div>
-      </div>
-    </div>
+      </DrawerBody>
+    </Drawer>
   );
 }
 
@@ -1164,80 +1104,69 @@ function KnowledgeFormModal({
   };
 
   return (
-    <Modal
+    <Dialog
       open={open}
       onClose={onClose}
+      title={mode === "create" ? "新建知识库" : "编辑知识库"}
       widthClass="w-[520px] max-w-[92vw]"
+      description={
+        <>
+          知识库会创建在{" "}
+          <code className="font-mono">~/.novastudio/knowledge</code> 下，只接受
+          Markdown 文档。
+        </>
+      }
     >
-      <div className="p-card">
-        <ModalHeader
-          title={mode === "create" ? "新建知识库" : "编辑知识库"}
-          onClose={onClose}
-        />
-        <p className="mb-4 text-body leading-relaxed text-text-muted">
-          知识库会创建在 <code className="font-mono">~/.novastudio/knowledge</code>{" "}
-          下，只接受 Markdown 文档。
-        </p>
+      <div className="space-y-3">
+        <Field
+          label="名称"
+          required
+          hint={
+            mode === "create"
+              ? "用于展示；目录名会保留中文并自动处理非法字符。"
+              : "只修改展示名，目录路径保持不变，避免员工引用失效。"
+          }
+        >
+          <TextInput
+            autoFocus
+            value={name}
+            onChange={(event) => setName(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") void handleSubmit();
+            }}
+            placeholder="例如：产品手册"
+          />
+        </Field>
 
-        <div className="space-y-3">
-          <Field
-            label="名称"
-            required
-            hint={
-              mode === "create"
-                ? "用于展示；目录名会保留中文并自动处理非法字符。"
-                : "只修改展示名，目录路径保持不变，避免员工引用失效。"
-            }
-          >
-            <input
-              autoFocus
-              value={name}
-              onChange={(event) => setName(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter") void handleSubmit();
-              }}
-              placeholder="例如：产品手册"
-              className={INPUT_CLASS}
-            />
-          </Field>
-
-          <Field label="简介">
-            <textarea
-              value={description}
-              onChange={(event) => setDescription(event.target.value)}
-              rows={3}
-              placeholder="一句话说明这个知识库收录什么资料"
-              className={`${INPUT_CLASS} resize-y leading-relaxed`}
-            />
-          </Field>
-        </div>
-
-        {error && (
-          <p className="mt-3 rounded-lg border border-error/40 bg-error-bg p-2.5 text-meta text-error">
-            {error}
-          </p>
-        )}
-
-        <div className="mt-5 flex items-center justify-end gap-2 border-t border-border pt-3">
-          <button
-            type="button"
-            onClick={onClose}
-            className="ui-btn-ghost rounded-lg px-4 py-2 text-body"
-          >
-            取消
-          </button>
-          <button
-            type="button"
-            onClick={() => void handleSubmit()}
-            disabled={!name.trim() || busy}
-            className="ui-btn-primary flex items-center gap-1.5 rounded-lg px-4 py-2 text-body font-medium disabled:opacity-50"
-          >
-            {busy && <Loader2 className="h-4 w-4 animate-spin" />}
-            {mode === "create" ? "创建" : "保存"}
-          </button>
-        </div>
+        <Field label="简介">
+          <TextArea
+            value={description}
+            onChange={(event) => setDescription(event.target.value)}
+            rows={3}
+            placeholder="一句话说明这个知识库收录什么资料"
+            className="resize-y leading-relaxed"
+          />
+        </Field>
       </div>
-    </Modal>
+
+      {error && (
+        <p className="mt-3 rounded-lg border border-error/40 bg-error-bg p-2.5 text-meta text-error">
+          {error}
+        </p>
+      )}
+
+      <DialogActions>
+        <Button onClick={onClose}>取消</Button>
+        <Button
+          variant="primary"
+          onClick={() => void handleSubmit()}
+          disabled={!name.trim()}
+          loading={busy}
+        >
+          {mode === "create" ? "创建" : "保存"}
+        </Button>
+      </DialogActions>
+    </Dialog>
   );
 }
 
@@ -1288,45 +1217,36 @@ function FolderFormModal({
   };
 
   return (
-    <Modal open={open} onClose={onClose} widthClass="w-[440px] max-w-[92vw]">
-      <div className="p-card">
-        <ModalHeader title="新建文件夹" onClose={onClose} />
-        <p className="mb-3 text-meta text-text-muted">
-          创建在「{parentLabel || "知识库根目录"}」下。
-        </p>
-        <input
-          autoFocus
-          value={name}
-          onChange={(event) => setName(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === "Enter") void handleCreate();
-          }}
-          placeholder="例如：规范"
-          className={INPUT_CLASS}
-        />
-        {error && (
-          <p className="mt-2 text-meta text-error">{error}</p>
-        )}
-        <div className="mt-4 flex items-center justify-end gap-2 border-t border-border pt-3">
-          <button
-            type="button"
-            onClick={onClose}
-            className="ui-btn-ghost rounded-lg px-4 py-2 text-body"
-          >
-            取消
-          </button>
-          <button
-            type="button"
-            onClick={() => void handleCreate()}
-            disabled={!name.trim() || busy}
-            className="ui-btn-primary flex items-center gap-1.5 rounded-lg px-4 py-2 text-body font-medium disabled:opacity-50"
-          >
-            {busy && <Loader2 className="h-4 w-4 animate-spin" />}
-            创建
-          </button>
-        </div>
-      </div>
-    </Modal>
+    <Dialog
+      open={open}
+      onClose={onClose}
+      title="新建文件夹"
+      widthClass="w-[440px] max-w-[92vw]"
+      description={`创建在「${parentLabel || "知识库根目录"}」下。`}
+    >
+      <TextInput
+        autoFocus
+        value={name}
+        onChange={(event) => setName(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") void handleCreate();
+        }}
+        placeholder="例如：规范"
+      />
+      {error && <p className="mt-2 text-meta text-error">{error}</p>}
+
+      <DialogActions>
+        <Button onClick={onClose}>取消</Button>
+        <Button
+          variant="primary"
+          onClick={() => void handleCreate()}
+          disabled={!name.trim()}
+          loading={busy}
+        >
+          创建
+        </Button>
+      </DialogActions>
+    </Dialog>
   );
 }
 
@@ -1363,26 +1283,20 @@ function MenuItem({
 
 function EmptyKnowledge({ onCreate }: { onCreate: () => void }) {
   return (
-    <div className="mx-auto flex max-w-lg flex-col items-center justify-center gap-3 py-20 text-center text-text-muted">
-      <div className="ui-btn-round flex h-16 w-16 items-center justify-center rounded-2xl">
-        <Library className="h-6 w-6" />
-      </div>
-      <h2 className="ui-serif text-heading font-semibold text-text-secondary">
-        建立第一个知识库
-      </h2>
-      <p className="text-body-lg leading-relaxed">
-        创建一个知识库，上传 Markdown 文档，然后在数字员工里勾选引用。
-        工作流执行节点时，Agent 会把这些资料当作自己的能力。
-      </p>
-      <button
-        type="button"
-        onClick={onCreate}
-        className="ui-btn-primary mt-2 flex h-8 items-center gap-1.5 rounded-full px-4 text-body font-medium"
-      >
-        <FolderPlus className="h-4 w-4" />
-        新建知识库
-      </button>
-    </div>
+    <EmptyState
+      icon={<Library />}
+      title="建立第一个知识库"
+      description="创建一个知识库，上传 Markdown 文档，然后在数字员工里勾选引用。工作流执行节点时，Agent 会把这些资料当作自己的能力。"
+      action={
+        <Button
+          variant="primary"
+          onClick={onCreate}
+          icon={<FolderPlus className="h-4 w-4" />}
+        >
+          新建知识库
+        </Button>
+      }
+    />
   );
 }
 

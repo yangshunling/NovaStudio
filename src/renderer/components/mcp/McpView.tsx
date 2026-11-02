@@ -7,11 +7,9 @@
  */
 
 import {
-  useCallback,
   useEffect,
   useMemo,
   useState,
-  type CSSProperties,
 } from "react";
 import {
   AlertTriangle,
@@ -28,16 +26,30 @@ import {
   Trash2,
   Upload,
   Users,
-  X,
 } from "lucide-react";
 import { ipc } from "../../lib/ipc";
-import { dirName } from "../../lib/utils";
+import { dirName, toMessage } from "../../lib/utils";
 import { useSkillFontSize } from "../../hooks/useTheme";
+import { useLoad } from "../../hooks/useLoad";
 import { toast } from "../../stores/toast";
+import { confirmDialog } from "../../stores/confirm";
+import { countUsage, useEmployeesStore } from "../../stores/employees";
 import { assetToDraft } from "@shared/mcp";
 import { formatAssetTime, Meta, SourceTag, Tag } from "../assets/assetUi";
-import { Field, FORM_INPUT_CLASS as INPUT_CLASS } from "../ui/Field";
-import { Modal, ModalHeader } from "../ui/Modal";
+import { Field, TextArea, FORM_INPUT_CLASS as INPUT_CLASS } from "../ui/Field";
+import { Dialog, DialogActions } from "../ui/Dialog";
+import { Button } from "../ui/Button";
+import { EmptyState, ErrorState, LoadingState } from "../ui/EmptyState";
+import { Page, PageBody, PageHeader, PageToolbar } from "../ui/Page";
+import { SearchInput } from "../ui/SearchInput";
+import { OptionChips } from "../ui/OptionChips";
+import {
+  Drawer,
+  DrawerBody,
+  DrawerCloseButton,
+  DrawerFooter,
+  DrawerHeader,
+} from "../ui/Drawer";
 import { Select } from "../ui/Select";
 import {
   MCP_SOURCE_CLASS,
@@ -93,10 +105,10 @@ function assetToJson(asset: McpServerAsset): string {
 
 export function McpView() {
   const skillFontSize = useSkillFontSize();
-  const [servers, setServers] = useState<McpServerAsset[]>([]);
-  const [employees, setEmployees] = useState<DigitalEmployee[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const employees = useEmployeesStore((s) => s.employees);
+  const loadEmployees = useEmployeesStore((s) => s.load);
+  const { data: servers, loading, error, reload } =
+    useLoad(() => ipc.listMcpServers(), []);
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<"all" | McpSource>("all");
   const [drawer, setDrawer] = useState<
@@ -104,37 +116,14 @@ export function McpView() {
   >(null);
   const [importOpen, setImportOpen] = useState(false);
 
-  const load = useCallback(async () => {
-    try {
-      const [list, staff] = await Promise.all([
-        ipc.listMcpServers(),
-        ipc.listEmployees(),
-      ]);
-      setServers(list);
-      setEmployees(staff);
-      setError(null);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
   useEffect(() => {
-    void load();
-  }, [load]);
+    void loadEmployees();
+  }, [loadEmployees]);
 
-  const usageCount = useMemo(() => {
-    const map = new Map<string, number>();
-    for (const employee of employees) {
-      for (const server of employee.mcpServers) {
-        if (server.enabled && server.assetId) {
-          map.set(server.assetId, (map.get(server.assetId) ?? 0) + 1);
-        }
-      }
-    }
-    return map;
-  }, [employees]);
+  const usageCount = useMemo(
+    () => countUsage(employees, (employee) => employee.mcpServers),
+    [employees],
+  );
 
   const filtered = useMemo(() => {
     const keyword = query.trim().toLowerCase();
@@ -153,49 +142,23 @@ export function McpView() {
       : null;
 
   return (
-    <main
-      className="relative flex flex-1 flex-col overflow-hidden"
-      style={{ "--c-font-size": `${skillFontSize}px` } as CSSProperties}
-    >
-      <div className="ui-page relative z-10 flex flex-1 flex-col overflow-hidden rounded-xl">
-        {/* 顶栏 */}
-        <header className="ui-glass relative z-10 flex h-[var(--c-layout-header)] shrink-0 items-center justify-between gap-3 border-b border-border px-card">
-          <div className="flex min-w-0 items-center gap-2">
-            <span className="ui-serif text-title font-semibold tracking-wide text-text-secondary">
-              MCP
-            </span>
-            <span className="rounded-full bg-surface-hover px-2 py-0.5 text-meta font-mono text-text-muted">
-              {servers.length} 个服务
-            </span>
-          </div>
-
-          <div className="flex min-w-0 items-center gap-2">
-            <div className="ui-ring flex h-9 w-64 items-center gap-1.5 rounded-full bg-input-bg px-3.5">
-              <Search className="h-4 w-4 shrink-0 text-text-muted" />
-              <input
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-                placeholder="搜索名称 / 描述"
-                className="min-w-0 flex-1 bg-transparent text-body text-text placeholder-text-muted outline-none"
-              />
-              {query && (
-                <button
-                  type="button"
-                  onClick={() => setQuery("")}
-                  title="清除搜索"
-                  className="shrink-0 rounded-full p-0.5 text-text-muted transition-colors hover:text-text"
-                >
-                  <X className="h-3.5 w-3.5" />
-                </button>
-              )}
-            </div>
+    <Page fontSize={skillFontSize}>
+      {/* 顶栏 */}
+      <PageHeader
+        title="MCP"
+        count={servers.length}
+        countSuffix=" 个服务"
+        actions={
+          <>
+            <SearchInput
+              value={query}
+              onChange={setQuery}
+              placeholder="搜索名称 / 描述"
+            />
 
             <button
               type="button"
-              onClick={() => {
-                setLoading(true);
-                void load();
-              }}
+              onClick={reload}
               title="重新扫描 MCP 配置"
               className="ui-btn-round ui-icon-action flex h-9 w-9 shrink-0 items-center justify-center rounded-full"
             >
@@ -219,77 +182,52 @@ export function McpView() {
               <Plus className="h-4 w-4" />
               新建 MCP
             </button>
-          </div>
-        </header>
+          </>
+        }
+      />
 
-        {/* 来源过滤 */}
-        <div className="flex shrink-0 flex-wrap items-center gap-1.5 border-b border-border px-card py-2">
-          {FILTERS.map((item) => {
-            const count =
+      {/* 来源过滤 */}
+      <PageToolbar>
+        <OptionChips
+          mode="single"
+          items={FILTERS.map((item) => ({
+            id: item.id,
+            label: item.label,
+            count:
               item.id === "all"
                 ? servers.length
-                : servers.filter((server) => server.source === item.id).length;
-            const activeFilter = filter === item.id;
-            return (
-              <button
-                key={item.id}
-                type="button"
-                onClick={() => setFilter(item.id)}
-                className={`rounded-full px-2.5 py-1 text-meta transition-colors ${
-                  activeFilter
-                    ? "bg-accent-soft font-medium text-accent"
-                    : "bg-surface-2/60 text-text-secondary hover:bg-surface-hover hover:text-text"
-                }`}
-              >
-                {item.label}
-                <span className="ml-1 opacity-70">{count}</span>
-              </button>
-            );
-          })}
-          <span className="ml-auto text-caption text-text-muted">
-            Nova 只渲染配置给 Agent，不改动 Claude 的原始配置
-          </span>
-        </div>
+                : servers.filter((server) => server.source === item.id).length,
+          }))}
+          selected={filter}
+          onSelect={(id) => setFilter(id as "all" | McpSource)}
+          trailing="Nova 只渲染配置给 Agent，不改动 Claude 的原始配置"
+        />
+      </PageToolbar>
 
-        {/* 列表 */}
-        <div className="min-h-0 flex-1 overflow-y-auto p-section">
+      {/* 列表 */}
+      <PageBody>
           {loading ? (
-            <div className="flex h-60 items-center justify-center gap-2 text-body text-text-muted">
-              <Loader2 className="h-4 w-4 animate-spin" />
-              正在扫描 MCP 配置
-            </div>
+            <LoadingState text="正在扫描 MCP 配置" />
           ) : error ? (
-            <div className="mx-auto flex max-w-md flex-col items-center gap-3 py-20 text-center">
-              <p className="text-body text-error">{error}</p>
-              <button
-                type="button"
-                onClick={() => {
-                  setLoading(true);
-                  void load();
-                }}
-                className="ui-btn-ghost rounded-lg px-3 py-2 text-meta"
-              >
-                重新加载
-              </button>
-            </div>
+            <ErrorState message={error} onRetry={reload} />
           ) : servers.length === 0 ? (
             <EmptyMcp onCreate={() => setDrawer({ mode: "create" })} onImport={() => setImportOpen(true)} />
           ) : filtered.length === 0 ? (
-            <div className="flex flex-col items-center gap-2 py-20 text-center text-text-muted">
-              <Search className="h-6 w-6 opacity-50" />
-              <p className="text-body">
-                {query ? `没有匹配「${query}」的 MCP 服务` : "该来源下还没有 MCP 服务"}
-              </p>
-              {query && (
-                <button
-                  type="button"
-                  onClick={() => setQuery("")}
-                  className="text-meta text-accent hover:underline"
-                >
-                  清除搜索
-                </button>
-              )}
-            </div>
+            <EmptyState
+              icon={<Search />}
+              title={query ? `没有匹配「${query}」的 MCP 服务` : "该来源下还没有 MCP 服务"}
+              action={
+                query ? (
+                  <button
+                    type="button"
+                    onClick={() => setQuery("")}
+                    className="text-meta text-accent hover:underline"
+                  >
+                    清除搜索
+                  </button>
+                ) : undefined
+              }
+            />
           ) : (
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
               {filtered.map((server) => (
@@ -302,8 +240,7 @@ export function McpView() {
               ))}
             </div>
           )}
-        </div>
-      </div>
+      </PageBody>
 
       {drawer && (drawer.mode === "create" || active) && (
         <McpDrawer
@@ -313,7 +250,7 @@ export function McpView() {
           employees={employees}
           onClose={() => setDrawer(null)}
           onSaved={async () => {
-            await load();
+            reload();
             setDrawer(null);
           }}
         />
@@ -323,11 +260,11 @@ export function McpView() {
         open={importOpen}
         onClose={() => setImportOpen(false)}
         onImported={async () => {
-          await load();
+          reload();
           setImportOpen(false);
         }}
       />
-    </main>
+    </Page>
   );
 }
 
@@ -439,7 +376,7 @@ function McpDrawer({
       toast.success(server ? "MCP 服务已保存" : "MCP 服务已创建");
       await onSaved();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : String(err));
+      toast.error(toMessage(err));
     } finally {
       setSaving(false);
     }
@@ -447,11 +384,16 @@ function McpDrawer({
 
   const handleDelete = async () => {
     if (!server || readOnly) return;
-    const suffix =
-      usedBy.length > 0
-        ? `\n\n有 ${usedBy.length} 位数字员工正在使用它，删除后这些员工会失去该服务。`
-        : "";
-    if (!window.confirm(`删除 MCP 服务「${server.name}」？${suffix}`)) return;
+    const confirmed = await confirmDialog({
+      title: `删除 MCP 服务「${server.name}」？`,
+      message:
+        usedBy.length > 0
+          ? `有 ${usedBy.length} 位数字员工正在使用它，删除后这些员工会失去该服务。`
+          : undefined,
+      confirmLabel: "删除",
+      tone: "danger",
+    });
+    if (!confirmed) return;
 
     try {
       const ok = await ipc.deleteMcpServer(server.id);
@@ -462,7 +404,7 @@ function McpDrawer({
       toast.success("MCP 服务已删除");
       await onSaved();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : String(err));
+      toast.error(toMessage(err));
     }
   };
 
@@ -470,49 +412,33 @@ function McpDrawer({
   const title = creating ? "新建 MCP 服务" : server?.name ?? "MCP 服务";
 
   return (
-    <div className="fixed inset-0 z-50 flex justify-end" onClick={onClose} role="presentation">
-      <div className="absolute inset-0 bg-bg/40 backdrop-blur-sm" />
-
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-label={title}
-        className="ui-glass-strong relative flex h-full w-[720px] max-w-[94vw] flex-col border-l border-border-strong shadow-[var(--c-shadow)]"
-        onClick={(event) => event.stopPropagation()}
-      >
-        {/* 头部 */}
-        <div className="flex h-[var(--c-layout-header)] shrink-0 items-center gap-3 border-b border-border px-card">
-          <Server className="h-5 w-5 shrink-0 text-accent" />
-          <div className="min-w-0 flex-1">
-            <div className="flex min-w-0 items-center gap-2">
-              <span className="truncate text-title font-semibold text-text">{title}</span>
-              {server && (
-                <SourceTag
-                  label={MCP_SOURCE_LABEL[server.source]}
-                  className={MCP_SOURCE_CLASS[server.source]}
-                />
-              )}
-              {server && (
-                <span
-                  className={`shrink-0 rounded-full px-2 py-0.5 text-caption ${MCP_TRANSPORT_CLASS[server.transport]}`}
-                >
-                  {MCP_TRANSPORT_LABEL[server.transport]}
-                </span>
-              )}
-            </div>
-            <div className="truncate text-meta text-text-muted">{fileName}</div>
+    <Drawer onClose={onClose} ariaLabel={title} widthClass="w-[720px]">
+      {/* 头部 */}
+      <DrawerHeader>
+        <Server className="h-5 w-5 shrink-0 text-accent" />
+        <div className="min-w-0 flex-1">
+          <div className="flex min-w-0 items-center gap-2">
+            <span className="truncate text-title font-semibold text-text">{title}</span>
+            {server && (
+              <SourceTag
+                label={MCP_SOURCE_LABEL[server.source]}
+                className={MCP_SOURCE_CLASS[server.source]}
+              />
+            )}
+            {server && (
+              <span
+                className={`shrink-0 rounded-full px-2 py-0.5 text-caption ${MCP_TRANSPORT_CLASS[server.transport]}`}
+              >
+                {MCP_TRANSPORT_LABEL[server.transport]}
+              </span>
+            )}
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            title="关闭"
-            className="rounded-md p-1.5 text-text-muted transition-colors hover:bg-surface-hover hover:text-text"
-          >
-            <X className="h-4 w-4" />
-          </button>
+          <div className="truncate text-meta text-text-muted">{fileName}</div>
         </div>
+        <DrawerCloseButton onClose={onClose} />
+      </DrawerHeader>
 
-        <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-section py-card">
+        <DrawerBody className="flex flex-col gap-4">
           {readOnly && server && (
             <div className="shrink-0 rounded-lg border border-border bg-surface-2/60 p-3">
               <div className="flex items-start gap-2 text-body leading-relaxed text-text-secondary">
@@ -680,43 +606,41 @@ function McpDrawer({
               </div>
             </div>
           )}
-        </div>
+        </DrawerBody>
 
-        {/* 底部 */}
-        <div className="flex shrink-0 items-center justify-between gap-3 border-t border-border px-card py-3">
-          <div>
-            {server && !readOnly && (
-              <button
-                type="button"
-                onClick={handleDelete}
-                className="flex items-center gap-1.5 rounded-lg border border-error/25 bg-error-bg px-3 py-2 text-body font-medium text-error transition-colors hover:bg-error/10"
-              >
-                <Trash2 className="h-4 w-4" />
-                从 MCP 库删除
-              </button>
-            )}
-            {readOnly && (
-              <span className="text-meta text-text-muted">
-                只读来源：修改请直接编辑对应配置文件
-              </span>
-            )}
-          </div>
-          {server && (
-            <button
-              type="button"
-              onClick={async () => {
-                const ok = await ipc.revealMcpServer(server.id);
-                if (!ok) toast.error("无法打开配置文件");
-              }}
-              className="flex items-center gap-1.5 rounded-lg border border-accent/30 bg-accent-soft px-3.5 py-2 text-body font-medium text-accent transition-colors hover:bg-accent/15"
+      {/* 底部 */}
+      <DrawerFooter>
+        <div>
+          {server && !readOnly && (
+            <Button
+              size="sm"
+              variant="dangerLink"
+              onClick={handleDelete}
+              icon={<Trash2 className="h-4 w-4" />}
             >
-              <FolderOpen className="h-4 w-4" />
-              打开配置
-            </button>
+              从 MCP 库删除
+            </Button>
+          )}
+          {readOnly && (
+            <span className="text-meta text-text-muted">
+              只读来源：修改请直接编辑对应配置文件
+            </span>
           )}
         </div>
-      </div>
-    </div>
+        {server && (
+          <Button
+            size="sm"
+            icon={<FolderOpen className="h-4 w-4" />}
+            onClick={async () => {
+              const ok = await ipc.revealMcpServer(server.id);
+              if (!ok) toast.error("无法打开配置文件");
+            }}
+          >
+            打开配置
+          </Button>
+        )}
+      </DrawerFooter>
+    </Drawer>
   );
 }
 
@@ -754,7 +678,7 @@ function ImportMcpModal({
     try {
       await applyResult(await ipc.importMcpServers(json));
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : String(err));
+      toast.error(toMessage(err));
     } finally {
       setImporting(false);
     }
@@ -766,53 +690,56 @@ function ImportMcpModal({
     try {
       await applyResult(await ipc.importMcpFile());
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : String(err));
+      toast.error(toMessage(err));
     } finally {
       setImporting(false);
     }
   };
 
   return (
-    <Modal open={open} onClose={onClose} widthClass="w-[640px] max-w-[92vw]">
-      <div className="flex max-h-[80vh] flex-col p-card">
-        <ModalHeader title="导入 MCP 服务" onClose={onClose} className="mb-2" />
-        <p className="mb-3 text-meta leading-relaxed text-text-muted">
-          支持常见的 <code className="font-mono">{`{ "mcpServers": { ... } }`}</code>
+    <Dialog
+      open={open}
+      onClose={onClose}
+      title="导入 MCP 服务"
+      widthClass="w-[640px] max-w-[92vw]"
+      headerClassName="mb-2"
+      description={
+        <>
+          支持常见的{" "}
+          <code className="font-mono">{`{ "mcpServers": { ... } }`}</code>
           、单个服务对象或服务数组。导入后会写入 Claude 配置
           <code className="mx-1 font-mono">~/.claude.json</code>
           的 mcpServers，Claude 终端和 Nova 共用同一套配置。
-        </p>
+        </>
+      }
+    >
+      <TextArea
+        value={json}
+        onChange={(event) => setJson(event.target.value)}
+        rows={10}
+        placeholder={'{\n  "mcpServers": {\n    "filesystem": {\n      "command": "npx",\n      "args": ["-y", "@modelcontextprotocol/server-filesystem", "E:\\\\Project"]\n    }\n  }\n}'}
+        className="resize-y font-mono text-meta"
+      />
 
-        <textarea
-          value={json}
-          onChange={(event) => setJson(event.target.value)}
-          rows={10}
-          placeholder={'{\n  "mcpServers": {\n    "filesystem": {\n      "command": "npx",\n      "args": ["-y", "@modelcontextprotocol/server-filesystem", "E:\\\\Project"]\n    }\n  }\n}'}
-          className={`${INPUT_CLASS} resize-y font-mono text-meta`}
-        />
-
-        <div className="mt-3 flex items-center justify-between gap-2 border-t border-border pt-3">
-          <button
-            type="button"
-            onClick={handleFile}
-            disabled={importing}
-            className="ui-btn-ghost flex items-center gap-1.5 rounded-lg px-3.5 py-2 text-body font-medium disabled:opacity-60"
-          >
-            <FolderOpen className="h-4 w-4" />
-            从 JSON 文件导入
-          </button>
-          <button
-            type="button"
-            onClick={handlePaste}
-            disabled={importing || !json.trim()}
-            className="ui-btn-primary flex items-center gap-1.5 rounded-lg px-4 py-2 text-body font-medium disabled:opacity-50"
-          >
-            {importing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
-            导入粘贴内容
-          </button>
-        </div>
-      </div>
-    </Modal>
+      <DialogActions className="justify-between">
+        <Button
+          onClick={handleFile}
+          disabled={importing}
+          icon={<FolderOpen className="h-4 w-4" />}
+        >
+          从 JSON 文件导入
+        </Button>
+        <Button
+          variant="primary"
+          onClick={handlePaste}
+          disabled={!json.trim()}
+          loading={importing}
+          icon={<Upload className="h-4 w-4" />}
+        >
+          导入粘贴内容
+        </Button>
+      </DialogActions>
+    </Dialog>
   );
 }
 
@@ -828,34 +755,28 @@ function EmptyMcp({
   onImport: () => void;
 }) {
   return (
-    <div className="mx-auto flex max-w-lg flex-col items-center justify-center gap-3 py-20 text-center text-text-muted">
-      <div className="ui-btn-round flex h-16 w-16 items-center justify-center rounded-2xl">
-        <Server className="h-6 w-6" />
-      </div>
-      <h2 className="ui-serif text-heading font-semibold text-text-secondary">
-        管理 MCP 服务
-      </h2>
-      <p className="text-body-lg leading-relaxed">
-        从 Claude 配置导入，或新建一个 stdio / HTTP 服务，然后在数字员工中勾选绑定。
-      </p>
-      <div className="mt-2 flex items-center gap-2">
-        <button
-          type="button"
-          onClick={onImport}
-          className="ui-btn-primary flex h-8 items-center gap-1.5 rounded-full px-4 text-body font-medium"
-        >
-          <Upload className="h-4 w-4" />
-          导入 MCP
-        </button>
-        <button
-          type="button"
-          onClick={onCreate}
-          className="ui-btn-ghost flex h-8 items-center gap-1.5 rounded-full px-4 text-body font-medium"
-        >
-          <Plus className="h-4 w-4" />
-          新建 MCP
-        </button>
-      </div>
-    </div>
+    <EmptyState
+      icon={<Server />}
+      title="管理 MCP 服务"
+      description="从 Claude 配置导入，或新建一个 stdio / HTTP 服务，然后在数字员工中勾选绑定。"
+      action={
+        <div className="flex items-center gap-2">
+          <Button
+            variant="ghost"
+            onClick={onImport}
+            icon={<Upload className="h-4 w-4" />}
+          >
+            导入 MCP
+          </Button>
+          <Button
+            variant="primary"
+            onClick={onCreate}
+            icon={<Plus className="h-4 w-4" />}
+          >
+            新建 MCP
+          </Button>
+        </div>
+      }
+    />
   );
 }

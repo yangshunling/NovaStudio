@@ -8,7 +8,7 @@
  * 但目录本身始终保留（主进程 deleteWorkspaceData 负责）。
  */
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Folder,
   FolderKanban,
@@ -20,17 +20,22 @@ import {
   SquareTerminal,
   Trash2,
   Workflow as WorkflowIcon,
-  X,
   type LucideIcon,
 } from "lucide-react";
 import { ipc } from "../../lib/ipc";
+import { dirName, timeAgo, toMessage } from "../../lib/utils";
+import { useLoad } from "../../hooks/useLoad";
 import { useChatStore } from "../../stores/chat";
 import { useTerminalStore } from "../../stores/terminal";
 import { toast } from "../../stores/toast";
-import { dirName, timeAgo } from "../../lib/utils";
+import { confirmDialog } from "../../stores/confirm";
 import { formatAssetTime } from "../assets/assetUi";
-import { Modal, ModalHeader } from "../ui/Modal";
-import { FORM_INPUT_CLASS } from "../ui/Field";
+import { EmptyState, ErrorState, LoadingState } from "../ui/EmptyState";
+import { Page, PageBody } from "../ui/Page";
+import { SearchInput } from "../ui/SearchInput";
+import { Dialog, DialogActions } from "../ui/Dialog";
+import { Button } from "../ui/Button";
+import { Field, TextInput } from "../ui/Field";
 import type { Project, Workflow } from "@shared/types";
 
 /** 路径比较：Windows 下大小写与分隔符都不敏感 */
@@ -59,9 +64,11 @@ export function WorkspacesView() {
     (s) => s.renameByWorkspace,
   );
 
-  const [workflows, setWorkflows] = useState<Workflow[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  // 工作流用于统计每个工作区下的数量；项目/会话由各自的 store 提供
+  const { data: workflows, error, reload, setData: setWorkflows } =
+    useLoad(() => ipc.listWorkflows(), []);
+  /** 首次进入：等项目/会话/工作流都就绪再结束骨架，避免列表先空后跳 */
+  const [booting, setBooting] = useState(true);
   const [query, setQuery] = useState("");
   const [creating, setCreating] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -70,21 +77,14 @@ export function WorkspacesView() {
   const [renameName, setRenameName] = useState("");
   const [renameBusy, setRenameBusy] = useState(false);
 
-  const loadWorkflows = useCallback(async () => {
-    try {
-      setWorkflows(await ipc.listWorkflows());
-      setError(null);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    }
-  }, []);
-
+  // 项目/会话由 store 提供（首次进入拉取）；工作流由 useLoad 挂载即拉
   useEffect(() => {
-    // 进入页面时统一刷新：项目与会话由 store 提供，工作流用于统计数量
-    void Promise.all([loadProjects(), loadSessions(), loadWorkflows()])
-      .catch((err) => setError(err instanceof Error ? err.message : String(err)))
-      .finally(() => setLoading(false));
-  }, [loadProjects, loadSessions, loadWorkflows]);
+    void Promise.all([loadProjects(), loadSessions()])
+      .catch(() => {
+        // 各自失败由 store 内部处理
+      })
+      .finally(() => setBooting(false));
+  }, [loadProjects, loadSessions]);
 
   const sessionCounts = useMemo(() => {
     const map = new Map<string, number>();
@@ -134,7 +134,7 @@ export function WorkspacesView() {
       if (!project) throw new Error("创建工作区失败");
       toast.success(`工作区「${project.name}」已创建`);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : String(err), 5000);
+      toast.error(toMessage(err), 5000);
     } finally {
       setCreating(false);
     }
@@ -166,7 +166,7 @@ export function WorkspacesView() {
       setRenameTarget(null);
       toast.success("工作区名称已更新");
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : String(err), 5000);
+      toast.error(toMessage(err), 5000);
     } finally {
       setRenameBusy(false);
     }
@@ -181,10 +181,9 @@ export function WorkspacesView() {
     const sessionCount = sessionCounts.get(project.id) ?? 0;
     const workflowCount = workflowCounts.get(project.id) ?? 0;
 
-    const confirmed = window.confirm(
-      [
-        `删除工作区「${project.name}」？`,
-        "",
+    const confirmed = await confirmDialog({
+      title: `删除工作区「${project.name}」？`,
+      message: [
         "将同时删除：",
         `· ${sessionCount} 个会话`,
         `· ${workflowCount} 个工作流及其运行记录`,
@@ -192,7 +191,9 @@ export function WorkspacesView() {
         "",
         "工作区目录本身不会被删除。此操作不可恢复。",
       ].join("\n"),
-    );
+      confirmLabel: "删除",
+      tone: "danger",
+    });
     if (!confirmed) return;
 
     setDeletingId(project.id);
@@ -205,102 +206,79 @@ export function WorkspacesView() {
       );
       toast.success(`工作区「${project.name}」已删除`);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : String(err), 5000);
+      toast.error(toMessage(err), 5000);
       // 删除可能部分完成（例如运行中的工作流阻止），重新拉取真实状态
-      void loadWorkflows();
+      reload();
     } finally {
       setDeletingId(null);
     }
   };
 
   return (
-    <main className="relative flex flex-1 flex-col overflow-hidden">
-      <div className="ui-page relative z-10 flex flex-1 flex-col overflow-hidden">
-        <header className="ui-glass relative z-10 flex h-[var(--c-layout-header)] shrink-0 items-center justify-between gap-3 border-b border-border px-card">
-          <div className="flex min-w-0 items-center gap-2.5">
-            <FolderKanban className="h-4 w-4 shrink-0 text-accent" />
-            <div className="min-w-0">
-              <p className="truncate text-title font-semibold text-text">工作区</p>
-              <p className="truncate text-caption text-text-muted">
-                统一登记本地目录；会话与工作流都以它为根
-              </p>
-            </div>
-            <span className="shrink-0 rounded-full bg-surface-hover px-2 py-0.5 font-mono text-caption text-text-muted">
-              {projects.length} 个
-            </span>
+    <Page>
+      <header className="ui-glass relative z-10 flex h-[var(--c-layout-header)] shrink-0 items-center justify-between gap-3 border-b border-border px-card">
+        <div className="flex min-w-0 items-center gap-2.5">
+          <FolderKanban className="h-4 w-4 shrink-0 text-accent" />
+          <div className="min-w-0">
+            <p className="truncate text-title font-semibold text-text">工作区</p>
+            <p className="truncate text-caption text-text-muted">
+              统一登记本地目录；会话与工作流都以它为根
+            </p>
           </div>
+          <span className="shrink-0 rounded-full bg-surface-hover px-2 py-0.5 font-mono text-caption text-text-muted">
+            {projects.length} 个
+          </span>
+        </div>
 
-          <div className="flex min-w-0 items-center gap-2">
-            <div className="ui-ring flex h-8 w-56 items-center gap-1.5 rounded-full bg-input-bg px-3">
-              <Search className="h-3.5 w-3.5 shrink-0 text-text-muted" />
-              <input
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-                placeholder="搜索名称 / 路径"
-                className="min-w-0 flex-1 bg-transparent text-body text-text placeholder-text-muted outline-none"
-              />
-              {query && (
+        <div className="flex min-w-0 items-center gap-2">
+          <SearchInput
+            size="sm"
+            widthClass="w-56"
+            value={query}
+            onChange={setQuery}
+            placeholder="搜索名称 / 路径"
+          />
+
+          <button
+            type="button"
+            onClick={() => void createWorkspace()}
+            disabled={creating}
+            className="ui-btn-primary flex h-8 shrink-0 items-center gap-1.5 rounded-full px-4 text-body font-medium active:scale-95 disabled:opacity-60"
+          >
+            {creating ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <FolderPlus className="h-4 w-4" />
+            )}
+            新建工作区
+          </button>
+        </div>
+      </header>
+
+      <PageBody>
+          {booting ? (
+            <LoadingState text="正在加载工作区" className="h-full" />
+          ) : error ? (
+            <ErrorState message={error} onRetry={reload} />
+          ) : projects.length === 0 ? (
+            <EmptyWorkspaces
+              creating={creating}
+              onCreate={() => void createWorkspace()}
+            />
+          ) : filtered.length === 0 ? (
+            <EmptyState
+              icon={<Search />}
+              title={`没有匹配「${query}」的工作区`}
+              action={
                 <button
                   type="button"
                   onClick={() => setQuery("")}
-                  title="清除搜索"
-                  className="shrink-0 rounded-full p-0.5 text-text-muted transition-colors hover:text-text"
+                  className="text-meta text-accent hover:underline"
                 >
-                  <X className="h-3 w-3" />
+                  清除搜索
                 </button>
-              )}
-            </div>
-
-            <button
-              type="button"
-              onClick={() => void createWorkspace()}
-              disabled={creating}
-              className="ui-btn-primary flex h-8 shrink-0 items-center gap-1.5 rounded-full px-4 text-body font-medium active:scale-95 disabled:opacity-60"
-            >
-              {creating ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <FolderPlus className="h-4 w-4" />
-              )}
-              新建工作区
-            </button>
-          </div>
-        </header>
-
-        <div className="min-h-0 flex-1 overflow-y-auto p-section">
-          {loading ? (
-            <div className="flex h-full items-center justify-center gap-2 text-body text-text-muted">
-              <Loader2 className="h-4 w-4 animate-spin" />
-              正在加载工作区
-            </div>
-          ) : error ? (
-            <div className="mx-auto flex max-w-md flex-col items-center gap-3 py-20 text-center">
-              <p className="text-body text-error">{error}</p>
-              <button
-                type="button"
-                onClick={() => {
-                  setLoading(true);
-                  void loadWorkflows().finally(() => setLoading(false));
-                }}
-                className="ui-btn-ghost rounded-lg px-3 py-2 text-meta"
-              >
-                重新加载
-              </button>
-            </div>
-          ) : projects.length === 0 ? (
-            <EmptyState creating={creating} onCreate={() => void createWorkspace()} />
-          ) : filtered.length === 0 ? (
-            <div className="flex flex-col items-center gap-2 py-20 text-center text-text-muted">
-              <Search className="h-6 w-6 opacity-50" />
-              <p className="text-body">没有匹配「{query}」的工作区</p>
-              <button
-                type="button"
-                onClick={() => setQuery("")}
-                className="text-meta text-accent hover:underline"
-              >
-                清除搜索
-              </button>
-            </div>
+              }
+            />
           ) : (
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
               {filtered.map((project) => (
@@ -317,58 +295,44 @@ export function WorkspacesView() {
               ))}
             </div>
           )}
-        </div>
-      </div>
+      </PageBody>
 
-      <Modal
+      <Dialog
         open={renameTarget !== null}
         onClose={() => setRenameTarget(null)}
+        title="重命名工作区"
         widthClass="w-[440px] max-w-[90vw]"
       >
-        <div className="p-card">
-          <ModalHeader
-            title="重命名工作区"
-            onClose={() => setRenameTarget(null)}
-          />
-          <p className="mb-3 break-all font-mono text-meta text-text-muted">
-            {renameTarget?.cwd}
-          </p>
-          <label className="mb-1.5 block text-meta font-medium text-text-secondary">
-            名称
-          </label>
-          <input
+        <p className="mb-3 break-all font-mono text-meta text-text-muted">
+          {renameTarget?.cwd}
+        </p>
+        <Field
+          label="名称"
+          required
+          hint="只修改工作区的展示名，不会重命名或移动本地目录。"
+        >
+          <TextInput
             autoFocus
             value={renameName}
             onChange={(event) => setRenameName(event.target.value)}
             onKeyDown={(event) => {
               if (event.key === "Enter") void saveRename();
             }}
-            className={FORM_INPUT_CLASS}
           />
-          <p className="mt-1.5 text-meta leading-relaxed text-text-muted">
-            只修改工作区的展示名，不会重命名或移动本地目录。
-          </p>
-          <div className="mt-4 flex items-center justify-end gap-2">
-            <button
-              type="button"
-              onClick={() => setRenameTarget(null)}
-              className="ui-btn-ghost h-9 rounded-full px-4 text-body font-medium active:scale-95"
-            >
-              取消
-            </button>
-            <button
-              type="button"
-              onClick={() => void saveRename()}
-              disabled={!renameName.trim() || renameBusy}
-              className="ui-btn-primary flex h-9 items-center gap-1.5 rounded-full px-4 text-body font-medium active:scale-95 disabled:opacity-50"
-            >
-              {renameBusy && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-              保存
-            </button>
-          </div>
-        </div>
-      </Modal>
-    </main>
+        </Field>
+        <DialogActions>
+          <Button onClick={() => setRenameTarget(null)}>取消</Button>
+          <Button
+            variant="primary"
+            onClick={() => void saveRename()}
+            disabled={!renameName.trim()}
+            loading={renameBusy}
+          >
+            保存
+          </Button>
+        </DialogActions>
+      </Dialog>
+    </Page>
   );
 }
 
@@ -483,7 +447,7 @@ function ActionButton({
   );
 }
 
-function EmptyState({
+function EmptyWorkspaces({
   creating,
   onCreate,
 }: {
@@ -491,30 +455,22 @@ function EmptyState({
   onCreate: () => void;
 }) {
   return (
-    <div className="mx-auto flex max-w-md flex-col items-center justify-center gap-3 py-24 text-center text-text-muted">
-      <div className="ui-btn-round flex h-16 w-16 items-center justify-center rounded-2xl">
-        <FolderKanban className="h-6 w-6" />
-      </div>
-      <h2 className="ui-serif text-heading font-semibold text-text-secondary">
-        先登记一个工作区
-      </h2>
-      <p className="text-body leading-relaxed">
-        工作区是一个本地根目录。会话、工作流与运行产物都会落在里面；
-        在这里登记一次，其他页面直接选用即可。
-      </p>
-      <button
-        type="button"
-        onClick={onCreate}
-        disabled={creating}
-        className="ui-btn-primary mt-2 flex items-center gap-1.5 rounded-full px-4 py-2 text-body font-medium disabled:opacity-60"
-      >
-        {creating ? (
-          <Loader2 className="h-4 w-4 animate-spin" />
-        ) : (
-          <FolderPlus className="h-4 w-4" />
-        )}
-        选择文件夹创建
-      </button>
-    </div>
+    <EmptyState
+      icon={<FolderKanban />}
+      title="先登记一个工作区"
+      description="工作区是一个本地根目录。会话、工作流与运行产物都会落在里面；在这里登记一次，其他页面直接选用即可。"
+      className="py-24"
+      action={
+        <Button
+          variant="primary"
+          onClick={onCreate}
+          disabled={creating}
+          loading={creating}
+          icon={<FolderPlus className="h-4 w-4" />}
+        >
+          选择文件夹创建
+        </Button>
+      }
+    />
   );
 }

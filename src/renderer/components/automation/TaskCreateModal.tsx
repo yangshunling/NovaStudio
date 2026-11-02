@@ -1,39 +1,36 @@
 /**
- * 任务创建弹框 — 录入自然语言任务，绑定项目 + Agent 后下发
+ * 任务创建弹框 — 录入自然语言任务，绑定项目后下发
  *
- * 默认选中第一个已安装的 Agent；Ctrl/Cmd + Enter 快捷提交
+ * 当前仅支持 Claude，Agent 固定为 claude，无需用户选择；
+ * Ctrl/Cmd + Enter 快捷提交
  */
 
-import { useEffect, useState } from "react";
-import { Plus, Loader2 } from "lucide-react";
-import { Modal, ModalHeader } from "../ui/Modal";
+import { useState } from "react";
+import { Plus } from "lucide-react";
+import { Dialog, DialogActions } from "../ui/Dialog";
+import { Button } from "../ui/Button";
+import { Field, TextArea, FORM_INPUT_CLASS } from "../ui/Field";
 import { Select } from "../ui/Select";
 import { useAutomationStore } from "../../stores/automation";
 import { useChatStore } from "../../stores/chat";
 
+/** 自动化任务当前固定使用的 Agent（仅支持 Claude） */
+const AGENT_ID = "claude";
+
 export function TaskCreateModal({ onClose }: { onClose: () => void }) {
   const projects = useChatStore((s) => s.projects);
-  const agents = useChatStore((s) => s.agents);
   const createTask = useAutomationStore((s) => s.createTask);
 
   const [prompt, setPrompt] = useState("");
   const [projectId, setProjectId] = useState(projects[0]?.id ?? "");
-  const [agentId, setAgentId] = useState("");
   const [submitting, setSubmitting] = useState(false);
-
-  // 默认选第一个已安装的 Agent
-  useEffect(() => {
-    if (agentId) return;
-    const firstInstalled = agents.find((a) => a.status.installed);
-    if (firstInstalled) setAgentId(firstInstalled.id);
-  }, [agents, agentId]);
 
   const handleSubmit = async () => {
     const trimmed = prompt.trim();
-    if (!trimmed || !projectId || !agentId) return;
+    if (!trimmed || !projectId) return;
     setSubmitting(true);
     try {
-      await createTask(trimmed, projectId, agentId);
+      await createTask(trimmed, projectId, AGENT_ID);
       onClose();
     } finally {
       setSubmitting(false);
@@ -41,15 +38,15 @@ export function TaskCreateModal({ onClose }: { onClose: () => void }) {
   };
 
   return (
-    <Modal open onClose={onClose} widthClass="w-[480px] max-w-[90vw]">
-      <div className="p-section">
-        {/* 标题 */}
-        <ModalHeader title="新建自动化任务" onClose={onClose} />
-
-        {/* Prompt 输入 */}
-        <div className="mb-3">
-          <label className="mb-1.5 block text-meta font-medium text-text-muted">任务描述</label>
-          <textarea
+    <Dialog
+      open
+      onClose={onClose}
+      title="新建自动化任务"
+      widthClass="w-[480px] max-w-[90vw]"
+    >
+      <div className="space-y-3">
+        <Field label="任务描述">
+          <TextArea
             autoFocus
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
@@ -58,61 +55,36 @@ export function TaskCreateModal({ onClose }: { onClose: () => void }) {
             }}
             placeholder="用自然语言描述你想让 Agent 做什么…"
             rows={4}
-            className="ui-ring w-full resize-none rounded-lg bg-input-bg px-inset py-inset text-body-lg text-text placeholder-text-muted outline-none focus:border-input-border-focus"
+            className="resize-none"
           />
-        </div>
+        </Field>
 
-        {/* 工作区选择 */}
-        <div className="mb-3">
-          <label className="mb-1.5 block text-meta font-medium text-text-muted">绑定工作区</label>
+        <Field label="绑定工作区">
           <Select
             value={projectId}
             onChange={setProjectId}
             placeholder={projects.length === 0 ? "无可用工作区" : "选择工作区"}
-            className="ui-ring w-full rounded-lg bg-input-bg px-inset py-inset text-body-lg text-text"
+            className={FORM_INPUT_CLASS}
             options={projects.map((project) => ({
               value: project.id,
               label: project.name,
             }))}
           />
-        </div>
-
-        {/* Agent 选择 */}
-        <div className="mb-5">
-          <label className="mb-1.5 block text-meta font-medium text-text-muted">绑定 Agent</label>
-          <Select
-            value={agentId}
-            onChange={setAgentId}
-            placeholder={agents.length === 0 ? "检测中…" : "选择 Agent"}
-            className="ui-ring w-full rounded-lg bg-input-bg px-inset py-inset text-body-lg text-text"
-            options={agents.map((agent) => ({
-              value: agent.id,
-              label: `${agent.displayName}${
-                agent.status.version ? ` v${agent.status.version}` : ""
-              }${agent.status.installed ? "" : "（未安装）"}`,
-              disabled: !agent.status.installed,
-            }))}
-          />
-        </div>
-
-        {/* 操作按钮 */}
-        <div className="flex items-center justify-end gap-2">
-          <button
-            onClick={onClose}
-            className="ui-btn-ghost rounded-full px-4 py-2 text-body"
-          >
-            取消
-          </button>
-          <button
-            onClick={handleSubmit}
-            disabled={!prompt.trim() || !projectId || !agentId || submitting}
-            className="ui-btn-primary flex items-center gap-1.5 rounded-full px-4 py-2 text-body"
-          >
-            {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
-            下发任务
-          </button>
-        </div>
+        </Field>
       </div>
-    </Modal>
+
+      <DialogActions>
+        <Button onClick={onClose}>取消</Button>
+        <Button
+          variant="primary"
+          onClick={handleSubmit}
+          disabled={!prompt.trim() || !projectId}
+          loading={submitting}
+          icon={<Plus className="h-4 w-4" />}
+        >
+          下发任务
+        </Button>
+      </DialogActions>
+    </Dialog>
   );
 }

@@ -7,8 +7,14 @@
  */
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import { X, Loader2 } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import { MessageGroup } from "../MessageList";
+import {
+  Drawer,
+  DrawerBody,
+  DrawerCloseButton,
+  DrawerHeader,
+} from "../ui/Drawer";
 import { StreamingIndicator } from "../ui/StreamingIndicator";
 import { AgentPill } from "../ui/AgentPill";
 import { FolderTypeIcon } from "../ui/FolderTypeIcon";
@@ -71,32 +77,25 @@ export function TaskDetailDrawer({ task, onClose }: { task: AutomationTask; onCl
   const project = projects.find((p) => p.id === task.projectId);
 
   return (
-    <div className="fixed inset-0 z-50 flex justify-end" onClick={onClose}>
-      <div className="absolute inset-0 bg-bg/40 backdrop-blur-sm" />
-      <div
-        className="ui-glass-strong relative flex h-full w-[var(--c-layout-drawer)] max-w-[80vw] flex-col border-l border-border-strong shadow-[var(--c-shadow)]"
-        onClick={(e) => e.stopPropagation()}
-      >
-        {/* 抽屉头 */}
-        <div className="flex h-[var(--c-layout-header)] shrink-0 items-center justify-between border-b border-border px-card">
-          <div className="flex min-w-0 items-center gap-2">
-            <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${
-              task.status === "completed" ? "bg-success"
-              : task.status === "failed" ? "bg-error"
-              : "bg-accent animate-pulse"
-            }`} />
-            <span className="truncate text-body-lg font-medium text-text">任务执行详情</span>
-            {isRunning && (
-              <span className="text-meta text-accent">实时</span>
-            )}
-          </div>
-          <button onClick={onClose} className="rounded-md p-1.5 text-text-muted hover:bg-surface-hover hover:text-text">
-            <X className="h-4 w-4" />
-          </button>
+    <Drawer onClose={onClose} ariaLabel="任务执行详情">
+      {/* 抽屉头 */}
+      <DrawerHeader>
+        <div className="flex min-w-0 flex-1 items-center gap-2">
+          <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${
+            task.status === "completed" ? "bg-success"
+            : task.status === "failed" ? "bg-error"
+            : "bg-accent animate-pulse"
+          }`} />
+          <span className="truncate text-body-lg font-medium text-text">任务执行详情</span>
+          {isRunning && (
+            <span className="text-meta text-accent">实时</span>
+          )}
         </div>
+        <DrawerCloseButton onClose={onClose} />
+      </DrawerHeader>
 
-        {/* 任务元信息 */}
-        <div className="shrink-0 border-b border-border p-card">
+      {/* 任务元信息 */}
+      <div className="shrink-0 border-b border-border px-section py-card">
           <p className="mb-2.5 text-body-lg leading-relaxed text-text">{task.prompt}</p>
           <div className="flex flex-wrap items-center gap-2 text-caption">
             {project && (
@@ -120,8 +119,8 @@ export function TaskDetailDrawer({ task, onClose }: { task: AutomationTask; onCl
           </div>
         </div>
 
-        {/* 执行记录 */}
-        <div ref={scrollRef} className="flex-1 overflow-y-auto p-card">
+      {/* 执行记录 */}
+      <DrawerBody ref={scrollRef}>
           {!isRunning && loading ? (
             <div className="flex items-center gap-2 py-8 text-body-lg text-text-muted">
               <Loader2 className="h-4 w-4 animate-spin" />
@@ -145,8 +144,7 @@ export function TaskDetailDrawer({ task, onClose }: { task: AutomationTask; onCl
               )}
             </>
           )}
-        </div>
-      </div>
-    </div>
+        </DrawerBody>
+    </Drawer>
   );
 }

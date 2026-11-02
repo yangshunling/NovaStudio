@@ -24,15 +24,22 @@ import {
   SquarePen,
   Trash2,
   Workflow as WorkflowIcon,
-  X,
   Zap,
   type LucideIcon,
 } from "lucide-react";
 import { ipc } from "../../lib/ipc";
-import { newId, timeAgo } from "../../lib/utils";
+import { newId, timeAgo, toMessage } from "../../lib/utils";
+import { useLoad } from "../../hooks/useLoad";
 import { useChatStore } from "../../stores/chat";
+import { useEmployeesStore } from "../../stores/employees";
 import { toast } from "../../stores/toast";
-import { Modal, ModalHeader } from "../ui/Modal";
+import { confirmDialog } from "../../stores/confirm";
+import { Dialog, DialogActions } from "../ui/Dialog";
+import { Button } from "../ui/Button";
+import { Field, TextArea, TextInput } from "../ui/Field";
+import { EmptyState, ErrorState, LoadingState } from "../ui/EmptyState";
+import { Page } from "../ui/Page";
+import { SearchInput } from "../ui/SearchInput";
 import { NoWorkspaceState } from "../ui/NoWorkspaceState";
 import { WorkflowEditor } from "./WorkflowEditor";
 import { WorkflowRunView } from "./WorkflowRunView";
@@ -79,11 +86,39 @@ function seedGraph(): WorkflowGraph {
 }
 
 export function WorkflowsView() {
-  const [workspaces, setWorkspaces] = useState<Project[]>([]);
-  const [workflows, setWorkflows] = useState<Workflow[]>([]);
-  const [employees, setEmployees] = useState<DigitalEmployee[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  // 工作区列表复用 chat store（与工作区页、会话绑定共用同一份）
+  const workspaces = useChatStore((s) => s.projects);
+  const loadProjects = useChatStore((s) => s.loadProjects);
+  const employees = useEmployeesStore((s) => s.employees);
+  const loadEmployees = useEmployeesStore((s) => s.load);
+
+  // 工作流 + 触发器绑定：一次拉齐，绑定关系用于卡片上的触发器数量标记
+  const { data, loading, error, reload, setData } = useLoad(
+    async () => {
+      const [workflows, triggerBindings] = await Promise.all([
+        ipc.listWorkflows(),
+        ipc.listTriggerBindings(),
+      ]);
+      return { workflows, triggerBindings };
+    },
+    {
+      workflows: [] as Workflow[],
+      triggerBindings: [] as WorkflowTriggerBinding[],
+    },
+  );
+  const { workflows, triggerBindings } = data;
+  const setWorkflows = (
+    next: Workflow[] | ((prev: Workflow[]) => Workflow[]),
+  ) => setData((prev) => ({
+    ...prev,
+    workflows: typeof next === "function" ? next(prev.workflows) : next,
+  }));
+  const setTriggerBindings = (
+    next: WorkflowTriggerBinding[] | ((prev: WorkflowTriggerBinding[]) => WorkflowTriggerBinding[]),
+  ) => setData((prev) => ({
+    ...prev,
+    triggerBindings: typeof next === "function" ? next(prev.triggerBindings) : next,
+  }));
 
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string | null>(
     null,
@@ -103,10 +138,6 @@ export function WorkflowsView() {
   const [renameDescription, setRenameDescription] = useState("");
   const [renameBusy, setRenameBusy] = useState(false);
 
-  /** 触发器绑定关系：用于卡片上的触发器数量标记 */
-  const [triggerBindings, setTriggerBindings] = useState<
-    WorkflowTriggerBinding[]
-  >([]);
   /** 正在配置触发器的工作流；null 表示弹框关闭 */
   const [triggerTarget, setTriggerTarget] = useState<Workflow | null>(null);
   const [allTriggers, setAllTriggers] = useState<WorkflowTrigger[]>([]);
@@ -165,35 +196,29 @@ export function WorkflowsView() {
     });
   };
 
-  const load = useCallback(async () => {
-    try {
-      const [workflowList, employeeList, workspaceList, bindingList] =
-        await Promise.all([
-          ipc.listWorkflows(),
-          ipc.listEmployees(),
-          ipc.listProjects(),
-          ipc.listTriggerBindings(),
-        ]);
-      setWorkflows(workflowList);
-      setEmployees(employeeList);
-      setWorkspaces(workspaceList);
-      setTriggerBindings(bindingList);
-      setSelectedWorkspaceId((current) =>
-        current && workspaceList.some((item) => item.id === current)
-          ? current
-          : (workspaceList[0]?.id ?? null),
-      );
-      setError(null);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  /** 首次骨架：等工作区 / 员工也加载完再展示，避免列表先空后跳 */
+  const [storesReady, setStoresReady] = useState(false);
 
+  /** 兼容旧调用点：刷新主数据 */
+  const load = reload;
+
+  // 工作区 / 员工由各自 store 提供（已加载则不重复拉取）
   useEffect(() => {
-    void load();
-  }, [load]);
+    void Promise.all([loadProjects(), loadEmployees()])
+      .catch(() => {
+        // 各自失败由 store 内部处理
+      })
+      .finally(() => setStoresReady(true));
+  }, [loadProjects, loadEmployees]);
+
+  // 列表变化后校正选中的工作区：被删则回退到第一个
+  useEffect(() => {
+    setSelectedWorkspaceId((current) =>
+      current && workspaces.some((item) => item.id === current)
+        ? current
+        : (workspaces[0]?.id ?? null),
+    );
+  }, [workspaces]);
 
   /** 历史遗留：没有归属任何现有工作流的工作流 */
   const orphanWorkflows = useMemo(
@@ -300,10 +325,8 @@ export function WorkflowsView() {
       setCreatingWorkflow(false);
       setEditorDebugRunId(null);
       setEditingId(workflow.id);
-      setError(null);
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      setError(message);
+      const message = toMessage(err);
       toast.error(`创建工作流失败：${message}`);
     } finally {
       setBusy(false);
@@ -311,22 +334,22 @@ export function WorkflowsView() {
   };
 
   const deleteWorkflow = async (workflow: Workflow) => {
-    const confirmed = window.confirm(
-      [
-        `删除工作流「${workflow.name}」？`,
-        "",
+    const confirmed = await confirmDialog({
+      title: `删除工作流「${workflow.name}」？`,
+      message: [
         "将同时删除它的运行记录、节点会话与 .novastudio 产物。",
         "此操作不可恢复。",
       ].join("\n"),
-    );
+      confirmLabel: "删除",
+      tone: "danger",
+    });
     if (!confirmed) return;
     try {
       await ipc.deleteWorkflow(workflow.id);
       setWorkflows((current) => current.filter((item) => item.id !== workflow.id));
       if (editingId === workflow.id) setEditingId(null);
-      setError(null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      toast.error(toMessage(err));
     }
   };
 
@@ -344,7 +367,7 @@ export function WorkflowsView() {
       const run = await ipc.startWorkflowRun(workflow.id);
       setEditorDebugRunId(run.id);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : String(err), 6000);
+      toast.error(toMessage(err), 6000);
     }
   };
 
@@ -361,7 +384,7 @@ export function WorkflowsView() {
       setAllTriggers(list);
       setSelectedTriggerIds(ids);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : String(err), 5000);
+      toast.error(toMessage(err), 5000);
     } finally {
       setTriggerDialogLoading(false);
     }
@@ -388,7 +411,7 @@ export function WorkflowsView() {
       );
       setTriggerTarget(null);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : String(err), 5000);
+      toast.error(toMessage(err), 5000);
     } finally {
       setTriggerSaving(false);
     }
@@ -405,7 +428,7 @@ export function WorkflowsView() {
       setWorkflows((current) => [copy, ...current]);
       toast.success("已复制工作流");
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : String(err));
+      toast.error(toMessage(err));
     }
   };
 
@@ -433,7 +456,7 @@ export function WorkflowsView() {
         toast.success("工作流已更新");
       }
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : String(err));
+      toast.error(toMessage(err));
     } finally {
       setRenameBusy(false);
     }
@@ -521,27 +544,11 @@ export function WorkflowsView() {
   }
 
   return (
-    <main className="relative flex flex-1 flex-col overflow-hidden">
-      <div className="ui-page relative z-10 flex flex-1 flex-col overflow-hidden">
-        {loading ? (
-          <div className="flex h-full items-center justify-center gap-2 text-body text-text-muted">
-            <Loader2 className="h-4 w-4 animate-spin" />
-            正在加载工作区
-          </div>
+    <Page>
+        {loading || !storesReady ? (
+          <LoadingState text="正在加载工作区" className="h-full" />
         ) : error ? (
-          <div className="mx-auto flex max-w-md flex-col items-center gap-3 py-20 text-center">
-            <p className="text-body text-error">{error}</p>
-            <button
-              type="button"
-              onClick={() => {
-                setLoading(true);
-                void load();
-              }}
-              className="ui-btn-ghost rounded-lg px-3 py-2 text-meta"
-            >
-              重新加载
-            </button>
-          </div>
+          <ErrorState message={error} onRetry={reload} />
         ) : workspaceOptions.length === 0 ? (
           <NoWorkspaceState
             description="工作区是一个根目录。工作流、运行产物和 Agent 的工作目录都会落在里面。工作区统一在「工作区」页面登记，这里直接选用即可。"
@@ -655,25 +662,13 @@ export function WorkflowsView() {
                     运行记录
                   </button>
 
-                  <div className="ui-ring flex h-8 w-52 items-center gap-1.5 rounded-full bg-input-bg px-3">
-                    <Search className="h-3.5 w-3.5 shrink-0 text-text-muted" />
-                    <input
-                      value={query}
-                      onChange={(event) => setQuery(event.target.value)}
-                      placeholder="搜索名称 / 说明"
-                      className="min-w-0 flex-1 bg-transparent text-body text-text placeholder-text-muted outline-none"
-                    />
-                    {query && (
-                      <button
-                        type="button"
-                        onClick={() => setQuery("")}
-                        title="清除搜索"
-                        className="shrink-0 rounded-full p-0.5 text-text-muted transition-colors hover:text-text"
-                      >
-                        <X className="h-3 w-3" />
-                      </button>
-                    )}
-                  </div>
+                  <SearchInput
+                    size="sm"
+                    widthClass="w-52"
+                    value={query}
+                    onChange={setQuery}
+                    placeholder="搜索名称 / 说明"
+                  />
 
                   <button
                     type="button"
@@ -705,7 +700,7 @@ export function WorkflowsView() {
                     </button>
                   </div>
                 ) : selectedWorkflows.length === 0 ? (
-                  <EmptyState onCreate={openCreateWorkflow} />
+                  <EmptyWorkflows onCreate={openCreateWorkflow} />
                 ) : filtered.length === 0 ? (
                   <div className="flex flex-col items-center gap-2 py-20 text-center text-text-muted">
                     <Search className="h-6 w-6 opacity-50" />
@@ -737,143 +732,101 @@ export function WorkflowsView() {
             </div>
           </div>
         )}
-      </div>
 
-      <Modal
+      <Dialog
         open={creatingWorkflow}
         onClose={() => setCreatingWorkflow(false)}
+        title="新建工作流"
         widthClass="w-[440px] max-w-[90vw]"
+        description={`将在工作区「${selectedWorkspace?.name}」下创建。创建后进入画布，从左侧点击节点或数字员工，把它们连成一条流水线。`}
       >
-        <div className="p-card">
-          <ModalHeader
-            title="新建工作流"
-            onClose={() => setCreatingWorkflow(false)}
-          />
-          <p className="mb-4 text-body leading-relaxed text-text-muted">
-            将在工作区「{selectedWorkspace?.name}」下创建。创建后进入画布，
-            从左侧点击节点或数字员工，把它们连成一条流水线。
-          </p>
+        <div className="space-y-3">
+          <Field label="名称" required>
+            <TextInput
+              autoFocus
+              value={newName}
+              onChange={(event) => setNewName(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") void createWorkflow();
+              }}
+              placeholder="例如：需求分析到代码修改"
+            />
+          </Field>
 
-          <label className="mb-1.5 block text-meta font-medium text-text-secondary">
-            名称
-          </label>
-          <input
-            autoFocus
-            value={newName}
-            onChange={(event) => setNewName(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter") void createWorkflow();
-            }}
-            placeholder="例如：需求分析到代码修改"
-            className="ui-ring mb-3 w-full rounded-lg bg-input-bg px-3 py-2 text-body-lg text-text placeholder-text-muted outline-none transition-colors focus:border-input-border-focus"
-          />
-
-          <label className="mb-1.5 block text-meta font-medium text-text-secondary">
-            说明（可选）
-          </label>
-          <textarea
-            value={newDescription}
-            onChange={(event) => setNewDescription(event.target.value)}
-            rows={2}
-            placeholder="这条流水线解决什么问题"
-            className="ui-ring w-full resize-none rounded-lg bg-input-bg px-3 py-2 text-body-lg text-text placeholder-text-muted outline-none transition-colors focus:border-input-border-focus"
-          />
-
-          <div className="mt-4 flex items-center justify-end gap-2">
-            <button
-              type="button"
-              onClick={() => setCreatingWorkflow(false)}
-              className="ui-btn-ghost h-9 rounded-full px-4 text-body font-medium active:scale-95"
-            >
-              取消
-            </button>
-            <button
-              type="button"
-              onClick={() => void createWorkflow()}
-              disabled={!newName.trim() || busy}
-              className="ui-btn-primary flex h-9 items-center gap-1.5 rounded-full px-4 text-body font-medium active:scale-95"
-            >
-              {busy && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-              创建
-            </button>
-          </div>
+          <Field label="说明（可选）">
+            <TextArea
+              value={newDescription}
+              onChange={(event) => setNewDescription(event.target.value)}
+              rows={2}
+              placeholder="这条流水线解决什么问题"
+              className="resize-none"
+            />
+          </Field>
         </div>
-      </Modal>
 
-      <Modal
+        <DialogActions>
+          <Button onClick={() => setCreatingWorkflow(false)}>取消</Button>
+          <Button
+            variant="primary"
+            onClick={() => void createWorkflow()}
+            disabled={!newName.trim()}
+            loading={busy}
+          >
+            创建
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog
         open={renameTarget !== null}
         onClose={() => setRenameTarget(null)}
+        title="编辑工作流信息"
         widthClass="w-[440px] max-w-[90vw]"
       >
-        <div className="p-card">
-          <ModalHeader
-            title="编辑工作流信息"
-            onClose={() => setRenameTarget(null)}
-          />
+        <div className="space-y-3">
+          <Field label="名称" required>
+            <TextInput
+              autoFocus
+              value={renameName}
+              onChange={(event) => setRenameName(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") void saveRename();
+              }}
+            />
+          </Field>
 
-          <label className="mb-1.5 block text-meta font-medium text-text-secondary">
-            名称
-          </label>
-          <input
-            autoFocus
-            value={renameName}
-            onChange={(event) => setRenameName(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter") void saveRename();
-            }}
-            className="ui-ring mb-3 w-full rounded-lg bg-input-bg px-3 py-2 text-body-lg text-text placeholder-text-muted outline-none transition-colors focus:border-input-border-focus"
-          />
-
-          <label className="mb-1.5 block text-meta font-medium text-text-secondary">
-            说明（可选）
-          </label>
-          <textarea
-            value={renameDescription}
-            onChange={(event) => setRenameDescription(event.target.value)}
-            rows={3}
-            placeholder="这条流水线解决什么问题"
-            className="ui-ring w-full resize-none rounded-lg bg-input-bg px-3 py-2 text-body-lg text-text placeholder-text-muted outline-none transition-colors focus:border-input-border-focus"
-          />
-
-          <div className="mt-4 flex items-center justify-end gap-2">
-            <button
-              type="button"
-              onClick={() => setRenameTarget(null)}
-              className="ui-btn-ghost h-9 rounded-full px-4 text-body font-medium active:scale-95"
-            >
-              取消
-            </button>
-            <button
-              type="button"
-              onClick={() => void saveRename()}
-              disabled={!renameName.trim() || renameBusy}
-              className="ui-btn-primary flex h-9 items-center gap-1.5 rounded-full px-4 text-body font-medium active:scale-95"
-            >
-              {renameBusy && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-              保存
-            </button>
-          </div>
+          <Field label="说明（可选）">
+            <TextArea
+              value={renameDescription}
+              onChange={(event) => setRenameDescription(event.target.value)}
+              rows={3}
+              placeholder="这条流水线解决什么问题"
+              className="resize-none"
+            />
+          </Field>
         </div>
-      </Modal>
+
+        <DialogActions>
+          <Button onClick={() => setRenameTarget(null)}>取消</Button>
+          <Button
+            variant="primary"
+            onClick={() => void saveRename()}
+            disabled={!renameName.trim()}
+            loading={renameBusy}
+          >
+            保存
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       {/* 工作流 → 绑定触发器 */}
-      <Modal
+      <Dialog
         open={triggerTarget !== null}
         onClose={() => setTriggerTarget(null)}
+        title={triggerTarget ? `触发器 · ${triggerTarget.name}` : "触发器"}
         widthClass="w-[460px] max-w-[90vw]"
+        description="勾选后，触发器到点会自动启动这条工作流。触发器可在左侧「触发器」页面统一创建与编辑，一个触发器也可以绑定多条工作流。"
       >
-        <div className="p-card">
-          <ModalHeader
-            title={
-              triggerTarget ? `触发器 · ${triggerTarget.name}` : "触发器"
-            }
-            onClose={() => setTriggerTarget(null)}
-          />
-          <p className="mb-3 text-body leading-relaxed text-text-muted">
-            勾选后，触发器到点会自动启动这条工作流。触发器可在左侧「触发器」
-            页面统一创建与编辑，一个触发器也可以绑定多条工作流。
-          </p>
-
           {triggerDialogLoading ? (
             <div className="flex h-40 items-center justify-center gap-2 text-body text-text-muted">
               <Loader2 className="h-4 w-4 animate-spin" />
@@ -886,17 +839,18 @@ export function WorkflowsView() {
               <p className="text-meta">
                 先创建一个定时规则，再回来把它绑定到这条工作流。
               </p>
-              <button
-                type="button"
+              <Button
+                size="sm"
+                variant="primary"
+                className="mt-1"
+                icon={<Plus className="h-3.5 w-3.5" />}
                 onClick={() => {
                   setTriggerTarget(null);
                   useChatStore.getState().setViewMode("triggers");
                 }}
-                className="ui-btn-primary mt-1 flex h-8 items-center gap-1.5 rounded-full px-4 text-meta font-medium active:scale-95"
               >
-                <Plus className="h-3.5 w-3.5" />
                 去创建触发器
-              </button>
+              </Button>
             </div>
           ) : (
             <div className="max-h-[320px] space-y-1.5 overflow-y-auto pr-0.5">
@@ -940,26 +894,18 @@ export function WorkflowsView() {
             </div>
           )}
 
-          <div className="mt-4 flex items-center justify-end gap-2">
-            <button
-              type="button"
-              onClick={() => setTriggerTarget(null)}
-              className="ui-btn-ghost h-9 rounded-full px-4 text-body font-medium active:scale-95"
-            >
-              取消
-            </button>
-            <button
-              type="button"
+          <DialogActions>
+            <Button onClick={() => setTriggerTarget(null)}>取消</Button>
+            <Button
+              variant="primary"
               onClick={() => void saveWorkflowTriggers()}
-              disabled={triggerDialogLoading || triggerSaving}
-              className="ui-btn-primary flex h-9 items-center gap-1.5 rounded-full px-4 text-body font-medium active:scale-95 disabled:opacity-50"
+              disabled={triggerDialogLoading}
+              loading={triggerSaving}
             >
-              {triggerSaving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
               保存
-            </button>
-          </div>
-        </div>
-      </Modal>
+            </Button>
+          </DialogActions>
+      </Dialog>
 
       {/* 右键菜单：工作区 / 工作流卡片共用 */}
       {contextMenu &&
@@ -1037,7 +983,7 @@ export function WorkflowsView() {
           </div>,
           document.body,
         )}
-    </main>
+    </Page>
   );
 }
 
@@ -1146,27 +1092,21 @@ function CardMenuItem({
 // 空态
 // ============================================================================
 
-function EmptyState({ onCreate }: { onCreate: () => void }) {
+function EmptyWorkflows({ onCreate }: { onCreate: () => void }) {
   return (
-    <div className="mx-auto flex max-w-md flex-col items-center justify-center gap-3 py-20 text-center text-text-muted">
-      <div className="ui-btn-round flex h-16 w-16 items-center justify-center rounded-2xl">
-        <WorkflowIcon className="h-6 w-6" />
-      </div>
-      <h2 className="ui-serif text-heading font-semibold text-text-secondary">
-        把数字员工串成流水线
-      </h2>
-      <p className="text-body leading-relaxed">
-        一个工作流由开始、数字员工节点和结束组成。在画布上连线，
-        就能定义任务在团队之间的流转顺序。
-      </p>
-      <button
-        type="button"
-        onClick={onCreate}
-        className="ui-btn-primary mt-2 flex h-8 items-center gap-1.5 rounded-full px-4 text-body font-medium active:scale-95"
-      >
-        <Plus className="h-4 w-4" />
-        新建工作流
-      </button>
-    </div>
+    <EmptyState
+      icon={<WorkflowIcon />}
+      title="把数字员工串成流水线"
+      description="一个工作流由开始、数字员工节点和结束组成。在画布上连线，就能定义任务在团队之间的流转顺序。"
+      action={
+        <Button
+          variant="primary"
+          onClick={onCreate}
+          icon={<Plus className="h-4 w-4" />}
+        >
+          新建工作流
+        </Button>
+      }
+    />
   );
 }

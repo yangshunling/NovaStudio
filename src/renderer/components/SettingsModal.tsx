@@ -309,13 +309,12 @@ export function SettingsModal() {
         maxWidth: "1200px",
         maxHeight: "800px",
       }}
-      className="ui-glass-strong flex flex-col overflow-hidden rounded-2xl"
     >
       {/* 弹框头 */}
       <ModalHeader
         title="设置"
         onClose={() => setShowSettings(false)}
-        className="h-[var(--c-layout-header)] shrink-0 border-b border-border px-5"
+        className="h-[var(--c-layout-header)] shrink-0 border-b border-border px-section"
       />
 
       {/* 弹框正文：左侧菜单 + 右侧内容 */}

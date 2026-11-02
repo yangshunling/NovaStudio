@@ -12,17 +12,24 @@ import { useRef, useState } from "react";
 import {
   Eraser,
   Library,
-  Loader2,
   MessageSquareText,
   Plug,
   Sparkles,
   Trash2,
   Upload,
   UserRound,
-  X,
   type LucideIcon,
 } from "lucide-react";
 import { ipc } from "../../lib/ipc";
+import { confirmDialog } from "../../stores/confirm";
+import {
+  Drawer,
+  DrawerBody,
+  DrawerCloseButton,
+  DrawerFooter,
+  DrawerHeader,
+} from "../ui/Drawer";
+import { Button } from "../ui/Button";
 import { Field, FORM_INPUT_CLASS as INPUT_CLASS } from "../ui/Field";
 import { EmployeeAvatar } from "./EmployeeAvatar";
 import { KnowledgeTab } from "./knowledge/KnowledgeTab";
@@ -143,7 +150,13 @@ export function EmployeeDrawer({
 
   const handleDelete = async () => {
     if (!employee) return;
-    if (!window.confirm(`删除数字员工「${employee.name}」？此操作不可恢复。`)) return;
+    const confirmed = await confirmDialog({
+      title: `删除数字员工「${employee.name}」？`,
+      message: "此操作不可恢复。",
+      confirmLabel: "删除",
+      tone: "danger",
+    });
+    if (!confirmed) return;
 
     try {
       await ipc.deleteEmployee(employee.id);
@@ -159,47 +172,31 @@ export function EmployeeDrawer({
   const visibleTabs = TABS;
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex justify-end"
-      onClick={onClose}
-      role="presentation"
+    <Drawer
+      onClose={onClose}
+      ariaLabel={employee ? "编辑数字员工" : "新建数字员工"}
+      widthClass="w-[680px]"
     >
-      <div className="absolute inset-0 bg-bg/40 backdrop-blur-sm" />
-
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-label={employee ? "编辑数字员工" : "新建数字员工"}
-        className="ui-glass-strong relative flex h-full w-[680px] max-w-[94vw] flex-col border-l border-border-strong shadow-[var(--c-shadow)]"
-        onClick={(event) => event.stopPropagation()}
-      >
-        {/* 头部：当前员工身份 */}
-        <div className="flex h-[var(--c-layout-header)] shrink-0 items-center gap-3 border-b border-border px-card">
-          <EmployeeAvatar employee={draft} size={40} />
-          <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-2">
-              <span className="truncate text-body-lg font-semibold text-text">
-                {draft.name.trim() || (employee ? "未命名员工" : "新建数字员工")}
+      {/* 头部：当前员工身份 */}
+      <DrawerHeader>
+        <EmployeeAvatar employee={draft} size={40} />
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2">
+            <span className="truncate text-body-lg font-semibold text-text">
+              {draft.name.trim() || (employee ? "未命名员工" : "新建数字员工")}
+            </span>
+            {!draft.enabled && (
+              <span className="shrink-0 rounded-full bg-surface-hover px-2 py-0.5 text-caption text-text-muted">
+                已停用
               </span>
-              {!draft.enabled && (
-                <span className="shrink-0 rounded-full bg-surface-hover px-2 py-0.5 text-caption text-text-muted">
-                  已停用
-                </span>
-              )}
-            </div>
-            <div className="truncate text-caption text-text-muted">
-              {draft.role.trim() || "数字员工"}
-            </div>
+            )}
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            title="关闭"
-            className="rounded-md p-1.5 text-text-muted transition-colors hover:bg-surface-hover hover:text-text"
-          >
-            <X className="h-4 w-4" />
-          </button>
+          <div className="truncate text-caption text-text-muted">
+            {draft.role.trim() || "数字员工"}
+          </div>
         </div>
+        <DrawerCloseButton onClose={onClose} />
+      </DrawerHeader>
 
         {/* 标签栏 */}
         <div className="ui-scroll-hidden flex shrink-0 items-center gap-0.5 overflow-x-auto border-b border-border px-2">
@@ -245,7 +242,7 @@ export function EmployeeDrawer({
         </div>
 
         {/* 标签内容 */}
-        <div className="min-h-0 flex-1 overflow-y-auto px-section py-card">
+        <DrawerBody>
           {tab === "profile" && (
             <ProfileTab
               draft={draft}
@@ -277,20 +274,20 @@ export function EmployeeDrawer({
               onChange={(knowledgeBases) => update({ knowledgeBases })}
             />
           )}
-        </div>
+        </DrawerBody>
 
         {/* 底部：删除 / 取消 / 保存 */}
-        <div className="flex shrink-0 items-center justify-between gap-3 border-t border-border px-card py-3">
+        <DrawerFooter>
           <div className="min-w-0">
             {employee && (
-              <button
-                type="button"
+              <Button
+                size="sm"
+                variant="dangerLink"
                 onClick={handleDelete}
-                className="flex items-center gap-1.5 rounded-lg px-2.5 py-2 text-meta text-error transition-colors hover:bg-error-bg"
+                icon={<Trash2 className="h-4 w-4" />}
               >
-                <Trash2 className="h-4 w-4" />
                 删除员工
-              </button>
+              </Button>
             )}
           </div>
           <div className="flex min-w-0 items-center gap-2">
@@ -299,24 +296,17 @@ export function EmployeeDrawer({
                 {error}
               </span>
             )}
-            <button
-              type="button"
-              onClick={onClose}
-              className="ui-btn-ghost rounded-lg px-4 py-2 text-body"
-            >
-              取消
-            </button>
-            <button
-              type="button"
+            <Button onClick={onClose}>取消</Button>
+            <Button
+              variant="primary"
               onClick={handleSave}
-              disabled={!draft.name.trim() || saving}
-              className="ui-btn-primary flex items-center gap-1.5 rounded-lg px-4 py-2 text-body font-medium"
+              disabled={!draft.name.trim()}
+              loading={saving}
             >
-              {saving && <Loader2 className="h-4 w-4 animate-spin" />}
               保存
-            </button>
+            </Button>
           </div>
-        </div>
+        </DrawerFooter>
 
         {/* 隐藏的文件选择器 */}
         <input
@@ -330,8 +320,7 @@ export function EmployeeDrawer({
             if (file) void handleAvatarFile(file);
           }}
         />
-      </div>
-    </div>
+    </Drawer>
   );
 }
 

@@ -23,6 +23,7 @@ import {
 import { useChatStore } from "../stores/chat";
 import { useTerminalStore } from "../stores/terminal";
 import { toast } from "../stores/toast";
+import { confirmDialog } from "../stores/confirm";
 
 const MENU_WIDTH = 288;
 
@@ -81,14 +82,14 @@ export function ProjectSelector() {
       const target = projectId
         ? projects.find((p) => p.id === projectId)?.name ?? "所选工作区"
         : "默认目录";
-      const confirmed = window.confirm(
-        [
-          `将当前会话的工作目录切换到「${target}」？`,
-          "",
+      const confirmed = await confirmDialog({
+        title: `将当前会话的工作目录切换到「${target}」？`,
+        message: [
           "会话已经产生消息，切换目录会重置 Agent 的上下文（开启新对话记忆）。",
           "本地历史消息仍会保留，此操作不会删除任何记录。",
         ].join("\n"),
-      );
+        confirmLabel: "切换目录",
+      });
       if (!confirmed) return;
     }
 
