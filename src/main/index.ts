@@ -24,6 +24,7 @@ import { stopTerminals } from "./terminal/manager";
 import { purgeStaleWorkflowRuntimes } from "./workflow/artifacts";
 import { migrateLegacyAssets } from "./migration/legacy-assets";
 import { syncKnowledgeIndex } from "./knowledge/catalog";
+import { initUpdater } from "./updater";
 
 let mainWindow: BrowserWindow | null = null;
 /** 退出清理只执行一次：before-quit 与 will-quit 都可能被触发 */
@@ -109,6 +110,9 @@ async function bootstrap(): Promise<void> {
   // 因此必须先把窗口创建出来再注册，顺序不能反。
   const win = createWindow();
   initIpcHandlers(win);
+
+  // 更新器需要推送通道，必须在窗口与 IPC 绑定之后初始化
+  initUpdater();
 
   // 后台补齐知识库全文索引：首次升级 / 外部新增的文件需要建一次索引
   void syncKnowledgeIndex().catch((err) => {

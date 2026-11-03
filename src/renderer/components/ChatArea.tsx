@@ -133,7 +133,7 @@ export function ChatArea({ embedded = false }: { embedded?: boolean } = {}) {
         </div>
 
         {/* 输入区：玻璃拟态 + 大圆角描边卡片 */}
-        <div className="ui-glass relative z-10 border-t border-border p-inset">
+        <div className="ui-glass ui-chat-gutter relative z-10 border-t border-border py-inset">
           <div className="mx-auto max-w-[var(--c-layout-content)]">
             <div className="ui-ring rounded-[var(--c-radius-input)] bg-input-bg p-2 shadow-[var(--c-shadow-sm)] focus-within:shadow-[0_0_0_2px_var(--c-accent-soft)]">
               {fileMention.references.length > 0 && (

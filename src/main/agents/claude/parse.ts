@@ -25,6 +25,9 @@
  *   由事件模型的收敛规则替换累积块。
  *   若把单块直接当「本轮权威块」发出去，收敛规则会连同同一条消息里前面已经完成
  *   的块一起删掉 —— 思考与正文会被随后的块吃掉，这是必须避开的坑。
+ *   但展示出来的工具回执是一次执行边界：并行工具调用时，回执可能夹在同一
+ *   消息的后续块之前到达，此时收敛无法跨越回执替换，必须主动清空累积
+ *   （见 decode 的 user 分支）。
  * - tool_use 与 tool_result 靠 id 配对：tool_result 协议里只有 tool_use_id、
  *   没有工具名，因此解码器记住本次运行内 id → 工具名，给结果补上宿主需要的 name
  * - 工具名到展示分类的归一化交给 tool-display；按约定不展示的工具（Bash 等
@@ -233,11 +236,32 @@ export function decode(
   // 工具回执
   if (type === "user") {
     const message = obj.message as { content?: unknown } | undefined;
+
     const events = mapToolResultBlocks(
       message?.content,
       names,
       includeSilentTools,
     );
+
+    /*
+     * 展示了工具回执，就说明消息流里出现了一次执行边界，必须切断累积。
+     *
+     * Claude Code 在同一条 assistant 消息（message.id 不变）里逐块发
+     * assistant 事件，并且并行工具调用时可能先执行完前面的工具、把
+     * tool_result 写进流里，然后才发后面的 content block。若继续累积，
+     * 下一个块到达时 message_end 会携带「整条消息的累积全集」；而收敛
+     * 规则遇到中间夹着的 tool_result 就停住，只能整段追加 —— 于是回执
+     * 之前的正文与 tool_call 被重复一遍。重复的 tool_call 还只有一份
+     * result，界面上就会永久停在“进行中”。
+     *
+     * 只为「实际发射的」回执清零：静默工具（Bash 等）的回执不进消息流，
+     * 事件模型里没有边界可依据，清零反而会让下一条 message_end 把回执
+     * 之前的正文当成“末尾累积块”替换掉。保持累积则能正常收敛。
+     */
+    if (events.length > 0) {
+      buffer.blocks = [];
+      buffer.id = null;
+    }
     return events.length > 0 ? events : null;
   }
 

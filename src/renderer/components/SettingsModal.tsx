@@ -5,13 +5,19 @@
  */
 
 import { useEffect, useRef, useState } from "react";
-import { SlidersHorizontal } from "lucide-react";
+import { Info, SlidersHorizontal } from "lucide-react";
+import logoUrl from "../assets/logo.png";
 import { Modal, ModalHeader } from "./ui/Modal";
 import { Select } from "./ui/Select";
 import { useChatStore } from "../stores/chat";
 import { useTheme } from "../hooks/useTheme";
 import { ipc } from "../lib/ipc";
-import { DEFAULT_SETTINGS } from "@shared/types";
+import { confirmDialog } from "../stores/confirm";
+import {
+  DEFAULT_SETTINGS,
+  type AppInfo,
+  type UpdaterState,
+} from "@shared/types";
 
 // ============================================================================
 // 文字大小
@@ -270,6 +276,218 @@ function TimeoutControl() {
 }
 
 // ============================================================================
+// 应用更新
+// ============================================================================
+
+/** 更新按钮的统一样式：次要操作 */
+const UPDATE_BUTTON_CLASS =
+  "rounded-md border border-border px-3 py-1.5 text-meta text-text-secondary transition-colors hover:border-border-strong hover:text-text";
+
+/** 更新按钮的统一样式：主操作 */
+const UPDATE_PRIMARY_BUTTON_CLASS =
+  "rounded-md border border-accent bg-accent-soft px-3 py-1.5 text-meta text-accent transition-colors hover:bg-accent-soft/70";
+
+function UpdateControl() {
+  const [state, setState] = useState<UpdaterState | null>(null);
+
+  useEffect(() => {
+    void ipc
+      .getUpdaterState()
+      .then((next) => setState(next))
+      .catch(() => {});
+    // 主进程是唯一状态源：检查 / 下载 / 下载完成都通过推送同步
+    return ipc.on.updaterChanged((next) => setState(next));
+  }, []);
+
+  const handleCheck = async () => {
+    setState(await ipc.checkForUpdates());
+  };
+
+  const handleDownload = async () => {
+    await ipc.downloadUpdate();
+  };
+
+  const handleInstall = async () => {
+    const confirmed = await confirmDialog({
+      title: "重启并安装更新？",
+      message:
+        "应用会立即关闭并安装新版本。正在运行的会话或工作流会被中断，请确认没有重要任务在执行。",
+      confirmLabel: "重启并安装",
+    });
+    if (!confirmed) return;
+    await ipc.installUpdate();
+  };
+
+  if (!state) {
+    return (
+      <div>
+        <h3 className="text-body font-semibold text-text">应用更新</h3>
+        <p className="mt-1 text-meta text-text-muted">正在读取更新状态…</p>
+      </div>
+    );
+  }
+
+  const { phase, version, percent, message, supported } = state;
+
+  return (
+    <div>
+      <h3 className="text-body font-semibold text-text">应用更新</h3>
+      <p className="mt-1 mb-3 text-meta text-text-muted">
+        {supported
+          ? "更新通过 GitHub Releases 分发，下载完成后可自行选择何时重启安装。"
+          : "开发模式下不可用，打包安装后生效。"}
+      </p>
+
+      {phase === "checking" && (
+        <p className="text-body text-text-secondary">正在检查更新…</p>
+      )}
+      {phase === "up-to-date" && (
+        <p className="text-body text-text-secondary">已是最新版本。</p>
+      )}
+      {phase === "available" && (
+        <p className="text-body text-text-secondary">
+          发现新版本{" "}
+          <span className="font-semibold text-text">v{version}</span>，可以立即下载。
+        </p>
+      )}
+      {phase === "downloading" && (
+        <div>
+          <div className="h-1.5 w-full overflow-hidden rounded-full bg-surface-active">
+            <div
+              className="h-full rounded-full bg-accent transition-[width] duration-300"
+              style={{ width: `${percent}%` }}
+            />
+          </div>
+          <p className="mt-2 text-meta text-text-muted">
+            正在下载更新… {percent}%
+          </p>
+        </div>
+      )}
+      {phase === "downloaded" && (
+        <p className="text-body text-text-secondary">
+          v{version} 已下载完成，重启应用即可完成安装。
+        </p>
+      )}
+      {phase === "error" && (
+        <p className="text-body text-error">{message ?? "检查更新失败。"}</p>
+      )}
+      {phase === "idle" && message && (
+        <p className="text-meta text-text-muted">{message}</p>
+      )}
+
+      <div className="mt-3 flex items-center gap-2">
+        {supported &&
+          (phase === "idle" || phase === "up-to-date" || phase === "error") && (
+            <button
+              type="button"
+              onClick={() => void handleCheck()}
+              className={UPDATE_BUTTON_CLASS}
+            >
+              检查更新
+            </button>
+          )}
+        {phase === "available" && (
+          <button
+            type="button"
+            onClick={() => void handleDownload()}
+            className={UPDATE_PRIMARY_BUTTON_CLASS}
+          >
+            下载更新
+          </button>
+        )}
+        {phase === "downloaded" && (
+          <button
+            type="button"
+            onClick={() => void handleInstall()}
+            className={UPDATE_PRIMARY_BUTTON_CLASS}
+          >
+            重启并安装
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ============================================================================
+// 关于
+// ============================================================================
+
+function platformLabel(platform: string): string {
+  switch (platform) {
+    case "win32":
+      return "Windows";
+    case "darwin":
+      return "macOS";
+    case "linux":
+      return "Linux";
+    default:
+      return platform || "未知";
+  }
+}
+
+/** 关于页里「名称 - 值」的一行 */
+function InfoRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex items-center justify-between gap-4 border-b border-border py-2.5 last:border-b-0">
+      <span className="text-meta text-text-muted">{label}</span>
+      <span className="select-text text-meta text-text-secondary">{value}</span>
+    </div>
+  );
+}
+
+function AboutPanel() {
+  const [info, setInfo] = useState<AppInfo | null>(null);
+
+  useEffect(() => {
+    void ipc
+      .getAppInfo()
+      .then((next) => setInfo(next))
+      .catch(() => {});
+  }, []);
+
+  return (
+    <div className="mx-auto max-w-2xl">
+      <div className="mb-6">
+        <h2 className="text-heading font-semibold text-text">关于</h2>
+        <p className="mt-1 text-body text-text-muted">
+          产品信息、运行环境与版本更新。
+        </p>
+      </div>
+
+      {/* 品牌区 */}
+      <div className="mb-6 flex items-center gap-4 rounded-xl border border-border bg-surface px-4 py-4">
+        <img
+          src={logoUrl}
+          alt="Nova Studio"
+          className="h-14 w-14 shrink-0 rounded-xl object-cover"
+        />
+        <div className="min-w-0">
+          <p className="text-body-lg font-semibold text-text">Nova Studio</p>
+          <p className="mt-0.5 text-meta text-text-muted">
+            AI 智能体 CLI 的桌面 GUI 客户端
+          </p>
+        </div>
+      </div>
+
+      {/* 版本与运行环境 */}
+      <div className="mb-8 rounded-xl border border-border px-4 py-1">
+        <InfoRow label="版本" value={info ? `v${info.version}` : "—"} />
+        <InfoRow label="Electron" value={info?.electron || "—"} />
+        <InfoRow label="Chromium" value={info?.chrome || "—"} />
+        <InfoRow label="Node.js" value={info?.node || "—"} />
+        <InfoRow
+          label="系统"
+          value={info ? `${platformLabel(info.platform)} · ${info.arch}` : "—"}
+        />
+      </div>
+
+      <UpdateControl />
+    </div>
+  );
+}
+
+// ============================================================================
 // 通用面板
 // ============================================================================
 
@@ -294,8 +512,21 @@ function GeneralPanel() {
 // 设置弹框主组件
 // ============================================================================
 
+type SettingsSection = "general" | "about";
+
+/** 左侧菜单项：新增设置分组只需在这里加一行 */
+const SETTINGS_SECTIONS: Array<{
+  id: SettingsSection;
+  label: string;
+  Icon: typeof SlidersHorizontal;
+}> = [
+  { id: "general", label: "通用", Icon: SlidersHorizontal },
+  { id: "about", label: "关于", Icon: Info },
+];
+
 export function SettingsModal() {
   const setShowSettings = useChatStore((s) => s.setShowSettings);
+  const [section, setSection] = useState<SettingsSection>("general");
 
   return (
     // 由 App.tsx 的 showSettings 条件渲染控制挂载，因此此处 open 恒为 true
@@ -319,19 +550,31 @@ export function SettingsModal() {
       {/* 弹框正文：左侧菜单 + 右侧内容 */}
       <div className="flex flex-1 overflow-hidden">
         {/* 左侧菜单 */}
-        <aside className="flex w-[var(--c-layout-menu)] shrink-0 flex-col border-r border-border p-2">
-          <button
-            type="button"
-            className="flex w-full items-center gap-2 rounded-md bg-surface-active px-3 py-2.5 text-body font-medium text-text"
-          >
-            <SlidersHorizontal className="h-4 w-4" />
-            通用
-          </button>
+        <aside className="flex w-[var(--c-layout-menu)] shrink-0 flex-col gap-1 border-r border-border p-2">
+          {SETTINGS_SECTIONS.map(({ id, label, Icon }) => {
+            const active = section === id;
+            return (
+              <button
+                key={id}
+                type="button"
+                onClick={() => setSection(id)}
+                aria-current={active ? "page" : undefined}
+                className={`flex w-full items-center gap-2 rounded-md px-3 py-2.5 text-body font-medium transition-colors ${
+                  active
+                    ? "bg-surface-active text-text"
+                    : "text-text-secondary hover:bg-surface-hover hover:text-text"
+                }`}
+              >
+                <Icon className="h-4 w-4" />
+                {label}
+              </button>
+            );
+          })}
         </aside>
 
         {/* 右侧内容区 */}
         <div className="flex-1 overflow-y-auto p-section">
-          <GeneralPanel />
+          {section === "general" ? <GeneralPanel /> : <AboutPanel />}
         </div>
       </div>
     </Modal>

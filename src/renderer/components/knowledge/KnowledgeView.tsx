@@ -39,7 +39,10 @@ import {
 import { ipc } from "../../lib/ipc";
 import { formatBytes, toMessage } from "../../lib/utils";
 import { useSkillFontSize } from "../../hooks/useTheme";
-import { useLoad } from "../../hooks/useLoad";
+import {
+  useAssetCatalog,
+  useKnowledgeBasesStore,
+} from "../../stores/assets";
 import { toast } from "../../stores/toast";
 import { confirmDialog } from "../../stores/confirm";
 import { countUsage, useEmployeesStore } from "../../stores/employees";
@@ -81,8 +84,9 @@ export function KnowledgeView() {
   const skillFontSize = useSkillFontSize();
   const employees = useEmployeesStore((s) => s.employees);
   const loadEmployees = useEmployeesStore((s) => s.load);
-  const { data: bases, loading, error, reload } =
-    useLoad(() => ipc.listKnowledgeBases(), []);
+  // 知识库目录在启动时已扫描过一次，切换页面直接读缓存
+  const { items: bases, loading, error, reload } =
+    useAssetCatalog(useKnowledgeBasesStore);
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [subPath, setSubPath] = useState("");
@@ -340,7 +344,7 @@ export function KnowledgeView() {
 
   return (
     <Page fontSize={skillFontSize}>
-        {loading ? (
+        {loading && bases.length === 0 ? (
           <LoadingState text="正在扫描知识库" className="h-full" />
         ) : error && bases.length === 0 ? (
           <ErrorState message={error} onRetry={reload} />

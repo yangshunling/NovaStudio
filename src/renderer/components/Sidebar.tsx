@@ -53,8 +53,12 @@ export function Sidebar() {
             alt="Nova Studio"
             className="h-8 w-8 shrink-0 rounded-lg object-cover"
           />
-          <span className="truncate text-title font-semibold tracking-wide text-text">
-            Nova Studio
+          {/* 标题与 logo / 切换按钮共用 32px 行盒，并压掉多余行高，
+              避免文字行盒高度与图标不一致导致视觉上偏上。 */}
+          <span className="flex h-8 min-w-0 items-center">
+            <span className="min-w-0 truncate text-title font-semibold leading-none tracking-wide text-text">
+              Nova Studio
+            </span>
           </span>
         </div>
         <ThemeToggle />

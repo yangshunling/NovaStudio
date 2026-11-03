@@ -5,15 +5,15 @@
  * 「移除」。不再经过「点添加 → 弹窗选择」两步。
  */
 
-import { useEffect, useState, type CSSProperties } from "react";
+import { useMemo, type CSSProperties } from "react";
 import {
   AlertTriangle,
   Loader2,
   Sparkles,
   Trash2,
 } from "lucide-react";
-import { ipc } from "../../../lib/ipc";
 import { useSkillFontSize } from "../../../hooks/useTheme";
+import { useAssetCatalog, useSkillsStore } from "../../../stores/assets";
 import { SKILL_ORIGIN_CLASS, SKILL_ORIGIN_LABEL } from "../../skills/presentation";
 import { BindAction, EmptyTab, Toggle } from "../ui";
 import type { EmployeeSkill, SkillAsset } from "@shared/types";
@@ -27,35 +27,14 @@ export function SkillsTab({
 }) {
   // 技能标签页同样使用放大后的字号，避免来源标签与路径看不清
   const skillFontSize = useSkillFontSize();
-  /** 可添加到员工的候选：Claude 全局技能 */
-  const [catalog, setCatalog] = useState<SkillAsset[]>([]);
+  /** 可添加到员工的候选：Claude 全局技能（与技能页共用同一份缓存） */
+  const { items: catalog, loading, error: loadError } =
+    useAssetCatalog(useSkillsStore);
   /** 全部已发现资产：用于判断已绑定条目到底是「不存在」还是「不可绑定」 */
-  const [assetsById, setAssetsById] = useState<Map<string, SkillAsset>>(
-    new Map(),
+  const assetsById = useMemo(
+    () => new Map(catalog.map((asset) => [asset.id, asset])),
+    [catalog],
   );
-  const [loading, setLoading] = useState(true);
-  const [loadError, setLoadError] = useState<string | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    ipc
-      .listSkills()
-      .then((list) => {
-        if (cancelled) return;
-        setCatalog(list);
-        setAssetsById(new Map(list.map((asset) => [asset.id, asset])));
-        setLoadError(null);
-      })
-      .catch((err) => {
-        if (!cancelled) setLoadError(err instanceof Error ? err.message : String(err));
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
 
   const catalogIds = new Set(catalog.map((asset) => asset.id));
   const boundIds = new Set(skills.map((skill) => skill.assetId).filter(Boolean));

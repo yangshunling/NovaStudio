@@ -109,6 +109,13 @@ export const ipc = {
   setWindowAppearance: (appearance: "light" | "dark") =>
     call("window:setAppearance", { appearance }),
 
+  // === 应用信息 / 更新 ===
+  getAppInfo: () => call("app:info"),
+  getUpdaterState: () => call("updater:state"),
+  checkForUpdates: () => call("updater:check"),
+  downloadUpdate: () => call("updater:download"),
+  installUpdate: () => call("updater:install"),
+
   // === 自动化任务 ===
   listAutomationTasks: () => call("automation:list"),
   createAutomationTask: (prompt: string, projectId: string, agentId: string) =>
@@ -238,5 +245,7 @@ export const ipc = {
     ) => on("workflow:run:agentEvent", cb),
     triggersUpdated: (cb: (payload: IpcPushMap["triggers:updated"]) => void) =>
       on("triggers:updated", cb),
+    updaterChanged: (cb: (payload: IpcPushMap["updater:changed"]) => void) =>
+      on("updater:changed", cb),
   },
 };

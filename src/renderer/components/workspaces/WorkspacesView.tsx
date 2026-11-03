@@ -174,9 +174,6 @@ export function WorkspacesView() {
           <FolderKanban className="h-4 w-4 shrink-0 text-accent" />
           <div className="min-w-0">
             <p className="truncate text-title font-semibold text-text">工作区</p>
-            <p className="truncate text-caption text-text-muted">
-              统一登记本地目录；会话与工作流都以它为根
-            </p>
           </div>
           <span className="shrink-0 rounded-full bg-surface-hover px-2 py-0.5 font-mono text-caption text-text-muted">
             {projects.length} 个

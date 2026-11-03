@@ -32,6 +32,8 @@ import { registerKnowledgeHandlers } from "./handlers/knowledge";
 import { registerWorkflowHandlers } from "./handlers/workflow";
 import { registerWorkflowRunHandlers } from "./handlers/workflow-run";
 import { registerTriggerHandlers } from "./handlers/trigger";
+import { registerUpdaterHandlers } from "./handlers/updater";
+import { registerAppHandlers } from "./handlers/app";
 
 /** 自动化轮询器实例；由本层（装配层）持有其生命周期 */
 let scheduler: AutomationScheduler | null = null;
@@ -89,6 +91,8 @@ export function initIpcHandlers(window: BrowserWindow): void {
   registerWorkflowHandlers(service, runner);
   registerWorkflowRunHandlers(runner);
   registerTriggerHandlers();
+  registerUpdaterHandlers();
+  registerAppHandlers();
 
   // 调度器先于 handler 创建：停止任务的 handler 需要拿到调度器实例
   scheduler = createScheduler(service);

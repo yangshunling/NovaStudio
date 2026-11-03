@@ -14,6 +14,7 @@
 import { useEffect } from "react";
 import { useChatStore } from "./stores/chat";
 import { useAutomationStore } from "./stores/automation";
+import { preloadAssets } from "./stores/assets";
 import { useAgentStream } from "./hooks/useAgentStream";
 import { loadSkinSettings } from "./hooks/useTheme";
 import { Sidebar } from "./components/Sidebar";
@@ -64,6 +65,8 @@ export default function App() {
     loadTasks().catch((err) => {
       console.error("[nova] 自动化任务加载失败：", err);
     });
+    // 资产目录扫描一次即可：后续页面切换读缓存，外部变更由刷新按钮触发重扫
+    preloadAssets();
   }, [detectAgents, loadProjects, loadSessions, loadTasks]);
 
   return (
@@ -88,12 +91,16 @@ export default function App() {
           <TriggersView />
         ) : viewMode === "agents" ? (
           <AgentsView />
-        ) : (
-          <>
-            <SessionsView />
-            {showWorkspace && <WorkspacePanel />}
-          </>
-        )}
+        ) : null}
+
+        {/*
+          会话页常驻挂载：切换侧栏菜单时只隐藏、不卸载。
+          否则 ChatArea 的输入草稿、@ 引用与滚动位置等局部状态会随卸载丢失。
+        */}
+        <div className={viewMode === "chat" ? "contents" : "hidden"}>
+          <SessionsView />
+          {showWorkspace && <WorkspacePanel />}
+        </div>
         {/*
           终端页常驻挂载：切换到其他侧栏页面时只隐藏、不卸载，
           这样多个工作区的 PTY 与输出不会因切换而丢失。

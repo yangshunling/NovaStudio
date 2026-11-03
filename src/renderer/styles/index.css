@@ -398,6 +398,31 @@ body {
   box-shadow: var(--c-bubble-shadow);
 }
 
+/* 聊天区左右头像槽
+ *
+ * 消息区与输入框共用同一内边距与内容最大宽度，因此两者左右边缘严格对齐；
+ * 头像绝对定位在槽内（不参与 flex 布局），不再挤占正文宽度 —— 否则助手
+ * 正文会比输入框窄一个「头像 + 间距」的宽度，左右两侧观感也不一致。
+ * 槽宽 = 头像尺寸 + 10px 间距，头像正好落在内边距里，不产生横向溢出。
+ */
+.ui-chat-gutter {
+  padding-inline: calc(var(--c-size-avatar) + 10px);
+}
+
+.ui-chat-avatar-left,
+.ui-chat-avatar-right {
+  position: absolute;
+  top: 2px;
+}
+
+.ui-chat-avatar-left {
+  left: calc(-1 * (var(--c-size-avatar) + 10px));
+}
+
+.ui-chat-avatar-right {
+  right: calc(-1 * (var(--c-size-avatar) + 10px));
+}
+
 /* 衬线装饰文本（品牌 / 章节标题 / 空态） */
 .ui-serif {
   font-family: var(--c-font-serif);
@@ -605,6 +630,19 @@ body {
 .nova-markdown {
   font-size: var(--c-font-size-body-lg);
   line-height: 1.65;
+}
+
+/* 首尾块外边距归零。
+ *
+ * 段落 / 列表 / 引用等自带 mb-2，容器（气泡、卡片）又有自己的内边距：
+ * 末块的下边距会叠加到容器底部，使正文底部留白明显大于顶部。
+ * 这里只处理直接子级即可覆盖常见结构。 */
+.nova-markdown > :first-child {
+  margin-top: 0;
+}
+
+.nova-markdown > :last-child {
+  margin-bottom: 0;
 }
 
 /* 内联代码 */

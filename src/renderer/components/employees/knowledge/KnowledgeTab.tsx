@@ -6,10 +6,13 @@
  * 工作流执行节点时，启用的知识库会作为系统提示词的一部分交给 Agent。
  */
 
-import { useEffect, useState, type CSSProperties } from "react";
+import { type CSSProperties } from "react";
 import { FileText, Library, Loader2, Trash2 } from "lucide-react";
-import { ipc } from "../../../lib/ipc";
 import { useSkillFontSize } from "../../../hooks/useTheme";
+import {
+  useAssetCatalog,
+  useKnowledgeBasesStore,
+} from "../../../stores/assets";
 import { BindAction, EmptyTab, Toggle } from "../ui";
 import type { EmployeeKnowledge, KnowledgeBaseAsset } from "@shared/types";
 
@@ -21,31 +24,9 @@ export function KnowledgeTab({
   onChange: (bases: EmployeeKnowledge[]) => void;
 }) {
   const skillFontSize = useSkillFontSize();
-  const [catalog, setCatalog] = useState<KnowledgeBaseAsset[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [loadError, setLoadError] = useState<string | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    ipc
-      .listKnowledgeBases()
-      .then((list) => {
-        if (cancelled) return;
-        setCatalog(list);
-        setLoadError(null);
-      })
-      .catch((err) => {
-        if (!cancelled) {
-          setLoadError(err instanceof Error ? err.message : String(err));
-        }
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+  /** 与知识库页共用同一份缓存，打开员工抽屉不会再次扫描目录 */
+  const { items: catalog, loading, error: loadError } =
+    useAssetCatalog(useKnowledgeBasesStore);
 
   const byId = new Map(catalog.map((asset) => [asset.id, asset]));
   const boundIds = new Set(bases.map((base) => base.assetId).filter(Boolean));

@@ -7,6 +7,7 @@
 
 import type {
   AgentEvent,
+  AppInfo,
   AppSettings,
   AutomationTask,
   DigitalEmployee,
@@ -36,6 +37,7 @@ import type {
   TerminalCreateResult,
   TerminalDataPayload,
   TerminalExitPayload,
+  UpdaterState,
   Workflow,
   WorkflowDraft,
   WorkflowNodeRunDetail,
@@ -167,6 +169,15 @@ export interface IpcInvokeMap {
     args: [{ appearance: "light" | "dark" }];
     result: boolean;
   };
+
+  /** 应用与运行环境信息（关于页） */
+  "app:info": { args: []; result: AppInfo };
+
+  /** 应用更新：查询当前状态 / 主动检查 / 下载 / 重启安装 */
+  "updater:state": { args: []; result: UpdaterState };
+  "updater:check": { args: []; result: UpdaterState };
+  "updater:download": { args: []; result: boolean };
+  "updater:install": { args: []; result: boolean };
 
   "automation:list": { args: []; result: AutomationTask[] };
   "automation:create": {
@@ -361,6 +372,8 @@ export interface IpcPushMap {
   };
   /** 触发器状态变更（调度器触发 / 重算下次时间） */
   "triggers:updated": WorkflowTrigger;
+  /** 更新状态变更（检查结果 / 下载进度 / 下载完成 / 错误） */
+  "updater:changed": UpdaterState;
 }
 
 export type IpcInvokeChannel = keyof IpcInvokeMap;

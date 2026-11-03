@@ -9,15 +9,17 @@
     "build": "electron-vite build",
     "preview": "electron-vite preview",
     "verify:skins": "node scripts/verify-skin-tokens.mjs",
-    "test": "node --test tests/merge.test.ts tests/trigger-schedule.test.ts tests/graph.test.ts tests/mcp.test.ts tests/execution-report.test.ts",
+    "test": "node --test tests/merge.test.ts tests/parse.test.ts tests/trigger-schedule.test.ts tests/graph.test.ts tests/mcp.test.ts tests/execution-report.test.ts",
     "package": "electron-vite build && electron-builder",
-    "package:win": "electron-vite build && electron-builder --win"
+    "package:win": "electron-vite build && electron-builder --win",
+    "package:win:publish": "electron-vite build && electron-builder --win --publish always"
   },
   "dependencies": {
     "@assistant-ui/react": "^0.15.26",
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/xterm": "^6.0.0",
     "better-sqlite3": "^11.2.1",
+    "electron-updater": "^6.8.11",
     "lucide-react": "^0.428.0",
     "node-pty": "^1.1.0",
     "react": "^18.3.1",
@@ -58,6 +60,14 @@
       {
         "from": "resources",
         "to": "resources"
+      }
+    ],
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "yangshunling",
+        "repo": "NovaStudio",
+        "releaseType": "release"
       }
     ],
     "win": {

@@ -841,3 +841,60 @@ export const DEFAULT_SETTINGS: AppSettings = {
   automationPollIntervalSec: 30,
   agentTimeoutMinutes: 30,
 };
+
+// ============================================================================
+// 应用更新
+// ============================================================================
+
+/**
+ * 更新流程所处阶段。
+ *
+ * 主进程是唯一状态源：electron-updater 的事件在这里归一成状态快照，
+ * 再通过 `updater:changed` 推送；渲染进程只负责展示与触发动作。
+ */
+export type UpdaterPhase =
+  | "idle"
+  | "checking"
+  | "up-to-date"
+  | "available"
+  | "downloading"
+  | "downloaded"
+  | "error";
+
+/** 一次更新流程的状态快照 */
+export interface UpdaterState {
+  phase: UpdaterPhase;
+  /** 当前运行的应用版本 */
+  currentVersion: string;
+  /** 可更新到的新版本；没有新版时为 null */
+  version: string | null;
+  /** 下载进度 0-100；未进入下载阶段时为 0 */
+  percent: number;
+  /** 说明或错误信息；正常情况下为 null */
+  message: string | null;
+  /**
+   * 当前环境是否支持应用内更新。
+   * 开发模式（未打包）下 electron-updater 不可用，为 false。
+   */
+  supported: boolean;
+}
+
+/** 应用与运行环境信息，供「关于」页展示 */
+export interface AppInfo {
+  /** 应用名（package.json 的 name） */
+  name: string;
+  /** 应用版本 */
+  version: string;
+  /** Electron 运行时版本 */
+  electron: string;
+  /** Chromium 版本 */
+  chrome: string;
+  /** Node.js 版本 */
+  node: string;
+  /** 运行平台：win32 / darwin / linux */
+  platform: string;
+  /** CPU 架构：x64 / arm64 等 */
+  arch: string;
+  /** 是否为打包后的正式环境 */
+  packaged: boolean;
+}

@@ -32,7 +32,7 @@ import {
 import { ipc } from "../../lib/ipc";
 import { toMessage } from "../../lib/utils";
 import { useSkillFontSize } from "../../hooks/useTheme";
-import { useLoad } from "../../hooks/useLoad";
+import { useAssetCatalog, useSkillsStore } from "../../stores/assets";
 import { toast } from "../../stores/toast";
 import { confirmDialog } from "../../stores/confirm";
 import { countUsage, useEmployeesStore } from "../../stores/employees";
@@ -70,8 +70,9 @@ export function SkillsView() {
   const skillFontSize = useSkillFontSize();
   const employees = useEmployeesStore((s) => s.employees);
   const loadEmployees = useEmployeesStore((s) => s.load);
-  const { data: skills, loading, error, reload } =
-    useLoad(() => ipc.listSkills(), []);
+  // 技能目录在启动时已扫描过一次，切换页面直接读缓存
+  const { items: skills, loading, error, reload } =
+    useAssetCatalog(useSkillsStore);
   const [query, setQuery] = useState("");
   const [importing, setImporting] = useState<SkillImportKind | null>(null);
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -163,9 +164,9 @@ export function SkillsView() {
 
       {/* 列表 */}
       <PageBody>
-          {loading ? (
+          {loading && skills.length === 0 ? (
             <LoadingState text="正在扫描技能" />
-          ) : error ? (
+          ) : error && skills.length === 0 ? (
             <ErrorState message={error} onRetry={reload} />
           ) : skills.length === 0 ? (
             <EmptySkills onImport={handleImport} importing={importing} />

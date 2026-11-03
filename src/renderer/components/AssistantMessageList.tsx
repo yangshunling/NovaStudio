@@ -55,7 +55,7 @@ export function AssistantMessageList() {
   return (
     <AssistantRuntimeProvider runtime={runtime}>
       <ThreadPrimitive.Root className="relative h-full">
-        <ThreadPrimitive.Viewport className="ui-chat-scale h-full overflow-y-auto px-4 py-4">
+        <ThreadPrimitive.Viewport className="ui-chat-scale ui-chat-gutter h-full overflow-y-auto py-4">
           <ThreadPrimitive.Empty>
             <ThreadEmpty />
           </ThreadPrimitive.Empty>
@@ -113,11 +113,11 @@ function ThreadEmpty() {
 
 function UserMessage() {
   return (
-    <MessagePrimitive.Root className="mx-auto mb-4 flex max-w-[var(--c-layout-content)] items-start justify-end gap-2.5">
+    <MessagePrimitive.Root className="relative mx-auto mb-4 flex max-w-[var(--c-layout-content)] justify-end last:mb-0">
       <div className="max-w-[80%] rounded-2xl rounded-br-sm border border-border-strong bg-bubble-user px-4 py-2.5 text-body-lg text-bubble-user-text shadow-[var(--c-shadow-sm)]">
         <MessagePrimitive.Parts components={{ Text: UserTextPart }} />
       </div>
-      <NovaAvatar className="mt-0.5" />
+      <NovaAvatar className="ui-chat-avatar-right" />
     </MessagePrimitive.Root>
   );
 }
@@ -132,9 +132,15 @@ function AssistantMessage() {
   const agentId = useChatStore(selectEffectiveAgentId);
 
   return (
-    <MessagePrimitive.Root className="mx-auto mb-4 flex max-w-[var(--c-layout-content)] items-start gap-2.5">
-      <AgentAvatar agents={agents} agentId={agentId} className="mt-0.5" />
-      <div className="flex min-w-0 flex-1 flex-col gap-1">
+    <MessagePrimitive.Root className="relative mx-auto mb-4 max-w-[var(--c-layout-content)] last:mb-0">
+      <AgentAvatar
+        agents={agents}
+        agentId={agentId}
+        className="ui-chat-avatar-left"
+      />
+      {/* 同一回复内的 part 间距统一由 gap 控制，part 自身不再带下边距，
+          否则「最后一块是什么」会改变消息尾部的留白。 */}
+      <div className="flex w-full min-w-0 flex-col gap-2">
         <MessagePrimitive.Parts
           components={{
             Text: AnswerPart,
@@ -161,13 +167,11 @@ function AnswerPart() {
   const running = part.status.type === "running";
 
   return (
-    <div className="mb-2">
-      <div className="ui-bubble w-fit max-w-full bg-surface-2 px-4 py-3 text-text">
-        <MarkdownRenderer content={part.text} />
-        {running && (
-          <span className="ml-0.5 inline-block h-3.5 w-1 animate-pulse rounded-full bg-accent align-middle" />
-        )}
-      </div>
+    <div className="ui-bubble w-fit max-w-full bg-surface-2 px-4 py-3 text-text">
+      <MarkdownRenderer content={part.text} />
+      {running && (
+        <span className="ml-0.5 inline-block h-3.5 w-1 animate-pulse rounded-full bg-accent align-middle" />
+      )}
     </div>
   );
 }
@@ -181,7 +185,7 @@ function ReasoningPart() {
   const running = part.status.type === "running";
 
   return (
-    <div className="group mb-3 max-w-full">
+    <div className="group max-w-full">
       <button
         type="button"
         onClick={() => setCollapsed((value) => !value)}
@@ -221,12 +225,24 @@ function ToolPart(props: ToolCallMessagePartProps) {
   const target = meta?.target || readToolTarget(props.args);
   const hasError = !!props.isError;
   const done = props.result !== undefined;
-  const statusText = done ? (hasError ? "失败" : "完成") : "进行中";
+  /*
+   * 只有运行中的消息才显示“进行中”。
+   * 运行被中断 / 超时 / 进程异常结束时，已发出的 tool_call 可能永远等不到
+   * result；此时消息本身已经结束，不能再把它显示成“一直进行中”。
+   */
+  const running = props.status?.type === "running";
+  const statusText = done
+    ? hasError
+      ? "失败"
+      : "完成"
+    : running
+      ? "进行中"
+      : "未完成";
   const Icon = TOOL_ICONS[kind];
   const output = stringifyToolResult(props.result);
 
   return (
-    <div className="mb-1.5 w-full">
+    <div className="w-full">
       <button
         type="button"
         onClick={() => setCollapsed((value) => !value)}
@@ -249,7 +265,9 @@ function ToolPart(props: ToolCallMessagePartProps) {
                 ? "bg-error"
                 : done
                   ? "bg-success"
-                  : "animate-pulse bg-accent"
+                  : running
+                    ? "animate-pulse bg-accent"
+                    : "bg-text-muted"
             }`}
           />
           <span className={hasError ? "text-error" : "text-text-muted"}>
@@ -298,7 +316,7 @@ function ToolPart(props: ToolCallMessagePartProps) {
 
 function ErrorPart(props: DataMessagePartProps<{ message: string }>) {
   return (
-    <div className="mb-2 flex items-start gap-2 rounded-md border border-error bg-error-bg px-3 py-2 text-body-lg text-error">
+    <div className="flex items-start gap-2 rounded-md border border-error bg-error-bg px-3 py-2 text-body-lg text-error">
       <Bug className="mt-0.5 h-4 w-4 shrink-0" />
       {props.data.message}
     </div>
@@ -307,7 +325,7 @@ function ErrorPart(props: DataMessagePartProps<{ message: string }>) {
 
 function WarningPart(props: DataMessagePartProps<{ message: string }>) {
   return (
-    <div className="mb-2 flex items-start gap-2 rounded-md border border-border-strong bg-surface-2 px-3 py-2 text-body-lg text-text-secondary">
+    <div className="flex items-start gap-2 rounded-md border border-border-strong bg-surface-2 px-3 py-2 text-body-lg text-text-secondary">
       <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-text-muted" />
       {props.data.message}
     </div>
@@ -339,6 +357,22 @@ function assistantParts(
   message: Message,
 ): Extract<ThreadMessageLike["content"], readonly unknown[]> {
   const parts: any[] = [];
+
+  /*
+   * 历史消息修复：旧版解码在并行工具调用时可能把同一个 callId 的
+   * tool_call 记录两次，而 tool_result 只有一份。顺序配对只能关掉其中
+   * 一个，另一份会永久停在“进行中”。这里按 callId 收集已有结果，
+   * 最后把仍未配对的同名调用一并补上结果（重复的那份也视为完成）。
+   */
+  const resultsByCall = new Map<string, { output: string; isError?: boolean }>();
+  for (const event of message.content) {
+    if (event.type === "tool_result" && event.callId && !resultsByCall.has(event.callId)) {
+      resultsByCall.set(event.callId, {
+        output: event.output,
+        isError: event.isError,
+      });
+    }
+  }
 
   for (const event of message.content) {
     switch (event.type) {
@@ -405,6 +439,13 @@ function assistantParts(
       default:
         break;
     }
+  }
+
+  for (let i = 0; i < parts.length; i += 1) {
+    const part = parts[i];
+    if (part?.type !== "tool-call" || part.result !== undefined) continue;
+    const result = resultsByCall.get(part.toolCallId);
+    if (result) parts[i] = { ...part, result, isError: !!result.isError };
   }
 
   return parts;

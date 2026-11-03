@@ -57,6 +57,9 @@ interface ChatState {
   showSettings: boolean;
   /** 右侧工作区文件面板是否展开 */
   showWorkspace: boolean;
+  /** 项目 / 会话是否已成功加载过；工作区页据此跳过重复加载与启动骨架 */
+  projectsLoaded: boolean;
+  sessionsLoaded: boolean;
 
   // 项目（工作目录）
   loadProjects: () => Promise<void>;
@@ -107,6 +110,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
   viewMode: "chat",
   showSettings: false,
   showWorkspace: false,
+  projectsLoaded: false,
+  sessionsLoaded: false,
 
   // ==========================================================================
   // 项目
@@ -115,7 +120,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
   loadProjects: async () => {
     // 项目只作为「可绑定的工作目录」存在，不再自动选中第一个：
     // 新会话默认不绑定项目，用户需要时在输入框处选择。
-    set({ projects: await ipc.listProjects() });
+    const projects = await ipc.listProjects();
+    set({ projects, projectsLoaded: true });
   },
 
   createProject: async (name, cwd) => {
@@ -209,7 +215,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
   // ==========================================================================
 
   loadSessions: async () => {
-    set({ sessions: await ipc.listSessions() });
+    const sessions = await ipc.listSessions();
+    set({ sessions, sessionsLoaded: true });
   },
 
   selectSession: async (id) => {

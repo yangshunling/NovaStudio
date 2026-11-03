@@ -30,7 +30,7 @@ import {
 import { ipc } from "../../lib/ipc";
 import { dirName, toMessage } from "../../lib/utils";
 import { useSkillFontSize } from "../../hooks/useTheme";
-import { useLoad } from "../../hooks/useLoad";
+import { useAssetCatalog, useMcpServersStore } from "../../stores/assets";
 import { toast } from "../../stores/toast";
 import { confirmDialog } from "../../stores/confirm";
 import { countUsage, useEmployeesStore } from "../../stores/employees";
@@ -107,8 +107,9 @@ export function McpView() {
   const skillFontSize = useSkillFontSize();
   const employees = useEmployeesStore((s) => s.employees);
   const loadEmployees = useEmployeesStore((s) => s.load);
-  const { data: servers, loading, error, reload } =
-    useLoad(() => ipc.listMcpServers(), []);
+  // MCP 配置在启动时已读取过一次，切换页面直接读缓存
+  const { items: servers, loading, error, reload } =
+    useAssetCatalog(useMcpServersStore);
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<"all" | McpSource>("all");
   const [drawer, setDrawer] = useState<
@@ -206,9 +207,9 @@ export function McpView() {
 
       {/* 列表 */}
       <PageBody>
-          {loading ? (
+          {loading && servers.length === 0 ? (
             <LoadingState text="正在扫描 MCP 配置" />
-          ) : error ? (
+          ) : error && servers.length === 0 ? (
             <ErrorState message={error} onRetry={reload} />
           ) : servers.length === 0 ? (
             <EmptyMcp onCreate={() => setDrawer({ mode: "create" })} onImport={() => setImportOpen(true)} />

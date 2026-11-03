@@ -5,7 +5,7 @@
  * 「移除」。不再经过「点添加 → 弹窗选择」两步。
  */
 
-import { useEffect, useState, type CSSProperties } from "react";
+import { type CSSProperties } from "react";
 import {
   AlertTriangle,
   KeyRound,
@@ -16,6 +16,10 @@ import {
 } from "lucide-react";
 import { ipc } from "../../../lib/ipc";
 import { useSkillFontSize } from "../../../hooks/useTheme";
+import {
+  useAssetCatalog,
+  useMcpServersStore,
+} from "../../../stores/assets";
 import { toast } from "../../../stores/toast";
 import { splitArgs } from "@shared/mcp";
 import {
@@ -40,29 +44,8 @@ export function McpTab({
 }) {
   const skillFontSize = useSkillFontSize();
   /** MCP 库中的全部资产：既作候选，也用于判断已绑定条目是否仍存在 */
-  const [catalog, setCatalog] = useState<McpServerAsset[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [loadError, setLoadError] = useState<string | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    ipc
-      .listMcpServers()
-      .then((list) => {
-        if (cancelled) return;
-        setCatalog(list);
-        setLoadError(null);
-      })
-      .catch((err) => {
-        if (!cancelled) setLoadError(err instanceof Error ? err.message : String(err));
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+  const { items: catalog, loading, error: loadError, setItems: setCatalog } =
+    useAssetCatalog(useMcpServersStore);
 
   const byId = new Map(catalog.map((asset) => [asset.id, asset]));
   const boundIds = new Set(servers.map((server) => server.assetId).filter(Boolean));
@@ -107,7 +90,9 @@ export function McpTab({
         toast.error(result.error, 5000);
         return;
       }
+      // 同步到共享缓存，切到 MCP 页时不会出现刚迁移完却看不到的假象
       setCatalog((current) => [...current, result.asset]);
+
       onChange(
         servers.map((server, i) =>
           i === index
