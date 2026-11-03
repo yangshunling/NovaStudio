@@ -116,12 +116,17 @@ export function createScheduler(agentService: AgentService): AutomationScheduler
     try {
       await execute(task);
     } catch (err) {
-      // 任何未预期的异常都必须落到 failed，绝不能把任务留在 running
-      patchTask(task.id, {
-        status: "failed",
-        error: String(err),
-        completedAt: Date.now(),
-      });
+      // 任何未预期的异常都必须落到 failed，绝不能把任务留在 running。
+      // 应用退出时数据库可能已关闭，收尾失败只记录日志。
+      try {
+        patchTask(task.id, {
+          status: "failed",
+          error: String(err),
+          completedAt: Date.now(),
+        });
+      } catch {
+        console.warn("[automation] 任务收尾失败：", err);
+      }
     } finally {
       running.delete(task.id);
       stopping.delete(task.id);
@@ -195,9 +200,16 @@ export function createScheduler(agentService: AgentService): AutomationScheduler
     },
 
     stop(): void {
-      if (!timer) return;
-      clearTimeout(timer);
-      timer = null;
+      if (timer) {
+        clearTimeout(timer);
+        timer = null;
+      }
+      // 应用退出时不能只停轮询：正在执行的任务对应的 Agent 进程也必须中断，
+      // 否则 Electron 退出后子进程会成为孤儿。
+      for (const taskId of running) {
+        const task = db.getAutomationTask(taskId);
+        if (task?.sessionId) agentService.abort(task.sessionId);
+      }
     },
 
     kick(): void {

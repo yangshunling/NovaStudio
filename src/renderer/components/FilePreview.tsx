@@ -21,6 +21,7 @@ import type {
 import { ipc } from "../lib/ipc";
 import { useSkin } from "../hooks/useTheme";
 import { getHighlighter, highlightCodeSync } from "../lib/shiki";
+import { formatBytes, stripPreTag } from "../lib/utils";
 import { MarkdownRenderer } from "./MarkdownRenderer";
 import { FileTypeIcon } from "./ui/FileTypeIcon";
 import type { FileTab } from "../stores/fileViewer";
@@ -180,7 +181,12 @@ export function FilePreview({
           markdownMode === "preview" ? (
             <div className="h-full overflow-y-auto p-5">
               <div className="mx-auto max-w-[var(--c-layout-content)]">
-                <MarkdownRenderer content={file.content ?? ""} />
+                <MarkdownRenderer
+                  content={file.content ?? ""}
+                  projectId={tab.projectId}
+                  markdownPath={tab.relativePath}
+                  allowHtml
+                />
               </div>
             </div>
           ) : (
@@ -281,14 +287,4 @@ function PreviewState({
       {action}
     </div>
   );
-}
-
-function stripPreTag(html: string): string {
-  return html.replace(/^<pre[^>]*>/, "").replace(/<\/pre>$/, "");
-}
-
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }

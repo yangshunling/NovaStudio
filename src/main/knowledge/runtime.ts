@@ -8,7 +8,7 @@
  * 直接引用 ~/.novastudio/knowledge 下的绝对路径即可。
  */
 
-import { listKnowledgeBases, listKnowledgeFiles } from "./catalog";
+import { listKnowledgeBases, listKnowledgeFilesForAsset } from "./catalog";
 import type { EmployeeKnowledge } from "../../shared/types";
 
 /** 提示词里每个知识库最多列出的文件数，超出部分让 Agent 自行浏览目录 */
@@ -84,7 +84,7 @@ export async function resolveEmployeeKnowledge(
       continue;
     }
 
-    const files = await listKnowledgeFiles(asset.id);
+    const files = await listKnowledgeFilesForAsset(asset);
     if (files.length === 0) {
       warnings.push(`知识库「${asset.name}」没有 Markdown 文档，已跳过`);
       continue;

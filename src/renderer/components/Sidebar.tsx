@@ -154,10 +154,10 @@ export function Sidebar() {
         </button>
       </div>
 
-      {/* 运行环境分组 */}
+      {/* 运行时分组 */}
       <div className="px-3 pt-4 pb-1">
         <span className="px-1 text-meta font-medium tracking-wide text-text-muted">
-          运行环境
+          运行时
         </span>
       </div>
       <div className="space-y-1 px-2.5 pb-2">
@@ -167,7 +167,7 @@ export function Sidebar() {
           className={itemClass(viewMode === "agents")}
         >
           <Bot className="h-4 w-4 shrink-0" />
-          Agent 平台
+          Agent 配置
         </button>
       </div>
 

@@ -7,6 +7,7 @@
 
 import type { AgentService } from "../../engine/agent-service";
 import type { AutomationScheduler } from "../../automation/scheduler";
+import { getProvider } from "../../agents/registry";
 import * as db from "../../db/sqlite";
 import { push } from "../push";
 import { handle } from "../register";
@@ -18,6 +19,10 @@ export function registerAutomationHandlers(
   handle("automation:list", () => db.listAutomationTasks());
 
   handle("automation:create", ({ prompt, projectId, agentId }) => {
+    if (!prompt.trim()) throw new Error("任务指令不能为空");
+    if (!db.getProject(projectId)) throw new Error("任务必须绑定一个已存在的工作区");
+    if (!getProvider(agentId)) throw new Error(`未知 Agent：${agentId}`);
+
     const task = db.createAutomationTask(prompt, projectId, agentId);
     push("automation:updated", task);
     return task;
@@ -30,7 +35,7 @@ export function registerAutomationHandlers(
     return true;
   });
 
-  handle("automation:retry", ({ id }) => {
+  handle("automation:retry", async ({ id }) => {
     const task = db.getAutomationTask(id);
     if (!task) return false;
     // 只有已完成 / 失败的任务可以重试
@@ -38,7 +43,7 @@ export function registerAutomationHandlers(
 
     // 清理旧会话（CLI 侧数据 + 索引行），避免重试产生孤儿会话
     if (task.sessionId) {
-      service.releaseSession(task.sessionId);
+      await service.releaseSession(task.sessionId);
       db.deleteSession(task.sessionId);
     }
 

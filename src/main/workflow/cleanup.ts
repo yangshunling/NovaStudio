@@ -31,7 +31,7 @@ export async function deleteWorkflowData(
 
   // 先释放 CLI 侧会话数据（需要 session.configDir），再删索引行
   for (const sessionId of sessionIds) {
-    deps.service.releaseSession(sessionId);
+    await deps.service.releaseSession(sessionId);
     db.deleteSession(sessionId);
   }
 
@@ -66,8 +66,8 @@ export async function deleteWorkspaceData(
     await deleteWorkflowData(workflow, deps);
   }
 
-  // 剩余的是普通聊天会话：统一释放 CLI 侧数据后删项目（会话行级联删除）
-  deps.service.releaseProject(projectId);
+  // 剩余的是普通聊天会话：先中断并等待运行收尾，再删项目（会话行级联删除）
+  await deps.service.releaseProject(projectId);
   db.deleteProject(projectId);
 
   if (project?.cwd) {

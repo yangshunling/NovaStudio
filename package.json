@@ -9,6 +9,7 @@
     "build": "electron-vite build",
     "preview": "electron-vite preview",
     "verify:skins": "node scripts/verify-skin-tokens.mjs",
+    "test": "node --test tests/merge.test.ts tests/trigger-schedule.test.ts tests/graph.test.ts tests/mcp.test.ts tests/execution-report.test.ts",
     "package": "electron-vite build && electron-builder",
     "package:win": "electron-vite build && electron-builder --win"
   },
@@ -17,12 +18,13 @@
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/xterm": "^6.0.0",
     "better-sqlite3": "^11.2.1",
-    "execa": "^9.4.0",
     "lucide-react": "^0.428.0",
     "node-pty": "^1.1.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-markdown": "^9.0.1",
+    "rehype-raw": "^7.0.0",
+    "rehype-sanitize": "^6.0.0",
     "remark-gfm": "^4.0.0",
     "shiki": "^1.22.0",
     "zustand": "^4.5.5"

@@ -15,8 +15,9 @@
  */
 
 import { existsSync } from "fs";
-import { cp, mkdir, writeFile } from "fs/promises";
-import { join } from "path";
+import { chmod, cp, mkdir, writeFile } from "fs/promises";
+import { basename, join } from "path";
+import { parseKeyValueLines, splitArgs } from "../../../shared/mcp";
 import type {
   EmployeeMcpServer,
   EmployeeSkill,
@@ -41,6 +42,21 @@ function mcpKey(ref: EmployeeMcpServer): string {
 
 function skillKey(ref: EmployeeSkill): string {
   return stripOrigin(ref.assetId || ref.name || "").trim();
+}
+
+/**
+ * 旧版员工把 MCP 定义内联在员工记录里（assetId 为空）。
+ * 这类数据没有迁移到 Claude 配置，但仍应能运行：直接渲染成 mcpServers 条目。
+ */
+function inlineMcpDefinition(
+  ref: EmployeeMcpServer,
+): Record<string, unknown> | null {
+  if (!ref.command?.trim()) return null;
+  return {
+    command: ref.command.trim(),
+    args: splitArgs(ref.args ?? ""),
+    env: parseKeyValueLines(ref.env ?? ""),
+  };
 }
 
 export async function prepareClaudeWorkflowRun(
@@ -70,37 +86,57 @@ export async function prepareClaudeWorkflowRun(
 
   const credentialsSource = claudeCredentialsPath();
   if (existsSync(credentialsSource)) {
-    await cp(credentialsSource, join(configDir, ".credentials.json"));
+    const credentialsTarget = join(configDir, ".credentials.json");
+    await cp(credentialsSource, credentialsTarget);
+    // 尽量减少凭证副本的可见范围；Windows 下 chmod 基本无副作用
+    await chmod(credentialsTarget, 0o600).catch(() => {});
   }
 
   // 2. 只复制该员工选中的 skills
+  const injectedSkills: string[] = [];
   const seenSkills = new Set<string>();
   for (const ref of employee.skills.filter((item) => item.enabled)) {
     const key = skillKey(ref);
     if (!key || seenSkills.has(key)) continue;
     seenSkills.add(key);
 
-    const source = join(claudeSkillsDir(), key);
+    // 新版引用从全局技能目录复制；旧版 source 直接记录了技能目录路径
+    const source = ref.assetId
+      ? join(claudeSkillsDir(), key)
+      : ref.source && existsSync(ref.source)
+        ? ref.source
+        : join(claudeSkillsDir(), key);
     if (!existsSync(source)) {
       warnings.push(
         `技能「${ref.name || key}」在本机 ~/.claude/skills 中不存在，已跳过。`,
       );
       continue;
     }
-    await cp(source, join(skillsDir, key), { recursive: true });
+
+    const targetKey = ref.assetId ? key : basename(source) || key;
+    if (seenSkills.has(`target:${targetKey}`)) continue;
+    seenSkills.add(`target:${targetKey}`);
+    await cp(source, join(skillsDir, targetKey), { recursive: true });
+    injectedSkills.push(targetKey);
   }
 
   // 3. 只把该员工选中的 MCP 交给 CLI；即使一个都没选也传空配置，
   //    配合 --strict-mcp-config 防止全局 MCP 意外泄漏给节点。
   const globalMcp = readClaudeMcpServers();
   const mcpServers: Record<string, unknown> = {};
+  const injectedMcp: string[] = [];
   const seenMcp = new Set<string>();
   for (const ref of employee.mcpServers.filter((item) => item.enabled)) {
-    const key = mcpKey(ref);
+    // 旧版内联定义：用展示名作为 Claude mcpServers 的键
+    const key = ref.assetId
+      ? mcpKey(ref)
+      : (ref.name || ref.command || "").trim();
     if (!key || seenMcp.has(key)) continue;
     seenMcp.add(key);
 
-    const definition = globalMcp[key];
+    const definition = ref.assetId
+      ? globalMcp[key]
+      : inlineMcpDefinition(ref) ?? globalMcp[key];
     if (!definition) {
       warnings.push(
         `MCP「${ref.name || key}」在本机 Claude 配置中不存在，已跳过。`,
@@ -108,6 +144,7 @@ export async function prepareClaudeWorkflowRun(
       continue;
     }
     mcpServers[key] = definition;
+    injectedMcp.push(key);
   }
 
   const mcpConfigPath = join(input.runtimeDir, "mcp.json");
@@ -127,5 +164,9 @@ export async function prepareClaudeWorkflowRun(
       "--no-session-persistence",
     ],
     warnings,
+    injected: {
+      mcpServers: injectedMcp,
+      skills: injectedSkills,
+    },
   };
 }

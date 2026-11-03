@@ -32,6 +32,35 @@ const SETTING_CODECS: {
 /** 参与持久化的设置键，由编解码表推导 —— 不需要单独维护一份列表 */
 const SETTING_KEYS = Object.keys(SETTING_CODECS) as (keyof AppSettings)[];
 
+/**
+ * 数值型设置的合法区间。
+ *
+ * IPC 是进程边界，不能假设调用方一定来自本项目的界面：
+ * 非法值（NaN / 负数 / 超大值）必须在落库前夹紧，否则会变成
+ * “0ms 超时”“并发 999”这类运行期故障。
+ */
+const INTEGER_LIMITS: Partial<Record<keyof AppSettings, [number, number]>> = {
+  fontSize: [8, 64],
+  chatFontSize: [8, 64],
+  terminalFontSize: [8, 64],
+  automationConcurrency: [1, 10],
+  automationPollIntervalSec: [5, 600],
+  agentTimeoutMinutes: [1, 1440],
+};
+
+function sanitizeSetting<K extends keyof AppSettings>(
+  key: K,
+  value: AppSettings[K],
+): AppSettings[K] | undefined {
+  const limits = INTEGER_LIMITS[key];
+  if (!limits) return value;
+
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return undefined;
+  const [min, max] = limits;
+  return Math.min(max, Math.max(min, Math.round(numeric))) as AppSettings[K];
+}
+
 /** 读取单个设置项；未落库时返回 undefined */
 function readSetting<K extends keyof AppSettings>(key: K): AppSettings[K] | undefined {
   const raw = db.getSetting(key);
@@ -51,9 +80,13 @@ export function registerSettingsHandlers(): void {
   handle("settings:set", (patch) => {
     for (const [key, value] of Object.entries(patch)) {
       if (value === undefined) continue;
-      const codec = SETTING_CODECS[key as keyof AppSettings];
+      const typedKey = key as keyof AppSettings;
+      const codec = SETTING_CODECS[typedKey];
       if (!codec) continue;
-      db.setSetting(key, codec.encode(value as never));
+
+      const sanitized = sanitizeSetting(typedKey, value as AppSettings[typeof typedKey]);
+      if (sanitized === undefined) continue;
+      db.setSetting(key, codec.encode(sanitized as never));
     }
     return true;
   });

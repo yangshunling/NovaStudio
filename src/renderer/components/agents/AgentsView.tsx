@@ -25,13 +25,14 @@ import {
   Sparkles,
   Terminal,
 } from "lucide-react";
-import type {
-  AgentInfo,
-  AgentModelAlias,
-  AgentModelEntry,
-  AgentModelOption,
-  AgentSettingsDraft,
-  AgentSettingsView,
+import {
+  AGENT_MODEL_ALIASES,
+  type AgentInfo,
+  type AgentModelAlias,
+  type AgentModelEntry,
+  type AgentModelOption,
+  type AgentSettingsDraft,
+  type AgentSettingsView,
 } from "@shared/contracts/agent";
 import { ipc } from "../../lib/ipc";
 import { toMessage } from "../../lib/utils";
@@ -48,16 +49,16 @@ const CLAUDE_ID = "claude";
 /** 模型名 / 上下文并排输入：去掉表单默认的 w-full，避免上下文框把模型名挤没 */
 const SPLIT_INPUT_CLASS = FORM_INPUT_CLASS.replace(/\bw-full\b/, "").trim();
 
+/** 别名来自共享契约：设置读写与 UI 共用同一份槽位列表 */
 const MODEL_ALIASES: ReadonlyArray<{
   key: AgentModelAlias;
   label: string;
   hint: string;
-}> = [
-  { key: "fable", label: "Fable", hint: "ANTHROPIC_DEFAULT_FABLE_MODEL" },
-  { key: "opus", label: "Opus", hint: "ANTHROPIC_DEFAULT_OPUS_MODEL" },
-  { key: "sonnet", label: "Sonnet", hint: "ANTHROPIC_DEFAULT_SONNET_MODEL" },
-  { key: "haiku", label: "Haiku", hint: "ANTHROPIC_DEFAULT_HAIKU_MODEL" },
-];
+}> = AGENT_MODEL_ALIASES.map((key) => ({
+  key,
+  label: key.charAt(0).toUpperCase() + key.slice(1),
+  hint: `ANTHROPIC_DEFAULT_${key.toUpperCase()}_MODEL`,
+}));
 
 /** 上下文后缀候选；当前配置中的特殊值会自动追加 */
 const CONTEXT_OPTIONS = [
@@ -386,7 +387,7 @@ export function AgentsView() {
   return (
     <Page>
       <PageHeader
-        title="Agent 平台"
+        title="Agent 配置"
         badge="本机配置"
         actions={
           <button

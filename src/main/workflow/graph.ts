@@ -19,9 +19,12 @@ export interface ValidatedGraph {
 }
 
 export class GraphValidationError extends Error {
-  constructor(public readonly issues: string[]) {
+  readonly issues: string[];
+
+  constructor(issues: string[]) {
     super(issues.join("\n"));
     this.name = "GraphValidationError";
+    this.issues = issues;
   }
 }
 
@@ -107,9 +110,6 @@ export function validateGraph(
     }
     if (!employee.enabled) {
       issues.push(`节点「${node.name}」绑定的数字员工「${employee.name}」已停用`);
-    }
-    if (!node.config.agentId) {
-      issues.push(`节点「${node.name}」未选择执行 Agent`);
     }
   }
 

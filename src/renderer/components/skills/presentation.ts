@@ -7,11 +7,9 @@
 import type { SkillOrigin } from "@shared/types";
 
 export const SKILL_ORIGIN_LABEL: Record<SkillOrigin, string> = {
-  "claude-global": "Claude 全局",
-  "agents-store": "共享技能库",
+  "claude-global": "Claude 配置",
 };
 
 export const SKILL_ORIGIN_CLASS: Record<SkillOrigin, string> = {
   "claude-global": "bg-agent-violet/10 text-agent-violet",
-  "agents-store": "bg-agent-teal/10 text-agent-teal",
 };

@@ -228,7 +228,25 @@ function toAsset(
   };
 }
 
-export async function listKnowledgeBases(): Promise<KnowledgeBaseAsset[]> {
+/**
+ * 知识库列表的短缓存。
+ *
+ * 列表需要递归统计文档数与总大小；一次页面操作往往会连续调用
+ * listKnowledgeBases / getKnowledgeBase / listKnowledgeFiles，
+ * 没有缓存时会重复扫描同一批目录。1 秒窗口足以合并这些调用，
+ * 又不会让外部新增的文件长时间不可见。
+ */
+const LIST_CACHE_MS = 1000;
+let listCache: {
+  at: number;
+  promise: Promise<KnowledgeBaseAsset[]>;
+} | null = null;
+
+function invalidateKnowledgeBaseCache(): void {
+  listCache = null;
+}
+
+async function scanKnowledgeBases(): Promise<KnowledgeBaseAsset[]> {
   await mkdir(KNOWLEDGE_ROOT, { recursive: true });
 
   let entries;
@@ -255,6 +273,20 @@ export async function listKnowledgeBases(): Promise<KnowledgeBaseAsset[]> {
   return result.sort((a, b) => a.name.localeCompare(b.name, "zh-CN"));
 }
 
+export function listKnowledgeBases(): Promise<KnowledgeBaseAsset[]> {
+  const now = Date.now();
+  if (listCache && now - listCache.at < LIST_CACHE_MS) {
+    return listCache.promise;
+  }
+  const promise = scanKnowledgeBases();
+  listCache = { at: now, promise };
+  void promise.catch(() => {
+    // 失败结果不进缓存，避免短时间内的重试继续拿到旧错误
+    if (listCache?.promise === promise) listCache = null;
+  });
+  return promise;
+}
+
 export async function getKnowledgeBase(
   id: string,
 ): Promise<KnowledgeBaseAsset | null> {
@@ -262,12 +294,13 @@ export async function getKnowledgeBase(
 }
 
 /** 运行时使用：递归列出某个知识库的全部 Markdown 相对路径 */
-export async function listKnowledgeFiles(id: string): Promise<string[]> {
-  const asset = await getKnowledgeBase(id);
-  if (!asset) return [];
+export async function listKnowledgeFilesForAsset(
+  asset: KnowledgeBaseAsset,
+): Promise<string[]> {
   const scan = await scanDocuments(asset.path);
   return scan.documents.map((document) => document.relativePath);
 }
+
 
 /** 单层目录列表：供右侧文档表格使用 */
 export async function listKnowledgeDocuments(
@@ -407,6 +440,7 @@ export async function createKnowledgeBase(
       `${JSON.stringify(meta, null, 2)}\n`,
       "utf8",
     );
+    invalidateKnowledgeBaseCache();
 
     return {
       ok: true,
@@ -458,6 +492,7 @@ export async function updateKnowledgeBase(
       `${JSON.stringify(meta, null, 2)}\n`,
       "utf8",
     );
+    invalidateKnowledgeBaseCache();
 
     return { ok: true, asset: { ...asset, ...meta } };
   } catch (err) {
@@ -474,6 +509,7 @@ export async function deleteKnowledgeBase(id: string): Promise<boolean> {
   try {
     await rm(asset.path, { recursive: true, force: true });
     deleteKnowledgeDocumentsByKb(id);
+    invalidateKnowledgeBaseCache();
     return true;
   } catch {
     return false;
@@ -646,6 +682,7 @@ export async function importKnowledgeFiles(
     };
   }
 
+  invalidateKnowledgeBaseCache();
   return { ok: true, uploaded, warnings };
 }
 
@@ -702,6 +739,7 @@ export async function deleteKnowledgeDocuments(
       ok = false;
     }
   }
+  invalidateKnowledgeBaseCache();
   return ok;
 }
 
@@ -805,6 +843,15 @@ export async function syncKnowledgeIndex(kbId?: string): Promise<void> {
   }
 }
 
+/**
+ * 检索前同步磁盘的最小间隔。
+ *
+ * 每次输入都全量扫描一遍磁盘代价太高；上传 / 删除已经即时更新索引，
+ * 这里只负责吸收“外部编辑”的情况，2 秒的延迟对搜索体验没有影响。
+ */
+const SYNC_MIN_INTERVAL_MS = 2000;
+let lastIndexSyncAt = 0;
+
 export async function searchKnowledge(
   query: string,
   kbId?: string,
@@ -814,7 +861,10 @@ export async function searchKnowledge(
     return { hits: [], total: 0, query: trimmed, degraded: false };
   }
 
-  await syncKnowledgeIndex(kbId);
+  if (Date.now() - lastIndexSyncAt >= SYNC_MIN_INTERVAL_MS) {
+    await syncKnowledgeIndex(kbId);
+    lastIndexSyncAt = Date.now();
+  }
 
   const assets = await listKnowledgeBases();
   const byId = new Map(assets.map((asset) => [asset.id, asset]));

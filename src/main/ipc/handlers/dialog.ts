@@ -3,10 +3,11 @@
  */
 
 import { dialog } from "electron";
-import { readdir, stat } from "node:fs/promises";
-import { join, relative, sep } from "node:path";
+import { readdir, realpath, stat } from "node:fs/promises";
+import { isAbsolute, relative, resolve, sep } from "node:path";
 import { getMainWindow } from "../push";
 import { handle } from "../register";
+import * as db from "../../db/sqlite";
 import type { FileEntry } from "@shared/types";
 
 /** 忽略的目录名（常见构建产物 / 依赖 / VCS） */
@@ -51,8 +52,31 @@ export function registerDialogHandlers(): void {
     return result.filePaths[0];
   });
 
-  handle("project:listFiles", async ({ cwd, subPath }) => {
-    const target = subPath ? join(cwd, subPath) : cwd;
+  handle("project:listFiles", async ({ projectId, subPath }) => {
+    const project = db.getProject(projectId);
+    if (!project?.cwd) return [];
+
+    let cwd: string;
+    try {
+      cwd = await realpath(project.cwd);
+    } catch {
+      return [];
+    }
+
+    // subPath 只能指向项目内部：渲染层传参不作数，必须再校验一次
+    const requested = resolve(cwd, subPath ?? "");
+    const relToRoot = relative(cwd, requested);
+    if (relToRoot.startsWith("..") || isAbsolute(relToRoot)) return [];
+
+    let target: string;
+    try {
+      target = await realpath(requested);
+    } catch {
+      return [];
+    }
+    const realRel = relative(cwd, target);
+    if (realRel.startsWith("..") || isAbsolute(realRel)) return [];
+
     let names: string[];
     try {
       names = await readdir(target);
@@ -65,7 +89,7 @@ export function registerDialogHandlers(): void {
       if (IGNORE_DIRS.has(name)) continue;
       if (IGNORE_FILE_PREFIXES.some((p) => name.startsWith(p))) continue;
 
-      const fullPath = join(target, name);
+      const fullPath = resolve(target, name);
       try {
         const s = await stat(fullPath);
         const rel = relative(cwd, fullPath).split(sep).join("/");

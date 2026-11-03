@@ -2,8 +2,8 @@
  * 工作流产物与临时运行目录
  *
  * 产物（用户可见、可追溯）落在工作区：
- *   <workspace>/.novastudio/workflows/<workflowId>/<run>/<node>/
- * - run 目录名：时间戳 + 运行 id 前缀
+ *   <workspace>/.novastudio/workflows/<workflowId>/<runId>/<node>/
+ * - run 目录名：完整运行 id（本身就是唯一标识，不再叠加时间戳）
  * - node 目录名：执行序号 + 节点名称；重试使用同级的 `<node>.try-N`
  *
  * Provider 的运行时投影（临时 mcp.json / 配置目录副本）落在应用数据目录：
@@ -11,7 +11,7 @@
  * 节点结束后由运行器删除；这里只负责启动时的异常退出兜底清理。
  */
 
-import { mkdir, readdir, rm, rmdir, stat, writeFile } from "fs/promises";
+import { mkdir, readdir, rm, rmdir, writeFile } from "fs/promises";
 import { existsSync } from "fs";
 import { join } from "path";
 import type { WorkflowNode } from "../../shared/types";
@@ -22,17 +22,12 @@ export function createRunArtifactDir(
   workflowId: string,
   runId: string,
 ): string {
-  const stamp = new Date()
-    .toISOString()
-    .replace(/[:.]/g, "-")
-    .replace("T", "_")
-    .slice(0, 19);
   return join(
     workspacePath,
     ".novastudio",
     "workflows",
     workflowId,
-    `${stamp}_${runId.slice(0, 8)}`,
+    runId,
   );
 }
 
@@ -100,14 +95,12 @@ export function truncate(text: string, max: number): string {
   return trimmed.length > max ? `${trimmed.slice(0, max)}\n…（已截断）` : trimmed;
 }
 
-/** 异常退出遗留的运行目录保留上限：超过后下次启动清理 */
-const RUNTIME_RETENTION_MS = 30 * 60 * 1000;
-
 /**
  * 启动时清理异常退出遗留的运行时目录。
  *
- * 只清理 30 分钟前的目录：正常运行的目录 mtime 很新，不会误删
- * （也为多实例启动留出安全边界）。
+ * 应用只允许单实例，且这里在注册首个工作流之前执行：
+ * 启动瞬间不可能有活跃节点，所以可以无条件删除全部残留目录。
+ * 这些目录里可能有复制出来的凭证副本，尽早清掉比按时间保留更安全。
  */
 export async function purgeStaleWorkflowRuntimes(
   userDataDir: string,
@@ -120,14 +113,11 @@ export async function purgeStaleWorkflowRuntimes(
     return;
   }
 
-  const now = Date.now();
   await Promise.all(
     entries.map(async (entry) => {
       if (!entry.isDirectory()) return;
       const path = join(root, entry.name);
       try {
-        const info = await stat(path);
-        if (now - info.mtimeMs < RUNTIME_RETENTION_MS) return;
         await rm(path, {
           recursive: true,
           force: true,
@@ -143,6 +133,6 @@ export async function purgeStaleWorkflowRuntimes(
   try {
     await rmdir(root);
   } catch {
-    // 仍有活跃 / 新目录时保留
+    // 仍有新目录时保留
   }
 }

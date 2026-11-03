@@ -15,27 +15,22 @@ import {
   FolderPlus,
   Loader2,
   MessageSquare,
-  PenLine,
   Search,
-  SquareTerminal,
   Trash2,
   Workflow as WorkflowIcon,
   type LucideIcon,
 } from "lucide-react";
 import { ipc } from "../../lib/ipc";
-import { dirName, timeAgo, toMessage } from "../../lib/utils";
+import { dirName, toMessage } from "../../lib/utils";
 import { useLoad } from "../../hooks/useLoad";
 import { useChatStore } from "../../stores/chat";
 import { useTerminalStore } from "../../stores/terminal";
 import { toast } from "../../stores/toast";
 import { confirmDialog } from "../../stores/confirm";
-import { formatAssetTime } from "../assets/assetUi";
 import { EmptyState, ErrorState, LoadingState } from "../ui/EmptyState";
 import { Page, PageBody } from "../ui/Page";
 import { SearchInput } from "../ui/SearchInput";
-import { Dialog, DialogActions } from "../ui/Dialog";
 import { Button } from "../ui/Button";
-import { Field, TextInput } from "../ui/Field";
 import type { Project, Workflow } from "@shared/types";
 
 /** 路径比较：Windows 下大小写与分隔符都不敏感 */
@@ -52,16 +47,10 @@ export function WorkspacesView() {
   const loadProjects = useChatStore((s) => s.loadProjects);
   const loadSessions = useChatStore((s) => s.loadSessions);
   const createProject = useChatStore((s) => s.createProject);
-  const renameProject = useChatStore((s) => s.renameProject);
   const deleteProject = useChatStore((s) => s.deleteProject);
   const pickDirectory = useChatStore((s) => s.pickDirectory);
-  const setViewMode = useChatStore((s) => s.setViewMode);
-  const openTerminal = useTerminalStore((s) => s.open);
   const closeWorkspaceTerminals = useTerminalStore(
     (s) => s.closeByWorkspace,
-  );
-  const renameWorkspaceTerminal = useTerminalStore(
-    (s) => s.renameByWorkspace,
   );
 
   // 工作流用于统计每个工作区下的数量；项目/会话由各自的 store 提供
@@ -72,10 +61,6 @@ export function WorkspacesView() {
   const [query, setQuery] = useState("");
   const [creating, setCreating] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
-
-  const [renameTarget, setRenameTarget] = useState<Project | null>(null);
-  const [renameName, setRenameName] = useState("");
-  const [renameBusy, setRenameBusy] = useState(false);
 
   // 项目/会话由 store 提供（首次进入拉取）；工作流由 useLoad 挂载即拉
   useEffect(() => {
@@ -137,38 +122,6 @@ export function WorkspacesView() {
       toast.error(toMessage(err), 5000);
     } finally {
       setCreating(false);
-    }
-  };
-
-  /** 在工作区打开终端：定位到该目录 */
-  const openWorkspaceTerminal = (project: Project) => {
-    openTerminal({
-      workspaceId: project.id,
-      cwd: project.cwd,
-      name: project.name,
-    });
-    setViewMode("terminals");
-  };
-
-  const openRename = (project: Project) => {
-    setRenameTarget(project);
-    setRenameName(project.name);
-  };
-
-  const saveRename = async () => {
-    if (!renameTarget || !renameName.trim() || renameBusy) return;
-    setRenameBusy(true);
-    try {
-      const name = renameName.trim();
-      await renameProject(renameTarget.id, name);
-      // 终端标题是工作区名的快照，改名后同步，避免两个页面显示不一致
-      renameWorkspaceTerminal(renameTarget.id, name);
-      setRenameTarget(null);
-      toast.success("工作区名称已更新");
-    } catch (err) {
-      toast.error(toMessage(err), 5000);
-    } finally {
-      setRenameBusy(false);
     }
   };
 
@@ -288,50 +241,12 @@ export function WorkspacesView() {
                   sessionCount={sessionCounts.get(project.id) ?? 0}
                   workflowCount={workflowCounts.get(project.id) ?? 0}
                   deleting={deletingId === project.id}
-                  onTerminal={() => openWorkspaceTerminal(project)}
-                  onRename={() => openRename(project)}
                   onDelete={() => void removeWorkspace(project)}
                 />
               ))}
             </div>
           )}
       </PageBody>
-
-      <Dialog
-        open={renameTarget !== null}
-        onClose={() => setRenameTarget(null)}
-        title="重命名工作区"
-        widthClass="w-[440px] max-w-[90vw]"
-      >
-        <p className="mb-3 break-all font-mono text-meta text-text-muted">
-          {renameTarget?.cwd}
-        </p>
-        <Field
-          label="名称"
-          required
-          hint="只修改工作区的展示名，不会重命名或移动本地目录。"
-        >
-          <TextInput
-            autoFocus
-            value={renameName}
-            onChange={(event) => setRenameName(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter") void saveRename();
-            }}
-          />
-        </Field>
-        <DialogActions>
-          <Button onClick={() => setRenameTarget(null)}>取消</Button>
-          <Button
-            variant="primary"
-            onClick={() => void saveRename()}
-            disabled={!renameName.trim()}
-            loading={renameBusy}
-          >
-            保存
-          </Button>
-        </DialogActions>
-      </Dialog>
     </Page>
   );
 }
@@ -345,16 +260,12 @@ function WorkspaceCard({
   sessionCount,
   workflowCount,
   deleting,
-  onTerminal,
-  onRename,
   onDelete,
 }: {
   project: Project;
   sessionCount: number;
   workflowCount: number;
   deleting: boolean;
-  onTerminal: () => void;
-  onRename: () => void;
   onDelete: () => void;
 }) {
   return (
@@ -364,7 +275,7 @@ function WorkspaceCard({
           <Folder className="h-5 w-5" />
         </span>
         <div className="min-w-0 flex-1">
-          <h3 className="truncate text-heading font-semibold text-text">
+          <h3 className="truncate text-title font-semibold text-text">
             {project.name}
           </h3>
           <p
@@ -376,41 +287,31 @@ function WorkspaceCard({
         </div>
       </div>
 
-      <div className="mt-3 flex flex-wrap items-center gap-1.5 text-meta text-text-muted">
-        <span className="flex items-center gap-1 rounded-full bg-surface-hover px-2.5 py-0.5">
+      {/* 会话 / 工作流数量下沉到卡片底部，用颜色区分；右侧保留更新时间与操作 */}
+      <div className="mt-auto flex flex-wrap items-center gap-1.5 pt-3 text-meta">
+        <span
+          title={`${sessionCount} 个会话`}
+          className="flex items-center gap-1 rounded-full bg-agent-teal/10 px-2.5 py-0.5 text-agent-teal"
+        >
           <MessageSquare className="h-3 w-3" />
           {sessionCount} 个会话
         </span>
-        <span className="flex items-center gap-1 rounded-full bg-surface-hover px-2.5 py-0.5">
+        <span
+          title={`${workflowCount} 个工作流`}
+          className="flex items-center gap-1 rounded-full bg-agent-amber/10 px-2.5 py-0.5 text-agent-amber"
+        >
           <WorkflowIcon className="h-3 w-3" />
           {workflowCount} 个工作流
         </span>
-      </div>
-
-      <div className="mt-auto flex items-center gap-1 pt-3">
-        <button
-          type="button"
-          onClick={onTerminal}
-          title="在此目录打开终端"
-          className="ui-ring flex items-center gap-1 rounded-full bg-surface-hover px-2.5 py-1 text-meta text-text-secondary transition-colors hover:bg-surface-active hover:text-text"
-        >
-          <SquareTerminal className="h-3.5 w-3.5" />
-          终端
-        </button>
-        <span
-          className="ml-auto text-caption text-text-muted"
-          title={formatAssetTime(project.updatedAt)}
-        >
-          更新于 {timeAgo(project.updatedAt)}
-        </span>
-        <ActionButton icon={PenLine} label="重命名" onClick={onRename} />
-        <ActionButton
-          icon={Trash2}
-          label="删除工作区"
-          danger
-          disabled={deleting}
-          onClick={onDelete}
-        />
+        <div className="ml-auto flex items-center gap-1">
+          <ActionButton
+            icon={Trash2}
+            label="删除工作区"
+            danger
+            disabled={deleting}
+            onClick={onDelete}
+          />
+        </div>
       </div>
     </div>
   );

@@ -18,6 +18,17 @@ import {
 import { homedir } from "os";
 import { dirname, join } from "path";
 
+/** 是否是 Anthropic 官方端点（空值按官方处理，与 Claude CLI 默认行为一致） */
+export function isOfficialBaseUrl(baseUrl: string): boolean {
+  const trimmed = baseUrl.trim();
+  if (!trimmed) return true;
+  try {
+    return new URL(trimmed).hostname.toLowerCase() === "api.anthropic.com";
+  } catch {
+    return false;
+  }
+}
+
 /** Claude 配置根目录（Claude CLI 自身也认这个变量） */
 export function claudeConfigDir(): string {
   return process.env.CLAUDE_CONFIG_DIR || join(homedir(), ".claude");

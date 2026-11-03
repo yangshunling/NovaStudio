@@ -18,7 +18,7 @@ import { appendEvent } from "../../shared/merge";
 import type { AgentInfo } from "../../shared/contracts/agent";
 import type { IpcPushChannel, IpcPushMap } from "../../shared/contracts/ipc";
 import { getProvider, listProviders } from "../agents/registry";
-import type { RunSession } from "../agents/types";
+import type { AgentInvocationInfo, RunSession } from "../agents/types";
 import * as db from "../db/sqlite";
 
 /** 事件发射器，由 IPC 层注入（负责批量聚合与窗口推送） */
@@ -34,7 +34,8 @@ function resolveTimeoutMs(): number {
   if (!Number.isFinite(minutes) || minutes <= 0) {
     return DEFAULT_SETTINGS.agentTimeoutMinutes * 60_000;
   }
-  return Math.floor(minutes) * 60_000;
+  // 向下取整会把 0.5 分钟变成 0ms（立即超时）；这里至少保留 1 分钟
+  return Math.max(1, Math.round(minutes)) * 60_000;
 }
 
 export interface RunParams {
@@ -50,6 +51,8 @@ export interface RunParams {
   extraArgs?: string[];
   /** 宿主侧旁路监听：除推送到渲染层外，引擎也需要实时拿到事件 */
   onEvent?: (event: AgentEvent) => void;
+  /** 子进程启动前拿到精确调用信息（运行产物审计用） */
+  onInvocation?: (info: AgentInvocationInfo) => void;
 }
 
 export interface RunOutcome {
@@ -72,18 +75,29 @@ export interface AgentService {
   abort(sessionId: string): boolean;
   /** 取会话元数据 + 回放历史 */
   getSessionWithHistory(sessionId: string): Session | null;
-  /** 中断该会话并清理其 CLI 侧数据与缓存 */
-  releaseSession(sessionId: string): void;
-  /** 清理某项目下所有会话的 CLI 侧数据与缓存 */
-  releaseProject(projectId: string): void;
+  /**
+   * 中断该会话、等待运行收尾，再清理其 CLI 侧数据与缓存。
+   * 必须先等运行结束再删数据库行，否则运行收尾写入 messages 会触发外键错误。
+   */
+  releaseSession(sessionId: string): Promise<void>;
+  /** 中断并清理某项目下所有会话的 CLI 侧数据与缓存 */
+  releaseProject(projectId: string): Promise<void>;
+  /** 应用退出：中断全部运行中的会话 */
+  shutdown(): void;
 }
 
 export function createAgentService(emit: Emit): AgentService {
   /** 并发运行表：sessionId → 运行句柄。仅在 run() 的 finally 中移除 */
   const running = new Map<string, RunSession>();
 
-  /** 历史缓存：会话引用 → { 版本, 消息 }。仅当 provider 提供版本号时才写入 */
+  /** 历史缓存：provider + 配置目录 + 会话引用 → { 版本, 消息 } */
   const historyCache = new Map<string, { version: string; messages: Message[] }>();
+
+  /** 缓存键必须区分 configDir：同一引用在隔离配置目录下指向不同文件 */
+  function historyKey(session: Session): string | null {
+    if (!session.agentSessionId) return null;
+    return `${session.agentId}\u0000${session.configDir ?? ""}\u0000${session.agentSessionId}`;
+  }
 
   /**
    * 带缓存的历史回放。
@@ -94,15 +108,18 @@ export function createAgentService(emit: Emit): AgentService {
     const ref = session.agentSessionId;
     if (!provider || !ref) return [];
 
+    const key = historyKey(session);
+    if (!key) return [];
+
     const ctx = { cwd: session.cwd, configDir: session.configDir ?? null };
     const version = provider.historyVersion(ref, ctx);
 
     if (version !== null) {
-      const cached = historyCache.get(ref);
+      const cached = historyCache.get(key);
       if (cached && cached.version === version) {
         // LRU：命中后重新插入，使其成为"最近使用"
-        historyCache.delete(ref);
-        historyCache.set(ref, cached);
+        historyCache.delete(key);
+        historyCache.set(key, cached);
         return cached.messages;
       }
     }
@@ -110,7 +127,7 @@ export function createAgentService(emit: Emit): AgentService {
     const messages = provider.readHistory(ref, ctx);
 
     if (version !== null) {
-      historyCache.set(ref, { version, messages });
+      historyCache.set(key, { version, messages });
       while (historyCache.size > HISTORY_CACHE_LIMIT) {
         const oldest = historyCache.keys().next().value;
         if (oldest === undefined) break;
@@ -134,7 +151,24 @@ export function createAgentService(emit: Emit): AgentService {
         configDir: session.configDir ?? null,
       });
     }
-    historyCache.delete(ref);
+    const key = historyKey(session);
+    if (key) historyCache.delete(key);
+  }
+
+  /**
+   * 等待某个会话的运行完全收尾（含消息落库）。
+   *
+   * run() 在写库完成后才从 running 表移除记录，因此这里是可靠的同步点。
+   * 超时后仍继续清理：极端情况下宁可清理失败，也不能让删除操作永远挂起。
+   */
+  async function waitForIdle(sessionId: string, timeoutMs = 5000): Promise<void> {
+    const deadline = Date.now() + timeoutMs;
+    while (running.has(sessionId) && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    if (running.has(sessionId)) {
+      console.warn(`[agent] 会话 ${sessionId} 未在 ${timeoutMs}ms 内结束，继续清理`);
+    }
   }
 
   return {
@@ -163,8 +197,17 @@ export function createAgentService(emit: Emit): AgentService {
     },
 
     async run(params: RunParams): Promise<RunOutcome> {
-      const { sessionId, prompt, cwd, opts, env, envRemove, extraArgs, onEvent } =
-        params;
+      const {
+        sessionId,
+        prompt,
+        cwd,
+        opts,
+        env,
+        envRemove,
+        extraArgs,
+        onEvent,
+        onInvocation,
+      } = params;
       const failed = (error: string): RunOutcome => ({
         ok: false,
         exitCode: -1,
@@ -176,6 +219,12 @@ export function createAgentService(emit: Emit): AgentService {
       const session = db.getSession(sessionId);
       if (!session) return failed(`会话不存在: ${sessionId}`);
 
+      // 同一会话只允许一个运行：running 表按 sessionId 存放句柄，
+      // 并发进入会互相覆盖，中断 / 状态判断都会错乱。
+      if (running.has(sessionId)) {
+        return failed("会话正在运行，请等待本次执行结束");
+      }
+
       const provider = getProvider(session.agentId);
       if (!provider) return failed(`未知 Agent: ${session.agentId}`);
 
@@ -186,6 +235,16 @@ export function createAgentService(emit: Emit): AgentService {
 
       // 用对象持有闭包内的赋值，避免被控制流分析误判为恒 null
       const captured: { rawId: string | null } = { rawId: null };
+
+      /*
+       * 升级兼容：旧会话的历史只存在于 CLI 侧，本地 messages 表是空的。
+       * 如果直接开始写新消息，后续 getSessionWithHistory 只会返回新消息，
+       * 旧对话在界面上会“消失”。因此在第一次运行前把 CLI 历史导入本地。
+       */
+      if (!db.hasSessionMessages(sessionId) && session.agentSessionId) {
+        const history = readHistoryCached(session);
+        if (history.length > 0) db.importSessionMessages(sessionId, history);
+      }
 
       // 持久化用户消息：在运行前落库，确保即使运行失败也能看到原始指令
       const userMsg: Message = {
@@ -199,69 +258,83 @@ export function createAgentService(emit: Emit): AgentService {
       // 累积 assistant 消息的事件流（镜像渲染进程的 appendEvent 逻辑）
       let assistantContent: AgentEvent[] = [];
 
-      const runSession = provider.start({
-        prompt,
-        cwd,
-        sessionRef,
-        opts,
-        env,
-        envRemove,
-        extraArgs,
-        configDir: session.configDir ?? null,
-        timeoutMs: resolveTimeoutMs(),
-        onEvent: (event) => {
-          // done 事件仅复位流式状态，不进入消息内容（与渲染进程 _onEvent 一致）
-          if (event.type !== "done") {
-            assistantContent = appendEvent(assistantContent, event);
-          }
-          // 工作流会话不出现在聊天界面，事件只交给引擎；
-          // 否则渲染层的 messagesBySession 会持续堆积永远不会展示的数据。
-          if (session.source !== "workflow") {
-            emit("agent:event", { sessionId, event });
-          }
-          onEvent?.(event);
-        },
-        onSessionId: (rawId) => {
-          captured.rawId = rawId;
-        },
-      });
+      let runSession: RunSession;
+      try {
+        runSession = provider.start({
+          prompt,
+          cwd,
+          mode: session.source === "workflow" ? "workflow" : "chat",
+          sessionRef,
+          opts,
+          env,
+          envRemove,
+          extraArgs,
+          configDir: session.configDir ?? null,
+          timeoutMs: resolveTimeoutMs(),
+          onEvent: (event) => {
+            // done 事件仅复位流式状态，不进入消息内容（与渲染进程 _onEvent 一致）
+            if (event.type !== "done") {
+              assistantContent = appendEvent(assistantContent, event);
+            }
+            // 工作流会话不出现在聊天界面，事件只交给引擎；
+            // 否则渲染层的 messagesBySession 会持续堆积永远不会展示的数据。
+            if (session.source !== "workflow") {
+              emit("agent:event", { sessionId, event });
+            }
+            onEvent?.(event);
+          },
+          onSessionId: (rawId) => {
+            captured.rawId = rawId;
+          },
+          onInvocation,
+        });
+      } catch (err) {
+        // provider 在拉起进程前失败（临时文件、配置投影等）
+        return failed(err instanceof Error ? err.message : String(err));
+      }
       running.set(sessionId, runSession);
 
-      let result;
       try {
-        result = await runSession.done;
+        const result = await runSession.done;
+
+        // 持久化 assistant 消息：无论成功/失败/中断，已累积的事件流都落库
+        if (assistantContent.length > 0) {
+          db.saveSessionMessage(sessionId, {
+            id: randomUUID(),
+            role: "assistant",
+            content: assistantContent,
+            timestamp: Date.now(),
+          });
+        }
+
+        // 会话引用规范化 + 落库：语义由 provider 决定，宿主只负责存取。
+        // 只要本轮已经拿到 CLI 侧的会话 id，就必须落库 —— 即便本轮被中断/超时，
+        // CLI 侧会话依然存在且可恢复。否则用户随后在同一会话里追问时会话引用缺失，
+        // Agent 会"失忆"（自动化任务被停止/超时后追问，就是这种表现）。
+        if (captured.rawId) {
+          const ref = provider.normalizeSessionRef(captured.rawId, { cwd });
+          if (ref !== session.agentSessionId) {
+            const previousKey = historyKey(session);
+            if (previousKey) historyCache.delete(previousKey);
+            db.updateAgentSessionId(sessionId, ref);
+          }
+        }
+
+        return {
+          ok: true,
+          exitCode: result.exitCode,
+          duration: result.duration,
+          aborted: runSession.aborted,
+        };
       } finally {
+        try {
+          // 本地消息已经覆盖本次运行；之后再打开会话无需再向 CLI 补历史
+          db.markSessionHistoryComplete(sessionId);
+        } catch {
+          // 应用退出时数据库可能已关闭：不能因此丢失 running 表的清理
+        }
         running.delete(sessionId);
       }
-
-      // 持久化 assistant 消息：无论成功/失败/中断，已累积的事件流都落库
-      if (assistantContent.length > 0) {
-        db.saveSessionMessage(sessionId, {
-          id: randomUUID(),
-          role: "assistant",
-          content: assistantContent,
-          timestamp: Date.now(),
-        });
-      }
-
-      // 会话引用规范化 + 落库：语义由 provider 决定，宿主只负责存取。
-      // 只要本轮已经拿到 CLI 侧的会话 id，就必须落库 —— 即便本轮被中断/超时，
-      // CLI 侧会话依然存在且可恢复。否则用户随后在同一会话里追问时会话引用缺失，
-      // Agent 会"失忆"（自动化任务被停止/超时后追问，就是这种表现）。
-      if (captured.rawId) {
-        const ref = provider.normalizeSessionRef(captured.rawId, { cwd });
-        if (ref !== session.agentSessionId) {
-          db.updateAgentSessionId(sessionId, ref);
-          historyCache.delete(ref);
-        }
-      }
-
-      return {
-        ok: true,
-        exitCode: result.exitCode,
-        duration: result.duration,
-        aborted: runSession.aborted,
-      };
     },
 
     abort(sessionId: string): boolean {
@@ -287,15 +360,21 @@ export function createAgentService(emit: Emit): AgentService {
       return { ...session, messages: readHistoryCached(session) };
     },
 
-    releaseSession(sessionId: string): void {
+    async releaseSession(sessionId: string): Promise<void> {
       running.get(sessionId)?.abort();
+      await waitForIdle(sessionId);
       dropSessionArtifacts(sessionId);
     },
 
-    releaseProject(projectId: string): void {
-      for (const sessionId of db.listSessionIdsByProject(projectId)) {
-        dropSessionArtifacts(sessionId);
-      }
+    async releaseProject(projectId: string): Promise<void> {
+      const sessionIds = db.listSessionIdsByProject(projectId);
+      for (const sessionId of sessionIds) running.get(sessionId)?.abort();
+      await Promise.all(sessionIds.map((sessionId) => waitForIdle(sessionId)));
+      for (const sessionId of sessionIds) dropSessionArtifacts(sessionId);
+    },
+
+    shutdown(): void {
+      for (const runSession of running.values()) runSession.abort();
     },
   };
 }

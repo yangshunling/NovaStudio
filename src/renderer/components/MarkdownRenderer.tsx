@@ -8,15 +8,108 @@
  * 其余样式全部走语义类与 token，换肤自动适配。
  */
 
-import { useEffect, useState, memo } from "react";
+import { createContext, useContext, useEffect, useMemo, useState, memo } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import rehypeRaw from "rehype-raw";
+import rehypeSanitize, { defaultSchema } from "rehype-sanitize";
 import { getHighlighter, highlightCodeSync } from "../lib/shiki";
+import { stripPreTag } from "../lib/utils";
 import { useSkin } from "../hooks/useTheme";
+import { ipc } from "../lib/ipc";
 
-/** Shiki 输出的 HTML 需要去掉外层 <pre>，由我们自己控制容器样式 */
-function stripPreTag(html: string): string {
-  return html.replace(/^<pre[^>]*>/, "").replace(/<\/pre>$/, "");
+/**
+ * 内嵌图片的解析上下文。
+ *
+ * Markdown 里的相对路径图片由主进程按「文档所在目录」读取并转成 data URL：
+ * 渲染进程本身无法访问本地文件（页面基址是 dev server / 应用目录）。
+ */
+interface MarkdownImageContextValue {
+  projectId: string;
+  markdownPath: string;
+}
+
+const MarkdownImageContext = createContext<MarkdownImageContextValue | null>(null);
+
+/** 允许 raw HTML 时使用的清洗规则：保留 README 常用的表格 / 图片属性 */
+const htmlSchema = {
+  ...defaultSchema,
+  attributes: {
+    ...defaultSchema.attributes,
+    code: [...(defaultSchema.attributes?.code ?? []), ["className", /^language-./]],
+    table: [...(defaultSchema.attributes?.table ?? []), "width", "align", "border"],
+    img: [...(defaultSchema.attributes?.img ?? []), "alt", "width", "height"],
+  },
+};
+
+/** 远程 / data URL 由浏览器直接加载，只有项目内的相对路径需要走 IPC */
+const EXTERNAL_SRC = /^(?:[a-z][a-z0-9+.-]*:|\/\/|#)/i;
+
+function MarkdownImage({
+  src,
+  alt,
+  node: _node,
+  ...props
+}: React.ImgHTMLAttributes<HTMLImageElement> & { node?: unknown }) {
+  const context = useContext(MarkdownImageContext);
+  const external = !src || EXTERNAL_SRC.test(src);
+  const [resolved, setResolved] = useState<string | null>(external ? src ?? null : null);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    if (!src || external) {
+      setResolved(src ?? null);
+      setFailed(false);
+      return;
+    }
+
+    // 没有工程上下文（如对话消息）时退回原始路径，交给浏览器尝试
+    if (!context) {
+      setResolved(src);
+      setFailed(false);
+      return;
+    }
+
+    let cancelled = false;
+    setResolved(null);
+    setFailed(false);
+    ipc
+      .readEmbeddedImage(context.projectId, context.markdownPath, src)
+      .then((result) => {
+        if (cancelled) return;
+        if (result.ok) setResolved(result.dataUrl);
+        else setFailed(true);
+      })
+      .catch(() => {
+        if (!cancelled) setFailed(true);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [src, external, context?.projectId, context?.markdownPath, context]);
+
+  if (failed) {
+    return (
+      <span
+        title={src}
+        className="my-2 inline-flex items-center rounded border border-border bg-surface px-2 py-1 text-caption text-text-muted"
+      >
+        图片无法加载：{alt || src}
+      </span>
+    );
+  }
+
+  if (!resolved) return null;
+
+  return (
+    <img
+      src={resolved}
+      alt={alt}
+      {...props}
+      className="my-2 max-w-full rounded-md"
+    />
+  );
 }
 
 /** 代码块组件 — Shiki 高亮（主题取自当前皮肤） */
@@ -71,11 +164,44 @@ function InlineCode({ children }: { children: React.ReactNode }) {
   );
 }
 
-function MarkdownRendererImpl({ content }: { content: string }) {
+export interface MarkdownRendererProps {
+  content: string;
+  /** 项目文件预览时传入，用于解析 Markdown 中的本地相对路径图片 */
+  projectId?: string;
+  /** 当前 Markdown 文件相对项目根目录的路径 */
+  markdownPath?: string;
+  /** 是否渲染 raw HTML（README 等文档里的 <img> / <table>） */
+  allowHtml?: boolean;
+}
+
+function MarkdownRendererImpl({
+  content,
+  projectId,
+  markdownPath,
+  allowHtml = false,
+}: MarkdownRendererProps) {
+  const imageContext = useMemo(
+    () =>
+      projectId && markdownPath ? { projectId, markdownPath } : null,
+    [projectId, markdownPath],
+  );
+
+  const rehypePlugins = useMemo(
+    () =>
+      allowHtml
+        ? ([rehypeRaw, [rehypeSanitize, htmlSchema]] as Parameters<
+            typeof ReactMarkdown
+          >[0]["rehypePlugins"])
+        : undefined,
+    [allowHtml],
+  );
+
   return (
-    <div className="nova-markdown text-body-lg leading-relaxed text-text">
+    <MarkdownImageContext.Provider value={imageContext}>
+      <div className="nova-markdown text-body-lg leading-relaxed text-text">
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
+        rehypePlugins={rehypePlugins}
         components={{
           // 代码块 vs 内联代码
           code({ className, children, ...props }) {
@@ -108,6 +234,8 @@ function MarkdownRendererImpl({ content }: { content: string }) {
             </a>
           ),
 
+          img: MarkdownImage,
+
           blockquote: ({ children }) => (
             <blockquote className="mb-2 border-l-2 border-border-strong pl-3 text-text-secondary italic">
               {children}
@@ -137,7 +265,8 @@ function MarkdownRendererImpl({ content }: { content: string }) {
       >
         {content}
       </ReactMarkdown>
-    </div>
+      </div>
+    </MarkdownImageContext.Provider>
   );
 }
 

@@ -33,7 +33,19 @@ function clampTerminalFontSize(size: number): number {
   return Math.min(40, Math.max(8, px));
 }
 
-export function TerminalView({ tab }: { tab: TerminalSession }) {
+export function TerminalView({
+  tab,
+  showWorkspace,
+  onToggleWorkspace,
+}: {
+  tab: TerminalSession;
+  /**
+   * 右侧工作区文件面板是否展开。与对话页一致，由终端顶栏按钮切换；
+   * 不传 onToggleWorkspace 时不渲染切换按钮。
+   */
+  showWorkspace?: boolean;
+  onToggleWorkspace?: () => void;
+}) {
   const containerRef = useRef<HTMLDivElement>(null);
   const terminalRef = useRef<Terminal | null>(null);
   /** 供字体设置变化时重新适配尺寸 */
@@ -214,20 +226,56 @@ export function TerminalView({ tab }: { tab: TerminalSession }) {
   return (
     <main className="flex h-full min-h-0 flex-col overflow-hidden">
       {/* 与其他中心区域标题栏保持同一高度（--c-layout-header） */}
-      <div className="ui-glass flex h-[var(--c-layout-header)] shrink-0 items-center gap-2 border-b border-border px-4 text-meta text-text-muted">
-        <SquareTerminal className="h-4 w-4 shrink-0 text-accent" />
-        <span className="shrink-0 font-medium text-text">{tab.name}</span>
-        <span className="shrink-0 font-mono text-text-muted">
-          {runtime?.shell ?? "shell"}
-        </span>
-        <span className="min-w-0 truncate font-mono" title={runtime?.cwd}>
-          {runtime?.cwd ?? tab.cwd}
-        </span>
+      <div className="ui-glass flex h-[var(--c-layout-header)] shrink-0 items-center justify-between gap-2 border-b border-border px-4 text-meta text-text-muted">
+        <div className="flex min-w-0 items-center gap-2">
+          <SquareTerminal className="h-4 w-4 shrink-0 text-accent" />
+          <span className="shrink-0 font-medium text-text">{tab.name}</span>
+          <span className="shrink-0 font-mono text-text-muted">
+            {runtime?.shell ?? "shell"}
+          </span>
+          <span className="min-w-0 truncate font-mono" title={runtime?.cwd}>
+            {runtime?.cwd ?? tab.cwd}
+          </span>
+        </div>
+        {onToggleWorkspace && (
+          <WorkspaceToggleButton
+            showWorkspace={Boolean(showWorkspace)}
+            onToggle={onToggleWorkspace}
+          />
+        )}
       </div>
       {/* 内边距由 .ui-terminal .xterm 提供：FitAddon 会从可用尺寸里扣除
           .xterm 自身的 padding，放在容器上则不会被扣，终端会被裁掉。 */}
       <div ref={containerRef} className="ui-terminal min-h-0 flex-1 overflow-hidden" />
     </main>
+  );
+}
+
+/** 顶栏右侧的工作区文件面板开关：与对话页 ChatArea 顶栏同一套交互 */
+export function WorkspaceToggleButton({
+  showWorkspace,
+  onToggle,
+}: {
+  showWorkspace: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      title={showWorkspace ? "隐藏工作区文件" : "显示工作区文件"}
+      aria-label={showWorkspace ? "隐藏工作区文件" : "显示工作区文件"}
+      aria-pressed={showWorkspace}
+      className={`ui-btn-round ui-icon-action flex size-icon-btn shrink-0 items-center justify-center rounded-full ${
+        showWorkspace ? "text-accent" : ""
+      }`}
+    >
+      {showWorkspace ? (
+        <PanelRightClose className="h-4 w-4" />
+      ) : (
+        <PanelRightOpen className="h-4 w-4" />
+      )}
+    </button>
   );
 }
 

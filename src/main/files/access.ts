@@ -8,6 +8,7 @@
 import { open, readFile, realpath, stat } from "node:fs/promises";
 import {
   basename,
+  dirname,
   extname,
   isAbsolute,
   relative,
@@ -16,6 +17,7 @@ import {
 import type {
   FilePreview,
   FilePreviewKind,
+  ReadEmbeddedImageResult,
   ReadFileResult,
 } from "../../shared/types";
 import * as db from "../db/sqlite";
@@ -25,14 +27,19 @@ const MAX_EMBED_BYTES = 25 * 1024 * 1024;
 
 const IMAGE_MIME_TYPES: Record<string, string> = {
   png: "image/png",
+  apng: "image/apng",
   jpg: "image/jpeg",
   jpeg: "image/jpeg",
+  jfif: "image/jpeg",
+  pjpeg: "image/jpeg",
   gif: "image/gif",
   webp: "image/webp",
   bmp: "image/bmp",
   ico: "image/x-icon",
   avif: "image/avif",
   tiff: "image/tiff",
+  tif: "image/tiff",
+  svg: "image/svg+xml",
 };
 
 const CODE_LANGUAGES: Record<string, string> = {
@@ -207,13 +214,75 @@ export async function resolveProjectFile(
   projectId: string,
   relativePath: string,
 ): Promise<string> {
+  const root = await projectRoot(projectId);
+  const fullPath = await resolveInside(root, resolve(root, relativePath));
+  return fullPath;
+}
+
+/**
+ * 读取 Markdown 中引用的本地图片，按「所在文档目录」解析后转成 data URL。
+ *
+ * 渲染进程无法直接访问本地文件（页面基址是 dev server / 应用目录），
+ * 因此相对路径图片必须由主进程读取并内联。
+ */
+export async function readEmbeddedImage(
+  projectId: string,
+  markdownPath: string,
+  src: string,
+): Promise<ReadEmbeddedImageResult> {
+  try {
+    const raw = src.trim();
+    // 远程地址 / data URL / 协议相对地址交由渲染进程自己处理
+    if (!raw || /^(?:[a-z][a-z0-9+.-]*:|\/\/|#)/i.test(raw)) {
+      return { ok: false, error: "不是本地图片路径" };
+    }
+
+    // 去掉 ?query / #hash，并还原 %20 这类转义
+    let pathPart = raw.split("#")[0].split("?")[0];
+    try {
+      pathPart = decodeURIComponent(pathPart);
+    } catch {
+      // 非法转义：按原文解析
+    }
+    if (!pathPart) return { ok: false, error: "图片路径为空" };
+
+    const root = await projectRoot(projectId);
+    const markdownFullPath = await resolveProjectFile(projectId, markdownPath);
+    // 以 / 开头视为项目根目录，否则相对当前 Markdown 文件
+    const base = pathPart.startsWith("/") ? root : dirname(markdownFullPath);
+    const candidate = resolve(base, pathPart.replace(/^[/\\]+/, ""));
+    const fullPath = await resolveInside(root, candidate);
+
+    const fileStat = await stat(fullPath);
+    if (!fileStat.isFile()) return { ok: false, error: "目标不是普通文件" };
+    if (fileStat.size > MAX_EMBED_BYTES) {
+      return { ok: false, error: "图片过大，无法内嵌预览" };
+    }
+
+    const extension = extname(fullPath).slice(1).toLowerCase();
+    const mimeType = IMAGE_MIME_TYPES[extension];
+    if (!mimeType) return { ok: false, error: "不支持的图片格式" };
+
+    const buffer = await readFile(fullPath);
+    return {
+      ok: true,
+      mimeType,
+      dataUrl: `data:${mimeType};base64,${buffer.toString("base64")}`,
+    };
+  } catch (err) {
+    return { ok: false, error: formatFileError(err) };
+  }
+}
+
+async function projectRoot(projectId: string): Promise<string> {
   const project = db.getProject(projectId);
   if (!project?.cwd) throw new Error("项目不存在或未配置工作目录");
+  return realpath(project.cwd);
+}
 
-  const root = await realpath(project.cwd);
-  const candidate = resolve(root, relativePath);
+/** 校验候选路径（含符号链接解析结果）仍在项目根目录内 */
+async function resolveInside(root: string, candidate: string): Promise<string> {
   if (!isInside(root, candidate)) throw new Error("文件路径超出项目目录");
-
   const fullPath = await realpath(candidate);
   if (!isInside(root, fullPath)) throw new Error("文件路径超出项目目录");
   return fullPath;

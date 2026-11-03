@@ -20,9 +20,18 @@ export function registerWorkflowHandlers(
 
   handle("workflows:get", ({ id }) => db.getWorkflow(id));
 
-  handle("workflows:create", ({ draft }) => db.createWorkflow(draft));
+  handle("workflows:create", ({ draft }) => {
+    if (!draft.name.trim()) throw new Error("工作流名称不能为空");
+    if (!db.getProject(draft.workspaceId)) {
+      throw new Error("工作流必须归属于一个已存在的工作区");
+    }
+    return db.createWorkflow(draft);
+  });
 
-  handle("workflows:update", ({ id, draft }) => db.updateWorkflow(id, draft));
+  handle("workflows:update", ({ id, draft }) => {
+    if (!draft.name.trim()) throw new Error("工作流名称不能为空");
+    return db.updateWorkflow(id, draft);
+  });
 
   handle("workflows:delete", async ({ id }) => {
     if (runner.hasActiveRunForWorkflow(id)) {

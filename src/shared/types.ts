@@ -192,6 +192,11 @@ export type ReadFileResult =
   | { ok: true; file: FilePreview }
   | { ok: false; error: string };
 
+/** Markdown 内嵌图片：按所在文档目录解析后转成 data URL，供渲染进程展示 */
+export type ReadEmbeddedImageResult =
+  | { ok: true; dataUrl: string; mimeType: string }
+  | { ok: false; error: string };
+
 export interface OpenFileExternalResult {
   ok: boolean;
   error?: string;
@@ -440,18 +445,16 @@ export interface KnowledgeDocumentContent {
 /**
  * Skill 来源。
  *
- * - claude-global   Claude Code 全局技能目录 ~/.claude/skills（Nova 可写）
- * - agents-store    ~/.agents/skills（其他工具维护，只读）
+ * - claude-global   Claude Code 全局技能目录 ~/.claude/skills
  *
  * Nova 不再维护自己的技能主库。
  */
-export type SkillOrigin = "claude-global" | "agents-store";
+export type SkillOrigin = "claude-global";
 
 /**
  * 一个技能资产 = 磁盘上的一个技能目录（含 SKILL.md）。
  *
- * 技能内容始终以文件为准，本结构只是扫描后的索引视图；
- * 同名技能可以在多个来源同时存在，UI 按来源分别展示。
+ * 技能内容始终以文件为准，本结构只是扫描后的索引视图。
  */
 export interface SkillAsset {
   /** 稳定引用 id，格式 `${origin}:${slug}` */
@@ -571,12 +574,6 @@ export type WorkflowReviewMode = "auto" | "manual";
 export interface WorkflowNodeConfig {
   /** 绑定的数字员工 id；仅 employee 节点使用，未配置时为 null */
   employeeId: string | null;
-  /**
-   * 执行该节点的 Agent（AgentManifest.id）；仅 employee 节点使用。
-   *
-   * Agent 属于节点而不是员工：同一位员工可以在不同节点里交给不同的 CLI 执行。
-   */
-  agentId: string | null;
   /** 任务详情：节点执行时交给数字员工的完整指令 */
   taskDetail: string;
   failureStrategy: WorkflowFailureStrategy;
@@ -672,7 +669,6 @@ export interface WorkflowTriggerBinding {
 // ============================================================================
 
 export type WorkflowRunStatus =
-  | "queued"
   | "running"
   | "awaiting_approval"
   | "succeeded"
@@ -751,11 +747,15 @@ export interface WorkflowRunEvent {
   createdAt: number;
 }
 
-/** 运行详情一次性返回：run + 节点状态 + 事件（用于打开页面时回放） */
+/**
+ * 运行详情：run + 节点状态。
+ *
+ * 事件日志不在详情里返回：实时更新由 workflow:run:event 推送驱动，
+ * 页面只需要 run / nodes，携带全量事件会让长运行的每次刷新都变成全表读取。
+ */
 export interface WorkflowRunDetail {
   run: WorkflowRun;
   nodes: WorkflowNodeRun[];
-  events: WorkflowRunEvent[];
 }
 
 /** 节点产物目录里的单个文件 */
@@ -765,18 +765,45 @@ export interface WorkflowArtifactFile {
   size: number;
 }
 
+/** 单次尝试的完整对话（user 指令 + assistant 的思考 / 工具调用 / 文本） */
+export interface WorkflowNodeAttemptDetail {
+  /** 尝试序号，从 1 开始 */
+  attempt: number;
+  sessionId: string | null;
+  messages: Message[];
+}
+
+/**
+ * 运行中节点的实时事件快照。
+ *
+ * 主进程在节点执行期间保留原始事件（不落库），供运行记录中途打开时回放；
+ * 后续事件通过 `workflow:run:agentEvent` 推送，按 seq 合并。
+ */
+export interface WorkflowNodeLiveTranscript {
+  /** 尝试序号，从 1 开始 */
+  attempt: number;
+  /** 已产生的事件数；events[seq - 1] 对应该序号 */
+  seq: number;
+  events: AgentEvent[];
+}
+
 /**
  * 单个节点的执行详情。
  *
- * 每个节点只保留两份文本：提交给 Agent 的完整请求、Agent 的最终返回。
- * 文本按需从产物目录读取；mcp.json 含环境变量，不对外暴露。
+ * execution / result 是落盘的两份文本；attempts 是每次尝试的完整对话，
+ * 用于在运行记录里还原 Claude 的完整执行链路。
+ * mcp.json 含环境变量，不对外暴露。
  */
 export interface WorkflowNodeRunDetail {
-  /** 提交给 Agent 的完整请求（系统提示词 + 任务输入） */
-  request: string;
+  /** 本次执行的完整现场（Agent 配置 / 注入能力 / 命令行 / 提示词 / 结果） */
+  execution: string;
   /** Agent 最终返回 */
   result: string;
   files: WorkflowArtifactFile[];
+  /** 按尝试顺序排列的对话；旧记录或尚未开始执行时为空 */
+  attempts: WorkflowNodeAttemptDetail[];
+  /** 节点正在执行时的实时事件快照；不在运行时为 null */
+  live: WorkflowNodeLiveTranscript | null;
 }
 
 // ============================================================================

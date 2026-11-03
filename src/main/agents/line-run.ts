@@ -14,7 +14,6 @@ import type { RunOptions, RunResult, RunSession } from "./types";
 import {
   createLineBuffer,
   spawnChild,
-  spawnPty,
   stripAnsi,
   type Transport,
   type TransportHandlers,
@@ -31,14 +30,14 @@ export interface LineRunConfig {
   args: string[];
   /** 工作目录，调用方保证已存在 */
   cwd: string;
-  /** 传输方式，由 provider 选择 */
-  transport: "pty" | "pipe";
   /** 超时毫秒数 */
   timeoutMs?: number;
   /** 子进程追加的环境变量 */
   env?: Record<string, string>;
   /** 子进程需要剔除的环境变量 */
   envRemove?: string[];
+  /** 通过 stdin 传给子进程的内容（含换行的 prompt 不能走命令行参数） */
+  stdin?: string;
   /** 从一行输出中提取会话 id；返回 null 表示该行不含会话信息 */
   extractSessionId(line: string): string | null;
   /** 把一行输出解码为事件（可返回多个） */
@@ -124,22 +123,17 @@ export function startLineRun(
   };
 
   try {
-    transport =
-      config.transport === "pty"
-        ? spawnPty(
-            config.args,
-            config.cwd,
-            config.env,
-            config.envRemove,
-            transportHandlers,
-          )
-        : spawnChild(
-            config.args,
-            config.cwd,
-            config.env,
-            config.envRemove,
-            transportHandlers,
-          );
+    transport = spawnChild(
+      config.args,
+      config.cwd,
+      config.env,
+      config.envRemove,
+      transportHandlers,
+    );
+
+    if (transport && config.stdin !== undefined) {
+      transport.writeInput(config.stdin);
+    }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     // 启动失败属于失败（不是用户中断），只是不需要再补一条重复的 error

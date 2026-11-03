@@ -28,7 +28,8 @@
  * - tool_use 与 tool_result 靠 id 配对：tool_result 协议里只有 tool_use_id、
  *   没有工具名，因此解码器记住本次运行内 id → 工具名，给结果补上宿主需要的 name
  * - 工具名到展示分类的归一化交给 tool-display；按约定不展示的工具（Bash 等
- *   shell 执行类）在调用与结果两侧都被丢掉，不进入消息流
+ *   shell 执行类）在聊天模式下调用与结果两侧都被丢掉；工作流模式需要还原
+ *   完整执行链路，因此通过 includeSilentTools 保留
  */
 
 import type { AgentEvent } from "../../../shared/types";
@@ -83,7 +84,11 @@ function resultText(content: unknown): string {
  * assistant 消息的 content → 事件块。
  * 同时记录 tool_use 的 id → 工具名，供随后到达的 tool_result 使用。
  */
-export function mapAssistantBlocks(content: unknown, names: CallNames): AgentEvent[] {
+export function mapAssistantBlocks(
+  content: unknown,
+  names: CallNames,
+  includeSilentTools = false,
+): AgentEvent[] {
   if (!Array.isArray(content)) return [];
   const out: AgentEvent[] = [];
   for (const raw of content) {
@@ -96,7 +101,7 @@ export function mapAssistantBlocks(content: unknown, names: CallNames): AgentEve
       if (block.text) out.push({ type: "text", content: block.text });
     } else if (block.type === "tool_use" && typeof block.name === "string") {
       if (block.id) names.set(block.id, block.name);
-      const display = describeTool(block.name, block.input);
+      const display = describeTool(block.name, block.input, includeSilentTools);
       // 约定不展示的工具：调用不进消息流（名字已记录，其结果同样会被丢掉）
       if (!display) continue;
       out.push({
@@ -114,7 +119,11 @@ export function mapAssistantBlocks(content: unknown, names: CallNames): AgentEve
 }
 
 /** user 消息里的 tool_result 块 → 事件；按 call id 补上工具名 */
-export function mapToolResultBlocks(content: unknown, names: CallNames): AgentEvent[] {
+export function mapToolResultBlocks(
+  content: unknown,
+  names: CallNames,
+  includeSilentTools = false,
+): AgentEvent[] {
   if (!Array.isArray(content)) return [];
   const out: AgentEvent[] = [];
   for (const raw of content) {
@@ -122,7 +131,7 @@ export function mapToolResultBlocks(content: unknown, names: CallNames): AgentEv
     const block = raw as ContentBlock;
     if (block.type !== "tool_result") continue;
     const name = (block.tool_use_id && names.get(block.tool_use_id)) || "tool";
-    if (isSilentTool(name)) continue;
+    if (!includeSilentTools && isSilentTool(name)) continue;
     out.push({
       type: "tool_result",
       callId: block.tool_use_id,
@@ -151,10 +160,12 @@ export interface MessageBuffer {
  * 已累积了哪些块」记在闭包里。前者让 tool_result 能补上工具名（协议只给 id），
  * 后者让按块到达的 assistant 事件能拼成完整消息再发权威块。
  */
-export function createDecoder(): (line: string) => AgentEvent | AgentEvent[] | null {
+export function createDecoder(
+  includeSilentTools = false,
+): (line: string) => AgentEvent | AgentEvent[] | null {
   const names: CallNames = new Map();
   const buffer: MessageBuffer = { id: null, blocks: [] };
-  return (line) => decode(line, names, buffer);
+  return (line) => decode(line, names, buffer, includeSilentTools);
 }
 
 /** 把一行 JSON 解码为事件 */
@@ -162,6 +173,7 @@ export function decode(
   line: string,
   names: CallNames,
   buffer: MessageBuffer,
+  includeSilentTools = false,
 ): AgentEvent | AgentEvent[] | null {
   if (!line.trim()) return null;
 
@@ -207,7 +219,11 @@ export function decode(
     // 兜底：万一没收到 message_start，靠 message.id 变化识别新消息
     if (messageId && buffer.id && messageId !== buffer.id) buffer.blocks = [];
     if (messageId) buffer.id = messageId;
-    const blocks = mapAssistantBlocks(message?.content, names);
+    const blocks = mapAssistantBlocks(
+      message?.content,
+      names,
+      includeSilentTools,
+    );
     // 只剩不展示的工具（Bash 等）：不发事件，也不并入累积块
     if (blocks.length === 0) return null;
     buffer.blocks.push(...blocks);
@@ -217,7 +233,11 @@ export function decode(
   // 工具回执
   if (type === "user") {
     const message = obj.message as { content?: unknown } | undefined;
-    const events = mapToolResultBlocks(message?.content, names);
+    const events = mapToolResultBlocks(
+      message?.content,
+      names,
+      includeSilentTools,
+    );
     return events.length > 0 ? events : null;
   }
 

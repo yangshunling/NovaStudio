@@ -68,7 +68,6 @@ export function registerWorkflowRunHandlers(runner: WorkflowRunner): void {
     return {
       run,
       nodes: db.listWorkflowNodeRuns(runId),
-      events: db.listWorkflowRunEvents(runId),
     };
   });
 
@@ -98,10 +97,31 @@ export function registerWorkflowRunHandlers(runner: WorkflowRunner): void {
     if (!nodeRun || nodeRun.runId !== runId) return null;
 
     const dir = nodeRun.artifactDir;
+
+    // 每次尝试都是一个独立会话；旧数据没有 attempt 行时回退到节点自身
+    const attempts = db.listWorkflowNodeAttempts(nodeRun.id);
+    const sources =
+      attempts.length > 0
+        ? attempts
+        : nodeRun.sessionId
+          ? [{ attempt: nodeRun.attempt, sessionId: nodeRun.sessionId }]
+          : [];
+
+    // 先取快照再做文件读取：读取期间事件还在追加，快照保持一致性
+    const live = runner.liveTranscript(runId, nodeRun.id);
+
     return {
-      request: await readTextFile(nodeRun.inputPath),
+      execution: await readTextFile(nodeRun.inputPath),
       result: await readTextFile(nodeRun.outputPath),
       files: dir ? await listArtifactFiles(dir) : [],
+      attempts: sources.map(({ attempt, sessionId }) => ({
+        attempt,
+        sessionId,
+        // 工作流会话的完整事件流在 messages 表里（含思考 / 工具调用 / 工具结果）
+        messages: sessionId ? (db.readSessionMessages(sessionId) ?? []) : [],
+      })),
+      // 节点仍在执行时，数据库里只有用户消息；已产生的对话从运行器内存取
+      live,
     };
   });
 

@@ -65,7 +65,7 @@ export function ChatArea({ embedded = false }: { embedded?: boolean } = {}) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const fileMention = useFileMention({
-    cwd: currentProject?.cwd ?? "",
+    projectId: currentProject?.id ?? "",
     input,
     setInput,
     textareaRef,

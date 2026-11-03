@@ -18,30 +18,16 @@ import {
   writeFileSync,
 } from "fs";
 import { dirname } from "path";
-import type {
-  AgentModelAlias,
-  AgentModelEntry,
-  AgentSettingsDraft,
-  AgentSettingsView,
+import {
+  AGENT_MODEL_ALIASES,
+  type AgentModelAlias,
+  type AgentModelEntry,
+  type AgentSettingsDraft,
+  type AgentSettingsView,
 } from "../../../shared/contracts/agent";
-import { claudeSettingsPath } from "./config";
+import { claudeSettingsPath, isOfficialBaseUrl } from "./config";
 
-const ALIASES: readonly AgentModelAlias[] = [
-  "fable",
-  "opus",
-  "sonnet",
-  "haiku",
-];
-
-function isOfficialBaseUrl(baseUrl: string): boolean {
-  const trimmed = baseUrl.trim();
-  if (!trimmed) return true;
-  try {
-    return new URL(trimmed).hostname.toLowerCase() === "api.anthropic.com";
-  } catch {
-    return false;
-  }
-}
+const ALIASES = AGENT_MODEL_ALIASES;
 
 function normalizeBaseUrl(raw: string): string {
   const trimmed = raw.trim().replace(/\/+$/, "");

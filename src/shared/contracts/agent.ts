@@ -90,6 +90,19 @@ export interface AgentInfo extends AgentManifest {
 export type AgentModelAlias = "fable" | "opus" | "sonnet" | "haiku";
 
 /**
+ * 别名槽位的唯一来源。
+ *
+ * 新增 / 调整别名时只改这里：设置读写、模型设置页与环境变量命名都从这里推导，
+ * 避免三处列表各自漏改导致“页面上能选、保存时被丢弃”。
+ */
+export const AGENT_MODEL_ALIASES: readonly AgentModelAlias[] = [
+  "fable",
+  "opus",
+  "sonnet",
+  "haiku",
+];
+
+/**
  * 一个模型配置。
  *
  * Claude 的模型 ID 可能带上下文后缀，例如 `deepseek-flash[1M]`；

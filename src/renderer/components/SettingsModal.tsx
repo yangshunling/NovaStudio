@@ -173,10 +173,10 @@ function PollIntervalControl() {
   /** 失焦 / 回车时提交：非法值回退到上次保存值，合法值夹到区间内 */
   const commit = () => {
     const n = Math.floor(Number(draft));
-    const next =
-      Number.isFinite(n) && n >= POLL_INTERVAL_MIN
-        ? Math.min(n, POLL_INTERVAL_MAX)
-        : saved.current;
+    // 低于下限也夹到下限，与输入框提示“允许的区间”保持一致
+    const next = Number.isFinite(n)
+      ? Math.min(POLL_INTERVAL_MAX, Math.max(POLL_INTERVAL_MIN, n))
+      : saved.current;
     saved.current = next;
     setDraft(String(next));
     void ipc.setSettings({ automationPollIntervalSec: next });
@@ -235,10 +235,9 @@ function TimeoutControl() {
   /** 失焦 / 回车时提交：非法值回退到上次保存值，合法值夹到区间内 */
   const commit = () => {
     const n = Math.floor(Number(draft));
-    const next =
-      Number.isFinite(n) && n >= TIMEOUT_MIN
-        ? Math.min(n, TIMEOUT_MAX)
-        : saved.current;
+    const next = Number.isFinite(n)
+      ? Math.min(TIMEOUT_MAX, Math.max(TIMEOUT_MIN, n))
+      : saved.current;
     saved.current = next;
     setDraft(String(next));
     void ipc.setSettings({ agentTimeoutMinutes: next });

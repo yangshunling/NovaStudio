@@ -310,6 +310,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
     const state = get();
     const currentId = state.currentSessionId;
 
+    // 同一会话不允许并发发送：主进程按 sessionId 只保留一个运行句柄，
+    // 第二次发送会覆盖运行记录，导致中断与状态都不正确。
+    if (currentId && state.streamingBySession[currentId]) return;
+
     // 无会话 → 预创建一个，拿到 sessionId 再发（保证事件可路由）
     let sessionId: string;
     let agentId: string;
@@ -414,8 +418,16 @@ export const useChatStore = create<ChatState>((set, get) => ({
     set((state) => {
       const msgs = state.messagesBySession[sessionId] ?? [];
       const last = msgs[msgs.length - 1];
-      // 当前轮进行中的 assistant 消息：合并事件进其 content
-      if (last && last.role === "assistant" && state.streamingBySession[sessionId]) {
+
+      /*
+       * 只要最后一条是 assistant 就合并，不再依赖 streaming 标记。
+       *
+       * 渲染层刷新后 store 是空的，但主进程仍在推事件；此时若要求
+       * streaming=true 才合并，每个 delta 都会新建一条消息，对话被切成碎片。
+       * 用“最后一条是不是 assistant”判断，刷新后第一条事件会新建消息并
+       * 打开流式标记，后续事件自然合并，done 到达后恢复正常。
+       */
+      if (last && last.role === "assistant") {
         const updated: Message = { ...last, content: appendEvent(last.content, event) };
         return {
           messagesBySession: {
@@ -424,6 +436,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
           },
         };
       }
+
       const newMsg: Message = {
         id: newId(),
         role: "assistant",
@@ -432,14 +445,35 @@ export const useChatStore = create<ChatState>((set, get) => ({
       };
       return {
         messagesBySession: { ...state.messagesBySession, [sessionId]: [...msgs, newMsg] },
+        // 未知会话收到事件（例如运行中刷新）：恢复“正在执行”状态
+        streamingBySession: { ...state.streamingBySession, [sessionId]: true },
       };
     });
   },
 
   _onDone: (data: { sessionId: string }) => {
     set((s) => ({ streamingBySession: { ...s.streamingBySession, [data.sessionId]: false } }));
-    // 刷新会话列表（标题/排序更新）
-    void get().loadSessions();
+
+    // 以主进程落库的消息为准回填：流式期间可能丢事件（刷新 / 断线），
+    // 不重新读取的话碎片化状态会一直留在内存里。
+    void (async () => {
+      try {
+        const session = await ipc.getSession(data.sessionId);
+        // 期间用户可能已经发出下一条消息：此时不能覆盖新运行的实时状态
+        if (session && !get().streamingBySession[data.sessionId]) {
+          set((s) => ({
+            messagesBySession: {
+              ...s.messagesBySession,
+              [data.sessionId]: session.messages ?? [],
+            },
+          }));
+        }
+      } catch {
+        // 回填失败保留内存中的消息，不影响继续使用
+      }
+      // 刷新会话列表（标题/排序更新）
+      void get().loadSessions();
+    })();
   },
 }));
 

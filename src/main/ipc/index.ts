@@ -6,7 +6,7 @@
  */
 
 import { app, BrowserWindow } from "electron";
-import { createAgentService } from "../engine/agent-service";
+import { createAgentService, type AgentService } from "../engine/agent-service";
 import {
   createWorkflowRunner,
   type WorkflowRunner,
@@ -42,20 +42,35 @@ let workflowRunner: WorkflowRunner | null = null;
 /** 定时触发器调度器 */
 let triggerScheduler: TriggerScheduler | null = null;
 
+/** Agent 服务实例；应用退出时需要中断所有运行中的会话 */
+let agentService: AgentService | null = null;
+
+/**
+ * 把主进程推送绑定到窗口。
+ *
+ * macOS 关闭所有窗口后应用仍然存活，重新激活时会创建新窗口，
+ * 此时必须重新绑定，否则所有事件推送会发往已销毁的窗口。
+ */
+export function attachMainWindow(window: BrowserWindow | null): void {
+  setMainWindow(window);
+}
+
 /**
  * 注册全部 IPC 处理器。
  * 必须在窗口创建之后调用：push 模块需要真实窗口引用，
  * 否则所有事件推送会静默丢弃。
  */
 export function initIpcHandlers(window: BrowserWindow): void {
-  setMainWindow(window);
+  attachMainWindow(window);
 
   const service = createAgentService(push);
+  agentService = service;
 
   // 删除工作流 / 工作区前需要查询是否有活跃运行，因此运行器先于 handler 创建
   const runner = createWorkflowRunner({
     service,
     emit: (event) => push("workflow:run:event", event),
+    emitAgentEvent: (payload) => push("workflow:run:agentEvent", payload),
     userDataDir: app.getPath("userData"),
   });
   workflowRunner = runner;
@@ -104,4 +119,10 @@ export function stopWorkflows(): void {
 export function stopTriggers(): void {
   triggerScheduler?.stop();
   triggerScheduler = null;
+}
+
+/** 中断聊天 / 自动化等所有运行中的 Agent 会话（应用退出时调用） */
+export function stopAgents(): void {
+  agentService?.shutdown();
+  agentService = null;
 }

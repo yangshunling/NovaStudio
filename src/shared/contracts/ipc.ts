@@ -25,6 +25,7 @@ import type {
   McpWriteResult,
   OpenFileExternalResult,
   Project,
+  ReadEmbeddedImageResult,
   ReadFileResult,
   Session,
   SkillAsset,
@@ -95,18 +96,25 @@ export interface IpcInvokeMap {
   "project:delete": { args: [{ id: string }]; result: boolean };
   /** 列出项目目录下的文件，供 @ 提及选择 */
   "project:listFiles": {
-    args: [{ cwd: string; subPath?: string }];
+    args: [{ projectId: string; subPath?: string }];
     result: FileEntry[];
   };
+  /** 在系统文件管理器中定位到工作区根目录 */
+  "project:reveal": { args: [{ id: string }]; result: boolean };
   /** 读取当前项目的 Git 状态，供文件树显示新增 / 修改 / 删除等标记 */
   "project:gitStatus": {
-    args: [{ cwd: string }];
+    args: [{ projectId: string }];
     result: GitStatusSummary;
   };
   /** 读取项目内文件，供中间区域只读预览 */
   "file:read": {
     args: [{ projectId: string; relativePath: string }];
     result: ReadFileResult;
+  };
+  /** 读取 Markdown 内引用的本地图片，按文档所在目录解析后返回 data URL */
+  "file:readEmbeddedImage": {
+    args: [{ projectId: string; markdownPath: string; src: string }];
+    result: ReadEmbeddedImageResult;
   };
   /** 使用系统默认程序打开项目内文件 */
   "file:openExternal": {
@@ -293,7 +301,7 @@ export interface IpcInvokeMap {
     result: boolean;
   };
   "workflow:run:openArtifacts": { args: [{ runId: string }]; result: boolean };
-  /** 单个节点的输入 / 返回 / 产物文件列表 */
+  /** 单个节点的完整执行信息 / 返回 / 产物文件列表 */
   "workflow:run:nodeDetail": {
     args: [{ runId: string; nodeRunId: string }];
     result: WorkflowNodeRunDetail | null;
@@ -342,6 +350,15 @@ export interface IpcPushMap {
   "terminal:exit": TerminalExitPayload;
   /** 工作流运行的实时状态事件（同时已落库，可断线重放） */
   "workflow:run:event": WorkflowRunEvent;
+  /** 工作流节点执行中的实时事件（不落库，用于运行记录实时查看对话） */
+  "workflow:run:agentEvent": {
+    runId: string;
+    nodeRunId: string;
+    attempt: number;
+    /** 该次尝试内的事件序号，从 1 开始 */
+    seq: number;
+    event: AgentEvent;
+  };
   /** 触发器状态变更（调度器触发 / 重算下次时间） */
   "triggers:updated": WorkflowTrigger;
 }

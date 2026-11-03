@@ -18,16 +18,6 @@ import { SKILL_ORIGIN_CLASS, SKILL_ORIGIN_LABEL } from "../../skills/presentatio
 import { BindAction, EmptyTab, Toggle } from "../ui";
 import type { EmployeeSkill, SkillAsset } from "@shared/types";
 
-/**
- * 员工只能绑定 Claude 全局技能（~/.claude/skills）。
- *
- * 共享技能库（~/.agents/skills）只做只读发现，运行时不会被复制进
- * 员工的独立配置目录，因此不进入候选列表。
- */
-function isEmployeeBindable(asset: SkillAsset): boolean {
-  return asset.origin === "claude-global";
-}
-
 export function SkillsTab({
   skills,
   onChange,
@@ -37,7 +27,7 @@ export function SkillsTab({
 }) {
   // 技能标签页同样使用放大后的字号，避免来源标签与路径看不清
   const skillFontSize = useSkillFontSize();
-  /** 可添加到员工的候选：仅 Claude 全局技能 */
+  /** 可添加到员工的候选：Claude 全局技能 */
   const [catalog, setCatalog] = useState<SkillAsset[]>([]);
   /** 全部已发现资产：用于判断已绑定条目到底是「不存在」还是「不可绑定」 */
   const [assetsById, setAssetsById] = useState<Map<string, SkillAsset>>(
@@ -52,7 +42,7 @@ export function SkillsTab({
       .listSkills()
       .then((list) => {
         if (cancelled) return;
-        setCatalog(list.filter(isEmployeeBindable));
+        setCatalog(list);
         setAssetsById(new Map(list.map((asset) => [asset.id, asset])));
         setLoadError(null);
       })
@@ -195,7 +185,6 @@ export function SkillsTab({
                   : undefined;
                 const legacy = !skill.assetId;
                 const missing = !legacy && !asset;
-                const ineligible = !!asset && !isEmployeeBindable(asset);
                 const problems = asset && !asset.valid ? asset.problems : [];
                 const key =
                   skill.assetId || skill.source || `skill-${index}`;
@@ -235,14 +224,6 @@ export function SkillsTab({
                               已失效
                             </span>
                           )}
-                          {ineligible && (
-                            <span
-                              title="共享技能库中的技能不会被注入到员工运行时"
-                              className="shrink-0 rounded-full bg-agent-amber/10 px-2 py-0.5 text-caption text-agent-amber"
-                            >
-                              不可注入
-                            </span>
-                          )}
                           {problems.length > 0 && (
                             <span
                               title={problems.join("\n")}
@@ -273,13 +254,6 @@ export function SkillsTab({
                     {missing && (
                       <p className="mt-1.5 text-meta leading-relaxed text-error">
                         技能资产已不存在（可能从未入库或已被删除）。请移除后从技能库重新选择。
-                      </p>
-                    )}
-                    {ineligible && (
-                      <p className="mt-1.5 text-meta leading-relaxed text-agent-amber">
-                        该技能来自共享技能库（~/.agents/skills），员工运行时只注入
-                        ~/.claude/skills 下的技能。请先在「Skill」页面导入到 Claude
-                        全局技能库，再重新绑定。
                       </p>
                     )}
                     {legacy && (

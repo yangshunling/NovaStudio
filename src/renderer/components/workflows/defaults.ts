@@ -10,7 +10,6 @@ import type { WorkflowNodeConfig } from "@shared/types";
 export function defaultNodeConfig(): WorkflowNodeConfig {
   return {
     employeeId: null,
-    agentId: null,
     taskDetail: "",
     failureStrategy: "stop",
     maxRetries: 1,

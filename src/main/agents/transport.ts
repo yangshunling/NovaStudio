@@ -4,16 +4,23 @@
  * 只负责「把命令跑起来、把输出原样吐出来」：
  * 不关心输出格式、不切分行、不解析 JSON、不知道任何具体 Agent 的存在。
  *
- * 切分与解码是 provider 自己的职责（见 line-run.ts 与各 provider 的 decode.ts）。
+ * 切分与解码是 provider 自己的职责（见 line-run.ts 与各 provider 的 parse.ts）。
  * 回调在创建时一次性传入，避免「先 spawn 后注册」导致早期输出丢失。
  */
 
-import * as pty from "node-pty";
-import { execFile, execFileSync, spawn } from "child_process";
+import { execFile, spawn } from "child_process";
 
-/** 传输句柄：只暴露终止能力 */
+/** 传输句柄：终止 + 写入 stdin */
 export interface Transport {
   kill(): void;
+  /**
+   * 写入 stdin 并关闭。
+   *
+   * prompt 必须走 stdin 而不是命令行参数：Windows 下经 cmd.exe 启动时，
+   * 参数里的换行会把命令行截断（后半段参数全部丢失），而工作流 prompt
+   * 与系统提示词几乎必然包含换行。
+   */
+  writeInput(data: string): void;
 }
 
 /** 传输回调，创建时注入 */
@@ -93,28 +100,9 @@ export function toCommandLine(args: string[]): string {
 }
 
 /**
- * 同步执行一条 CLI 命令并返回 stdout。
- *
- * Windows 上 npm 全局入口是 .cmd，必须经 cmd.exe 才能解析，因此这里自建命令行；
- * 其余平台直接以参数数组形式调用，不经过 shell，从根本上避免引号拼接问题。
- */
-export function execCliSync(args: string[], timeoutMs: number): string {
-  const options = {
-    encoding: "utf8" as BufferEncoding,
-    timeout: timeoutMs,
-    windowsHide: true,
-  };
-  if (process.platform === "win32") {
-    return execFileSync("cmd.exe", ["/d", "/s", "/c", toCommandLine(args)], options);
-  }
-  return execFileSync(args[0], args.slice(1), options);
-}
-
-/**
  * 异步执行一条 CLI 命令并返回 stdout。
  *
- * 与 execCliSync 共用同一套平台适配，区别是不阻塞主进程 ——
- * 用于启动期的安装探测等「不该卡住 UI」的一次性调用。
+ * 用于启动期的安装探测等「不该卡住主进程」的一次性调用。
  */
 export function execCli(args: string[], timeoutMs: number): Promise<string> {
   const options = {
@@ -136,52 +124,12 @@ export function execCli(args: string[], timeoutMs: number): Promise<string> {
 }
 
 /**
- * 用伪终端启动。
- * PTY 让子进程认为 stdout 是 TTY，使用行缓冲，输出实时（解决管道块缓冲问题）。
- * Windows 下经 cmd.exe 执行，能正确找到 npm 全局安装的 .cmd 入口；
- * POSIX 下走 /bin/sh -lc，保证 PATH 生效。
- *
- * Windows 上必须把参数**逐个**交给 node-pty，由它自己加引号：
- * 若先拼成一条已加引号的命令行走 toCommandLine，node-pty 会再转义一次内层引号，
- * cmd.exe 拿到的是被转义的引号，含空格的参数会被拆开（实测 prompt 只剩下第一个词）。
- */
-export function spawnPty(
-  args: string[],
-  cwd: string,
-  envOverrides: Record<string, string> | undefined,
-  envRemove: string[] | undefined,
-  handlers: TransportHandlers,
-): Transport {
-  const win = process.platform === "win32";
-  // cmd.exe 的 /c 会把其后的整条命令拼起来，因此参数按原样展开即可
-  const file = win ? "cmd.exe" : "/bin/sh";
-  const argv = win ? ["/d", "/s", "/c", ...args] : ["-lc", toCommandLine(args)];
-
-  const proc = pty.spawn(file, argv, {
-    name: "xterm-256color",
-    cols: 9999,
-    rows: 999,
-    cwd,
-    env: buildEnv(envOverrides, envRemove),
-  });
-
-  proc.onData((data) => handlers.onData(data));
-  proc.onExit(({ exitCode }) => handlers.onExit(exitCode));
-
-  return {
-    kill() {
-      try {
-        proc.kill();
-      } catch {
-        // 进程可能已退出
-      }
-    },
-  };
-}
-
-/**
  * 用普通管道启动（无 TTY）。
- * 适用于不需要终端特性的 CLI；Windows 下开 shell 以便解析 .cmd。
+ * 适用于不需要终端特性的 CLI；stdin 可用于传入含换行的 prompt。
+ *
+ * Windows 下显式经 cmd.exe 解析 .cmd 入口，并把参数逐个交给 spawn，
+ * 由 Node 负责引用：`shell: true` 会把参数直接拼成字符串，含空格的
+ * 路径会被拆开。
  */
 export function spawnChild(
   args: string[],
@@ -190,9 +138,12 @@ export function spawnChild(
   envRemove: string[] | undefined,
   handlers: TransportHandlers,
 ): Transport {
-  const child = spawn(args[0], args.slice(1), {
+  const win = process.platform === "win32";
+  const file = win ? "cmd.exe" : args[0];
+  const argv = win ? ["/d", "/s", "/c", ...args] : args.slice(1);
+
+  const child = spawn(file, argv, {
     cwd,
-    shell: process.platform === "win32",
     windowsHide: true,
     env: buildEnv(envOverrides, envRemove),
   });
@@ -210,7 +161,22 @@ export function spawnChild(
   return {
     kill() {
       try {
+        // Windows 下子进程是 cmd.exe，只 kill 它不会带走 claude：
+        // 用 taskkill /T 终止整棵进程树，避免取消后仍在后台跑
+        if (process.platform === "win32" && child.pid) {
+          spawn("taskkill", ["/pid", String(child.pid), "/T", "/F"], {
+            windowsHide: true,
+          });
+          return;
+        }
         child.kill();
+      } catch {
+        // 进程可能已退出
+      }
+    },
+    writeInput(data) {
+      try {
+        child.stdin?.end(data);
       } catch {
         // 进程可能已退出
       }

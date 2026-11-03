@@ -18,10 +18,38 @@ import type {
 } from "../../shared/types";
 import type { AgentManifest, AgentStatus } from "../../shared/contracts/agent";
 
+/**
+ * 一次子进程调用的精确信息。
+ *
+ * provider 在真正启动进程前回调，宿主把它写入运行产物，
+ * 用于排查“到底是哪个参数不对”。
+ */
+export interface AgentInvocationInfo {
+  /** 实际可执行文件 / 命令 */
+  command: string;
+  /** 命令行参数（第 0 项通常也是 command；stdin 内容不在这里） */
+  args: string[];
+  cwd: string;
+  /** 通过 stdin 传入的内容说明（不重复打印大段 prompt） */
+  stdin?: string;
+  /** 本次额外注入的环境变量（已脱敏由宿主负责） */
+  env?: Record<string, string>;
+  /** 本次移除的环境变量名 */
+  envRemove?: string[];
+  /** 无法体现在命令行中的说明 */
+  notes?: string[];
+}
+
 /** 一次调用的输入 */
 export interface RunOptions {
   prompt: string;
   cwd: string;
+  /**
+   * 运行来源。
+   * 工作流节点需要还原完整执行链路，因此保留命令类工具调用；
+   * 聊天界面继续过滤这类噪声。缺省按 chat 处理。
+   */
+  mode?: "chat" | "workflow";
   /** 要恢复的会话引用；null 表示新建会话。引用语义由 provider 自己解释 */
   sessionRef: string | null;
   /** 宿主内部注入的运行参数（如工作流系统提示词）；不是用户可配置项 */
@@ -46,6 +74,8 @@ export interface RunOptions {
   onEvent: (event: AgentEvent) => void;
   /** 首次拿到会话原始 id 时回调，供宿主持久化 */
   onSessionId: (rawId: string) => void;
+  /** 子进程启动前回调精确的调用信息，供运行产物审计 */
+  onInvocation?: (info: AgentInvocationInfo) => void;
 }
 
 /** Provider 的本机配置位置（只读展示，Nova 不修改） */
@@ -79,6 +109,11 @@ export interface PreparedAgentRun {
   envRemove?: string[];
   extraArgs?: string[];
   warnings?: string[];
+  /** 本次实际注入的资产清单；供运行产物展示“加载了什么” */
+  injected?: {
+    mcpServers: string[];
+    skills: string[];
+  };
 }
 
 /** 一次运行的终态 */
@@ -89,7 +124,7 @@ export interface RunResult {
 
 /**
  * 一次运行的句柄。
- * provider 决定用 pty 还是 pipe、如何切分行、如何清洗终端控制序列 —— 全部封装在内部。
+ * provider 决定如何启动子进程、如何切分行、如何清洗控制序列 —— 全部封装在内部。
  */
 export interface RunSession {
   /** 本次运行的终态 */
@@ -114,6 +149,13 @@ export interface AgentProvider {
 
   /** 本机配置位置；缺省表示该 Agent 没有可展示的固定路径 */
   configInfo?(): AgentConfigLocation;
+
+  /**
+   * 本机运行配置摘要（模型 / 权限 / 接入地址等）。
+   *
+   * 只返回可展示、已脱敏的值，供运行产物记录“这次实际用的什么配置”。
+   */
+  describeRuntimeConfig?(): Record<string, string>;
 
   /**
    * 为一次运行准备 provider 专属环境。

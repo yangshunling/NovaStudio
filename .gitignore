@@ -9,6 +9,9 @@ release/
 # 日志
 *.log
 
+# 临时复现脚本
+.repro-*
+
 # 环境变量
 .env
 .env.*

@@ -56,10 +56,17 @@ const TARGET_KEYS = [
 
 /**
  * 归一化一次工具调用。
+ *
  * 返回 null 表示该调用按约定不进入消息流（调用方直接不发射事件）。
+ * `includeSilent` 为 true 时保留 shell 执行类工具 —— 工作流运行记录需要
+ * 还原完整执行链路，聊天界面则继续过滤掉这类噪声。
  */
-export function describeTool(name: string, input: unknown): ToolDisplay | null {
-  if (isSilentTool(name)) return null;
+export function describeTool(
+  name: string,
+  input: unknown,
+  includeSilent = false,
+): ToolDisplay | null {
+  if (!includeSilent && isSilentTool(name)) return null;
   return { kind: KIND_BY_NAME[name.toLowerCase()] ?? "other", target: rawTarget(input) };
 }
 

@@ -15,22 +15,24 @@ import { createPortal } from "react-dom";
 import {
   Folder,
   FolderKanban,
+  FolderOpen,
   SquareTerminal,
   X,
   type LucideIcon,
 } from "lucide-react";
 import { useChatStore } from "../../stores/chat";
 import { useTerminalStore } from "../../stores/terminal";
+import { ipc } from "../../lib/ipc";
 import type { FileTab } from "../../stores/fileViewer";
 import { NoWorkspaceState } from "../ui/NoWorkspaceState";
-import { TerminalView } from "../TerminalView";
+import { TerminalView, WorkspaceToggleButton } from "../TerminalView";
 import { WorkspacePanel } from "../WorkspacePanel";
 import { FilePreview } from "../FilePreview";
 import type { Project } from "@shared/types";
 
 /** 右键菜单尺寸：用于贴近视口边缘时收拢位置 */
 const MENU_WIDTH = 192;
-const MENU_HEIGHT = 88;
+const MENU_HEIGHT = 128;
 
 export function TerminalsView() {
   const projects = useChatStore((s) => s.projects);
@@ -41,6 +43,8 @@ export function TerminalsView() {
   const closeTerminal = useTerminalStore((s) => s.close);
   /** 右侧文件面板里点开的文件：终端上方内嵌预览，关闭后回到终端 */
   const [preview, setPreview] = useState<FileTab | null>(null);
+  /** 右侧工作区文件面板是否展开；按钮位于中间栏顶栏右侧，与对话页一致 */
+  const [showWorkspace, setShowWorkspace] = useState(true);
   /** 工作区右键菜单：同一时间只开一个 */
   const [menu, setMenu] = useState<{
     project: Project;
@@ -231,14 +235,41 @@ export function TerminalsView() {
                 key={tab.id}
                 className={tab.id === visibleTerminal.id ? "h-full" : "hidden"}
               >
-                <TerminalView tab={tab} />
+                <TerminalView
+                  tab={tab}
+                  showWorkspace={showWorkspace}
+                  onToggleWorkspace={() => setShowWorkspace((open) => !open)}
+                />
               </div>
             ))
           ) : selectedWorkspace ? (
-            <WorkspacePrompt
-              project={selectedWorkspace}
-              onOpen={() => openInWorkspace(selectedWorkspace)}
-            />
+            <main className="flex h-full min-h-0 flex-col overflow-hidden">
+              {/* 尚未打开终端时也保留同一条顶栏，工作区文件面板的开关不会消失 */}
+              <div className="ui-glass flex h-[var(--c-layout-header)] shrink-0 items-center justify-between gap-2 border-b border-border px-4 text-meta text-text-muted">
+                <div className="flex min-w-0 items-center gap-2">
+                  <SquareTerminal className="h-4 w-4 shrink-0 text-accent" />
+                  <span className="shrink-0 font-medium text-text">
+                    {selectedWorkspace.name}
+                  </span>
+                  <span
+                    className="min-w-0 truncate font-mono"
+                    title={selectedWorkspace.cwd}
+                  >
+                    {selectedWorkspace.cwd}
+                  </span>
+                </div>
+                <WorkspaceToggleButton
+                  showWorkspace={showWorkspace}
+                  onToggle={() => setShowWorkspace((open) => !open)}
+                />
+              </div>
+              <div className="min-h-0 flex-1">
+                <WorkspacePrompt
+                  project={selectedWorkspace}
+                  onOpen={() => openInWorkspace(selectedWorkspace)}
+                />
+              </div>
+            </main>
           ) : null}
 
           {/* 文件预览覆盖在终端之上：终端进程仍在后台继续运行 */}
@@ -253,12 +284,14 @@ export function TerminalsView() {
           )}
         </div>
 
-        {/* 右：与会话页一致的工作区文件面板 */}
-        <WorkspacePanel
-          project={selectedWorkspace}
-          onOpenFile={openPreview}
-          activeFileId={preview?.id ?? null}
-        />
+        {/* 右：与会话页一致的工作区文件面板，顶栏按钮控制显隐 */}
+        {showWorkspace && (
+          <WorkspacePanel
+            project={selectedWorkspace}
+            onOpenFile={openPreview}
+            activeFileId={preview?.id ?? null}
+          />
+        )}
       </div>
 
       {/* 工作区右键菜单：关闭终端等低频操作不占列表空间 */}
@@ -274,6 +307,14 @@ export function TerminalsView() {
               label={menuTerminal ? "切换到终端" : "打开终端"}
               onClick={() => {
                 openInWorkspace(menu.project);
+                setMenu(null);
+              }}
+            />
+            <MenuItem
+              icon={FolderOpen}
+              label="打开工作区"
+              onClick={() => {
+                void ipc.revealProject(menu.project.id);
                 setMenu(null);
               }}
             />

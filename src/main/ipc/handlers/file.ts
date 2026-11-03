@@ -4,12 +4,20 @@
 
 import { shell } from "electron";
 import type { OpenFileExternalResult } from "../../../shared/types";
-import { readProjectFile, resolveProjectFile } from "../../files/access";
+import {
+  readEmbeddedImage,
+  readProjectFile,
+  resolveProjectFile,
+} from "../../files/access";
 import { handle } from "../register";
 
 export function registerFileHandlers(): void {
   handle("file:read", ({ projectId, relativePath }) =>
     readProjectFile(projectId, relativePath),
+  );
+
+  handle("file:readEmbeddedImage", ({ projectId, markdownPath, src }) =>
+    readEmbeddedImage(projectId, markdownPath, src),
   );
 
   handle(

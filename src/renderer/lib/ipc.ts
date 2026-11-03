@@ -70,11 +70,14 @@ export const ipc = {
   renameProject: (id: string, name: string) =>
     call("project:update", { id, name }),
   deleteProject: (id: string) => call("project:delete", { id }),
-  listFiles: (cwd: string, subPath?: string) =>
-    call("project:listFiles", { cwd, subPath }),
-  getGitStatus: (cwd: string) => call("project:gitStatus", { cwd }),
+  revealProject: (id: string) => call("project:reveal", { id }),
+  listFiles: (projectId: string, subPath?: string) =>
+    call("project:listFiles", { projectId, subPath }),
+  getGitStatus: (projectId: string) => call("project:gitStatus", { projectId }),
   readFile: (projectId: string, relativePath: string) =>
     call("file:read", { projectId, relativePath }),
+  readEmbeddedImage: (projectId: string, markdownPath: string, src: string) =>
+    call("file:readEmbeddedImage", { projectId, markdownPath, src }),
   openFileExternal: (projectId: string, relativePath: string) =>
     call("file:openExternal", { projectId, relativePath }),
 
@@ -230,6 +233,9 @@ export const ipc = {
     workflowRunEvent: (
       cb: (payload: IpcPushMap["workflow:run:event"]) => void,
     ) => on("workflow:run:event", cb),
+    workflowRunAgentEvent: (
+      cb: (payload: IpcPushMap["workflow:run:agentEvent"]) => void,
+    ) => on("workflow:run:agentEvent", cb),
     triggersUpdated: (cb: (payload: IpcPushMap["triggers:updated"]) => void) =>
       on("triggers:updated", cb),
   },

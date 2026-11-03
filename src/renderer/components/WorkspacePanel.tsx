@@ -191,7 +191,8 @@ export function WorkspacePanel({
   };
 
   const cwd = project?.cwd ?? "";
-  const cwdRef = useRef(cwd);
+  const projectId = project?.id ?? "";
+  const projectIdRef = useRef(projectId);
   const [rootItems, setRootItems] = useState<FileEntry[]>([]);
   const [childrenByPath, setChildrenByPath] = useState<Record<string, FileEntry[]>>({});
   const [expandedPaths, setExpandedPaths] = useState<Set<string>>(new Set());
@@ -209,8 +210,8 @@ export function WorkspacePanel({
   } | null>(null);
 
   useEffect(() => {
-    cwdRef.current = cwd;
-  }, [cwd]);
+    projectIdRef.current = projectId;
+  }, [projectId]);
 
   useEffect(() => {
     if (panelWidth === null) return;
@@ -237,14 +238,14 @@ export function WorkspacePanel({
     setError(null);
     setGitStatus(null);
 
-    if (!cwd) {
+    if (!projectId) {
       setLoadingPaths(new Set());
       return;
     }
 
     setLoadingPaths(new Set([""]));
     ipc
-      .listFiles(cwd)
+      .listFiles(projectId)
       .then((entries) => {
         if (cancelled) return;
         setRootItems(entries);
@@ -263,7 +264,7 @@ export function WorkspacePanel({
       });
 
     ipc
-      .getGitStatus(cwd)
+      .getGitStatus(projectId)
       .then((status) => {
         if (cancelled) return;
         setGitStatus(status);
@@ -276,7 +277,7 @@ export function WorkspacePanel({
     return () => {
       cancelled = true;
     };
-  }, [cwd, reloadKey]);
+  }, [projectId, reloadKey]);
 
   const toggleDirectory = async (entry: FileEntry) => {
     if (expandedPaths.has(entry.relativePath)) {
@@ -291,20 +292,20 @@ export function WorkspacePanel({
     setExpandedPaths((current) => new Set(current).add(entry.relativePath));
     if (childrenByPath[entry.relativePath]) return;
 
-    const requestCwd = cwd;
+    const requestProjectId = projectId;
     setLoadingPaths((current) => new Set(current).add(entry.relativePath));
     try {
-      const entries = await ipc.listFiles(requestCwd, entry.relativePath);
-      if (cwdRef.current !== requestCwd) return;
+      const entries = await ipc.listFiles(requestProjectId, entry.relativePath);
+      if (projectIdRef.current !== requestProjectId) return;
       setChildrenByPath((current) => ({
         ...current,
         [entry.relativePath]: entries,
       }));
     } catch (err) {
-      if (cwdRef.current !== requestCwd) return;
+      if (projectIdRef.current !== requestProjectId) return;
       setError(String(err));
     } finally {
-      if (cwdRef.current !== requestCwd) return;
+      if (projectIdRef.current !== requestProjectId) return;
       setLoadingPaths((current) => {
         const next = new Set(current);
         next.delete(entry.relativePath);

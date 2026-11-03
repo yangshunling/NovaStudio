@@ -8,13 +8,25 @@
 
 import * as db from "../../db/sqlite";
 import { handle } from "../register";
+import type { DigitalEmployeeDraft } from "../../../shared/types";
+
+/** 主进程侧的最低校验：UI 之外也可能直接调用 IPC */
+function normalizeDraft(draft: DigitalEmployeeDraft): DigitalEmployeeDraft {
+  const name = draft.name.trim();
+  if (!name) throw new Error("数字员工名称不能为空");
+  return { ...draft, name };
+}
 
 export function registerEmployeeHandlers(): void {
   handle("employees:list", () => db.listDigitalEmployees());
 
-  handle("employees:create", ({ draft }) => db.createDigitalEmployee(draft));
+  handle("employees:create", ({ draft }) =>
+    db.createDigitalEmployee(normalizeDraft(draft)),
+  );
 
-  handle("employees:update", ({ id, draft }) => db.updateDigitalEmployee(id, draft));
+  handle("employees:update", ({ id, draft }) =>
+    db.updateDigitalEmployee(id, normalizeDraft(draft)),
+  );
 
   handle("employees:delete", ({ id }) => {
     db.deleteDigitalEmployee(id);

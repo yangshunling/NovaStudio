@@ -2,8 +2,7 @@
  * 技能资产目录
  *
  * Nova 不再维护自己的技能主库。技能以磁盘目录为唯一事实来源：
- * - `~/.claude/skills`：Claude Code 全局技能目录，Nova 的新增/导入写到这里；
- * - `~/.agents/skills`：其他工具维护的共享技能库，只读发现。
+ * - `~/.claude/skills`：Claude Code 全局技能目录，Nova 的新增/导入写到这里。
  *
  * `managed_assets` 表记录哪些目录是 Nova 创建的：Claude 原有的技能只读，
  * Nova 创建的技能可编辑/删除。
@@ -30,11 +29,6 @@ import type {
 function claudeSkillsDir(): string {
   const configDir = process.env.CLAUDE_CONFIG_DIR || join(homedir(), ".claude");
   return join(configDir, "skills");
-}
-
-/** 共享技能库：其他 AI 工具安装器的公共落点，只读发现 */
-function agentsSkillsDir(): string {
-  return join(homedir(), ".agents", "skills");
 }
 
 /** SKILL.md 读取上限，防止异常文件把渲染层拖垮 */
@@ -219,55 +213,48 @@ async function scanRoot(
     if (!info.isDirectory()) continue;
 
     const skillFile = join(dir, "SKILL.md");
-    const hasSkillFile = existsSync(skillFile);
 
     // 没有 SKILL.md 的目录不是可加载技能，直接忽略
-    if (!hasSkillFile) continue;
+    if (!existsSync(skillFile)) continue;
 
     const problems: string[] = [];
     let declaredName = "";
     let description = "";
     let updatedAt = info.mtimeMs;
-    let valid: boolean = hasSkillFile;
+    let valid = true;
 
-    if (!hasSkillFile) {
-      problems.push("缺少 SKILL.md，Agent 无法加载");
-    } else {
-      try {
-        const raw = await readFile(skillFile, "utf8");
-        const meta = parseFrontmatter(raw);
-        declaredName = meta.name;
-        description = meta.description;
-        updatedAt = (await stat(skillFile)).mtimeMs;
+    try {
+      const raw = await readFile(skillFile, "utf8");
+      const meta = parseFrontmatter(raw);
+      declaredName = meta.name;
+      description = meta.description;
+      updatedAt = (await stat(skillFile)).mtimeMs;
 
-        if (!declaredName) {
-          problems.push("frontmatter 缺少 name");
-          valid = false;
-        } else if (!/^[a-z0-9][a-z0-9-]*$/.test(declaredName)) {
-          problems.push("name 只能包含小写字母、数字和连字符，且不能以连字符开头");
-          valid = false;
-        } else if (declaredName !== name) {
-          problems.push(`frontmatter name（${declaredName}）与目录名不一致`);
-        }
-
-        if (!description) {
-          problems.push("frontmatter 缺少 description，Agent 难以判断何时调用");
-        }
-      } catch (err) {
-        problems.push(
-          `SKILL.md 读取失败：${err instanceof Error ? err.message : String(err)}`,
-        );
+      if (!declaredName) {
+        problems.push("frontmatter 缺少 name");
         valid = false;
+      } else if (!/^[a-z0-9][a-z0-9-]*$/.test(declaredName)) {
+        problems.push("name 只能包含小写字母、数字和连字符，且不能以连字符开头");
+        valid = false;
+      } else if (declaredName !== name) {
+        problems.push(`frontmatter name（${declaredName}）与目录名不一致`);
       }
+
+      if (!description) {
+        problems.push("frontmatter 缺少 description，Agent 难以判断何时调用");
+      }
+    } catch (err) {
+      problems.push(
+        `SKILL.md 读取失败：${err instanceof Error ? err.message : String(err)}`,
+      );
+      valid = false;
     }
 
     const contents = await scanContents(dir);
     const managed = managedByNova(name);
     const readOnly = !managed;
     const readOnlyReason = readOnly
-      ? origin === "claude-global"
-        ? "该技能位于 ~/.claude/skills，由 Claude Code 或其他工具创建。Nova 只读；如需修改请直接操作原目录。"
-        : "该技能来自外部共享技能库，Nova 只读；如需修改请使用对应工具或直接操作原目录。"
+      ? "该技能位于 ~/.claude/skills，由 Claude Code 或其他工具创建。Nova 只读；如需修改请直接操作原目录。"
       : null;
 
     result.push({
@@ -291,17 +278,13 @@ async function scanRoot(
   return result;
 }
 
-/** 聚合扫描全部来源，组内按名称排序 */
+/** 扫描技能目录，按名称排序 */
 export async function listSkills(): Promise<SkillAsset[]> {
   const managed = new Set(db.listManagedAssetKeys("skill"));
-
-  const [claudeGlobal, agentsStore] = await Promise.all([
-    scanRoot(claudeSkillsDir(), "claude-global", (slug) => managed.has(slug)),
-    scanRoot(agentsSkillsDir(), "agents-store", () => false),
-  ]);
-
-  const byName = (a: SkillAsset, b: SkillAsset) => a.slug.localeCompare(b.slug);
-  return [...claudeGlobal.sort(byName), ...agentsStore.sort(byName)];
+  const skills = await scanRoot(claudeSkillsDir(), "claude-global", (slug) =>
+    managed.has(slug),
+  );
+  return skills.sort((a, b) => a.slug.localeCompare(b.slug));
 }
 
 /** 按 id 取单个资产；供 IPC 层打开目录等操作复用 */

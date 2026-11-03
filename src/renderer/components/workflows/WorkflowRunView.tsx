@@ -2,16 +2,13 @@
  * 工作流运行详情
  *
  * 左侧：本次运行的全部节点，点击切换。
- * 右侧：选中节点的执行信息 —— 结果优先展示，输入与上下文、诊断信息默认折叠。
- * 页面底部保留事件日志，便于排查调度顺序。
+ * 右侧：选中节点的状态 + 完整对话过程（不再展示结果、输入、诊断与事件日志）。
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowLeft,
   Check,
-  ChevronDown,
-  Copy,
   FileText,
   FolderOpen,
   Loader2,
@@ -21,21 +18,133 @@ import {
 } from "lucide-react";
 import { ipc } from "../../lib/ipc";
 import { toast } from "../../stores/toast";
-import { MarkdownRenderer } from "../MarkdownRenderer";
-import { formatDateTime, formatDuration, formatSize } from "../../lib/workflowFormat";
+import { appendEvent } from "@shared/merge";
+import { MessageGroup } from "../MessageList";
+import { formatDateTime, formatDuration } from "../../lib/workflowFormat";
 import {
   ACTIVE_RUN_STATUSES,
-  EVENT_LABEL,
   NODE_STATUS,
   RUN_STATUS,
 } from "../../lib/workflowStatus";
 import type {
+  AgentEvent,
+  WorkflowNodeLiveTranscript,
   WorkflowNodeRun,
   WorkflowNodeRunDetail,
-  WorkflowNodeRunStatus,
   WorkflowRunDetail,
   WorkflowRunStatus,
 } from "@shared/types";
+
+// ============================================================================
+// 实时对话缓冲
+//
+// 主进程按 seq 推送原始事件；节点详情接口同时返回一份快照。
+// 两侧可能乱序到达，因此按 seq 去重合并，再按顺序重放 appendEvent。
+// ============================================================================
+
+interface LiveItem {
+  seq: number;
+  event: AgentEvent;
+}
+
+interface LiveEntry {
+  attempt: number;
+  seq: number;
+  items: LiveItem[];
+  folded: AgentEvent[];
+}
+
+type LiveMap = Record<string, LiveEntry>;
+
+/** 与主进程保持一致的事件上限：超出后只保留最近一段，避免长节点吃满内存 */
+const MAX_LIVE_EVENTS = 20_000;
+
+/** 按 seq 顺序把原始事件折叠成可渲染的事件流（与聊天页的收敛规则一致） */
+function foldLiveItems(items: LiveItem[]): AgentEvent[] {
+  const sorted = [...items].sort((a, b) => a.seq - b.seq);
+  let events: AgentEvent[] = [];
+  for (const item of sorted) events = appendEvent(events, item.event);
+  return events;
+}
+
+function liveEntryFrom(attempt: number, items: LiveItem[]): LiveEntry {
+  let sorted = [...items].sort((a, b) => a.seq - b.seq);
+  if (sorted.length > MAX_LIVE_EVENTS) {
+    sorted = sorted.slice(-MAX_LIVE_EVENTS);
+  }
+  return {
+    attempt,
+    seq: sorted[sorted.length - 1]?.seq ?? 0,
+    items: sorted,
+    folded: foldLiveItems(sorted),
+  };
+}
+
+/** 追加一条推送事件 */
+function mergeLiveItem(
+  prev: LiveMap,
+  nodeRunId: string,
+  attempt: number,
+  item: LiveItem,
+): LiveMap {
+  const current = prev[nodeRunId];
+  if (!current || current.attempt !== attempt) {
+    return { ...prev, [nodeRunId]: liveEntryFrom(attempt, [item]) };
+  }
+  if (item.seq <= current.seq) return prev; // 重复或更旧的事件
+  if (item.seq === current.seq + 1) {
+    const items = [...current.items, item];
+    if (items.length > MAX_LIVE_EVENTS) {
+      // 超出上限：只保留最近一段，并保持 seq 与主进程一致
+      const entry = liveEntryFrom(attempt, items);
+      entry.seq = item.seq;
+      return { ...prev, [nodeRunId]: entry };
+    }
+    return {
+      ...prev,
+      [nodeRunId]: {
+        attempt,
+        seq: item.seq,
+        items,
+        folded: appendEvent(current.folded, item.event),
+      },
+    };
+  }
+  // 中间有缺口（快照还没到）：整体重排后重算
+  const entry = liveEntryFrom(attempt, [...current.items, item]);
+  entry.seq = Math.max(entry.seq, current.seq, item.seq);
+  return { ...prev, [nodeRunId]: entry };
+}
+
+/** 合并节点详情接口返回的快照（通常是推送的前缀） */
+function mergeLiveSnapshot(
+  prev: LiveMap,
+  nodeRunId: string,
+  snapshot: WorkflowNodeLiveTranscript,
+): LiveMap {
+  const incoming = snapshot.events.map((event, index) => ({
+    seq: index + 1,
+    event,
+  }));
+  const current = prev[nodeRunId];
+  if (!current || current.attempt !== snapshot.attempt) {
+    const entry = liveEntryFrom(snapshot.attempt, incoming);
+    // 主进程可能只保留前缀（seq 大于 events.length）：以快照 seq 为准，
+    // 后续推送才能连续合并，否则每个事件都会因为“缺口”重新折叠整段历史。
+    entry.seq = snapshot.seq;
+    return { ...prev, [nodeRunId]: entry };
+  }
+  const seen = new Set(current.items.map((item) => item.seq));
+  const missing = incoming.filter((item) => !seen.has(item.seq));
+  if (missing.length === 0) {
+    return snapshot.seq > current.seq
+      ? { ...prev, [nodeRunId]: { ...current, seq: snapshot.seq } }
+      : prev;
+  }
+  const entry = liveEntryFrom(snapshot.attempt, [...current.items, ...missing]);
+  entry.seq = Math.max(current.seq, snapshot.seq, entry.seq);
+  return { ...prev, [nodeRunId]: entry };
+}
 
 export function WorkflowRunView({
   runId,
@@ -53,6 +162,8 @@ export function WorkflowRunView({
   const [selectedNodeRunId, setSelectedNodeRunId] = useState<string | null>(null);
   const [nodeDetail, setNodeDetail] = useState<WorkflowNodeRunDetail | null>(null);
   const [nodeDetailLoading, setNodeDetailLoading] = useState(false);
+  /** nodeRunId → 运行中的实时对话；节点结束后不再展示，以落库消息为准 */
+  const [liveMap, setLiveMap] = useState<LiveMap>({});
 
   const previousStatus = useRef<WorkflowRunStatus | null>(null);
 
@@ -127,22 +238,19 @@ export function WorkflowRunView({
     [nodes, selectedNodeRunId],
   );
 
-  /** 隔离告警以事件形式落库，按当前节点筛选 */
-  const selectedWarnings = useMemo(() => {
-    if (!detail || !selectedNode) return [];
-    return detail.events
-      .filter(
-        (event) =>
-          event.nodeRunId === selectedNode.id &&
-          event.type === "log" &&
-          event.payload.level === "warning" &&
-          event.payload.attempt === selectedNode.attempt,
-      )
-      .map((event) =>
-        typeof event.payload.message === "string" ? event.payload.message : "",
-      )
-      .filter(Boolean);
-  }, [detail, selectedNode]);
+  /** 选中节点正在执行时的实时事件流；结束后改用落库消息 */
+  const selectedLiveEvents = useMemo(() => {
+    if (!selectedNode) return null;
+    if (
+      selectedNode.status !== "running" &&
+      selectedNode.status !== "retrying"
+    ) {
+      return null;
+    }
+    const entry = liveMap[selectedNode.id];
+    if (!entry || entry.attempt !== selectedNode.attempt) return null;
+    return entry.folded.length > 0 ? entry.folded : null;
+  }, [liveMap, selectedNode]);
 
   // 节点详情：随选中节点或该节点状态变化重新读取
   useEffect(() => {
@@ -155,7 +263,15 @@ export function WorkflowRunView({
     void ipc
       .getWorkflowNodeDetail(runId, selectedNodeRunId)
       .then((next) => {
-        if (alive) setNodeDetail(next);
+        if (!alive) return;
+        setNodeDetail(next);
+        // 中途打开运行记录时，先用主进程内存里的快照补齐已产生的对话，
+        // 后续增量由推送按 seq 合并。
+        if (next?.live) {
+          setLiveMap((prev) =>
+            mergeLiveSnapshot(prev, selectedNodeRunId, next.live!),
+          );
+        }
       })
       .catch(() => {
         if (alive) setNodeDetail(null);
@@ -167,6 +283,21 @@ export function WorkflowRunView({
       alive = false;
     };
   }, [runId, selectedNodeRunId, selectedNode?.status]);
+
+  // 节点执行中的实时事件：只按 seq 合并，不做节流（主进程已按 16ms 聚合）
+  useEffect(() => {
+    setLiveMap({});
+    const off = ipc.on.workflowRunAgentEvent((payload) => {
+      if (payload.runId !== runId) return;
+      setLiveMap((prev) =>
+        mergeLiveItem(prev, payload.nodeRunId, payload.attempt, {
+          seq: payload.seq,
+          event: payload.event,
+        }),
+      );
+    });
+    return off;
+  }, [runId]);
 
   const awaitingNode = useMemo(
     () => nodes.find((node) => node.status === "awaiting_approval"),
@@ -202,16 +333,6 @@ export function WorkflowRunView({
     }
   };
 
-  const copyText = async (label: string, text: string) => {
-    if (!text) return;
-    try {
-      await navigator.clipboard.writeText(text);
-      toast.success(`已复制${label}`);
-    } catch {
-      toast.error("复制失败");
-    }
-  };
-
   if (loading) {
     return (
       <main className="relative flex flex-1 items-center justify-center overflow-hidden">
@@ -238,7 +359,7 @@ export function WorkflowRunView({
     );
   }
 
-  const { run, events } = detail;
+  const { run } = detail;
   const statusMeta = RUN_STATUS[run.status];
   const StatusIcon = statusMeta.icon;
   const active = ACTIVE_RUN_STATUSES.has(run.status);
@@ -401,23 +522,7 @@ export function WorkflowRunView({
                   detail={nodeDetail}
                   loading={nodeDetailLoading}
                   now={now}
-                  warnings={selectedWarnings}
-                  onCopy={copyText}
-                  onOpenFolder={async () => {
-                    const ok = await ipc.openWorkflowNodeArtifacts(
-                      runId,
-                      selectedNode.id,
-                    );
-                    if (!ok) toast.error("无法打开节点产物目录");
-                  }}
-                  onOpenFile={async (relativePath) => {
-                    const ok = await ipc.openWorkflowNodeFile(
-                      runId,
-                      selectedNode.id,
-                      relativePath,
-                    );
-                    if (!ok) toast.error("无法打开文件");
-                  }}
+                  live={selectedLiveEvents}
                 />
               ) : (
                 <div className="flex flex-col items-center gap-2 py-16 text-center text-text-muted">
@@ -425,72 +530,6 @@ export function WorkflowRunView({
                   <p className="text-body">左侧选择一个节点查看执行详情</p>
                 </div>
               )}
-
-              <details className="mt-4 rounded-xl border border-border bg-surface-2/40 open:pb-2">
-                <summary className="flex cursor-pointer list-none items-center gap-2 px-3 py-2.5 text-body font-medium text-text-secondary">
-                  <ChevronDown className="details-chevron h-4 w-4 transition-transform" />
-                  事件日志
-                  <span className="font-mono text-caption text-text-muted">
-                    {events.length}
-                  </span>
-                </summary>
-                <div className="max-h-64 space-y-1 overflow-y-auto px-3 pb-2">
-                  {[...events].reverse().map((event) => {
-                    const node = event.nodeRunId
-                      ? nodes.find((item) => item.id === event.nodeRunId)
-                      : null;
-                    const label = EVENT_LABEL[event.type] ?? event.type;
-                    const status =
-                      typeof event.payload.status === "string"
-                        ? event.payload.status
-                        : null;
-                    const message =
-                      typeof event.payload.error === "string"
-                        ? event.payload.error
-                        : typeof event.payload.message === "string"
-                          ? event.payload.message
-                          : "";
-                    return (
-                      <div
-                        key={event.seq}
-                        className="flex items-start gap-3 rounded-lg px-1.5 py-1 text-meta hover:bg-surface-hover/60"
-                      >
-                        <span className="shrink-0 font-mono text-caption text-text-muted">
-                          {new Date(event.createdAt).toLocaleTimeString("zh-CN", {
-                            hour12: false,
-                          })}
-                        </span>
-                        <span className="shrink-0 font-medium text-text-secondary">
-                          {label}
-                        </span>
-                        {node && (
-                          <span className="min-w-0 truncate text-text">
-                            {node.nodeName}
-                          </span>
-                        )}
-                        {status && (
-                          <span className="shrink-0 text-text-muted">
-                            {NODE_STATUS[status as WorkflowNodeRunStatus]?.label ??
-                              status}
-                          </span>
-                        )}
-                        {message && (
-                          <span
-                            className={`min-w-0 truncate ${
-                              event.payload.level === "warning"
-                                ? "text-agent-amber"
-                                : "text-error"
-                            }`}
-                            title={message}
-                          >
-                            {message}
-                          </span>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              </details>
             </div>
           </div>
         </div>
@@ -559,25 +598,20 @@ function NodeDetailPanel({
   detail,
   loading,
   now,
-  warnings,
-  onCopy,
-  onOpenFolder,
-  onOpenFile,
+  live,
 }: {
   node: WorkflowNodeRun;
   detail: WorkflowNodeRunDetail | null;
   loading: boolean;
   now: number;
-  warnings: string[];
-  onCopy: (label: string, text: string) => void;
-  onOpenFolder: () => void;
-  onOpenFile: (relativePath: string) => void;
+  /** 节点执行中的实时事件流；不在运行时为 null */
+  live: AgentEvent[] | null;
 }) {
   const meta = NODE_STATUS[node.status];
-  const request = detail?.request ?? "";
-  const result = detail?.result ?? "";
-  const files = detail?.files ?? [];
-  const hasDiagnostics = warnings.length > 0 || files.length > 0;
+  const attempts = detail?.attempts ?? [];
+  const hasConversation =
+    attempts.some((attempt) => attempt.messages.length > 0) ||
+    (live?.length ?? 0) > 0;
 
   return (
     <div className="space-y-3">
@@ -618,138 +652,25 @@ function NodeDetailPanel({
           <Loader2 className="h-4 w-4 animate-spin" />
           正在读取节点详情
         </div>
+      ) : !hasConversation ? (
+        <p className="py-10 text-center text-meta italic text-text-muted">
+          （还没有记录到对话）
+        </p>
       ) : (
-        <>
-          {/* 结果：节点最主要的输出，放在最前面 */}
-          <section className="rounded-xl border border-border bg-surface-2/50">
-            <header className="flex items-center gap-2 border-b border-border px-3 py-2.5">
-              <span className="min-w-0 flex-1 text-body font-medium text-text">
-                结果
-              </span>
-              {result && (
-                <button
-                  type="button"
-                  onClick={() => onCopy("结果", result)}
-                  title="复制结果"
-                  className="flex items-center gap-1 rounded-md px-1.5 py-0.5 text-caption text-text-muted transition-colors hover:bg-surface-hover hover:text-text"
-                >
-                  <Copy className="h-3 w-3" />
-                  复制
-                </button>
-              )}
-            </header>
-            {result ? (
-              <div className="max-h-[28rem] overflow-y-auto p-3">
-                <MarkdownRenderer content={result} />
-              </div>
-            ) : (
-              <p className="px-3 py-3 text-meta italic text-text-muted">
-                （还没有返回内容）
-              </p>
-            )}
-          </section>
-
-          {/* 输入与上下文：默认折叠 */}
-          <details className="rounded-xl border border-border bg-surface-2/50">
-            <summary className="flex cursor-pointer list-none items-center gap-2 px-3 py-2.5 text-body font-medium text-text-secondary">
-              <ChevronDown className="details-chevron h-4 w-4 transition-transform" />
-              输入与上下文
-            </summary>
-            <div className="border-t border-border p-3">
-              {request ? (
-                <>
-                  <div className="mb-2 flex justify-end">
-                    <button
-                      type="button"
-                      onClick={() => onCopy("输入", request)}
-                      title="复制输入"
-                      className="flex items-center gap-1 rounded-md px-1.5 py-0.5 text-caption text-text-muted transition-colors hover:bg-surface-hover hover:text-text"
-                    >
-                      <Copy className="h-3 w-3" />
-                      复制
-                    </button>
-                  </div>
-                  <div className="max-h-96 overflow-y-auto">
-                    <MarkdownRenderer content={request} />
-                  </div>
-                </>
-              ) : (
-                <p className="text-meta italic text-text-muted">
-                  （没有记录到输入）
-                </p>
-              )}
-            </div>
-          </details>
-
-          {/* 诊断：告警 / 记录文件，默认折叠 */}
-          {hasDiagnostics && (
-            <details className="rounded-xl border border-border bg-surface-2/50">
-              <summary className="flex cursor-pointer list-none items-center gap-2 px-3 py-2.5 text-body font-medium text-text-secondary">
-                <ChevronDown className="details-chevron h-4 w-4 transition-transform" />
-                诊断
-              </summary>
-              <div className="space-y-3 border-t border-border p-3">
-                {warnings.length > 0 && (
-                  <div>
-                    <p className="mb-1.5 text-meta font-medium text-text-secondary">
-                      告警
-                    </p>
-                    <ul className="space-y-1">
-                      {warnings.map((warning, index) => (
-                        <li
-                          key={`${index}-${warning}`}
-                          className="text-meta leading-relaxed text-agent-amber"
-                        >
-                          {warning}
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-
-                <div>
-                  <div className="mb-1.5 flex items-center justify-between gap-2">
-                    <p className="text-meta font-medium text-text-secondary">
-                      记录文件
-                    </p>
-                    <button
-                      type="button"
-                      onClick={onOpenFolder}
-                      className="ui-btn-ghost rounded-md px-2 py-1 text-caption font-medium"
-                    >
-                      打开目录
-                    </button>
-                  </div>
-                  {files.length === 0 ? (
-                    <p className="text-meta italic text-text-muted">
-                      （该节点还没有记录文件）
-                    </p>
-                  ) : (
-                    <div className="divide-y divide-border">
-                      {files.map((file) => (
-                        <button
-                          key={file.relativePath}
-                          type="button"
-                          onClick={() => onOpenFile(file.relativePath)}
-                          title={`打开 ${file.relativePath}`}
-                          className="flex w-full items-center gap-2.5 px-1 py-2 text-left text-meta transition-colors hover:bg-surface-hover"
-                        >
-                          <FileText className="h-3.5 w-3.5 shrink-0 text-text-muted" />
-                          <span className="min-w-0 flex-1 truncate font-mono text-text-secondary">
-                            {file.relativePath}
-                          </span>
-                          <span className="shrink-0 font-mono text-caption text-text-muted">
-                            {formatSize(file.size)}
-                          </span>
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </div>
-            </details>
+        <div className="space-y-4">
+          {attempts.map((attempt) =>
+            attempt.messages.map((message) => (
+              <MessageGroup
+                key={message.id}
+                events={message.content}
+                isUser={message.role === "user"}
+              />
+            )),
           )}
-        </>
+          {live && live.length > 0 && (
+            <MessageGroup events={live} isUser={false} />
+          )}
+        </div>
       )}
     </div>
   );

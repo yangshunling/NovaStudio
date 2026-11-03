@@ -50,10 +50,20 @@ export default function App() {
     // 开发期检查皮肤 token 完整性，避免新增皮肤时漏定义导致静默失效
     if (import.meta.env.DEV) validateSkins();
 
-    detectAgents();
-    void loadSkinSettings();
-    loadProjects().then(() => loadSessions());
-    loadTasks();
+    detectAgents().catch((err) => {
+      console.error("[nova] Agent 检测失败：", err);
+    });
+    void loadSkinSettings().catch((err) => {
+      console.error("[nova] 皮肤设置加载失败：", err);
+    });
+    loadProjects()
+      .then(() => loadSessions())
+      .catch((err) => {
+        console.error("[nova] 项目 / 会话加载失败：", err);
+      });
+    loadTasks().catch((err) => {
+      console.error("[nova] 自动化任务加载失败：", err);
+    });
   }, [detectAgents, loadProjects, loadSessions, loadTasks]);
 
   return (

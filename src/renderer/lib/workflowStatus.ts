@@ -26,7 +26,6 @@ export interface WorkflowStatusMeta {
 }
 
 export const RUN_STATUS: Record<WorkflowRunStatus, WorkflowStatusMeta> = {
-  queued: { label: "排队中", className: "text-text-muted", icon: Circle },
   running: { label: "运行中", className: "text-accent", icon: Loader2 },
   awaiting_approval: {
     label: "等待审核",
@@ -75,18 +74,6 @@ export const NODE_STATUS: Record<WorkflowNodeRunStatus, WorkflowStatusMeta> = {
 };
 
 export const ACTIVE_RUN_STATUSES = new Set<WorkflowRunStatus>([
-  "queued",
   "running",
   "awaiting_approval",
 ]);
-
-export const EVENT_LABEL: Record<string, string> = {
-  run_started: "运行开始",
-  node_status: "节点状态",
-  node_retry: "节点重试",
-  approval_required: "等待审核",
-  approval_decided: "审核结果",
-  node_finished: "节点结束",
-  run_finished: "运行结束",
-  log: "日志",
-};

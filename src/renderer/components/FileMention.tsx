@@ -29,14 +29,15 @@ import { FolderTypeIcon } from "./ui/FolderTypeIcon";
 // ============================================================================
 
 interface UseFileMentionOpts {
-  cwd: string;
+  /** 绑定的工作区 id；空字符串表示未绑定，不启用 @ 提及 */
+  projectId: string;
   input: string;
   setInput: (v: string) => void;
   textareaRef: React.RefObject<HTMLTextAreaElement>;
 }
 
 export function useFileMention({
-  cwd,
+  projectId,
   input,
   setInput,
   textareaRef,
@@ -53,7 +54,7 @@ export function useFileMention({
   const popupRef = useRef<HTMLDivElement>(null);
   const itemRefs = useRef<(HTMLButtonElement | null)[]>([]);
 
-  const active = mentionQuery !== null && cwd !== "";
+  const active = mentionQuery !== null && projectId !== "";
 
   // ---- 解析 query 为 subPath + filter ----
   const { subPath, filter } = useMemo(() => {
@@ -70,7 +71,7 @@ export function useFileMention({
 
   // ---- 子目录变化时从主进程加载文件 ----
   useEffect(() => {
-    if (mentionQuery === null || !cwd) {
+    if (mentionQuery === null || !projectId) {
       setRawItems([]);
       loadedSubPathRef.current = null;
       return;
@@ -87,7 +88,7 @@ export function useFileMention({
 
     let cancelled = false;
     setLoading(true);
-    ipc.listFiles(cwd, subPath || undefined).then((entries) => {
+    ipc.listFiles(projectId, subPath || undefined).then((entries) => {
       if (cancelled) return;
       cacheRef.current[subPath] = entries;
       setRawItems(entries);
@@ -100,7 +101,7 @@ export function useFileMention({
     return () => {
       cancelled = true;
     };
-  }, [mentionQuery, subPath, cwd]);
+  }, [mentionQuery, subPath, projectId]);
 
   // ---- 切换项目时清空缓存 ----
   useEffect(() => {
@@ -108,7 +109,7 @@ export function useFileMention({
     loadedSubPathRef.current = null;
     setMentionQuery(null);
     setRawItems([]);
-  }, [cwd]);
+  }, [projectId]);
 
   // ---- 客户端过滤 ----
   const items = useMemo(() => {
@@ -204,7 +205,7 @@ export function useFileMention({
 
       const before = value.slice(0, cursor);
       const match = before.match(/(?:^|\s)@([^\s]*)$/);
-      if (match && cwd) {
+      if (match && projectId) {
         const query = match[1];
         setMentionStart(cursor - query.length - 1);
         setMentionQuery(query);
@@ -213,7 +214,7 @@ export function useFileMention({
         setMentionStart(-1);
       }
     },
-    [cwd, setInput],
+    [projectId, setInput],
   );
 
   // ---- textarea onKeyDown：导航 / 选择 / 关闭 ----

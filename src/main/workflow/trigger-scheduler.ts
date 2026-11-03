@@ -16,7 +16,7 @@
 import * as db from "../db/sqlite";
 import { nextTriggerFireAt } from "../../shared/trigger-schedule";
 import type { WorkflowTrigger } from "../../shared/types";
-import type { WorkflowRunner } from "./runner";
+import { WorkspaceBusyError, type WorkflowRunner } from "./runner";
 
 /** 扫描周期（毫秒） */
 const POLL_INTERVAL_MS = 15_000;
@@ -93,7 +93,8 @@ export function createTriggerScheduler(
         pending.delete(workflowId);
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
-        const workspaceBusy = message.includes("已有运行中的工作流");
+        // 用错误类型判断，不依赖文案：文案调整不应改变排队语义
+        const workspaceBusy = err instanceof WorkspaceBusyError;
 
         if (workspaceBusy) {
           item.attempts += 1;

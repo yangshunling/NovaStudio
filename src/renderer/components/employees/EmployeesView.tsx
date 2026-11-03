@@ -2,7 +2,7 @@
  * 数字员工 — 卡片画廊
  *
  * 主区域展示全部数字员工，点击卡片从右侧滑出编辑抽屉。
- * 头像、人设、系统提示词、MCP、技能与知识库都在抽屉内编辑；
+ * 头像、职位、系统提示词、MCP、技能与知识库都在抽屉内编辑；
  * 列表只负责概览与搜索，避免把大量配置项堆在卡片上。
  */
 
@@ -44,7 +44,7 @@ export function EmployeesView() {
     const keyword = query.trim().toLowerCase();
     if (!keyword) return employees;
     return employees.filter((employee) =>
-      [employee.name, employee.role, employee.description].some((value) =>
+      [employee.name, employee.role, employee.systemPrompt].some((value) =>
         value.toLowerCase().includes(keyword),
       ),
     );
@@ -173,11 +173,11 @@ function EmployeeCard({
         </div>
       </div>
 
-      <p className="mt-2.5 line-clamp-2 text-body leading-relaxed text-text-secondary">
-        {employee.description || "暂无简介"}
+      <p className="mt-2.5 line-clamp-2 whitespace-pre-line text-body leading-relaxed text-text-secondary">
+        {employee.systemPrompt.trim() || "暂无系统提示词"}
       </p>
 
-      {/* mt-auto 把工具标签顶到卡片底部：网格拉伸产生的多余高度留在简介与标签之间，
+      {/* mt-auto 把工具标签顶到卡片底部：网格拉伸产生的多余高度留在提示词与标签之间，
           而不是堆在标签下面，保证卡片上、下、左、右的 padding 一致 */}
       <div className="mt-auto flex flex-wrap items-center gap-1.5 pt-2.5 text-caption text-text-muted">
         <span className="flex items-center gap-1 rounded-full bg-accent-soft px-2 py-0.5 text-accent">
@@ -208,7 +208,7 @@ function EmptyEmployees({ onCreate }: { onCreate: () => void }) {
     <EmptyState
       icon={<Users />}
       title="组建你的数字团队"
-      description="每位数字员工都可以拥有独立的头像、人设、系统提示词、MCP 服务、技能与知识库。"
+      description="每位数字员工都可以拥有独立的头像、职位、系统提示词、MCP 服务、技能与知识库。"
       action={
         <Button
           variant="primary"

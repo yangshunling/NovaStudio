@@ -4,6 +4,7 @@
 
 import { homedir } from "os";
 import type { AgentService } from "../../engine/agent-service";
+import { getProvider } from "../../agents/registry";
 import * as db from "../../db/sqlite";
 import { handle } from "../register";
 
@@ -15,6 +16,9 @@ export function registerSessionHandlers(service: AgentService): void {
    * projectId 可为 null：会话不强制绑定项目，未绑定时在默认目录运行。
    */
   handle("session:create", ({ projectId, agentId }) => {
+    if (!getProvider(agentId)) {
+      throw new Error(`未知 Agent：${agentId}`);
+    }
     const project = projectId ? db.getProject(projectId) : null;
     if (projectId && !project) throw new Error("项目不存在");
     const cwd = service.resolveCwd(
@@ -35,9 +39,10 @@ export function registerSessionHandlers(service: AgentService): void {
     return true;
   });
 
-  handle("session:delete", ({ id }) => {
-    // 先中断并清理 CLI 侧数据与缓存，再删索引行
-    service.releaseSession(id);
+  handle("session:delete", async ({ id }) => {
+    // 先中断、等待运行收尾并清理 CLI 侧数据，再删索引行。
+    // 顺序不能反：运行收尾还会写 messages，提前删会话会触发外键错误。
+    await service.releaseSession(id);
     db.deleteSession(id);
     return true;
   });

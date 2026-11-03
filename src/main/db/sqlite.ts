@@ -82,6 +82,9 @@ export function initDatabase(): void {
       config_dir TEXT,
       source TEXT NOT NULL DEFAULT 'chat',
       message_count INTEGER NOT NULL DEFAULT 0,
+      -- 本地 messages 是否已经覆盖完整历史。
+      -- 0 表示会话可能还有 CLI 侧历史未被导入，下一次运行前会先补全。
+      history_complete INTEGER NOT NULL DEFAULT 0,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL
     );
@@ -260,6 +263,7 @@ export function initDatabase(): void {
   migrateSessionsMessageCount();
   migrateSessionsConfigDir();
   migrateSessionsSource();
+  migrateSessionsHistoryComplete();
   // 先清理旧版占位项目，再让工作区迁移把空归属的工作流挂到有效项目上
   migrateLegacyInboxProject();
   migrateWorkflowWorkspace();
@@ -418,7 +422,9 @@ function migrateSessionsSource(): void {
   }
 
   // 历史工作流节点已经建过会话：按 node_runs.session_id 回填来源，
-  // 避免旧数据继续出现在项目会话树里。该 UPDATE 可重复执行。
+  // 避免旧数据继续出现在项目会话树里。只回填一次，避免每次启动全表扫描。
+  const marker = "migration.sessionsSource.v1";
+  if (hasMigrationRun(marker)) return;
   db!.exec(`
     UPDATE sessions
     SET source = 'workflow'
@@ -427,6 +433,7 @@ function migrateSessionsSource(): void {
         SELECT session_id FROM workflow_node_runs WHERE session_id IS NOT NULL
       )
   `);
+  markMigrationRun(marker);
 }
 
 /** 检测并给 sessions 表补 config_dir 列（工作流节点使用独立 CLI 配置目录） */
@@ -446,6 +453,46 @@ function migrateSessionsMessageCount(): void {
 }
 
 /**
+ * 检测并给 sessions 表补 history_complete 列。
+ *
+ * 已经有本地 messages 的会话，说明它的完整事件流早就开始落库了
+ * （messages 表与 history_complete 引入前的版本都从“第一条消息”开始写），
+ * 直接回填为 1；没有消息的旧会话保持 0，下次运行前会从 CLI 侧导入历史。
+ */
+function migrateSessionsHistoryComplete(): void {
+  const cols = db!.prepare("PRAGMA table_info(sessions)").all() as { name: string }[];
+  if (!cols.some((c) => c.name === "history_complete")) {
+    db!.exec(
+      "ALTER TABLE sessions ADD COLUMN history_complete INTEGER NOT NULL DEFAULT 0",
+    );
+  }
+
+  // 回填只做一次：DISTINCT 子查询在大 messages 表上不适合每次启动都跑
+  const marker = "migration.sessionHistoryComplete.v1";
+  if (hasMigrationRun(marker)) return;
+  db!.exec(`
+    UPDATE sessions
+    SET history_complete = 1
+    WHERE history_complete = 0
+      AND id IN (SELECT DISTINCT session_id FROM messages)
+  `);
+  markMigrationRun(marker);
+}
+
+/** 一次性数据迁移标记：存于 settings，避免每次启动重复执行 */
+function hasMigrationRun(marker: string): boolean {
+  return Boolean(
+    db!.prepare("SELECT 1 FROM settings WHERE key = ?").get(marker),
+  );
+}
+
+function markMigrationRun(marker: string): void {
+  db!.prepare(
+    "INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",
+  ).run(marker, "1");
+}
+
+/**
  * 工作区迁移：给旧库补 workspace_id，并把未归属的工作流挂到最早创建的项目上。
  *
  * 工作区复用项目（同一个根目录 + 名字），因此这里不做新的实体，
@@ -459,14 +506,20 @@ function migrateWorkflowWorkspace(): void {
     db!.exec("ALTER TABLE workflows ADD COLUMN workspace_id TEXT");
   }
 
+  // 归属迁移只做一次：新版本允许工作流“未归属”，
+  // 若每次启动都重新挂到第一个项目，用户的选择会被静默覆盖。
+  const marker = "migration.workflowWorkspace.v1";
+  if (hasMigrationRun(marker)) return;
+
   const first = db!
     .prepare("SELECT id FROM projects ORDER BY created_at ASC LIMIT 1")
     .get() as { id: string } | undefined;
-  if (first) {
-    db!.prepare(
-      "UPDATE workflows SET workspace_id = ? WHERE workspace_id IS NULL OR workspace_id = ''",
-    ).run(first.id);
-  }
+  if (!first) return; // 还没有项目：下次启动再尝试，不写标记
+
+  db!.prepare(
+    "UPDATE workflows SET workspace_id = ? WHERE workspace_id IS NULL OR workspace_id = ''",
+  ).run(first.id);
+  markMigrationRun(marker);
 }
 
 /**
@@ -540,8 +593,10 @@ export function updateProjectName(id: string, name: string): Project | null {
  * CLI 侧会话文件的清理由 IPC handler 在调用本函数前完成。
  */
 export function deleteProject(id: string): void {
-  // 删除会话与项目包在同一个事务里，保证原子性（任一失败则整体回滚）
+  // 删除会话、自动化任务与项目包在同一个事务里，保证原子性（任一失败则整体回滚）。
+  // 任务不同步清理的话，轮询器之后会对着已不存在的项目反复失败。
   db!.transaction(() => {
+    db!.prepare("DELETE FROM automation_tasks WHERE project_id = ?").run(id);
     db!.prepare("DELETE FROM sessions WHERE project_id = ?").run(id);
     db!.prepare("DELETE FROM projects WHERE id = ?").run(id);
   })();
@@ -608,17 +663,6 @@ export function createSession(
   };
 }
 
-/** 更新会话的 agent session 引用（用于多轮 --resume；引用形态由 provider 解释） */
-/** 工作流/聊天在运行前确定使用哪个隔离配置目录时，回写会话记录 */
-export function updateSessionConfigDir(
-  sessionId: string,
-  configDir: string,
-): void {
-  db!
-    .prepare("UPDATE sessions SET config_dir = ? WHERE id = ?")
-    .run(configDir, sessionId);
-}
-
 /**
  * 绑定 / 切换 / 解绑会话的项目，并同步工作目录。
  *
@@ -644,6 +688,7 @@ export function setSessionProject(
   ).run(projectId, cwd, now, sessionId);
 }
 
+/** 更新会话的 agent session 引用（用于多轮 --resume；引用形态由 provider 解释） */
 export function updateAgentSessionId(sessionId: string, agentSessionId: string): void {
   db!.prepare(
     "UPDATE sessions SET agent_session_id = ?, updated_at = ? WHERE id = ?",
@@ -675,12 +720,59 @@ export function readSessionMessages(sessionId: string): Message[] | null {
     .prepare("SELECT * FROM messages WHERE session_id = ? ORDER BY timestamp ASC, rowid ASC")
     .all(sessionId) as any[];
   if (rows.length === 0) return null;
-  return rows.map((row) => ({
-    id: row.id,
-    role: row.role,
-    content: JSON.parse(row.content_json),
-    timestamp: row.timestamp,
-  }));
+
+  const messages: Message[] = [];
+  for (const row of rows) {
+    try {
+      messages.push({
+        id: row.id,
+        role: row.role,
+        content: JSON.parse(row.content_json),
+        timestamp: row.timestamp,
+      });
+    } catch {
+      // 单条消息损坏不应让整个会话打不开：跳过它，其余历史照常回放
+    }
+  }
+  return messages.length > 0 ? messages : null;
+}
+
+/** 会话是否已有本地消息（用于判断运行前是否需要从 CLI 侧补全历史） */
+export function hasSessionMessages(sessionId: string): boolean {
+  return Boolean(
+    db!
+      .prepare("SELECT 1 FROM messages WHERE session_id = ? LIMIT 1")
+      .get(sessionId),
+  );
+}
+
+/** 批量导入历史消息（一次事务，避免逐条写入放大 IO） */
+export function importSessionMessages(
+  sessionId: string,
+  messages: Message[],
+): void {
+  if (messages.length === 0) return;
+  const insert = db!.prepare(
+    "INSERT OR IGNORE INTO messages (id, session_id, role, content_json, timestamp) VALUES (?, ?, ?, ?, ?)",
+  );
+  db!.transaction(() => {
+    for (const message of messages) {
+      insert.run(
+        message.id || randomUUID(),
+        sessionId,
+        message.role,
+        JSON.stringify(message.content),
+        message.timestamp,
+      );
+    }
+  })();
+}
+
+/** 标记会话的本地消息已经覆盖完整历史 */
+export function markSessionHistoryComplete(sessionId: string): void {
+  db!.prepare(
+    "UPDATE sessions SET history_complete = 1 WHERE id = ?",
+  ).run(sessionId);
 }
 
 /**
@@ -1233,7 +1325,6 @@ function normalizeWorkflowNode(raw: any, index: number): WorkflowNode {
     config: {
       employeeId:
         typeof config.employeeId === "string" ? config.employeeId : null,
-      agentId: typeof config.agentId === "string" ? config.agentId : null,
       taskDetail:
         typeof config.taskDetail === "string"
           ? config.taskDetail
@@ -1598,23 +1689,6 @@ function rowToWorkflowNodeRun(row: any): WorkflowNodeRun {
   };
 }
 
-function rowToWorkflowRunEvent(row: any): WorkflowRunEvent {
-  let payload: Record<string, unknown> = {};
-  try {
-    payload = JSON.parse(row.payload_json);
-  } catch {
-    // 损坏事件不阻断回放
-  }
-  return {
-    seq: row.seq,
-    runId: row.run_id,
-    nodeRunId: row.node_run_id ?? null,
-    type: row.type as WorkflowRunEventType,
-    payload,
-    createdAt: row.created_at,
-  };
-}
-
 export function createWorkflowRun(input: {
   id: string;
   workflowId: string;
@@ -1772,6 +1846,24 @@ export function createWorkflowNodeAttempt(input: {
   );
 }
 
+/** 某节点的全部尝试（按尝试序号升序）；运行详情用它还原完整对话 */
+export function listWorkflowNodeAttempts(nodeRunId: string): Array<{
+  attempt: number;
+  sessionId: string | null;
+  artifactDir: string | null;
+}> {
+  const rows = db!
+    .prepare(
+      "SELECT attempt, session_id, artifact_dir FROM workflow_node_attempts WHERE node_run_id = ? ORDER BY attempt ASC",
+    )
+    .all(nodeRunId) as any[];
+  return rows.map((row) => ({
+    attempt: row.attempt,
+    sessionId: row.session_id ?? null,
+    artifactDir: row.artifact_dir ?? null,
+  }));
+}
+
 export function getWorkflowNodeRun(id: string): WorkflowNodeRun | null {
   const row = db!
     .prepare("SELECT * FROM workflow_node_runs WHERE id = ?")
@@ -1867,23 +1959,11 @@ export function appendWorkflowRunEvent(input: {
   };
 }
 
-export function listWorkflowRunEvents(
-  runId: string,
-  afterSeq = 0,
-): WorkflowRunEvent[] {
-  const rows = db!
-    .prepare(
-      "SELECT * FROM workflow_run_events WHERE run_id = ? AND seq > ? ORDER BY seq ASC",
-    )
-    .all(runId, afterSeq) as any[];
-  return rows.map(rowToWorkflowRunEvent);
-}
-
 /** 标记应用退出时仍处于活动状态的运行为中断（进程已不存在，不能假装还在跑） */
 export function interruptStaleWorkflowRuns(): void {
   const now = Date.now();
   db!.prepare(
-    "UPDATE workflow_runs SET status = 'interrupted', error = '应用已退出，运行被中断', finished_at = ? WHERE status IN ('queued','running','awaiting_approval')",
+    "UPDATE workflow_runs SET status = 'interrupted', error = '应用已退出，运行被中断', finished_at = ? WHERE status IN ('running','awaiting_approval')",
   ).run(now);
   db!.prepare(
     "UPDATE workflow_node_runs SET status = 'canceled', finished_at = ? WHERE status IN ('pending','running','awaiting_approval','retrying')",

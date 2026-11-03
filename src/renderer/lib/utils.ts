@@ -12,6 +12,23 @@ export function newId(): string {
   return crypto.randomUUID();
 }
 
+/** 字节数 → 人类可读大小（B / KB / MB / GB） */
+export function formatBytes(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes <= 0) return "0 B";
+  const units = ["B", "KB", "MB", "GB"];
+  const index = Math.min(
+    Math.floor(Math.log(bytes) / Math.log(1024)),
+    units.length - 1,
+  );
+  const value = bytes / 1024 ** index;
+  return `${value >= 10 || index === 0 ? Math.round(value) : value.toFixed(1)} ${units[index]}`;
+}
+
+/** 去掉 Shiki 输出最外层的 <pre>（容器样式由调用方控制） */
+export function stripPreTag(html: string): string {
+  return html.replace(/^<pre[^>]*>/, "").replace(/<\/pre>$/, "");
+}
+
 /** 取路径最后一段作为名称（兼容 Windows 反斜杠） */
 export function dirName(path: string): string {
   if (!path) return "未命名";

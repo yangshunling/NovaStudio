@@ -7,19 +7,10 @@
  */
 
 import type { AgentModelOption } from "../../../shared/contracts/agent";
+import { isOfficialBaseUrl } from "./config";
 
 const OFFICIAL_BASE_URL = "https://api.anthropic.com";
 const REQUEST_TIMEOUT_MS = 15_000;
-
-function isOfficialBaseUrl(baseUrl: string): boolean {
-  const trimmed = baseUrl.trim();
-  if (!trimmed) return true;
-  try {
-    return new URL(trimmed).hostname.toLowerCase() === "api.anthropic.com";
-  } catch {
-    return false;
-  }
-}
 
 /** 兼容 Base URL 已带 /v1 的写法，避免拼成 /v1/v1/models */
 function modelsUrl(baseUrl: string): string {

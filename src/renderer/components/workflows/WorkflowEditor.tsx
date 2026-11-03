@@ -39,10 +39,8 @@ import {
   Zap,
   type LucideIcon,
 } from "lucide-react";
-import type { AgentInfo } from "@shared/contracts/agent";
 import { ipc } from "../../lib/ipc";
 import { newId } from "../../lib/utils";
-import { useChatStore } from "../../stores/chat";
 import { toast } from "../../stores/toast";
 import { confirmDialog } from "../../stores/confirm";
 import { EmployeeAvatar } from "../employees/EmployeeAvatar";
@@ -169,8 +167,6 @@ export function WorkflowEditor({
   const [workspaceId, setWorkspaceId] = useState(workflow.workspaceId);
   const workspace =
     workspaces.find((item) => item.id === workspaceId) ?? null;
-  /** 已检测到的 Agent：节点只选择由哪个 Agent 执行，运行方式继承 Agent 平台配置 */
-  const agents = useChatStore((state) => state.agents);
   const [nodes, setNodes] = useState<WorkflowNode[]>(workflow.graph.nodes);
   const [edges, setEdges] = useState<WorkflowEdge[]>(workflow.graph.edges);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
@@ -186,6 +182,8 @@ export function WorkflowEditor({
   );
   const [debugDetail, setDebugDetail] = useState<WorkflowRunDetail | null>(null);
   const [debugBusy, setDebugBusy] = useState(false);
+  /** 启动请求在途：防止双击触发两次 start（主进程会以“工作区忙”拒绝第二次） */
+  const startingDebugRef = useRef(false);
   const previousDebugStatus = useRef<WorkflowRunStatus | null>(null);
 
   // 卡片上点「调试」时，run 已经在父级启动；这里接上它的实时状态
@@ -237,12 +235,6 @@ export function WorkflowEditor({
       config: {
         ...defaultNodeConfig(),
         employeeId: employee?.id ?? null,
-        // 执行 Agent 默认取本机已安装的第一个（当前通常就是唯一的 Claude），
-        // 避免新建节点后还要手动再选一次
-        agentId:
-          type === "employee"
-            ? (agents.find((item) => item.status.installed)?.id ?? null)
-            : null,
       },
     };
     setNodes((current) => [...current, node]);
@@ -364,7 +356,6 @@ export function WorkflowEditor({
         const runs = await ipc.listWorkflowRuns(workflow.id);
         const active = runs.find(
           (run) =>
-            run.status === "queued" ||
             run.status === "running" ||
             run.status === "awaiting_approval",
         );
@@ -433,8 +424,7 @@ export function WorkflowEditor({
   const debugActive =
     debugRunId !== null &&
     (debugDetail
-      ? debugDetail.run.status === "queued" ||
-        debugDetail.run.status === "running" ||
+      ? debugDetail.run.status === "running" ||
         debugDetail.run.status === "awaiting_approval"
       : true);
 
@@ -444,16 +434,17 @@ export function WorkflowEditor({
       toast.error("工作流未绑定工作区，无法调试");
       return;
     }
-    if (saving || debugActive) return;
-
-    // 调试读取数据库里的最新版本：有改动先保存，但不退出编辑器
-    if (dirty) {
-      const updated = await persist();
-      if (!updated) return;
-      onDraftSaved(updated);
-    }
+    if (saving || debugActive || startingDebugRef.current) return;
+    startingDebugRef.current = true;
 
     try {
+      // 调试读取数据库里的最新版本：有改动先保存，但不退出编辑器
+      if (dirty) {
+        const updated = await persist();
+        if (!updated) return;
+        onDraftSaved(updated);
+      }
+
       const run = await ipc.startWorkflowRun(workflow.id);
       previousDebugStatus.current = null;
       setDebugDetail(null);
@@ -462,6 +453,8 @@ export function WorkflowEditor({
       const message = err instanceof Error ? err.message : String(err);
       setError(message);
       toast.error(message, 6000);
+    } finally {
+      startingDebugRef.current = false;
     }
   };
 
@@ -788,7 +781,6 @@ export function WorkflowEditor({
                 <NodeInspector
                   node={selectedNode}
                   employees={employees}
-                  agents={agents}
                   onPatch={patchNode}
                   onDelete={deleteNode}
                   onClose={() => setSelectedNodeId(null)}
@@ -849,14 +841,12 @@ function PaletteItem({
 function NodeInspector({
   node,
   employees,
-  agents,
   onPatch,
   onDelete,
   onClose,
 }: {
   node: WorkflowNode;
   employees: DigitalEmployee[];
-  agents: AgentInfo[];
   onPatch: (
     id: string,
     patch: Partial<Pick<WorkflowNode, "name">>,
@@ -912,75 +902,34 @@ function NodeInspector({
       <input
         value={node.name}
         onChange={(event) => onPatch(node.id, { name: event.target.value })}
-        className={`${INPUT_CLASS} mb-4`}
+        className={INPUT_CLASS}
       />
 
       {node.type === "employee" ? (
         <>
-          <label className={LABEL_CLASS}>执行 Agent</label>
-          <Select
-            value={node.config.agentId ?? ""}
-            onChange={(next) =>
-              onPatch(node.id, {}, { agentId: next || null })
-            }
-            className={`${INPUT_CLASS} mb-2`}
-            options={[
-              { value: "", label: "选择 Agent…" },
-              ...agents.map((item) => ({
-                value: item.id,
-                label: `${item.displayName}${
-                  item.status.installed
-                    ? item.status.version
-                      ? ` v${item.status.version}`
-                      : ""
-                    : "（未安装）"
-                }`,
-                disabled: !item.status.installed,
-              })),
-            ]}
-          />
+          <div className="mt-4 border-t border-border pt-4">
+            <label className={LABEL_CLASS}>数字员工</label>
+            <Select
+              value={node.config.employeeId ?? ""}
+              onChange={(next) =>
+                onPatch(node.id, {}, { employeeId: next || null })
+              }
+              className={INPUT_CLASS}
+              options={[
+                { value: "", label: "选择数字员工…" },
+                ...employees.map((item) => ({
+                  value: item.id,
+                  label: `${item.name}${item.role ? ` · ${item.role}` : ""}`,
+                })),
+              ]}
+            />
 
-          {!node.config.agentId ? (
-            <p className="mb-2 rounded-lg bg-error-bg px-3 py-2 text-meta text-error">
-              尚未选择执行 Agent，该节点无法执行。
-            </p>
-          ) : (
-            <p className="mb-2 text-meta leading-relaxed text-text-muted">
-              模型、权限等运行配置继承「Agent 平台」。
-            </p>
-          )}
-
-          <label className={LABEL_CLASS}>数字员工</label>
-          <Select
-            value={node.config.employeeId ?? ""}
-            onChange={(next) =>
-              onPatch(node.id, {}, { employeeId: next || null })
-            }
-            className={`${INPUT_CLASS} mb-2`}
-            options={[
-              { value: "", label: "选择数字员工…" },
-              ...employees.map((item) => ({
-                value: item.id,
-                label: `${item.name}${item.role ? ` · ${item.role}` : ""}`,
-              })),
-            ]}
-          />
-
-          {employee ? (
-            <div className="flex items-center gap-3 rounded-xl bg-surface-hover/60 px-3 py-2.5">
-              <EmployeeAvatar employee={employee} size={32} />
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-body text-text">{employee.name}</p>
-                <p className="truncate text-meta text-text-muted">
-                  {employee.role || "未设置职位"}
-                </p>
-              </div>
-            </div>
-          ) : (
-            <p className="rounded-lg bg-error-bg px-3 py-2 text-meta text-error">
-              尚未绑定数字员工，该节点无法执行。
-            </p>
-          )}
+            {!employee && (
+              <p className="mt-2 rounded-lg bg-error-bg px-3 py-2 text-meta text-error">
+                尚未绑定数字员工，该节点无法执行。
+              </p>
+            )}
+          </div>
 
           <div className="mt-4 border-t border-border pt-4">
             <p className={SECTION_TITLE_CLASS}>任务详情</p>
@@ -1064,7 +1013,7 @@ function NodeInspector({
           </div>
         </>
       ) : (
-        <p className="rounded-lg bg-surface-hover/60 px-3 py-2.5 text-meta leading-relaxed text-text-muted">
+        <p className="mt-4 rounded-lg bg-surface-hover/60 px-3 py-2.5 text-meta leading-relaxed text-text-muted">
           该节点只标示流程起止，不参与执行。
         </p>
       )}

@@ -8,11 +8,13 @@
  * 4. 加载渲染进程页面
  */
 
-import { app, BrowserWindow } from "electron";
+import { app, BrowserWindow, dialog } from "electron";
 import { join } from "path";
 import { existsSync } from "fs";
 import {
+  attachMainWindow,
   initIpcHandlers,
+  stopAgents,
   stopAutomation,
   stopTriggers,
   stopWorkflows,
@@ -21,8 +23,12 @@ import { initDatabase, closeDatabase } from "./db/sqlite";
 import { stopTerminals } from "./terminal/manager";
 import { purgeStaleWorkflowRuntimes } from "./workflow/artifacts";
 import { migrateLegacyAssets } from "./migration/legacy-assets";
+import { syncKnowledgeIndex } from "./knowledge/catalog";
 
 let mainWindow: BrowserWindow | null = null;
+/** 退出清理只执行一次：before-quit 与 will-quit 都可能被触发 */
+let backgroundStopped = false;
+let databaseClosed = false;
 
 /**
  * 解析 preload 脚本路径。
@@ -90,36 +96,80 @@ function createWindow(): BrowserWindow {
   return win;
 }
 
-app.whenReady().then(async () => {
-  // 初始化数据库
+/** 启动主流程：数据库 → 迁移 → 窗口 → IPC → 后台清理/索引 */
+async function bootstrap(): Promise<void> {
   initDatabase();
-
-  // 旧版 Nova MCP / Skill 主库 → Claude 配置（幂等，失败不影响启动）
   await migrateLegacyAssets();
 
-  // IPC 层持有窗口引用（initIpcHandlers 内部会 setMainWindow），
+  // 先清理异常退出遗留的运行时目录（可能含凭证副本），再开放 IPC：
+  // 单实例下启动瞬间不可能有活跃运行，可以安全地全部删除。
+  await purgeStaleWorkflowRuntimes(app.getPath("userData"));
+
+  // IPC 层持有窗口引用（initIpcHandlers 内部会绑定窗口），
   // 因此必须先把窗口创建出来再注册，顺序不能反。
   const win = createWindow();
   initIpcHandlers(win);
 
-  // 清理异常退出遗留的运行时投影目录；不阻塞窗口加载
-  void purgeStaleWorkflowRuntimes(app.getPath("userData"));
-
-  app.on("activate", () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
-      createWindow();
-    }
+  // 后台补齐知识库全文索引：首次升级 / 外部新增的文件需要建一次索引
+  void syncKnowledgeIndex().catch((err) => {
+    console.warn(
+      "[knowledge] 启动索引失败：",
+      err instanceof Error ? err.message : String(err),
+    );
   });
-});
+}
 
-app.on("window-all-closed", () => {
-  // 先停止自动化轮询定时器，避免应用退出后定时器仍在运行
+/** 退出前中断所有后台任务（不关闭数据库，避免收尾写入失败） */
+function stopBackgroundTasks(): void {
+  if (backgroundStopped) return;
+  backgroundStopped = true;
   stopAutomation();
+  stopAgents();
   stopTriggers();
   stopWorkflows();
   stopTerminals();
+}
+
+function closeDatabaseOnce(): void {
+  if (databaseClosed) return;
+  databaseClosed = true;
   closeDatabase();
-  if (process.platform !== "darwin") {
-    app.quit();
-  }
-});
+}
+
+/** 只允许单实例：多实例会互相把对方的运行记录标记为“已中断” */
+if (!app.requestSingleInstanceLock()) {
+  app.quit();
+} else {
+  app.on("second-instance", () => {
+    const win = BrowserWindow.getAllWindows()[0] ?? mainWindow;
+    if (!win) return;
+    if (win.isMinimized()) win.restore();
+    win.focus();
+  });
+
+  app
+    .whenReady()
+    .then(bootstrap)
+    .catch((err) => {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error("[nova] 启动失败：", err);
+      dialog.showErrorBox("Nova Studio 启动失败", message);
+      app.quit();
+    });
+
+  app.on("activate", () => {
+    if (BrowserWindow.getAllWindows().length === 0) {
+      const win = createWindow();
+      // 新窗口必须重新绑定推送目标；IPC handler 本身仍然有效
+      attachMainWindow(win);
+    }
+  });
+
+  app.on("window-all-closed", () => {
+    // macOS 关窗不退出应用；Windows / Linux 退出走 before-quit 统一清理
+    if (process.platform !== "darwin") app.quit();
+  });
+
+  app.on("before-quit", stopBackgroundTasks);
+  app.on("will-quit", closeDatabaseOnce);
+}

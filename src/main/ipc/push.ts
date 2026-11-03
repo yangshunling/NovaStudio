@@ -18,6 +18,7 @@ import type { IpcPushChannel, IpcPushMap } from "../../shared/contracts/ipc";
 const BATCH_WINDOWS: Partial<Record<IpcPushChannel, number>> = {
   // 16ms 内的流式事件合并为一批发送，避免高频 IPC 抖动
   "agent:event": 16,
+  "workflow:run:agentEvent": 16,
 };
 
 interface PendingBatch {

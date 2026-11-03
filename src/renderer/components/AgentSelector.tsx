@@ -196,7 +196,7 @@ export function AgentSelector({
             );
           })}
           <li className="px-2.5 pt-1.5 text-caption text-text-muted">
-            模型、权限等运行配置继承「Agent 平台」
+            模型、权限等运行配置继承「Agent 配置」
           </li>
         </ul>
       )}

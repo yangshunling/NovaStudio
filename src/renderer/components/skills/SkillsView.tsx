@@ -1,13 +1,12 @@
 /**
  * 技能资产页
  *
- * 聚合展示三类来源：
- * - Claude 全局技能（~/.claude/skills）：Nova 可导入、编辑、删除自己创建的技能
- * - Claude 全局（~/.claude/skills）：只读发现，可被员工引用
- * - 共享技能库（~/.agents/skills）：只读发现，可被员工引用
+ * 只展示 Claude 全局技能（~/.claude/skills）：
+ * - Nova 创建的技能可导入、编辑、删除；
+ * - 其他工具创建的技能只读，可被员工引用。
  *
- * 只读来源不是缺陷，而是边界：它们由各自工具管理，Nova 只做索引与运行时复制，
- * 避免两边同时写导致技能内容互相覆盖。
+ * 只读不是缺陷，而是边界：这些技能由 Claude Code 或其他工具管理，
+ * Nova 只做索引与运行时复制，避免两边同时写导致技能内容互相覆盖。
  */
 
 import {
@@ -46,9 +45,8 @@ import {
 } from "../ui/Drawer";
 import { Button } from "../ui/Button";
 import { EmptyState, ErrorState, LoadingState } from "../ui/EmptyState";
-import { Page, PageBody, PageHeader, PageToolbar } from "../ui/Page";
+import { Page, PageBody, PageHeader } from "../ui/Page";
 import { SearchInput } from "../ui/SearchInput";
-import { OptionChips } from "../ui/OptionChips";
 import {
   formatAssetTime,
   Meta,
@@ -61,18 +59,7 @@ import type {
   SkillAsset,
   SkillDocument,
   SkillImportKind,
-  SkillOrigin,
 } from "@shared/types";
-
-// ============================================================================
-// 常量
-// ============================================================================
-
-const FILTERS: ReadonlyArray<{ id: "all" | SkillOrigin; label: string }> = [
-  { id: "all", label: "全部" },
-  { id: "claude-global", label: "Claude 全局" },
-  { id: "agents-store", label: "共享技能库" },
-];
 
 // ============================================================================
 // 页面
@@ -86,7 +73,6 @@ export function SkillsView() {
   const { data: skills, loading, error, reload } =
     useLoad(() => ipc.listSkills(), []);
   const [query, setQuery] = useState("");
-  const [filter, setFilter] = useState<"all" | SkillOrigin>("all");
   const [importing, setImporting] = useState<SkillImportKind | null>(null);
   const [activeId, setActiveId] = useState<string | null>(null);
 
@@ -101,14 +87,13 @@ export function SkillsView() {
 
   const filtered = useMemo(() => {
     const keyword = query.trim().toLowerCase();
-    return skills.filter((skill) => {
-      if (filter !== "all" && skill.origin !== filter) return false;
-      if (!keyword) return true;
-      return [skill.name, skill.slug, skill.description].some((value) =>
+    if (!keyword) return skills;
+    return skills.filter((skill) =>
+      [skill.name, skill.slug, skill.description].some((value) =>
         value.toLowerCase().includes(keyword),
-      );
-    });
-  }, [skills, filter, query]);
+      ),
+    );
+  }, [skills, query]);
 
   const active = skills.find((skill) => skill.id === activeId) ?? null;
 
@@ -176,24 +161,6 @@ export function SkillsView() {
         }
       />
 
-      {/* 来源过滤 */}
-      <PageToolbar>
-        <OptionChips
-          mode="single"
-          items={FILTERS.map((item) => ({
-            id: item.id,
-            label: item.label,
-            count:
-              item.id === "all"
-                ? skills.length
-                : skills.filter((skill) => skill.origin === item.id).length,
-          }))}
-          selected={filter}
-          onSelect={(id) => setFilter(id as "all" | SkillOrigin)}
-          trailing="只读来源可引用，不可编辑或删除"
-        />
-      </PageToolbar>
-
       {/* 列表 */}
       <PageBody>
           {loading ? (
@@ -205,7 +172,7 @@ export function SkillsView() {
           ) : filtered.length === 0 ? (
             <EmptyState
               icon={<Search />}
-              title={query ? `没有匹配「${query}」的技能` : "该来源下还没有技能"}
+              title={`没有匹配「${query}」的技能`}
               action={
                 query ? (
                   <button
@@ -435,9 +402,9 @@ function SkillDrawer({
                   <div>
                     <p>{skill.readOnlyReason}</p>
                     <p className="mt-1 text-text-muted">
-                      {skill.origin === "claude-global"
-                        ? "你仍然可以在数字员工中绑定它；Nova 会在每次运行时把技能复制到独立的 Agent 配置目录，不会改动原目录。"
-                        : "共享技能库中的技能不能直接绑定给员工；如需在数字员工中使用，请先导入到 Claude 全局技能库。"}
+                      你仍然可以在数字员工中绑定它；Nova
+                      会在每次运行时把技能复制到独立的 Agent
+                      配置目录，不会改动原目录。
                     </p>
                   </div>
                 </div>
@@ -596,7 +563,7 @@ function EmptySkills({
     <EmptyState
       icon={<Sparkles />}
       title="管理你的技能资产"
-      description="把包含 SKILL.md 的技能文件夹导入 Claude 全局技能目录（~/.claude/skills），然后在数字员工中勾选绑定。共享技能库会自动扫描，无需重复导入。"
+      description="把包含 SKILL.md 的技能文件夹导入 Claude 全局技能目录（~/.claude/skills），然后在数字员工中勾选绑定。"
       action={
         <Button
           variant="primary"

@@ -4,9 +4,11 @@
  * Claude Code 是 Anthropic 的终端 AI 编码智能体。
  * 支持 stream-json 流式事件输出与 --resume 会话恢复。
  *
- * CLI 用法（claude 2.1.273，基于 --help 与实跑输出确认）：
- *   首次调用：claude -p "<prompt>" --output-format stream-json --verbose --include-partial-messages
- *   恢复会话：claude -p "<prompt>" --resume <session_id> --output-format stream-json --verbose ...
+ * CLI 用法（claude 2.1.316，基于 --help 与实跑输出确认）：
+ *   首次调用：claude -p --output-format stream-json --verbose --include-partial-messages
+ *   恢复会话：claude -p --resume <session_id> --output-format stream-json --verbose ...
+ *   prompt 通过 stdin 传入（含换行，不能作为命令行参数）；
+ *   系统提示词写入临时文件后用 --append-system-prompt-file 传入。
  *   检测安装：claude --version
  *   工作目录：claude 无 -C 选项，通过进程的 cwd 设置
  *   模型选择：--model
@@ -21,16 +23,17 @@
  * 会话 id（uuid）直接可复用，历史回放靠读 CLI 侧 JSONL 文件（见 sessions.ts）
  */
 
-import { existsSync } from "fs";
-import { homedir } from "os";
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "fs";
+import { homedir, tmpdir } from "os";
 import { join } from "path";
 import type { AgentProvider, RunOptions, RunSession } from "../types";
-import type { SessionOptions } from "../../../shared/types";
 import { startLineRun } from "../line-run";
 import { probeVersion } from "../probe";
 import { manifest } from "./manifest";
 import { createDecoder, extractSessionId } from "./parse";
 import { prepareClaudeWorkflowRun } from "./prepare";
+import { getClaudeSettingsView } from "./settings";
+import type { AgentModelEntry } from "../../../shared/contracts/agent";
 import {
   deleteSession as deleteSessionFile,
   fileVersion,
@@ -40,26 +43,36 @@ import {
 const BIN = "claude";
 
 /**
- * 宿主内部注入的运行参数 key → 命令行开关。
+ * 系统提示词落成临时文件。
  *
- * systemPrompt / mcpConfig / strictMcpConfig 由工作流运行按需注入，
- * 不是用户可配置项；普通聊天不会传。
+ * Windows 下经 cmd.exe 启动时，命令行参数中的换行会把整条命令截断，
+ * 多行提示词因此不能作为参数传递。返回文件路径与清理函数。
  */
-const OPTION_FLAGS: Record<string, string> = {
-  systemPrompt: "--append-system-prompt",
-  mcpConfig: "--mcp-config",
-};
+function writeSystemPromptFile(prompt: string): {
+  path: string;
+  cleanup: () => void;
+} {
+  const dir = mkdtempSync(join(tmpdir(), "novastudio-system-"));
+  const path = join(dir, "system.md");
+  writeFileSync(path, prompt, "utf8");
+  return {
+    path,
+    cleanup: () => {
+      try {
+        rmSync(dir, { recursive: true, force: true });
+      } catch {
+        // 清理失败不影响运行结果
+      }
+    },
+  };
+}
 
-/** 把宿主内部注入的参数翻译成命令行开关；未声明的 key 一律忽略 */
-function optionArgs(opts?: SessionOptions): string[] {
-  const args: string[] = [];
-  for (const [key, flag] of Object.entries(OPTION_FLAGS)) {
-    const value = opts?.[key];
-    if (value) args.push(flag, value);
-  }
-  // 只使用显式传入的 MCP，屏蔽全局 / 项目配置（工作流隔离用）
-  if (opts?.strictMcpConfig === "1") args.push("--strict-mcp-config");
-  return args;
+/** 模型配置 → 展示用 ID：`deepseek-flash` + `1M` → `deepseek-flash[1M]` */
+function formatModelEntry(entry: AgentModelEntry): string {
+  const name = entry.name.trim();
+  if (!name) return "";
+  const context = entry.context.trim();
+  return context ? `${name}[${context}]` : name;
 }
 
 export const provider: AgentProvider = {
@@ -77,41 +90,111 @@ export const provider: AgentProvider = {
     };
   },
 
+  /** 运行产物用的本机配置快照：只包含可展示值，API Key 已脱敏 */
+  describeRuntimeConfig() {
+    try {
+      const view = getClaudeSettingsView();
+      const config: Record<string, string> = {
+        "配置文件": view.settingsPath,
+        "默认模型": formatModelEntry(view.defaultModel) || "（未设置，使用 CLI 默认）",
+        "权限模式": view.permissionMode,
+        "Base URL": view.baseUrl || "（官方默认）",
+        "API Key": view.hasApiKey ? view.apiKeyHint : "未配置",
+      };
+      for (const [alias, entry] of Object.entries(view.modelAliases)) {
+        const formatted = formatModelEntry(entry);
+        if (formatted) config[`模型别名 ${alias}`] = formatted;
+      }
+
+      /*
+       * 宿主进程里的 ANTHROPIC_* / CLAUDE_* / MCP_* 会继承给 CLI，
+       * 经常是“配置没错但行为不对”的真正原因。这里一并记录，敏感值脱敏。
+       */
+      const secret = /(token|secret|password|passwd|auth|api[-_]?key|access[-_]?key|credential)/i;
+      for (const [key, value] of Object.entries(process.env)) {
+        if (!value || !/^(ANTHROPIC|CLAUDE|MCP)_/i.test(key)) continue;
+        config[`宿主环境 ${key}`] = secret.test(key)
+          ? `（已隐藏，长度 ${value.length}）`
+          : value;
+      }
+      return config;
+    } catch (err) {
+      return {
+        "配置读取失败": err instanceof Error ? err.message : String(err),
+      };
+    }
+  },
+
   prepareRun(input) {
     return prepareClaudeWorkflowRun(input);
   },
 
   start(opts: RunOptions): RunSession {
+    // prompt 不放进命令行：Windows 上含换行的参数会被 cmd.exe 截断，
+    // 后半段开关（--output-format / --mcp-config 等）会整个丢失。
     const args = [
       BIN,
       "-p",
-      opts.prompt,
       "--output-format",
       "stream-json",
       "--verbose",
       "--include-partial-messages",
     ];
     if (opts.sessionRef) args.push("--resume", opts.sessionRef);
-    args.push(...optionArgs(opts.opts));
+
+    // 系统提示词同样是多行文本，写入临时文件后用 --append-system-prompt-file
+    const systemPrompt = opts.opts?.systemPrompt;
+    const systemPromptFile = systemPrompt
+      ? writeSystemPromptFile(systemPrompt)
+      : null;
+    if (systemPromptFile) {
+      args.push("--append-system-prompt-file", systemPromptFile.path);
+    }
+
+    // 工作流隔离参数（--mcp-config 等）由 prepareRun 通过 extraArgs 注入
     if (opts.extraArgs?.length) args.push(...opts.extraArgs);
 
-    return startLineRun(
+    // 启动前把精确的调用信息交给宿主，写入运行产物
+    opts.onInvocation?.({
+      command: BIN,
+      args: [...args],
+      cwd: opts.cwd,
+      stdin: "任务输入（prompt 通过 stdin 传入，内容见「任务输入」章节）",
+      env: opts.env,
+      envRemove: opts.envRemove,
+      notes: [
+        "prompt 通过 stdin 传入，不在命令行参数中（避免 Windows cmd.exe 截断换行）",
+        systemPromptFile
+          ? "系统提示词写入临时文件后通过 --append-system-prompt-file 传入"
+          : "",
+        "未传 --model / --permission-mode：模型与权限由本机 Claude settings.json 决定",
+      ].filter(Boolean) as string[],
+    });
+
+    const session = startLineRun(
       {
         args,
         cwd: opts.cwd,
-        // 用 PTY：管道传输在 Windows 上走 shell:true，参数只做字符串拼接，
-        // 含空格的 prompt 会被拆成多个参数；PTY 由 transport 逐个参数处理引号
-        transport: "pty",
+        // prompt 通过 stdin 传入，参数里只剩单行开关与路径，
+        // Windows 下由 transport 显式经 cmd.exe 解析 .cmd 入口。
+        // stream-json 本身逐行输出，不需要 TTY 也能实时流式。
+        stdin: opts.prompt,
         timeoutMs: opts.timeoutMs,
         env: opts.env,
         envRemove: opts.envRemove,
         extractSessionId,
         // 每次运行新建解码器：它记住本次运行内 tool_use id → 工具名，
-        // 让随后到达的 tool_result 能补上工具名
-        decode: createDecoder(),
+        // 让随后到达的 tool_result 能补上工具名。
+        // 工作流保留命令类工具（Bash 等），运行记录才能还原完整链路。
+        decode: createDecoder(opts.mode === "workflow"),
       },
       opts,
     );
+
+    if (systemPromptFile) {
+      void session.done.finally(systemPromptFile.cleanup);
+    }
+    return session;
   },
 
   /** claude --resume 收的就是会话 id，无需规范化 */

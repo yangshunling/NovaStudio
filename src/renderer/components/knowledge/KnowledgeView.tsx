@@ -37,7 +37,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { ipc } from "../../lib/ipc";
-import { toMessage } from "../../lib/utils";
+import { formatBytes, toMessage } from "../../lib/utils";
 import { useSkillFontSize } from "../../hooks/useTheme";
 import { useLoad } from "../../hooks/useLoad";
 import { toast } from "../../stores/toast";
@@ -68,17 +68,6 @@ import type {
 // ============================================================================
 // 工具
 // ============================================================================
-
-function formatBytes(bytes: number): string {
-  if (!Number.isFinite(bytes) || bytes <= 0) return "0 B";
-  const units = ["B", "KB", "MB", "GB"];
-  const index = Math.min(
-    Math.floor(Math.log(bytes) / Math.log(1024)),
-    units.length - 1,
-  );
-  const value = bytes / 1024 ** index;
-  return `${value >= 10 || index === 0 ? Math.round(value) : value.toFixed(1)} ${units[index]}`;
-}
 
 /** 右键菜单尺寸：贴近视口边缘时收拢位置 */
 const MENU_WIDTH = 208;

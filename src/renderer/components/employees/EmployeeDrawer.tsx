@@ -1,7 +1,8 @@
 /**
  * 数字员工编辑抽屉
  *
- * 从右侧滑出，按「基本资料 / 系统提示词 / MCP / 技能」分标签编辑。
+ * 从右侧滑出，按「基本资料 / MCP / 技能 / 知识库」分标签编辑。
+ * 系统提示词属于基本资料（不做单独标签页）。
  * 新建与编辑共用同一份草稿状态；保存时才写入 SQLite。
  *
  * 头像在渲染进程读取：经 canvas 裁剪为 256×256 的 WebP data URL，
@@ -12,7 +13,6 @@ import { useRef, useState } from "react";
 import {
   Eraser,
   Library,
-  MessageSquareText,
   Plug,
   Sparkles,
   Trash2,
@@ -42,11 +42,10 @@ import type { DigitalEmployee, DigitalEmployeeDraft } from "@shared/types";
 // 常量与类型
 // ============================================================================
 
-type TabId = "profile" | "prompt" | "mcp" | "skills" | "knowledge";
+type TabId = "profile" | "mcp" | "skills" | "knowledge";
 
 const TABS: ReadonlyArray<{ id: TabId; label: string; icon: LucideIcon }> = [
   { id: "profile", label: "基本资料", icon: UserRound },
-  { id: "prompt", label: "系统提示词", icon: MessageSquareText },
   { id: "mcp", label: "MCP 服务", icon: Plug },
   { id: "skills", label: "技能", icon: Sparkles },
   { id: "knowledge", label: "知识库", icon: Library },
@@ -250,12 +249,6 @@ export function EmployeeDrawer({
               onPickAvatar={() => avatarInputRef.current?.click()}
             />
           )}
-          {tab === "prompt" && (
-            <PromptTab
-              value={draft.systemPrompt}
-              onChange={(systemPrompt) => update({ systemPrompt })}
-            />
-          )}
           {tab === "mcp" && (
             <McpTab
               servers={draft.mcpServers}
@@ -389,15 +382,23 @@ function ProfileTab({
         </Field>
       </div>
 
-      <Field label="简介" hint="一句话说明这位员工擅长什么，会展示在卡片上。">
+      <Field
+        label="系统提示词"
+        hint="定义员工的身份、职责与行为边界，会作为每次执行的基础设定。"
+      >
         <textarea
-          value={draft.description}
-          onChange={(event) => update({ description: event.target.value })}
-          rows={2}
-          placeholder="例如：负责竞品分析、用户研究与需求拆解"
-          className={`${INPUT_CLASS} resize-y leading-relaxed`}
+          value={draft.systemPrompt}
+          onChange={(event) => update({ systemPrompt: event.target.value })}
+          rows={12}
+          placeholder={
+            "例如：\n你是一名资深产品分析师。\n- 先澄清目标，再给出结论\n- 输出结构化、可执行的分析"
+          }
+          className={`${INPUT_CLASS} min-h-[240px] resize-y font-mono text-meta leading-relaxed`}
         />
       </Field>
+      <div className="-mt-2 text-right text-caption text-text-muted">
+        {draft.systemPrompt.length} 字符
+      </div>
 
       <div className="flex items-center justify-between gap-3 rounded-lg border border-border bg-surface-2/40 px-3 py-2.5">
         <div>
@@ -411,38 +412,6 @@ function ProfileTab({
           onChange={(enabled) => update({ enabled })}
           label="启用状态"
         />
-      </div>
-    </div>
-  );
-}
-
-// ============================================================================
-// 系统提示词
-// ============================================================================
-
-function PromptTab({
-  value,
-  onChange,
-}: {
-  value: string;
-  onChange: (value: string) => void;
-}) {
-  return (
-    <div className="space-y-3">
-      <p className="text-meta leading-relaxed text-text-muted">
-        系统提示词定义员工的身份、职责与行为边界，会作为每次对话的基础设定。
-      </p>
-      <textarea
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        rows={16}
-        placeholder={
-          "例如：\n你是一名资深产品分析师。\n- 先澄清目标，再给出结论\n- 输出结构化、可执行的分析"
-        }
-        className={`${INPUT_CLASS} min-h-[320px] resize-y font-mono text-meta leading-relaxed`}
-      />
-      <div className="text-right text-caption text-text-muted">
-        {value.length} 字符
       </div>
     </div>
   );
