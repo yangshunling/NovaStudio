@@ -549,6 +549,8 @@ export async function createKnowledgeFolder(
     if (!info.isDirectory()) return false;
     if (existsSync(target)) return false;
     await mkdir(target, { recursive: false });
+    // 列表缓存里带文档数，新建文件夹后必须失效，否则左栏数量要等 1 秒才更新
+    invalidateKnowledgeBaseCache();
     return true;
   } catch {
     return false;
@@ -850,7 +852,8 @@ export async function syncKnowledgeIndex(kbId?: string): Promise<void> {
  * 这里只负责吸收“外部编辑”的情况，2 秒的延迟对搜索体验没有影响。
  */
 const SYNC_MIN_INTERVAL_MS = 2000;
-let lastIndexSyncAt = 0;
+/** 节流按知识库分别计时：否则在 A 库搜索完，2 秒内切到 B 库搜索会跳过 B 的同步 */
+const lastIndexSyncAt = new Map<string, number>();
 
 export async function searchKnowledge(
   query: string,
@@ -861,9 +864,10 @@ export async function searchKnowledge(
     return { hits: [], total: 0, query: trimmed, degraded: false };
   }
 
-  if (Date.now() - lastIndexSyncAt >= SYNC_MIN_INTERVAL_MS) {
+  const syncKey = kbId ?? "*";
+  if (Date.now() - (lastIndexSyncAt.get(syncKey) ?? 0) >= SYNC_MIN_INTERVAL_MS) {
     await syncKnowledgeIndex(kbId);
-    lastIndexSyncAt = Date.now();
+    lastIndexSyncAt.set(syncKey, Date.now());
   }
 
   const assets = await listKnowledgeBases();

@@ -53,12 +53,17 @@ function sanitizeSetting<K extends keyof AppSettings>(
   value: AppSettings[K],
 ): AppSettings[K] | undefined {
   const limits = INTEGER_LIMITS[key];
-  if (!limits) return value;
+  if (limits) {
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric)) return undefined;
+    const [min, max] = limits;
+    return Math.min(max, Math.max(min, Math.round(numeric))) as AppSettings[K];
+  }
 
-  const numeric = Number(value);
-  if (!Number.isFinite(numeric)) return undefined;
-  const [min, max] = limits;
-  return Math.min(max, Math.max(min, Math.round(numeric))) as AppSettings[K];
+  // 字符串型设置：空串是合法值（表示「未指定」），只做 trim；
+  // 类型不对时返回 undefined，由调用方明确报错，而不是悄悄丢掉。
+  if (typeof value !== "string") return undefined;
+  return value.trim() as AppSettings[K];
 }
 
 /** 读取单个设置项；未落库时返回 undefined */
@@ -78,16 +83,28 @@ export function registerSettingsHandlers(): void {
   });
 
   handle("settings:set", (patch) => {
+    /**
+     * 先全量校验再统一落库：某个键非法时直接报错，而不是把它悄悄丢掉后
+     * 仍返回成功 —— 那样用户会以为设置生效了，重启才发现没变。
+     */
+    const entries: { key: string; value: string }[] = [];
     for (const [key, value] of Object.entries(patch)) {
       if (value === undefined) continue;
       const typedKey = key as keyof AppSettings;
       const codec = SETTING_CODECS[typedKey];
-      if (!codec) continue;
+      if (!codec) throw new Error(`未知的设置项：${key}`);
 
-      const sanitized = sanitizeSetting(typedKey, value as AppSettings[typeof typedKey]);
-      if (sanitized === undefined) continue;
-      db.setSetting(key, codec.encode(sanitized as never));
+      const sanitized = sanitizeSetting(
+        typedKey,
+        value as AppSettings[typeof typedKey],
+      );
+      if (sanitized === undefined) {
+        throw new Error(`设置项「${key}」的取值无效`);
+      }
+      entries.push({ key, value: codec.encode(sanitized as never) });
     }
+
+    for (const entry of entries) db.setSetting(entry.key, entry.value);
     return true;
   });
 

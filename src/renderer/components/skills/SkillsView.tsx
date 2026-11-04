@@ -31,7 +31,6 @@ import {
 } from "lucide-react";
 import { ipc } from "../../lib/ipc";
 import { toMessage } from "../../lib/utils";
-import { useSkillFontSize } from "../../hooks/useTheme";
 import { useAssetCatalog, useSkillsStore } from "../../stores/assets";
 import { toast } from "../../stores/toast";
 import { confirmDialog } from "../../stores/confirm";
@@ -47,6 +46,12 @@ import { Button } from "../ui/Button";
 import { EmptyState, ErrorState, LoadingState } from "../ui/EmptyState";
 import { Page, PageBody, PageHeader } from "../ui/Page";
 import { SearchInput } from "../ui/SearchInput";
+import {
+  CARD_DESCRIPTION,
+  CARD_META,
+  CARD_SHELL,
+  CARD_TITLE,
+} from "../ui/cardStyles";
 import {
   formatAssetTime,
   Meta,
@@ -66,8 +71,6 @@ import type {
 // ============================================================================
 
 export function SkillsView() {
-  // 技能页整体比全局字号大一档，避免标签 / 路径 / 正文过小
-  const skillFontSize = useSkillFontSize();
   const employees = useEmployeesStore((s) => s.employees);
   const loadEmployees = useEmployeesStore((s) => s.load);
   // 技能目录在启动时已扫描过一次，切换页面直接读缓存
@@ -121,7 +124,7 @@ export function SkillsView() {
   };
 
   return (
-    <Page fontSize={skillFontSize}>
+    <Page>
       {/* 顶栏 */}
       <PageHeader
         title="技能"
@@ -139,25 +142,27 @@ export function SkillsView() {
               type="button"
               onClick={reload}
               title="重新扫描技能目录"
+              aria-label="重新扫描技能目录"
               className="ui-btn-round ui-icon-action flex h-9 w-9 shrink-0 items-center justify-center rounded-full"
             >
               <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
             </button>
 
-            <button
-              type="button"
+            <Button
+              variant="primary"
               onClick={() => handleImport("directory")}
               disabled={importing !== null}
               title="选择包含 SKILL.md 的技能文件夹；选中父目录可批量导入其下的技能"
-              className="ui-btn-primary flex h-9 shrink-0 items-center gap-1.5 rounded-full px-4 text-body font-medium disabled:opacity-60"
+              icon={
+                importing === "directory" ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Upload className="h-4 w-4" />
+                )
+              }
             >
-              {importing === "directory" ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <Upload className="h-4 w-4" />
-              )}
               导入技能 SKILL
-            </button>
+            </Button>
           </>
         }
       />
@@ -172,6 +177,7 @@ export function SkillsView() {
             <EmptySkills onImport={handleImport} importing={importing} />
           ) : filtered.length === 0 ? (
             <EmptyState
+              size="compact"
               icon={<Search />}
               title={`没有匹配「${query}」的技能`}
               action={
@@ -179,7 +185,7 @@ export function SkillsView() {
                   <button
                     type="button"
                     onClick={() => setQuery("")}
-                    className="text-body text-accent hover:underline"
+                    className="text-meta text-accent hover:underline"
                   >
                     清除搜索
                   </button>
@@ -233,11 +239,11 @@ function SkillCard({
     <button
       type="button"
       onClick={onOpen}
-      className="group flex h-full min-h-36 flex-col rounded-xl border border-border bg-surface-2/60 p-card text-left transition-all hover:-translate-y-0.5 hover:border-border-strong hover:bg-surface-2/85 hover:shadow-[var(--c-shadow-sm)]"
+      className={CARD_SHELL}
     >
       <div className="flex min-w-0 items-start justify-between gap-2">
         <div className="min-w-0">
-          <h3 className="truncate text-title font-semibold text-text">{skill.name}</h3>
+          <h3 className={CARD_TITLE}>{skill.name}</h3>
         </div>
         <SourceTag
           label={SKILL_ORIGIN_LABEL[skill.origin]}
@@ -245,11 +251,11 @@ function SkillCard({
         />
       </div>
 
-      <p className="mt-2.5 line-clamp-2 text-body-lg leading-relaxed text-text-secondary">
+      <p className={`mt-2.5 ${CARD_DESCRIPTION}`}>
         {skill.description || "暂无描述"}
       </p>
 
-      <div className="mt-auto flex flex-wrap items-center gap-1.5 pt-3">
+      <div className={CARD_META}>
         {skill.hasScripts && (
           <Tag icon={ShieldAlert} tone="warning" title="技能目录里包含可执行脚本">
             含脚本
@@ -465,19 +471,15 @@ function SkillDrawer({
                   )}
                 </div>
                 {!skill.readOnly && (
-                  <button
-                    type="button"
+                  <Button
+                    variant="primary"
+                    loading={saving}
+                    icon={<Save className="h-4 w-4" />}
                     onClick={handleSave}
-                    disabled={!dirty || saving || !!document?.truncated}
-                    className="ui-btn-primary flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-body font-medium disabled:opacity-50"
+                    disabled={!dirty || !!document?.truncated}
                   >
-                    {saving ? (
-                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    ) : (
-                      <Save className="h-3.5 w-3.5" />
-                    )}
                     保存
-                  </button>
+                  </Button>
                 )}
               </div>
 

@@ -58,6 +58,7 @@ export function BoardColumn({
           <button
             onClick={onAdd}
             title="新建任务"
+            aria-label="新建任务"
             className="ui-btn-round ui-icon-action flex h-7 w-7 items-center justify-center rounded-full"
           >
             <Plus className="h-4 w-4" />
@@ -67,7 +68,9 @@ export function BoardColumn({
 
       {/* 列正文 */}
       <div className="board-col-body flex-1 space-y-2.5 overflow-y-auto p-inset">
-        {tasks.length === 0 && <EmptyState icon={icon} title={emptyHint} className="py-12" />}
+        {tasks.length === 0 && (
+          <EmptyState size="compact" icon={icon} title={emptyHint} />
+        )}
         {tasks.map((task) => (
           <TaskCard
             key={task.id}

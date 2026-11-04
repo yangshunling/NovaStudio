@@ -272,9 +272,16 @@ body {
   outline-color: var(--c-error);
 }
 
-/* 小号按钮（抽屉页脚 / 头部辅助操作） */
+/* 中号按钮（页头 / 工具栏）：比基座矮一档，字号跟随 meta */
 .ui-btn-sm {
-  height: 30px;
+  height: 32px;
+  padding: 0 12px;
+  font-size: var(--c-font-size-meta);
+}
+
+/* 小号按钮（卡片底栏 / 行内动作） */
+.ui-btn-xs {
+  height: 28px;
   padding: 0 10px;
   font-size: var(--c-font-size-meta);
 }
@@ -780,6 +787,30 @@ body {
   cursor: grabbing;
   z-index: 20;
   box-shadow: var(--c-shadow);
+}
+/* 拖动节点时的对齐参考线 */
+.wf-guide {
+  position: absolute;
+  z-index: 0;
+  pointer-events: none;
+  background: var(--c-accent);
+  opacity: 0.55;
+}
+.wf-guide.vertical {
+  top: -5000px;
+  height: 10000px;
+  width: 1px;
+}
+.wf-guide.horizontal {
+  left: -5000px;
+  width: 10000px;
+  height: 1px;
+}
+
+/* 编辑期校验问题：红边提示对应节点，文案在节点 title 与顶部提示条里 */
+.wf-node.has-issue {
+  border-color: var(--c-error);
+  box-shadow: 0 0 0 3px var(--c-error-bg), var(--c-shadow-sm);
 }
 
 @keyframes wf-node-in {

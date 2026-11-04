@@ -35,6 +35,8 @@ export const WF_NODE_H = 112;
 
 const MIN_ZOOM = 0.35;
 const MAX_ZOOM = 2;
+/** 拖拽时吸附的网格大小 */
+const GRID = 16;
 
 interface Viewport {
   x: number;
@@ -65,14 +67,18 @@ interface WorkflowCanvasProps {
   edges: WorkflowEdge[];
   employees: DigitalEmployee[];
   selectedNodeId: string | null;
+  /** 当前多选集合；selectedNodeId 是其中最后点击的主节点 */
+  selectedNodeIds: string[];
   selectedEdgeId: string | null;
   onChange: (nodes: WorkflowNode[], edges: WorkflowEdge[]) => void;
-  onSelectNode: (id: string | null) => void;
+  onSelectNode: (id: string | null, additive?: boolean) => void;
   onSelectEdge: (id: string | null) => void;
   /** 每次自增触发一次「适应画布」（自动布局后用） */
   fitRequest?: number;
   /** 调试中的节点状态：nodeId → 状态 */
   nodeStates?: Record<string, WorkflowNodeRunStatus>;
+  /** 编辑器校验问题：nodeId → 问题列表 */
+  nodeIssues?: Record<string, string[]>;
 }
 
 export function WorkflowCanvas({
@@ -80,12 +86,14 @@ export function WorkflowCanvas({
   edges,
   employees,
   selectedNodeId,
+  selectedNodeIds,
   selectedEdgeId,
   onChange,
   onSelectNode,
   onSelectEdge,
   fitRequest = 0,
   nodeStates = {},
+  nodeIssues = {},
 }: WorkflowCanvasProps) {
   const canvasRef = useRef<HTMLDivElement>(null);
   const [view, setView] = useState<Viewport>({ x: 80, y: 60, k: 1 });
@@ -93,6 +101,8 @@ export function WorkflowCanvas({
   const [drag, setDrag] = useState<{ id: string; dx: number; dy: number } | null>(
     null,
   );
+  /** 拖动时与其他节点对齐的参考线（世界坐标） */
+  const [guides, setGuides] = useState<{ x?: number; y?: number }>({});
   const [connecting, setConnecting] = useState<{
     from: string;
     x: number;
@@ -154,32 +164,73 @@ export function WorkflowCanvas({
     window.addEventListener("pointerup", up);
   };
 
-  // 节点拖拽
+  // 节点拖拽：Shift / Ctrl 点击多选，拖动任一已选节点会带动整组
   const onNodePointerDown = (e: React.PointerEvent, node: WorkflowNode) => {
     if (e.button !== 0) return;
     e.stopPropagation();
-    onSelectNode(node.id);
+
+    const additive = e.shiftKey || e.ctrlKey || e.metaKey;
+    if (additive) {
+      onSelectEdge(null);
+      onSelectNode(node.id, true);
+      return;
+    }
+
+    const groupIds = selectedNodeIds.includes(node.id)
+      ? selectedNodeIds
+      : [node.id];
+    if (!selectedNodeIds.includes(node.id)) onSelectNode(node.id, false);
     onSelectEdge(null);
 
     const world = toWorld(e.clientX, e.clientY);
-    const dx = world.x - node.position.x;
-    const dy = world.y - node.position.y;
-    setDrag({ id: node.id, dx, dy });
+    const offsetX = world.x - node.position.x;
+    const offsetY = world.y - node.position.y;
+    setDrag({ id: node.id, dx: 0, dy: 0 });
 
     const snapshot = nodes;
+    const starts = new Map<string, { x: number; y: number }>();
+    for (const id of groupIds) {
+      const target = snapshot.find((item) => item.id === id);
+      if (target) starts.set(id, { ...target.position });
+    }
+    const originX = node.position.x;
+    const originY = node.position.y;
+
     const move = (ev: PointerEvent) => {
       const p = toWorld(ev.clientX, ev.clientY);
+      // 主节点吸附到网格，整组保持相对位置
+      const snappedX = Math.round((p.x - offsetX) / GRID) * GRID;
+      const snappedY = Math.round((p.y - offsetY) / GRID) * GRID;
+      const deltaX = snappedX - originX;
+      const deltaY = snappedY - originY;
+
+      // 与其他节点同列 / 同行时给一条参考线
+      const others = snapshot.filter((item) => !starts.has(item.id));
+      setGuides({
+        x: others.find(
+          (item) => Math.abs(item.position.x - snappedX) <= 6,
+        )?.position.x,
+        y: others.find(
+          (item) => Math.abs(item.position.y - snappedY) <= 6,
+        )?.position.y,
+      });
+
       onChange(
-        snapshot.map((n) =>
-          n.id === node.id
-            ? { ...n, position: { x: p.x - dx, y: p.y - dy } }
-            : n,
-        ),
+        snapshot.map((item) => {
+          const start = starts.get(item.id);
+          return start
+            ? {
+                ...item,
+                position: { x: start.x + deltaX, y: start.y + deltaY },
+              }
+            : item;
+        }),
         edges,
       );
     };
     const up = () => {
       setDrag(null);
+      setGuides({});
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerup", up);
     };
@@ -373,12 +424,19 @@ export function WorkflowCanvas({
       const tag = (document.activeElement?.tagName ?? "").toLowerCase();
       if (tag === "input" || tag === "textarea" || tag === "select") return;
 
-      if (selectedNodeId) {
+      const selectedIds =
+        selectedNodeIds.length > 0
+          ? selectedNodeIds
+          : selectedNodeId
+            ? [selectedNodeId]
+            : [];
+      if (selectedIds.length > 0) {
         e.preventDefault();
+        const removed = new Set(selectedIds);
         onChange(
-          nodes.filter((n) => n.id !== selectedNodeId),
+          nodes.filter((n) => !removed.has(n.id)),
           edges.filter(
-            (x) => x.source !== selectedNodeId && x.target !== selectedNodeId,
+            (x) => !removed.has(x.source) && !removed.has(x.target),
           ),
         );
         onSelectNode(null);
@@ -394,6 +452,7 @@ export function WorkflowCanvas({
     nodes,
     edges,
     selectedNodeId,
+    selectedNodeIds,
     selectedEdgeId,
     onChange,
     onSelectNode,
@@ -411,7 +470,7 @@ export function WorkflowCanvas({
       {/* 居中容器负责定位，胶囊自身不再做 translate —— 避免半像素位移让文字发虚 */}
       <div className="pointer-events-none absolute inset-x-0 top-3 z-10 flex justify-center px-4">
         <span className="ui-ring rounded-full bg-bg px-4 py-2 text-body leading-none text-text-secondary">
-          拖拽节点移动 · 右侧圆点连线 · 选中连线可删除或拖动端点改连 · 滚轮缩放
+          拖拽节点移动 · Shift/Ctrl 点击多选 · 右侧圆点连线 · 选中连线可删除或改连 · 滚轮缩放
         </span>
       </div>
 
@@ -419,6 +478,12 @@ export function WorkflowCanvas({
         className="wf-world"
         style={{ transform: `translate(${view.x}px, ${view.y}px) scale(${view.k})` }}
       >
+        {guides.x !== undefined && (
+          <div className="wf-guide vertical" style={{ left: guides.x }} />
+        )}
+        {guides.y !== undefined && (
+          <div className="wf-guide horizontal" style={{ top: guides.y }} />
+        )}
         <svg className="wf-svg">
           {edges
             // 改连过程中先隐藏原连线，避免视觉上出现两条
@@ -516,9 +581,10 @@ export function WorkflowCanvas({
             key={node.id}
             node={node}
             employee={employees.find((e) => e.id === node.config.employeeId)}
-            selected={selectedNodeId === node.id}
+            selected={selectedNodeIds.includes(node.id)}
             dragging={drag?.id === node.id}
             state={nodeStates[node.id]}
+            issues={nodeIssues[node.id]}
             onPointerDown={onNodePointerDown}
             onStartConnect={startConnect}
           />
@@ -619,6 +685,7 @@ function NodeCard({
   selected,
   dragging,
   state,
+  issues,
   onPointerDown,
   onStartConnect,
 }: {
@@ -628,6 +695,8 @@ function NodeCard({
   dragging: boolean;
   /** 调试中的节点状态；未调试时为 undefined */
   state?: WorkflowNodeRunStatus;
+  /** 当前编辑状态下该节点存在的问题 */
+  issues?: string[];
   onPointerDown: (e: React.PointerEvent, node: WorkflowNode) => void;
   onStartConnect: (e: React.PointerEvent, node: WorkflowNode) => void;
 }) {
@@ -656,9 +725,10 @@ function NodeCard({
     <div
       data-node-id={node.id}
       data-state={state}
+      title={issues && issues.length > 0 ? issues.join("\n") : undefined}
       className={`wf-node ${selected ? "selected" : ""} ${dragging ? "dragging" : ""} ${
         state ? `state-${state}` : ""
-      }`}
+      } ${issues && issues.length > 0 ? "has-issue" : ""}`}
       style={{
         left: node.position.x,
         top: node.position.y,

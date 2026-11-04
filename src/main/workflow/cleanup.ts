@@ -54,6 +54,27 @@ export async function deleteWorkflowData(
   }
 }
 
+/** 删除单次运行：数据库记录、节点会话、产物目录与运行时配置副本 */
+export async function deleteRunData(
+  runId: string,
+  deps: CleanupDeps,
+): Promise<boolean> {
+  const { run, sessionIds } = db.deleteWorkflowRun(runId);
+  if (!run) return false;
+
+  for (const sessionId of sessionIds) {
+    await deps.service.releaseSession(sessionId);
+    db.deleteSession(sessionId);
+  }
+
+  await rm(run.artifactDir, { recursive: true, force: true }).catch(() => {});
+  await rm(join(deps.userDataDir, "workflow-runs", runId), {
+    recursive: true,
+    force: true,
+  }).catch(() => {});
+  return true;
+}
+
 /** 删除工作区（复用项目实体）及其下所有工作流；返回被删工作流数量 */
 export async function deleteWorkspaceData(
   projectId: string,

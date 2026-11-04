@@ -20,6 +20,7 @@ import {
   searchKnowledge,
   updateKnowledgeBase,
 } from "../../knowledge/catalog";
+import * as db from "../../db/sqlite";
 import { getMainWindow } from "../push";
 import { handle } from "../register";
 
@@ -34,7 +35,33 @@ export function registerKnowledgeHandlers(): void {
     updateKnowledgeBase(id, name, description),
   );
 
-  handle("knowledge:delete", ({ id }) => deleteKnowledgeBase(id));
+  /**
+   * 删除知识库前先确认没有数字员工绑着它。
+   *
+   * 否则这些员工在后续运行里会「悄悄失去资料」：runtime 只往日志里写一行
+   * warning 就继续执行，输出质量下降但界面上看不出任何异常。
+   */
+  handle("knowledge:delete", async ({ id }) => {
+    const asset = await getKnowledgeBase(id);
+    if (!asset) return false;
+
+    const users = db
+      .listDigitalEmployees()
+      .filter((employee) =>
+        employee.knowledgeBases.some(
+          (ref) => ref.assetId === asset.id || ref.assetId === id,
+        ),
+      );
+    if (users.length > 0) {
+      const names = users.slice(0, 3).map((item) => item.name).join("、");
+      const rest = users.length > 3 ? ` 等 ${users.length} 个` : "";
+      throw new Error(
+        `无法删除：数字员工「${names}」${rest}正在使用该知识库，请先解除绑定`,
+      );
+    }
+
+    return deleteKnowledgeBase(id);
+  });
 
   handle("knowledge:listDocuments", ({ id, subPath }) =>
     listKnowledgeDocuments(id, subPath ?? ""),

@@ -42,6 +42,7 @@ export function ConfirmDeleteButton({
           onConfirm();
         }}
         title="确认删除"
+        aria-label="确认删除"
         className={`${baseClass} text-error hover:bg-error-bg`}
       >
         <Check size={iconSize} />
@@ -56,6 +57,7 @@ export function ConfirmDeleteButton({
         setConfirming(true);
       }}
       title={title}
+      aria-label={title}
       className={`${baseClass} text-text-muted hover:bg-error-bg hover:text-error`}
     >
       <Trash2 size={iconSize} />

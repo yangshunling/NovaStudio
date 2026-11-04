@@ -59,7 +59,7 @@ export function TaskCreateModal({ onClose }: { onClose: () => void }) {
           />
         </Field>
 
-        <Field label="绑定工作区">
+        <Field label="指定工作区">
           <Select
             value={projectId}
             onChange={setProjectId}

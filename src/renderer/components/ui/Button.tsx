@@ -13,7 +13,8 @@ import { Loader2 } from "lucide-react";
 import type { ButtonHTMLAttributes, ReactNode } from "react";
 
 export type ButtonVariant = "primary" | "ghost" | "danger" | "dangerLink";
-export type ButtonSize = "md" | "sm";
+/** md=36px/body，sm=32px/meta，xs=28px/meta */
+export type ButtonSize = "md" | "sm" | "xs";
 
 const VARIANT_CLASS: Record<ButtonVariant, string> = {
   primary: "ui-btn-primary",
@@ -51,7 +52,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
       type={type}
       disabled={disabled || loading}
       className={`ui-btn ${VARIANT_CLASS[variant]} ${
-        size === "sm" ? "ui-btn-sm" : ""
+        size === "md" ? "" : `ui-btn-${size}`
       } ${className}`.trim()}
       {...rest}
     >

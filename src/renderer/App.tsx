@@ -85,8 +85,6 @@ export default function App() {
           <KnowledgeView />
         ) : viewMode === "workspaces" ? (
           <WorkspacesView />
-        ) : viewMode === "workflow" ? (
-          <WorkflowsView />
         ) : viewMode === "triggers" ? (
           <TriggersView />
         ) : viewMode === "agents" ? (
@@ -107,6 +105,13 @@ export default function App() {
         */}
         <div className={viewMode === "terminals" ? "contents" : "hidden"}>
           <TerminalsView />
+        </div>
+        {/*
+          工作流页常驻挂载：编辑器的画布草稿、未保存状态、调试面板都是
+          组件内部状态。切到别的侧栏再回来不应该把它们清空。
+        */}
+        <div className={viewMode === "workflow" ? "contents" : "hidden"}>
+          <WorkflowsView />
         </div>
 
         {showSettings && <SettingsModal />}

@@ -14,13 +14,14 @@ import { createPortal } from "react-dom";
 import {
   Check,
   Loader2,
-  MessageSquare,
   MessageSquarePlus,
   PenLine,
   Trash2,
 } from "lucide-react";
 import { useChatStore } from "../stores/chat";
 import { confirmDialog } from "../stores/confirm";
+import { EmptyState } from "./ui/EmptyState";
+import { ListPane } from "./ui/ListPane";
 import type { Session } from "@shared/types";
 
 /** 右键菜单尺寸：用于贴近视口边缘时收拢位置 */
@@ -39,63 +40,42 @@ export function SessionListPanel() {
   const newSession = useChatStore((s) => s.newSession);
 
   return (
-    <aside className="flex w-[var(--c-layout-session-list)] shrink-0 flex-col border-r border-border bg-[var(--c-panel-bg)]">
-      {/* 头部：会话 + 新建会话（高度与右侧会话区顶栏一致） */}
-      <div className="flex h-[var(--c-layout-header)] shrink-0 items-center justify-between gap-2 border-b border-border px-4">
-        <div className="flex min-w-0 items-center gap-2">
-          <span className="flex size-6 shrink-0 items-center justify-center rounded-md bg-accent-soft text-accent">
-            <MessageSquare className="h-3.5 w-3.5" />
-          </span>
-          <span className="truncate text-body-lg font-semibold text-text">会话管理</span>
-          {sessions.length > 0 && (
-            <span className="rounded-full bg-surface-hover px-2 py-0.5 font-mono text-caption leading-none text-text-muted">
-              {sessions.length}
-            </span>
-          )}
-        </div>
+    <ListPane
+      title="会话"
+      count={sessions.length}
+      action={
         <button
           type="button"
           onClick={newSession}
           title="新建会话"
           aria-label="新建会话"
-          className="ui-btn-round ui-icon-action flex size-8 shrink-0 items-center justify-center rounded-full text-text-muted transition-colors active:scale-95"
+          className="ui-btn-round ui-icon-action flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-text-muted transition-colors active:scale-95"
         >
           <MessageSquarePlus className="h-4 w-4" />
         </button>
-      </div>
-
-      {/* 扁平会话列表：按更新时间倒序（主进程已排序） */}
-      <div className="ui-scroll-hidden min-h-0 flex-1 overflow-y-auto px-2 pb-4 pt-3">
-        {sessions.length === 0 ? (
-          <div className="mx-auto mt-4 flex flex-col items-center gap-4 rounded-2xl border border-dashed border-border-strong/70 bg-surface-2/30 px-5 py-10 text-center">
-            <span className="flex size-14 items-center justify-center rounded-2xl bg-accent-soft text-accent shadow-[var(--c-shadow-sm)]">
-              <MessageSquarePlus className="h-6 w-6" />
-            </span>
-            <div className="space-y-1">
-              <p className="text-body-lg font-semibold text-text">还没有会话</p>
-              <p className="text-meta leading-relaxed text-text-muted">
-                直接在右侧输入消息即可开始。需要读写本地文件时，
-                在输入框旁绑定一个项目目录。
-              </p>
-            </div>
-          </div>
-        ) : (
-          <div className="space-y-1">
-            {sessions.map((session) => (
-              <SessionRow
-                key={session.id}
-                session={session}
-                isActive={session.id === currentSessionId}
-                isStreaming={!!streamingBySession[session.id]}
-                onOpen={() => selectSession(session.id)}
-                onDelete={() => deleteSession(session.id)}
-                onRename={(title) => renameSession(session.id, title)}
-              />
-            ))}
-          </div>
-        )}
-      </div>
-    </aside>
+      }
+    >
+      {sessions.length === 0 ? (
+        <EmptyState
+          size="compact"
+          icon={<MessageSquarePlus />}
+          title="还没有会话"
+          description="直接在右侧输入消息即可开始。需要读写本地文件时，在输入框旁绑定一个项目目录。"
+        />
+      ) : (
+        sessions.map((session) => (
+          <SessionRow
+            key={session.id}
+            session={session}
+            isActive={session.id === currentSessionId}
+            isStreaming={!!streamingBySession[session.id]}
+            onOpen={() => selectSession(session.id)}
+            onDelete={() => deleteSession(session.id)}
+            onRename={(title) => renameSession(session.id, title)}
+          />
+        ))
+      )}
+    </ListPane>
   );
 }
 
@@ -185,7 +165,7 @@ function SessionRow({
   if (editing) {
     return (
       <div
-        className={`group flex items-center gap-2 rounded-lg px-2.5 py-2.5 ${
+        className={`group flex items-center gap-2 rounded-xl px-2.5 py-2.5 ${
           isActive ? "bg-surface-active" : ""
         }`}
       >
@@ -203,6 +183,7 @@ function SessionRow({
         <button
           onClick={submitEdit}
           title="确认"
+          aria-label="确认重命名"
           className="shrink-0 rounded-md p-1.5 text-text-muted transition-colors hover:bg-surface-hover hover:text-success"
         >
           <Check className="h-3.5 w-3.5" />
@@ -223,7 +204,7 @@ function SessionRow({
           onOpen();
         }
       }}
-      className={`cursor-pointer select-none rounded-lg px-2.5 py-2.5 transition-colors ${
+      className={`cursor-pointer select-none rounded-xl px-2.5 py-2.5 transition-colors ${
         isActive
           ? "bg-surface-active text-text"
           : "text-text-secondary hover:bg-surface-hover/70 hover:text-text"
@@ -247,7 +228,7 @@ function SessionRow({
         </span>
 
         <div
-          className={`min-w-0 flex-1 truncate text-body leading-5 ${
+          className={`min-w-0 flex-1 truncate text-body-lg leading-5 ${
             isActive ? "font-medium" : ""
           }`}
         >

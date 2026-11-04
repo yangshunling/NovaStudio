@@ -14,7 +14,20 @@ import type { DigitalEmployeeDraft } from "../../../shared/types";
 function normalizeDraft(draft: DigitalEmployeeDraft): DigitalEmployeeDraft {
   const name = draft.name.trim();
   if (!name) throw new Error("数字员工名称不能为空");
+  if (name.length > 60) throw new Error("数字员工名称不能超过 60 个字符");
   return { ...draft, name };
+}
+
+/** 找出引用了该员工的工作流；被引用的员工不能直接删除 */
+function findWorkflowsUsingEmployee(employeeId: string): string[] {
+  return db
+    .listWorkflows()
+    .filter((workflow) =>
+      workflow.graph.nodes.some(
+        (node) => node.config.employeeId === employeeId,
+      ),
+    )
+    .map((workflow) => workflow.name);
 }
 
 export function registerEmployeeHandlers(): void {
@@ -29,6 +42,20 @@ export function registerEmployeeHandlers(): void {
   );
 
   handle("employees:delete", ({ id }) => {
+    const employee = db.getDigitalEmployee(id);
+    if (!employee) return true;
+
+    // 删除前必须确认没有工作流仍在使用：否则这些节点会在下次运行时
+    // 直接报「员工不存在」，属于不可感知的静默故障。
+    const workflows = findWorkflowsUsingEmployee(id);
+    if (workflows.length > 0) {
+      const shown = workflows.slice(0, 3).join("、");
+      const rest = workflows.length > 3 ? ` 等 ${workflows.length} 个` : "";
+      throw new Error(
+        `无法删除：工作流「${shown}」${rest}正在使用该员工，请先在节点中解除绑定`,
+      );
+    }
+
     db.deleteDigitalEmployee(id);
     return true;
   });

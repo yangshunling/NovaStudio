@@ -3,6 +3,7 @@
  */
 
 import { Plus, Trash2, type LucideIcon } from "lucide-react";
+import { Button } from "../ui/Button";
 
 export function Toggle({
   checked,
@@ -54,14 +55,14 @@ export function BindAction({
 }) {
   if (!bound) {
     return (
-      <button
-        type="button"
+      <Button
+        variant="primary"
+        size="xs"
+        icon={<Plus className="h-3 w-3" />}
         onClick={onAdd}
-        className="ui-btn-primary flex shrink-0 items-center gap-1 rounded-lg px-2.5 py-1.5 text-meta font-medium"
       >
-        <Plus className="h-3 w-3" />
         添加
-      </button>
+      </Button>
     );
   }
 

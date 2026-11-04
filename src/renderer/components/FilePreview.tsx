@@ -23,6 +23,7 @@ import { useSkin } from "../hooks/useTheme";
 import { getHighlighter, highlightCodeSync } from "../lib/shiki";
 import { formatBytes, stripPreTag } from "../lib/utils";
 import { MarkdownRenderer } from "./MarkdownRenderer";
+import { Button } from "./ui/Button";
 import { FileTypeIcon } from "./ui/FileTypeIcon";
 import type { FileTab } from "../stores/fileViewer";
 
@@ -108,6 +109,7 @@ export function FilePreview({
                 type="button"
                 onClick={() => setMarkdownMode("preview")}
                 title="预览 Markdown"
+                aria-label="预览 Markdown"
                 className={`rounded px-1.5 py-1 ${
                   markdownMode === "preview"
                     ? "bg-surface-active text-text"
@@ -120,6 +122,7 @@ export function FilePreview({
                 type="button"
                 onClick={() => setMarkdownMode("source")}
                 title="查看 Markdown 源码"
+                aria-label="查看 Markdown 源码"
                 className={`rounded px-1.5 py-1 ${
                   markdownMode === "source"
                     ? "bg-surface-active text-text"
@@ -134,6 +137,7 @@ export function FilePreview({
             type="button"
             onClick={() => setReloadKey((value) => value + 1)}
             title="重新读取文件"
+            aria-label="重新读取文件"
             className="rounded p-2 text-text-muted transition-colors hover:bg-surface-hover hover:text-text"
           >
             <RotateCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
@@ -142,6 +146,7 @@ export function FilePreview({
             type="button"
             onClick={openExternal}
             title="用系统默认程序打开"
+            aria-label="用系统默认程序打开"
             className="rounded p-2 text-text-muted transition-colors hover:bg-surface-hover hover:text-text"
           >
             <ExternalLink className="h-4 w-4" />
@@ -151,6 +156,7 @@ export function FilePreview({
               type="button"
               onClick={onClose}
               title="关闭预览"
+              aria-label="关闭预览"
               className="rounded p-2 text-text-muted transition-colors hover:bg-surface-hover hover:text-text"
             >
               <X className="h-4 w-4" />
@@ -215,13 +221,9 @@ export function FilePreview({
             title="该文件暂不支持内置预览"
             detail={file?.note ?? "可以使用系统默认程序打开"}
             action={
-              <button
-                type="button"
-                onClick={openExternal}
-                className="ui-btn-primary rounded-md px-3 py-2 text-meta"
-              >
+              <Button variant="primary" size="sm" onClick={openExternal}>
                 用系统默认程序打开
-              </button>
+              </Button>
             }
           />
         )}

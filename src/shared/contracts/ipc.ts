@@ -299,6 +299,15 @@ export interface IpcInvokeMap {
     args: [{ workspaceId: string }];
     result: WorkflowRun[];
   };
+  /** 全局活跃运行（running / awaiting_approval）：侧栏徽标与待处理提醒 */
+  "workflow:run:listActive": { args: []; result: WorkflowRun[] };
+  /** 从失败节点继续执行同一个运行；未指定节点时自动选第一个失败节点 */
+  "workflow:run:resume": {
+    args: [{ runId: string; nodeRunId?: string }];
+    result: WorkflowRun;
+  };
+  /** 删除单次运行及其产物 / 会话；运行中不允许删除 */
+  "workflow:run:delete": { args: [{ runId: string }]; result: boolean };
   "workflow:run:cancel": { args: [{ runId: string }]; result: boolean };
   "workflow:run:approve": {
     args: [
@@ -324,6 +333,11 @@ export interface IpcInvokeMap {
   "workflow:run:openNodeFile": {
     args: [{ runId: string; nodeRunId: string; relativePath: string }];
     result: boolean;
+  };
+  /** 在应用内预览节点产物文件（文本，超过上限会截断） */
+  "workflow:run:readNodeFile": {
+    args: [{ runId: string; nodeRunId: string; relativePath: string }];
+    result: string | null;
   };
 
   /** 触发器：全局定义 + 工作流绑定 */

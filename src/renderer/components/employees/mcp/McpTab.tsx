@@ -5,7 +5,6 @@
  * 「移除」。不再经过「点添加 → 弹窗选择」两步。
  */
 
-import { type CSSProperties } from "react";
 import {
   AlertTriangle,
   KeyRound,
@@ -15,7 +14,6 @@ import {
   Upload,
 } from "lucide-react";
 import { ipc } from "../../../lib/ipc";
-import { useSkillFontSize } from "../../../hooks/useTheme";
 import {
   useAssetCatalog,
   useMcpServersStore,
@@ -42,7 +40,6 @@ export function McpTab({
   servers: EmployeeMcpServer[];
   onChange: (servers: EmployeeMcpServer[]) => void;
 }) {
-  const skillFontSize = useSkillFontSize();
   /** MCP 库中的全部资产：既作候选，也用于判断已绑定条目是否仍存在 */
   const { items: catalog, loading, error: loadError, setItems: setCatalog } =
     useAssetCatalog(useMcpServersStore);
@@ -107,10 +104,7 @@ export function McpTab({
   };
 
   return (
-    <div
-      className="space-y-3"
-      style={{ "--c-font-size": `${skillFontSize}px` } as CSSProperties}
-    >
+    <div className="space-y-3">
       <p className="text-body leading-relaxed text-text-muted">
         直接在下方列表中添加这位员工可调用的服务。服务定义统一在「MCP」页面管理，
         这里只保存引用；停用的服务不会注入运行时。运行时是否生效取决于工作流节点

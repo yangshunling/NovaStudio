@@ -115,7 +115,7 @@ export function ProjectSelector() {
         title={
           currentProject
             ? `工作目录：${currentProject.cwd}`
-            : "为本次会话绑定一个工作区（可选）"
+            : "为本次会话指定一个工作区（可选）"
         }
         aria-haspopup="menu"
         aria-expanded={open}
@@ -129,7 +129,7 @@ export function ProjectSelector() {
           }`}
         />
         <span className="max-w-[120px] truncate font-medium">
-          {currentProject?.name ?? "绑定工作区"}
+          {currentProject?.name ?? "指定工作区"}
         </span>
         <ChevronDown
           className={`h-3.5 w-3.5 shrink-0 text-text-muted transition-transform ${
@@ -234,6 +234,7 @@ export function ProjectSelector() {
                         setViewMode("terminals");
                       }}
                       title="在此工作区打开终端"
+                      aria-label="在此工作区打开终端"
                       className="shrink-0 rounded-md p-1 text-text-muted opacity-0 transition-all hover:bg-surface-active hover:text-text group-hover/proj:opacity-100"
                     >
                       <SquareTerminal className="h-3.5 w-3.5" />

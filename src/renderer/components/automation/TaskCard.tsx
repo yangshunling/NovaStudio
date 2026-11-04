@@ -107,6 +107,7 @@ export function TaskCard({
             <button
               onClick={(e) => { e.stopPropagation(); onRetry(); }}
               title="重试"
+              aria-label="重试任务"
               className="rounded-md p-1.5 text-text-muted hover:bg-surface-hover hover:text-accent"
             >
               <RotateCcw className="h-4 w-4" />
@@ -123,6 +124,7 @@ export function TaskCard({
           <button
             onClick={(e) => { e.stopPropagation(); onStop(); }}
             title="停止执行"
+            aria-label="停止执行"
             className="rounded-md p-1 text-text-muted hover:bg-surface-hover hover:text-error"
           >
             <Square className="h-3.5 w-3.5" />

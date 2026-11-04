@@ -38,6 +38,7 @@ import { ipc } from "../../lib/ipc";
 import { toMessage } from "../../lib/utils";
 import { useChatStore } from "../../stores/chat";
 import { toast } from "../../stores/toast";
+import { Button } from "../ui/Button";
 import { Combobox } from "../ui/Combobox";
 import { Field, FORM_INPUT_CLASS } from "../ui/Field";
 import { Select } from "../ui/Select";
@@ -390,17 +391,20 @@ export function AgentsView() {
         title="Agent 配置"
         badge="本机配置"
         actions={
-          <button
-            type="button"
+          <Button
+            variant="ghost"
+            size="sm"
+            className="rounded-full"
+            icon={
+              <RefreshCw
+                className={`h-3.5 w-3.5 ${detecting ? "animate-spin" : ""}`}
+              />
+            }
             onClick={refreshAgents}
             disabled={detecting}
-            className="ui-btn-ghost flex h-8 shrink-0 items-center gap-1.5 rounded-full px-3.5 text-meta font-medium disabled:opacity-50"
           >
-            <RefreshCw
-              className={`h-3.5 w-3.5 ${detecting ? "animate-spin" : ""}`}
-            />
             重新检测
-          </button>
+          </Button>
         }
       />
 
@@ -451,13 +455,9 @@ export function AgentsView() {
                     <p className="text-meta text-text-muted">
                       请先修复 ~/.claude/settings.json 后重试。
                     </p>
-                    <button
-                      type="button"
-                      onClick={handleReload}
-                      className="ui-btn-ghost rounded-lg px-3 py-2 text-meta"
-                    >
+                    <Button variant="ghost" size="sm" onClick={handleReload}>
                       重新读取
-                    </button>
+                    </Button>
                   </div>
                 ) : form && settings ? (
                   <>
@@ -675,27 +675,26 @@ export function AgentsView() {
                     )}
                   </div>
                   <div className="flex shrink-0 items-center gap-2">
-                    <button
-                      type="button"
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="rounded-full"
+                      icon={<RefreshCw className="h-3.5 w-3.5" />}
                       onClick={handleReload}
-                      className="ui-btn-ghost flex h-8 items-center gap-1.5 rounded-full px-3.5 text-meta font-medium"
                     >
-                      <RefreshCw className="h-3.5 w-3.5" />
                       重新加载
-                    </button>
-                    <button
-                      type="button"
+                    </Button>
+                    <Button
+                      variant="primary"
+                      size="sm"
+                      className="rounded-full"
+                      loading={saving}
+                      icon={<Save className="h-3.5 w-3.5" />}
                       onClick={handleSave}
-                      disabled={saving || !dirty}
-                      className="ui-btn-primary flex h-8 items-center gap-1.5 rounded-full px-4 text-meta font-medium disabled:opacity-50"
+                      disabled={!dirty}
                     >
-                      {saving ? (
-                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                      ) : (
-                        <Save className="h-3.5 w-3.5" />
-                      )}
                       保存并同步
-                    </button>
+                    </Button>
                   </div>
                 </div>
               </footer>
@@ -786,17 +785,20 @@ function InstallCard({
             </p>
           )}
           <div className="mt-2 flex items-center gap-2">
-            <button
-              type="button"
+            <Button
+              variant="ghost"
+              size="sm"
+              className="rounded-full"
+              icon={
+                <RefreshCw
+                  className={`h-3.5 w-3.5 ${detecting ? "animate-spin" : ""}`}
+                />
+              }
               onClick={onDetect}
               disabled={detecting}
-              className="ui-btn-ghost flex h-8 items-center gap-1.5 rounded-full px-3.5 text-meta font-medium disabled:opacity-50"
             >
-              <RefreshCw
-                className={`h-3.5 w-3.5 ${detecting ? "animate-spin" : ""}`}
-              />
               重新检测
-            </button>
+            </Button>
             <span className="text-caption text-text-muted">
               若已安装仍检测不到，请重启 Nova 以刷新 PATH。
             </span>

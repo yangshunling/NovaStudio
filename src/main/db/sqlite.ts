@@ -98,6 +98,12 @@ export function initDatabase(): void {
       FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
     );
 
+    -- 会话列表相关的索引依赖后加的 source / project_id 列，
+    -- 旧库在这些列补齐之前建索引会失败，因此放到 migrate 之后再建。
+    -- 消息按会话回放时始终是 (session_id, timestamp) 有序读取
+    CREATE INDEX IF NOT EXISTS idx_messages_session_time
+      ON messages (session_id, timestamp);
+
     CREATE TABLE IF NOT EXISTS settings (
       key TEXT PRIMARY KEY,
       value TEXT NOT NULL
@@ -146,6 +152,7 @@ export function initDatabase(): void {
       enabled INTEGER NOT NULL DEFAULT 1,
       last_fired_at INTEGER,
       next_fire_at INTEGER,
+      last_error TEXT,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL
     );
@@ -168,6 +175,8 @@ export function initDatabase(): void {
       graph_json TEXT NOT NULL,
       artifact_dir TEXT NOT NULL,
       status TEXT NOT NULL,
+      source TEXT NOT NULL DEFAULT 'manual',
+      trigger_id TEXT,
       error TEXT,
       created_at INTEGER NOT NULL,
       started_at INTEGER,
@@ -193,6 +202,7 @@ export function initDatabase(): void {
       output_summary TEXT,
       error TEXT,
       decision TEXT,
+      decision_note TEXT,
       decided_at INTEGER,
       started_at INTEGER,
       finished_at INTEGER
@@ -223,6 +233,13 @@ export function initDatabase(): void {
       ON workflow_node_attempts (run_id);
     CREATE INDEX IF NOT EXISTS idx_workflow_run_events_run
       ON workflow_run_events (run_id, seq);
+    -- 运行记录列表按工作流 / 工作区过滤并按创建时间倒序，三条路径都要走索引
+    CREATE INDEX IF NOT EXISTS idx_workflow_runs_workflow
+      ON workflow_runs (workflow_id, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_workflow_runs_workspace
+      ON workflow_runs (workspace_id, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_workflow_runs_created
+      ON workflow_runs (created_at DESC);
 
     CREATE TABLE IF NOT EXISTS digital_employees (
       id TEXT PRIMARY KEY,
@@ -267,6 +284,9 @@ export function initDatabase(): void {
   // 先清理旧版占位项目，再让工作区迁移把空归属的工作流挂到有效项目上
   migrateLegacyInboxProject();
   migrateWorkflowWorkspace();
+  migrateWorkflowNodeRunDecisionNote();
+  migrateWorkflowRunSource();
+  migrateWorkflowTriggerLastError();
   migrateEmployeeKnowledge();
   // Agent 从员工迁移到工作流节点；必须在员工表重建前完成
   migrateEmployeeAgentToWorkflowNode();
@@ -279,6 +299,14 @@ export function initDatabase(): void {
 
   // 上次进程遗留的运行不可能还活着：统一标记为中断
   interruptStaleWorkflowRuns();
+
+  // 会话列表索引依赖 source / project_id 列，必须在迁移补齐这些列之后创建
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_sessions_chat_updated
+      ON sessions (updated_at DESC) WHERE source <> 'workflow';
+    CREATE INDEX IF NOT EXISTS idx_sessions_project
+      ON sessions (project_id);
+  `);
 }
 
 /**
@@ -522,6 +550,41 @@ function migrateWorkflowWorkspace(): void {
   markMigrationRun(marker);
 }
 
+/** 节点运行增加审核备注列（旧库补齐） */
+function migrateWorkflowNodeRunDecisionNote(): void {
+  const cols = db!
+    .prepare("PRAGMA table_info(workflow_node_runs)")
+    .all() as { name: string }[];
+  if (!cols.some((col) => col.name === "decision_note")) {
+    db!.exec("ALTER TABLE workflow_node_runs ADD COLUMN decision_note TEXT");
+  }
+}
+
+/** 运行记录增加来源 / 触发器 id（旧库补齐） */
+function migrateWorkflowRunSource(): void {
+  const cols = db!
+    .prepare("PRAGMA table_info(workflow_runs)")
+    .all() as { name: string }[];
+  if (!cols.some((col) => col.name === "source")) {
+    db!.exec(
+      "ALTER TABLE workflow_runs ADD COLUMN source TEXT NOT NULL DEFAULT 'manual'",
+    );
+  }
+  if (!cols.some((col) => col.name === "trigger_id")) {
+    db!.exec("ALTER TABLE workflow_runs ADD COLUMN trigger_id TEXT");
+  }
+}
+
+/** 触发器增加最近一次失败原因列（旧库补齐） */
+function migrateWorkflowTriggerLastError(): void {
+  const cols = db!
+    .prepare("PRAGMA table_info(workflow_triggers)")
+    .all() as { name: string }[];
+  if (!cols.some((col) => col.name === "last_error")) {
+    db!.exec("ALTER TABLE workflow_triggers ADD COLUMN last_error TEXT");
+  }
+}
+
 /**
  * 清理旧版自动创建的「收件箱」项目。
  *
@@ -688,6 +751,16 @@ export function setSessionProject(
   ).run(projectId, cwd, now, sessionId);
 }
 
+/**
+ * 清空会话的 CLI 引用（CLI 侧会话已不存在 / 无法恢复时使用）。
+ * 保留本地 messages，界面历史不丢；下一次运行会自动开启新上下文。
+ */
+export function clearAgentSessionId(sessionId: string): void {
+  db!.prepare(
+    "UPDATE sessions SET agent_session_id = NULL, updated_at = ? WHERE id = ?",
+  ).run(Date.now(), sessionId);
+}
+
 /** 更新会话的 agent session 引用（用于多轮 --resume；引用形态由 provider 解释） */
 export function updateAgentSessionId(sessionId: string, agentSessionId: string): void {
   db!.prepare(
@@ -821,7 +894,9 @@ function rowToSession(row: any): Session {
 export function listSessions(): Session[] {
   const rows = db!
     .prepare(
-      "SELECT * FROM sessions WHERE COALESCE(source, 'chat') <> 'workflow' ORDER BY updated_at DESC",
+      // source 列是 NOT NULL DEFAULT 'chat'，不需要 COALESCE；
+      // 包一层函数会让部分索引 idx_sessions_chat_updated 失效。
+      "SELECT * FROM sessions WHERE source <> 'workflow' ORDER BY updated_at DESC",
     )
     .all() as any[];
   return rows.map(rowToSession);
@@ -1461,6 +1536,7 @@ function rowToWorkflowTrigger(row: any): WorkflowTrigger {
     enabled: row.enabled === 1,
     lastFiredAt: row.last_fired_at ?? null,
     nextFireAt: row.next_fire_at ?? null,
+    lastError: row.last_error ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -1526,16 +1602,21 @@ export function updateWorkflowTrigger(
 /** 只更新运行状态字段（调度器触发后 / 启动时重算下次时间用） */
 export function updateWorkflowTriggerRuntime(
   id: string,
-  patch: { lastFiredAt?: number; nextFireAt?: number | null },
+  patch: {
+    lastFiredAt?: number;
+    nextFireAt?: number | null;
+    lastError?: string | null;
+  },
 ): WorkflowTrigger | null {
   const current = getWorkflowTrigger(id);
   if (!current) return null;
 
   db!.prepare(
-    "UPDATE workflow_triggers SET last_fired_at = ?, next_fire_at = ?, updated_at = ? WHERE id = ?",
+    "UPDATE workflow_triggers SET last_fired_at = ?, next_fire_at = ?, last_error = ?, updated_at = ? WHERE id = ?",
   ).run(
     patch.lastFiredAt !== undefined ? patch.lastFiredAt : current.lastFiredAt,
     patch.nextFireAt !== undefined ? patch.nextFireAt : current.nextFireAt,
+    patch.lastError !== undefined ? patch.lastError : current.lastError,
     Date.now(),
     id,
   );
@@ -1642,6 +1723,37 @@ export function deleteWorkflowRuns(workflowId: string): {
   return { runIds, sessionIds: [...sessionIds] };
 }
 
+/**
+ * 删除单次运行及其节点记录 / 事件；返回会话与运行记录，供调用方清理磁盘。
+ */
+export function deleteWorkflowRun(runId: string): {
+  run: WorkflowRun | null;
+  sessionIds: string[];
+} {
+  const run = getWorkflowRun(runId);
+  if (!run) return { run: null, sessionIds: [] };
+
+  const sessionIds = new Set<string>();
+  const nodeRows = db!
+    .prepare("SELECT session_id FROM workflow_node_runs WHERE run_id = ?")
+    .all(runId) as { session_id: string | null }[];
+  const attemptRows = db!
+    .prepare("SELECT session_id FROM workflow_node_attempts WHERE run_id = ?")
+    .all(runId) as { session_id: string | null }[];
+  for (const row of [...nodeRows, ...attemptRows]) {
+    if (row.session_id) sessionIds.add(row.session_id);
+  }
+
+  db!.transaction(() => {
+    db!.prepare("DELETE FROM workflow_run_events WHERE run_id = ?").run(runId);
+    db!.prepare("DELETE FROM workflow_node_attempts WHERE run_id = ?").run(runId);
+    db!.prepare("DELETE FROM workflow_node_runs WHERE run_id = ?").run(runId);
+    db!.prepare("DELETE FROM workflow_runs WHERE id = ?").run(runId);
+  })();
+
+  return { run, sessionIds: [...sessionIds] };
+}
+
 // ============================================================================
 // 工作流运行
 // ============================================================================
@@ -1656,6 +1768,8 @@ function rowToWorkflowRun(row: any): WorkflowRun {
     graph: parseWorkflowGraph(row.graph_json),
     artifactDir: row.artifact_dir,
     status: row.status as WorkflowRunStatus,
+    source: (row.source ?? "manual") as WorkflowRun["source"],
+    triggerId: row.trigger_id ?? null,
     error: row.error ?? null,
     createdAt: row.created_at,
     startedAt: row.started_at ?? null,
@@ -1683,6 +1797,7 @@ function rowToWorkflowNodeRun(row: any): WorkflowNodeRun {
     outputSummary: row.output_summary ?? null,
     error: row.error ?? null,
     decision: row.decision ?? null,
+    decisionNote: row.decision_note ?? null,
     decidedAt: row.decided_at ?? null,
     startedAt: row.started_at ?? null,
     finishedAt: row.finished_at ?? null,
@@ -1698,13 +1813,16 @@ export function createWorkflowRun(input: {
   graph: WorkflowGraph;
   artifactDir: string;
   status: WorkflowRunStatus;
+  source?: WorkflowRun["source"];
+  triggerId?: string | null;
   createdAt: number;
 }): WorkflowRun {
   db!.prepare(
     `INSERT INTO workflow_runs (
       id, workflow_id, workspace_id, workflow_name, workspace_path,
-      graph_json, artifact_dir, status, error, created_at, started_at, finished_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, NULL, NULL)`,
+      graph_json, artifact_dir, status, source, trigger_id, error,
+      created_at, started_at, finished_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, NULL, NULL)`,
   ).run(
     input.id,
     input.workflowId,
@@ -1714,6 +1832,8 @@ export function createWorkflowRun(input: {
     JSON.stringify(input.graph),
     input.artifactDir,
     input.status,
+    input.source ?? "manual",
+    input.triggerId ?? null,
     input.createdAt,
   );
   return getWorkflowRun(input.id)!;
@@ -1747,6 +1867,16 @@ export function listWorkflowRunsByWorkspace(
       "SELECT * FROM workflow_runs WHERE workspace_id = ? ORDER BY created_at DESC",
     )
     .all(workspaceId) as any[];
+  return rows.map(rowToWorkflowRun);
+}
+
+/** 全局活跃运行：侧栏徽标、待审核提醒使用（不含已结束的运行） */
+export function listActiveWorkflowRuns(): WorkflowRun[] {
+  const rows = db!
+    .prepare(
+      "SELECT * FROM workflow_runs WHERE status IN ('running','awaiting_approval') ORDER BY created_at ASC",
+    )
+    .all() as any[];
   return rows.map(rowToWorkflowRun);
 }
 
@@ -1890,6 +2020,7 @@ const NODE_RUN_COLUMNS: Record<string, string> = {
   outputSummary: "output_summary",
   error: "error",
   decision: "decision",
+  decisionNote: "decision_note",
   decidedAt: "decided_at",
   startedAt: "started_at",
   finishedAt: "finished_at",
@@ -1909,6 +2040,7 @@ export function updateWorkflowNodeRun(
       | "outputSummary"
       | "error"
       | "decision"
+      | "decisionNote"
       | "decidedAt"
       | "startedAt"
       | "finishedAt"
@@ -1929,6 +2061,64 @@ export function updateWorkflowNodeRun(
   db!.prepare(
     `UPDATE workflow_node_runs SET ${sets.join(", ")} WHERE id = ?`,
   ).run(...values);
+}
+
+/**
+ * 节点运行提示：把事件表里对用户有意义的告警 / 重试 / 审批取出来。
+ * 只取最近 200 条，避免长运行把详情页撑爆。
+ */
+export function listWorkflowNodeNotices(nodeRunId: string): Array<{
+  type: string;
+  level: string;
+  message: string;
+  createdAt: number;
+}> {
+  const rows = db!
+    .prepare(
+      "SELECT type, payload_json, created_at FROM workflow_run_events WHERE node_run_id = ? AND type IN ('log','node_retry','approval_decided') ORDER BY seq ASC LIMIT 200",
+    )
+    .all(nodeRunId) as any[];
+
+  const notices: Array<{
+    type: string;
+    level: string;
+    message: string;
+    createdAt: number;
+  }> = [];
+
+  for (const row of rows) {
+    let payload: any = {};
+    try {
+      payload = JSON.parse(row.payload_json);
+    } catch {
+      continue;
+    }
+    let message = "";
+    let level = String(payload.level ?? "info");
+    if (row.type === "log") {
+      message = String(payload.message ?? "");
+    } else if (row.type === "node_retry") {
+      message = `第 ${payload.attempt ?? "?"} 次执行失败：${
+        payload.error ?? "未知错误"
+      }，准备第 ${Number(payload.attempt ?? 0) + 1} 次尝试`;
+      level = "warning";
+    } else if (row.type === "approval_decided") {
+      message =
+        payload.decision === "approve"
+          ? `人工审核通过${payload.note ? `：${payload.note}` : ""}`
+          : `人工审核驳回${payload.note ? `：${payload.note}` : ""}`;
+      level = payload.decision === "approve" ? "info" : "warning";
+    }
+    if (message) {
+      notices.push({
+        type: row.type,
+        level,
+        message,
+        createdAt: row.created_at,
+      });
+    }
+  }
+  return notices;
 }
 
 export function appendWorkflowRunEvent(input: {
@@ -1962,6 +2152,19 @@ export function appendWorkflowRunEvent(input: {
 /** 标记应用退出时仍处于活动状态的运行为中断（进程已不存在，不能假装还在跑） */
 export function interruptStaleWorkflowRuns(): void {
   const now = Date.now();
+
+  // 触发器启动的运行被异常中断时，也把原因回写到触发器卡片
+  const staleTriggerIds = db!
+    .prepare(
+      "SELECT DISTINCT trigger_id FROM workflow_runs WHERE status IN ('running','awaiting_approval') AND source = 'trigger' AND trigger_id IS NOT NULL",
+    )
+    .all() as { trigger_id: string }[];
+  for (const row of staleTriggerIds) {
+    db!.prepare(
+      "UPDATE workflow_triggers SET last_error = ?, updated_at = ? WHERE id = ?",
+    ).run("应用异常退出，运行被中断", now, row.trigger_id);
+  }
+
   db!.prepare(
     "UPDATE workflow_runs SET status = 'interrupted', error = '应用已退出，运行被中断', finished_at = ? WHERE status IN ('running','awaiting_approval')",
   ).run(now);

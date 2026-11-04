@@ -38,19 +38,29 @@ import { Dialog, DialogActions } from "../ui/Dialog";
 import { Button } from "../ui/Button";
 import { Field, TextArea, TextInput } from "../ui/Field";
 import { EmptyState, ErrorState, LoadingState } from "../ui/EmptyState";
-import { Page } from "../ui/Page";
+import { Page, PageHeader } from "../ui/Page";
 import { SearchInput } from "../ui/SearchInput";
+import { ListItem, ListPane } from "../ui/ListPane";
+import {
+  CARD_ACTION_FOOTER,
+  CARD_DESCRIPTION,
+  CARD_ICON_TILE,
+  CARD_SHELL,
+  CARD_TITLE,
+} from "../ui/cardStyles";
 import { NoWorkspaceState } from "../ui/NoWorkspaceState";
 import { WorkflowEditor } from "./WorkflowEditor";
 import { WorkflowRunView } from "./WorkflowRunView";
 import { WorkflowRunHistoryView } from "./WorkflowRunHistoryView";
 import { defaultNodeConfig } from "./defaults";
+import { RUN_STATUS } from "../../lib/workflowStatus";
 import { describeTriggerSchedule } from "@shared/trigger-schedule";
 import type {
   DigitalEmployee,
   Project,
   Workflow,
   WorkflowGraph,
+  WorkflowRun,
   WorkflowTrigger,
   WorkflowTriggerBinding,
 } from "@shared/types";
@@ -144,6 +154,12 @@ export function WorkflowsView() {
   const [selectedTriggerIds, setSelectedTriggerIds] = useState<string[]>([]);
   const [triggerDialogLoading, setTriggerDialogLoading] = useState(false);
   const [triggerSaving, setTriggerSaving] = useState(false);
+
+  /** 当前工作区的运行记录：卡片用它展示运行中 / 最近一次结果 */
+  const [runs, setRuns] = useState<WorkflowRun[]>([]);
+  const [runsRefresh, setRunsRefresh] = useState(0);
+  const runsRef = useRef<WorkflowRun[]>([]);
+  runsRef.current = runs;
 
   const [creatingWorkflow, setCreatingWorkflow] = useState(false);
   const [newName, setNewName] = useState("");
@@ -270,6 +286,69 @@ export function WorkflowsView() {
     return map;
   }, [triggerBindings]);
 
+  // 工作区切换 / 运行事件 → 拉取该工作区的运行记录；有活跃运行时轮询兜底
+  useEffect(() => {
+    if (!effectiveWorkspaceId || effectiveWorkspaceId === ORPHAN_ID) {
+      setRuns([]);
+      return;
+    }
+    let alive = true;
+    let debounce: ReturnType<typeof setTimeout> | null = null;
+
+    const load = async () => {
+      try {
+        const list = await ipc.listWorkspaceRuns(effectiveWorkspaceId);
+        if (alive) setRuns(list);
+      } catch {
+        // 卡片状态不是核心路径，读取失败时保持上一次快照
+      }
+    };
+
+    void load();
+    const off = ipc.on.workflowRunEvent(() => {
+      if (debounce) clearTimeout(debounce);
+      debounce = setTimeout(() => void load(), 200);
+    });
+    const timer = setInterval(() => {
+      if (
+        runsRef.current.some(
+          (run) =>
+            run.status === "running" || run.status === "awaiting_approval",
+        )
+      ) {
+        void load();
+      }
+    }, 2500);
+
+    return () => {
+      alive = false;
+      if (debounce) clearTimeout(debounce);
+      clearInterval(timer);
+      off();
+    };
+  }, [effectiveWorkspaceId, runsRefresh]);
+
+  /** workflowId → 最近一次运行；活跃运行优先于更新的已结束运行 */
+  const latestRunByWorkflow = useMemo(() => {
+    const map = new Map<string, WorkflowRun>();
+    const isActive = (run: WorkflowRun) =>
+      run.status === "running" || run.status === "awaiting_approval";
+    for (const run of runs) {
+      const current = map.get(run.workflowId);
+      if (!current) {
+        map.set(run.workflowId, run);
+        continue;
+      }
+      if (isActive(run) && !isActive(current)) {
+        map.set(run.workflowId, run);
+        continue;
+      }
+      if (!isActive(run) && isActive(current)) continue;
+      if (run.createdAt > current.createdAt) map.set(run.workflowId, run);
+    }
+    return map;
+  }, [runs]);
+
   const selectedWorkflows = useMemo(() => {
     if (effectiveWorkspaceId === ORPHAN_ID) return orphanWorkflows;
     return workflows.filter(
@@ -347,6 +426,7 @@ export function WorkflowsView() {
     try {
       await ipc.deleteWorkflow(workflow.id);
       setWorkflows((current) => current.filter((item) => item.id !== workflow.id));
+      setRunsRefresh((value) => value + 1);
       if (editingId === workflow.id) setEditingId(null);
     } catch (err) {
       toast.error(toMessage(err));
@@ -470,6 +550,7 @@ export function WorkflowsView() {
         onBack={() => {
           // 返回运行记录列表；列表作用域仍然保留
           setRunning(null);
+          setRunsRefresh((value) => value + 1);
           void load();
         }}
       />
@@ -502,6 +583,8 @@ export function WorkflowsView() {
         onBack={() => {
           const scope = historyScope;
           setHistoryScope(null);
+          // 删除 / 重跑后卡片状态需要刷新
+          setRunsRefresh((value) => value + 1);
           // 工作流级入口回到该工作流的编辑器
           if ("workflowId" in scope) {
             setEditorDebugRunId(null);
@@ -525,20 +608,15 @@ export function WorkflowsView() {
           setEditingId(null);
           setEditorDebugRunId(null);
         }}
-        onSaved={(updated) => {
-          setWorkflows((current) =>
-            current.map((item) => (item.id === updated.id ? updated : item)),
-          );
-          setEditingId(null);
-          setEditorDebugRunId(null);
-          toast.success("工作流已保存");
-        }}
         onDraftSaved={(updated) => {
           setWorkflows((current) =>
             current.map((item) => (item.id === updated.id ? updated : item)),
           );
         }}
         onOpenHistory={() => setHistoryScope({ workflowId: editing.id })}
+        onOpenRunDetail={(runId) =>
+          setRunning({ runId, workflowId: editing.id })
+        }
       />
     );
   }
@@ -557,130 +635,97 @@ export function WorkflowsView() {
         ) : (
           <div className="flex min-h-0 flex-1">
             {/* 左：工作区列表 */}
-            <aside className="flex w-[268px] shrink-0 flex-col border-r border-border bg-[var(--c-panel-bg)] shadow-[var(--c-shadow-sm)]">
-              <div className="flex h-[var(--c-layout-header)] shrink-0 items-center justify-between border-b border-border px-4">
-                <p className="text-meta font-semibold tracking-wide text-text-muted">
-                  工作区
-                </p>
+            <ListPane
+              title="工作区"
+              action={
                 <button
                   type="button"
                   onClick={manageWorkspaces}
                   title="管理工作区（新增 / 删除）"
-                  className="ui-btn-round ui-icon-action flex h-8 w-8 items-center justify-center rounded-full text-text-muted transition-colors active:scale-95"
+                  aria-label="管理工作区"
+                  className="ui-btn-round ui-icon-action flex h-9 w-9 items-center justify-center rounded-full text-text-muted transition-colors active:scale-95"
                 >
                   <FolderKanban className="h-4 w-4" />
                 </button>
-              </div>
+              }
+            >
+              {workspaceOptions.map((workspace) => {
+                const active = workspace.id === effectiveWorkspaceId;
+                const isOrphan = workspace.id === ORPHAN_ID;
+                const count = isOrphan
+                  ? orphanWorkflows.length
+                  : (counts.get(workspace.id) ?? 0);
 
-              <div className="min-h-0 flex-1 space-y-1 overflow-y-auto px-2.5 pb-4 pt-4">
-                {workspaceOptions.map((workspace) => {
-                  const active = workspace.id === effectiveWorkspaceId;
-                  const isOrphan = workspace.id === ORPHAN_ID;
-                  const count = isOrphan
-                    ? orphanWorkflows.length
-                    : (counts.get(workspace.id) ?? 0);
-
-                  return (
-                    <div
-                      key={workspace.id}
-                      className={`group flex w-full items-center rounded-xl transition-colors ${
-                        active
-                          ? "bg-surface-active text-text shadow-[var(--c-shadow-sm)]"
-                          : "text-text-secondary hover:bg-surface-hover hover:text-text"
-                      }`}
-                    >
-                      <button
-                        type="button"
-                        onClick={() => selectWorkspace(workspace.id)}
-                        className="flex min-w-0 flex-1 items-center gap-3 px-2.5 py-2.5 text-left"
-                      >
-                        <span
-                          className={`grid h-9 w-9 shrink-0 place-items-center rounded-lg ${
-                            active
-                              ? "bg-accent-soft text-accent"
-                              : "bg-surface-hover text-text-muted"
-                          }`}
-                        >
-                          <Folder className="h-4 w-4" />
-                        </span>
-                        <span className="min-w-0 flex-1">
-                          <span className="block truncate text-body-lg font-medium">
-                            {workspace.name}
-                          </span>
-                          <span className="block truncate font-mono text-caption text-text-muted">
-                            {isOrphan ? "旧数据，待归入工作区" : workspace.cwd}
-                          </span>
-                        </span>
-                        <span className="shrink-0 rounded-full bg-surface-hover px-2 py-0.5 font-mono text-caption text-text-muted">
-                          {count}
-                        </span>
-                      </button>
-                    </div>
-                  );
-                })}
-              </div>
-            </aside>
+                return (
+                  <ListItem
+                    key={workspace.id}
+                    active={active}
+                    icon={<Folder className="h-4 w-4" />}
+                    title={workspace.name}
+                    subtitle={
+                      isOrphan ? "旧数据，待归入工作区" : workspace.cwd
+                    }
+                    monoSubtitle
+                    titleAttr={workspace.cwd}
+                    onClick={() => selectWorkspace(workspace.id)}
+                    trailing={
+                      <span className="shrink-0 rounded-full bg-surface-hover px-2 py-0.5 font-mono text-caption text-text-muted">
+                        {count}
+                      </span>
+                    }
+                  />
+                );
+              })}
+            </ListPane>
 
             {/* 右：当前工作区的工作流 */}
             <div className="flex min-w-0 flex-1 flex-col">
-              <header className="ui-glass relative z-10 flex h-[var(--c-layout-header)] shrink-0 items-center justify-between gap-3 border-b border-border px-card">
-                <div className="flex min-w-0 items-center gap-2.5">
-                  <WorkflowIcon className="h-4 w-4 shrink-0 text-accent" />
-                  <div className="min-w-0">
-                    <p className="truncate text-title font-semibold text-text">
-                      {selectedWorkspace?.name ?? "工作流"}
-                    </p>
-                    {selectedWorkspace && selectedWorkspace.id !== ORPHAN_ID && (
-                      <p
-                        className="truncate font-mono text-caption text-text-muted"
-                        title={selectedWorkspace.cwd}
-                      >
-                        {selectedWorkspace.cwd}
-                      </p>
-                    )}
-                  </div>
-                  <span className="shrink-0 rounded-full bg-surface-hover px-2 py-0.5 font-mono text-caption text-text-muted">
-                    {selectedWorkflows.length} 个
-                  </span>
-                </div>
+              <PageHeader
+                title={selectedWorkspace?.name ?? "工作流"}
+                count={selectedWorkflows.length}
+                countSuffix=" 个"
+                icon={<WorkflowIcon className="h-4 w-4" />}
+                subtitle={
+                  selectedWorkspace && selectedWorkspace.id !== ORPHAN_ID
+                    ? selectedWorkspace.cwd
+                    : undefined
+                }
+                actions={
+                  <>
+                    <Button
+                      onClick={() =>
+                        effectiveWorkspaceId &&
+                        effectiveWorkspaceId !== ORPHAN_ID &&
+                        setHistoryScope({ workspaceId: effectiveWorkspaceId })
+                      }
+                      disabled={
+                        !selectedWorkspace || selectedWorkspace.id === ORPHAN_ID
+                      }
+                      title="查看该工作区的运行记录"
+                      icon={<History className="h-4 w-4" />}
+                    >
+                      运行记录
+                    </Button>
 
-                <div className="flex min-w-0 items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() =>
-                      effectiveWorkspaceId &&
-                      effectiveWorkspaceId !== ORPHAN_ID &&
-                      setHistoryScope({ workspaceId: effectiveWorkspaceId })
-                    }
-                    disabled={
-                      !selectedWorkspace || selectedWorkspace.id === ORPHAN_ID
-                    }
-                    title="查看该工作区的运行记录"
-                    className="ui-btn-ghost flex h-8 shrink-0 items-center gap-1.5 rounded-full px-4 text-body font-medium active:scale-95 disabled:opacity-50"
-                  >
-                    <History className="h-4 w-4" />
-                    运行记录
-                  </button>
+                    <SearchInput
+                      value={query}
+                      onChange={setQuery}
+                      placeholder="搜索名称 / 说明"
+                    />
 
-                  <SearchInput
-                    size="sm"
-                    widthClass="w-52"
-                    value={query}
-                    onChange={setQuery}
-                    placeholder="搜索名称 / 说明"
-                  />
-
-                  <button
-                    type="button"
-                    onClick={openCreateWorkflow}
-                    disabled={!selectedWorkspace || selectedWorkspace.id === ORPHAN_ID}
-                    className="ui-btn-primary flex h-8 shrink-0 items-center gap-1.5 rounded-full px-4 text-body font-medium active:scale-95 disabled:opacity-50"
-                  >
-                    <Plus className="h-4 w-4" />
-                    新建工作流
-                  </button>
-                </div>
-              </header>
+                    <Button
+                      variant="primary"
+                      onClick={openCreateWorkflow}
+                      disabled={
+                        !selectedWorkspace || selectedWorkspace.id === ORPHAN_ID
+                      }
+                      icon={<Plus className="h-4 w-4" />}
+                    >
+                      新建工作流
+                    </Button>
+                  </>
+                }
+              />
 
               <div className="min-h-0 flex-1 overflow-y-auto p-section">
                 {selectedWorkspace?.id === ORPHAN_ID ? (
@@ -690,29 +735,33 @@ export function WorkflowsView() {
                       这些工作流创建于「工作区」功能之前，还没有归属。
                       请先到「工作区」页面登记目录，再把它们重新归入。
                     </p>
-                    <button
-                      type="button"
+                    <Button
+                      variant="primary"
+                      size="sm"
+                      icon={<FolderKanban className="h-4 w-4" />}
                       onClick={manageWorkspaces}
-                      className="ui-btn-primary mt-1 flex h-8 items-center gap-1.5 rounded-full px-4 text-body font-medium active:scale-95"
+                      className="mt-1"
                     >
-                      <FolderKanban className="h-4 w-4" />
                       去管理工作区
-                    </button>
+                    </Button>
                   </div>
                 ) : selectedWorkflows.length === 0 ? (
                   <EmptyWorkflows onCreate={openCreateWorkflow} />
                 ) : filtered.length === 0 ? (
-                  <div className="flex flex-col items-center gap-2 py-20 text-center text-text-muted">
-                    <Search className="h-6 w-6 opacity-50" />
-                    <p className="text-body">没有匹配「{query}」的工作流</p>
-                    <button
-                      type="button"
-                      onClick={() => setQuery("")}
-                      className="text-meta text-accent hover:underline"
-                    >
-                      清除搜索
-                    </button>
-                  </div>
+                  <EmptyState
+                    size="compact"
+                    icon={<Search />}
+                    title={`没有匹配「${query}」的工作流`}
+                    action={
+                      <button
+                        type="button"
+                        onClick={() => setQuery("")}
+                        className="text-meta text-accent hover:underline"
+                      >
+                        清除搜索
+                      </button>
+                    }
+                  />
                 ) : (
                   <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
                     {filtered.map((workflow) => (
@@ -720,7 +769,12 @@ export function WorkflowsView() {
                         key={workflow.id}
                         workflow={workflow}
                         triggerCount={triggerCounts.get(workflow.id) ?? 0}
+                        latestRun={latestRunByWorkflow.get(workflow.id) ?? null}
                         onOpen={() => openEditor(workflow)}
+                        onRun={() => void debugWorkflow(workflow)}
+                        onOpenRun={(runId) =>
+                          setRunning({ runId, workflowId: workflow.id })
+                        }
                         onContextMenu={(event) =>
                           openWorkflowMenu(workflow, event)
                         }
@@ -994,12 +1048,18 @@ export function WorkflowsView() {
 function WorkflowCard({
   workflow,
   triggerCount,
+  latestRun,
   onOpen,
+  onRun,
+  onOpenRun,
   onContextMenu,
 }: {
   workflow: Workflow;
   triggerCount: number;
+  latestRun: WorkflowRun | null;
   onOpen: () => void;
+  onRun: () => void;
+  onOpenRun: (runId: string) => void;
   onContextMenu: (event: React.MouseEvent) => void;
 }) {
   const nodeCount = workflow.graph.nodes.length;
@@ -1008,6 +1068,11 @@ function WorkflowCard({
       .filter((node) => node.type === "employee" && node.config.employeeId)
       .map((node) => node.config.employeeId),
   );
+  const active =
+    latestRun?.status === "running" ||
+    latestRun?.status === "awaiting_approval";
+  const runMeta = latestRun ? RUN_STATUS[latestRun.status] : null;
+  const RunIcon = runMeta?.icon;
 
   return (
     <div
@@ -1023,23 +1088,29 @@ function WorkflowCard({
           onOpen();
         }
       }}
-      className="group relative flex h-full cursor-pointer flex-col rounded-xl border border-border bg-surface-2/60 p-card text-left shadow-[var(--c-shadow-sm)] transition-all hover:-translate-y-0.5 hover:border-border-strong hover:bg-surface-2/85 hover:shadow-[var(--c-shadow)]"
+      className={`${CARD_SHELL} cursor-pointer`}
     >
       <div className="flex items-start gap-3">
-        <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-accent-soft text-accent">
+        <span className={CARD_ICON_TILE}>
           <WorkflowIcon className="h-5 w-5" />
         </span>
         <div className="min-w-0 flex-1">
-          <h3 className="truncate text-heading font-semibold text-text">
-            {workflow.name}
-          </h3>
-          <p className="mt-1 line-clamp-2 text-body leading-relaxed text-text-muted">
+          <h3 className={CARD_TITLE}>{workflow.name}</h3>
+          <p className={`mt-1 ${CARD_DESCRIPTION}`}>
             {workflow.description || "暂无说明"}
           </p>
         </div>
       </div>
 
-      <div className="mt-auto flex flex-wrap items-center gap-1.5 pt-3 text-meta text-text-muted">
+      <div className="mt-3 flex flex-wrap items-center gap-1.5 text-meta text-text-muted">
+        {runMeta && RunIcon && (
+          <span
+            className={`flex items-center gap-1 rounded-full bg-surface-hover px-2.5 py-0.5 ${runMeta.className}`}
+          >
+            <RunIcon className={`h-3 w-3 ${active ? "animate-spin" : ""}`} />
+            {runMeta.label}
+          </span>
+        )}
         <span className="rounded-full bg-surface-hover px-2.5 py-0.5">
           {nodeCount} 个节点
         </span>
@@ -1052,7 +1123,36 @@ function WorkflowCard({
             {triggerCount} 个触发器
           </span>
         )}
-        <span className="ml-auto">{timeAgo(workflow.updatedAt)}</span>
+      </div>
+
+      <div className={CARD_ACTION_FOOTER}>
+        <span className="min-w-0 truncate text-meta text-text-muted">
+          {latestRun
+            ? `${active ? "本次运行" : "最近运行"} ${timeAgo(latestRun.createdAt)}`
+            : "尚未运行"}
+        </span>
+        <Button
+          variant="primary"
+          size="xs"
+          onClick={(event) => {
+            event.stopPropagation();
+            if (active && latestRun) onOpenRun(latestRun.id);
+            else onRun();
+          }}
+          icon={
+            active ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Play className="h-3.5 w-3.5" />
+            )
+          }
+        >
+          {latestRun?.status === "awaiting_approval"
+            ? "去审核"
+            : active
+              ? "查看运行"
+              : "运行"}
+        </Button>
       </div>
     </div>
   );

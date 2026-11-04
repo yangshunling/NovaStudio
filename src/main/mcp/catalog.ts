@@ -417,6 +417,24 @@ export async function saveMcpServer(
   return saveWithCatalog(id, draft, await listMcpServers());
 }
 
+/** MCP 服务被删除后，把员工里对它的引用一并移除，避免留下失效绑定 */
+function dropEmployeeMcpRefs(name: string): void {
+  for (const employee of db.listDigitalEmployees()) {
+    const next = employee.mcpServers.filter((ref) => {
+      const key = ref.assetId.includes(":")
+        ? ref.assetId.slice(ref.assetId.indexOf(":") + 1)
+        : ref.assetId || ref.name;
+      return key !== name;
+    });
+    if (next.length === employee.mcpServers.length) continue;
+    db.updateEmployeeBindings(
+      employee.id,
+      JSON.stringify(next),
+      JSON.stringify(employee.skills),
+    );
+  }
+}
+
 export async function deleteMcpServer(id: string): Promise<boolean> {
   const asset = await getMcpServer(id);
   if (!asset || !asset.managedByNova) return false;
@@ -430,6 +448,7 @@ export async function deleteMcpServer(id: string): Promise<boolean> {
   }
 
   db.unmarkManagedAsset("mcp", asset.slug);
+  dropEmployeeMcpRefs(asset.slug);
   return true;
 }
 

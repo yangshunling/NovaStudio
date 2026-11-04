@@ -553,21 +553,24 @@ export interface DigitalEmployee extends DigitalEmployeeDraft {
 export type WorkflowNodeType = "start" | "end" | "employee";
 
 /**
- * 节点失败策略：
+ * 节点失败策略（仅作用于「执行失败」）：
  * - stop  失败停止：该节点失败后立即终止整个工作流
  * - skip  自动跳过：标记为跳过，继续执行下游节点（下游拿到空输出）
  * - retry 自动重试：按 maxRetries 重试，仍失败则终止整个工作流
  *
- * 人工审核被驳回时同样视为「节点失败」，由本策略决定后续走向。
+ * 人工审核驳回不走这里的策略：它意味着产物本身不合格，
+ * 一律立即终止整条运行，且该运行不允许续跑。
  */
 export type WorkflowFailureStrategy = "stop" | "skip" | "retry";
 
 /**
  * 审核门禁：
- * - auto   自动通过：节点直接执行
- * - manual 人工审核：执行前暂停，等待人工通过 / 驳回
+ * - auto   自动通过：节点执行完成后直接视为通过
+ * - manual 人工审核：节点执行完成后暂停，等人工确认产物
  *
- * 门禁作用于「执行前」：通过后才把任务详情交给数字员工。
+ * 门禁作用于「执行后」：数字员工先跑完，产物落库并展示给审核人。
+ * 通过则节点完成并继续下游；驳回立即终止整条运行且不能重试。
+ * 等待超时（默认 30 分钟）按「中断」处理，保留产物，运行可续跑。
  */
 export type WorkflowReviewMode = "auto" | "manual";
 
@@ -646,6 +649,8 @@ export interface WorkflowTrigger {
   lastFiredAt: number | null;
   /** 下次触发时间；停用时为 null */
   nextFireAt: number | null;
+  /** 最近一次启动失败的原因；成功启动后清空 */
+  lastError: string | null;
   createdAt: number;
   updatedAt: number;
 }
@@ -676,6 +681,9 @@ export type WorkflowRunStatus =
   | "canceled"
   | "interrupted";
 
+/** 运行来源：手动触发 / 定时触发器 */
+export type WorkflowRunSource = "manual" | "trigger";
+
 export type WorkflowNodeRunStatus =
   | "pending"
   | "running"
@@ -697,6 +705,10 @@ export interface WorkflowRun {
   /** 产物根目录（工作区下 .novastudio/workflows/<workflowId>/<run>） */
   artifactDir: string;
   status: WorkflowRunStatus;
+  /** 手动运行 / 触发器运行 */
+  source: WorkflowRunSource;
+  /** 触发器运行对应的触发器 id；手动运行为 null */
+  triggerId: string | null;
   error: string | null;
   createdAt: number;
   startedAt: number | null;
@@ -723,6 +735,8 @@ export interface WorkflowNodeRun {
   outputSummary: string | null;
   error: string | null;
   decision: "approved" | "rejected" | null;
+  /** 审核备注：通过可以留空，驳回建议填写原因，供下游与历史查看 */
+  decisionNote: string | null;
   decidedAt: number | null;
   startedAt: number | null;
   finishedAt: number | null;
@@ -794,11 +808,22 @@ export interface WorkflowNodeLiveTranscript {
  * 用于在运行记录里还原 Claude 的完整执行链路。
  * mcp.json 含环境变量，不对外暴露。
  */
+/** 节点运行过程中值得展示的告警 / 重试 / 审批事件 */
+export interface WorkflowNodeNotice {
+  type: string;
+  /** info / warning / error */
+  level: string;
+  message: string;
+  createdAt: number;
+}
+
 export interface WorkflowNodeRunDetail {
   /** 本次执行的完整现场（Agent 配置 / 注入能力 / 命令行 / 提示词 / 结果） */
   execution: string;
   /** Agent 最终返回 */
   result: string;
+  /** 告警 / 重试 / 审批等运行提示 */
+  notices: WorkflowNodeNotice[];
   files: WorkflowArtifactFile[];
   /** 按尝试顺序排列的对话；旧记录或尚未开始执行时为空 */
   attempts: WorkflowNodeAttemptDetail[];

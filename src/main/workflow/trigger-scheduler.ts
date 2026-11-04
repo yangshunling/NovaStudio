@@ -88,9 +88,33 @@ export function createTriggerScheduler(
 
     for (const [workflowId, item] of [...pending]) {
       if (!pending.has(workflowId)) continue;
-      try {
-        await deps.runner.start(workflowId);
+
+      /*
+       * 排队期间状态可能已经变化：触发器被停用 / 解绑、工作流被删除。
+       * 这些情况下不能再“补跑”，否则用户明明已经关掉了定时任务，
+       * 工作区一空下来它却自己启动了。
+       */
+      const trigger = db.getWorkflowTrigger(item.triggerId);
+      const stillBound = trigger
+        ? db.listWorkflowIdsForTrigger(item.triggerId).includes(workflowId)
+        : false;
+      if (!trigger?.enabled || !stillBound || !db.getWorkflow(workflowId)) {
         pending.delete(workflowId);
+        continue;
+      }
+
+      try {
+        await deps.runner.start(workflowId, {
+          source: "trigger",
+          triggerId: item.triggerId,
+        });
+        pending.delete(workflowId);
+
+        // 成功启动后清掉上一次的失败原因，触发器卡片会立刻恢复
+        const cleared = db.updateWorkflowTriggerRuntime(item.triggerId, {
+          lastError: null,
+        });
+        if (cleared) deps.emit(cleared);
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         // 用错误类型判断，不依赖文案：文案调整不应改变排队语义
@@ -102,10 +126,21 @@ export function createTriggerScheduler(
           console.error(
             `[trigger] 工作流 ${workflowId} 等待工作区空闲超时，本次触发已放弃`,
           );
+          const updated = db.updateWorkflowTriggerRuntime(item.triggerId, {
+            lastError: `等待工作区空闲超时（${Math.round(
+              (MAX_BUSY_RETRIES * 15_000) / 60_000,
+            )} 分钟）：${message}`,
+          });
+          if (updated) deps.emit(updated);
         } else {
           console.error(
             `[trigger] 触发器 ${item.triggerId} 启动工作流 ${workflowId} 失败：${message}`,
           );
+          // 图校验失败 / 工作流被删 / Agent 未安装等：记到触发器上，页面可见
+          const updated = db.updateWorkflowTriggerRuntime(item.triggerId, {
+            lastError: message,
+          });
+          if (updated) deps.emit(updated);
         }
         pending.delete(workflowId);
       }

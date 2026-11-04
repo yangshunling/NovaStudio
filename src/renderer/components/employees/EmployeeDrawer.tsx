@@ -337,14 +337,14 @@ function ProfileTab({
         <EmployeeAvatar employee={draft} size={72} />
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
-            <button
-              type="button"
+            <Button
+              variant="ghost"
+              size="sm"
+              icon={<Upload className="h-3.5 w-3.5" />}
               onClick={onPickAvatar}
-              className="ui-btn-ghost flex items-center gap-1.5 rounded-lg px-3 py-2 text-meta"
             >
-              <Upload className="h-3.5 w-3.5" />
               上传头像
-            </button>
+            </Button>
             {draft.avatar && (
               <button
                 type="button"

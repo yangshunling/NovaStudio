@@ -7,20 +7,30 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
+  AlertTriangle,
   ArrowLeft,
   Check,
   FileText,
   FolderOpen,
   Loader2,
   PauseCircle,
+  RotateCw,
   Square,
   X,
 } from "lucide-react";
 import { ipc } from "../../lib/ipc";
 import { toast } from "../../stores/toast";
+import { confirmDialog } from "../../stores/confirm";
 import { appendEvent } from "@shared/merge";
 import { MessageGroup } from "../MessageList";
-import { formatDateTime, formatDuration } from "../../lib/workflowFormat";
+import {
+  formatDateTime,
+  formatDuration,
+  formatSize,
+} from "../../lib/workflowFormat";
+import { MarkdownRenderer } from "../MarkdownRenderer";
+import { Button } from "../ui/Button";
+import { Dialog } from "../ui/Dialog";
 import {
   ACTIVE_RUN_STATUSES,
   NODE_STATUS,
@@ -158,6 +168,7 @@ export function WorkflowRunView({
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [now, setNow] = useState(Date.now());
+  const [approvalNotes, setApprovalNotes] = useState<Record<string, string>>({});
 
   const [selectedNodeRunId, setSelectedNodeRunId] = useState<string | null>(null);
   const [nodeDetail, setNodeDetail] = useState<WorkflowNodeRunDetail | null>(null);
@@ -217,7 +228,9 @@ export function WorkflowRunView({
     else if (status === "failed")
       toast.error(detail?.run.error || "工作流运行失败", 5000);
     else if (status === "canceled") toast.info("工作流已取消");
-    else if (status === "interrupted") toast.error("应用退出，运行被中断");
+    // interrupted 有两种来源：应用退出、人工审核超时。原因以后端记录为准
+    else if (status === "interrupted")
+      toast.error(detail?.run.error || "运行被中断，可稍后继续", 5000);
   }, [detail?.run.status, detail?.run.error]);
 
   const nodes = detail?.nodes ?? [];
@@ -251,6 +264,30 @@ export function WorkflowRunView({
     if (!entry || entry.attempt !== selectedNode.attempt) return null;
     return entry.folded.length > 0 ? entry.folded : null;
   }, [liveMap, selectedNode]);
+
+  /*
+   * 详情区随实时 token 增长：贴近底部时自动跟随，用户上翻后暂停跟随。
+   * 否则新内容一直追加在可视区下方，用户必须手动滚动才能看到最新输出。
+   */
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const stickToBottom = useRef(true);
+  /** 切换节点时重新开启跟随，否则继承上一个节点的“已上翻”状态 */
+  const followedNodeId = useRef<string | null>(null);
+  useEffect(() => {
+    if (followedNodeId.current !== selectedNodeRunId) {
+      followedNodeId.current = selectedNodeRunId;
+      stickToBottom.current = true;
+    }
+    const el = scrollRef.current;
+    if (!el || !stickToBottom.current) return;
+    el.scrollTop = el.scrollHeight;
+  }, [selectedLiveEvents, nodeDetail, selectedNodeRunId]);
+  const handleScroll = () => {
+    const el = scrollRef.current;
+    if (!el) return;
+    stickToBottom.current =
+      el.scrollHeight - el.scrollTop - el.clientHeight < 24;
+  };
 
   // 节点详情：随选中节点或该节点状态变化重新读取
   useEffect(() => {
@@ -299,23 +336,67 @@ export function WorkflowRunView({
     return off;
   }, [runId]);
 
-  const awaitingNode = useMemo(
-    () => nodes.find((node) => node.status === "awaiting_approval"),
+  /** DAG 并行执行时可能有多个节点同时等待审核 */
+  const awaitingNodes = useMemo(
+    () => nodes.filter((node) => node.status === "awaiting_approval"),
     [nodes],
   );
 
-  const awaitingConfig = useMemo(() => {
-    if (!detail || !awaitingNode) return null;
-    return detail.run.graph.nodes.find((node) => node.id === awaitingNode.nodeId) ?? null;
-  }, [detail, awaitingNode]);
+  /**
+   * 人工驳回意味着产物本身不合格，整条运行就此终止（主进程也会拒绝续跑）。
+   * 界面必须同步：不能让用户点一个注定报错的「继续运行」。
+   */
+  const rejectedNode = useMemo(
+    () => nodes.find((node) => node.decision === "rejected") ?? null,
+    [nodes],
+  );
+  const canResumeRun = !rejectedNode;
 
-  const decide = async (action: "approve" | "reject") => {
-    if (!awaitingNode || busy) return;
+  const decide = async (
+    target: WorkflowNodeRun,
+    action: "approve" | "reject",
+  ) => {
+    if (busy) return;
     setBusy(true);
     try {
-      await ipc.approveWorkflowNode(runId, awaitingNode.id, action);
+      const handled = await ipc.approveWorkflowNode(
+        runId,
+        target.id,
+        action,
+        (approvalNotes[target.id] ?? "").trim() || undefined,
+      );
+      // 主进程返回 false：这条审批已失效（运行已结束或被另一处处理过）
+      if (!handled) {
+        toast.error("该审核已失效：运行可能已结束或在别处处理过，请刷新后查看", 5000);
+        return;
+      }
+      setApprovalNotes((current) => ({ ...current, [target.id]: "" }));
     } catch (err) {
       toast.error(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  /** 从指定节点（默认第一个失败节点）继续执行；会重置该节点及下游 */
+  const resumeRun = async (nodeRunId?: string) => {
+    if (busy) return;
+    const confirmed = await confirmDialog({
+      title: nodeRunId ? "从该节点继续执行？" : "继续执行这次运行？",
+      message: nodeRunId
+        ? "会重置该节点及全部下游的状态并重新执行；上游节点的结果保留。"
+        : "会自动选择第一个失败或未完成的节点，重置它及全部下游后重新执行。",
+      confirmLabel: "继续执行",
+      cancelLabel: "取消",
+    });
+    if (!confirmed) return;
+
+    setBusy(true);
+    try {
+      await ipc.resumeWorkflowRun(runId, nodeRunId);
+      toast.success("已开始继续执行");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : String(err), 5000);
     } finally {
       setBusy(false);
     }
@@ -325,7 +406,9 @@ export function WorkflowRunView({
     if (busy) return;
     setBusy(true);
     try {
-      await ipc.cancelWorkflowRun(runId);
+      const handled = await ipc.cancelWorkflowRun(runId);
+      // false：运行已经结束（可能在另一个窗口处理过），提示刷新而不是静默成功
+      if (!handled) toast.error("该运行已结束，无需终止", 4000);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : String(err));
     } finally {
@@ -348,13 +431,14 @@ export function WorkflowRunView({
     return (
       <main className="relative flex flex-1 flex-col items-center justify-center gap-3 overflow-hidden">
         <p className="relative z-10 text-body text-error">{error ?? "运行记录不存在"}</p>
-        <button
-          type="button"
+        <Button
+          variant="ghost"
+          size="sm"
+          className="relative z-10"
           onClick={onBack}
-          className="ui-btn-ghost relative z-10 rounded-lg px-3 py-2 text-meta"
         >
           返回
-        </button>
+        </Button>
       </main>
     );
   }
@@ -389,7 +473,11 @@ export function WorkflowRunView({
               {run.workflowName}
             </p>
             <p className="truncate font-mono text-caption text-text-muted">
-              运行 #{run.id.slice(0, 8)} · {run.workspacePath}
+              运行 #{run.id.slice(0, 8)} ·{" "}
+              {run.source === "trigger"
+                ? `触发器${run.triggerId ? ` ${run.triggerId.slice(0, 8)}` : ""}`
+                : "手动"}{" "}
+              · {run.workspacePath}
             </p>
           </div>
 
@@ -417,17 +505,18 @@ export function WorkflowRunView({
             </span>
           )}
 
-          <button
-            type="button"
+          <Button
+            variant="ghost"
+            size="sm"
+            className="shrink-0 rounded-full"
+            icon={<FolderOpen className="h-4 w-4" />}
             onClick={async () => {
               const ok = await ipc.openWorkflowArtifacts(runId);
               if (!ok) toast.error("无法打开产物目录");
             }}
-            className="ui-btn-ghost flex h-8 shrink-0 items-center gap-1.5 rounded-full px-4 text-body font-medium active:scale-95"
           >
-            <FolderOpen className="h-4 w-4" />
             产物
-          </button>
+          </Button>
 
           {active && (
             <button
@@ -440,7 +529,34 @@ export function WorkflowRunView({
               终止
             </button>
           )}
+
+          {!active &&
+            canResumeRun &&
+            (run.status === "failed" ||
+              run.status === "canceled" ||
+              run.status === "interrupted") && (
+              <Button
+                variant="primary"
+                size="sm"
+                className="shrink-0 rounded-full"
+                icon={<RotateCw className="h-3.5 w-3.5" />}
+                onClick={() => void resumeRun()}
+                disabled={busy}
+              >
+                继续运行
+              </Button>
+            )}
         </header>
+
+        {rejectedNode && (
+          <div className="flex items-start gap-2 border-b border-border bg-agent-amber/10 px-4 py-2.5 text-meta text-text-secondary">
+            <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-agent-amber" />
+            <span>
+              节点「{rejectedNode.nodeName}」已被人工驳回，本次运行已终止且不能继续执行。
+              请修改工作流（或重新发起一次运行）后重试。
+            </span>
+          </div>
+        )}
 
         <div className="flex min-h-0 flex-1">
           {/* 左：节点列表 */}
@@ -473,56 +589,88 @@ export function WorkflowRunView({
 
           {/* 右：选中节点详情 */}
           <div className="flex min-w-0 flex-1 flex-col">
-            <div className="min-h-0 flex-1 overflow-y-auto p-4">
-              {awaitingNode && awaitingConfig && (
-                <section className="mb-4 rounded-xl border border-accent/40 bg-accent-soft p-4">
-                  <div className="flex items-center gap-2">
-                    <PauseCircle className="h-4 w-4 shrink-0 text-accent" />
-                    <p className="text-body-lg font-semibold text-text">
-                      等待人工审核 · {awaitingNode.nodeName}
+            <div
+              ref={scrollRef}
+              onScroll={handleScroll}
+              className="min-h-0 flex-1 overflow-y-auto p-4"
+            >
+              {awaitingNodes.map((awaitingNode) => {
+                const note = approvalNotes[awaitingNode.id] ?? "";
+                return (
+                  <section
+                    key={awaitingNode.id}
+                    className="mb-4 rounded-xl border border-accent/40 bg-accent-soft p-4"
+                  >
+                    <div className="flex items-center gap-2">
+                      <PauseCircle className="h-4 w-4 shrink-0 text-accent" />
+                      <p className="text-body-lg font-semibold text-text">
+                        产物待审核 · {awaitingNode.nodeName}
+                      </p>
+                      <span className="rounded-full bg-surface/60 px-2 py-0.5 text-caption text-text-secondary">
+                        {awaitingNode.employeeName}
+                      </span>
+                    </div>
+                    <p className="mt-2 text-meta text-text-secondary">
+                      节点已执行完成，请确认产物。通过则节点完成并继续下游；
+                      驳回会立即终止本次运行，且不能重试。
                     </p>
-                    <span className="rounded-full bg-surface/60 px-2 py-0.5 text-caption text-text-secondary">
-                      {awaitingNode.employeeName}
-                    </span>
-                  </div>
-                  <p className="mt-2 text-meta text-text-secondary">
-                    通过后才会把任务详情交给数字员工执行。
-                  </p>
-                  {awaitingConfig.config.taskDetail && (
-                    <pre className="mt-3 max-h-40 overflow-y-auto whitespace-pre-wrap rounded-lg bg-surface/60 p-3 font-sans text-body leading-relaxed text-text">
-                      {awaitingConfig.config.taskDetail}
-                    </pre>
-                  )}
-                  <div className="mt-3 flex items-center justify-end gap-2">
-                    <button
-                      type="button"
-                      onClick={() => void decide("reject")}
-                      disabled={busy}
-                      className="ui-btn-ghost flex h-8 items-center gap-1.5 rounded-full px-4 text-body font-medium active:scale-95 disabled:opacity-50"
-                    >
-                      <X className="h-4 w-4" />
-                      驳回
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => void decide("approve")}
-                      disabled={busy}
-                      className="ui-btn-primary flex h-8 items-center gap-1.5 rounded-full px-4 text-body font-medium active:scale-95 disabled:opacity-50"
-                    >
-                      <Check className="h-4 w-4" />
-                      通过
-                    </button>
-                  </div>
-                </section>
-              )}
+                    {awaitingNode.outputSummary && (
+                      <pre className="mt-3 max-h-40 overflow-y-auto whitespace-pre-wrap rounded-lg bg-surface/60 p-3 font-sans text-body leading-relaxed text-text">
+                        {awaitingNode.outputSummary}
+                      </pre>
+                    )}
+                    <p className="mt-2 text-caption text-text-muted">
+                      完整产物与对话见下方节点详情
+                      {awaitingNode.outputPath ? `（${awaitingNode.nodeName} · result.md）` : ""}
+                    </p>
+                    <textarea
+                      value={note}
+                      onChange={(event) =>
+                        setApprovalNotes((current) => ({
+                          ...current,
+                          [awaitingNode.id]: event.target.value,
+                        }))
+                      }
+                      rows={2}
+                      placeholder="审核备注（驳回时建议填写原因，会写入节点历史）"
+                      className="ui-ring mt-3 w-full resize-none rounded-lg bg-surface/60 px-3 py-2 text-meta text-text placeholder-text-muted outline-none"
+                    />
+                    <div className="mt-3 flex items-center justify-end gap-2">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="rounded-full"
+                        icon={<X className="h-4 w-4" />}
+                        onClick={() => void decide(awaitingNode, "reject")}
+                        disabled={busy}
+                      >
+                        驳回
+                      </Button>
+                      <Button
+                        variant="primary"
+                        size="sm"
+                        className="rounded-full"
+                        icon={<Check className="h-4 w-4" />}
+                        onClick={() => void decide(awaitingNode, "approve")}
+                        disabled={busy}
+                      >
+                        通过
+                      </Button>
+                    </div>
+                  </section>
+                );
+              })}
 
               {selectedNode ? (
                 <NodeDetailPanel
+                  runId={runId}
                   node={selectedNode}
                   detail={nodeDetail}
                   loading={nodeDetailLoading}
                   now={now}
                   live={selectedLiveEvents}
+                  canResume={!active && canResumeRun}
+                  onResume={() => void resumeRun(selectedNode.id)}
                 />
               ) : (
                 <div className="flex flex-col items-center gap-2 py-16 text-center text-text-muted">
@@ -593,25 +741,90 @@ function NodeListItem({
 // 节点详情
 // ============================================================================
 
+type NodeDetailTab =
+  | "conversation"
+  | "result"
+  | "artifacts"
+  | "notices"
+  | "execution";
+
 function NodeDetailPanel({
+  runId,
   node,
   detail,
   loading,
   now,
   live,
+  canResume,
+  onResume,
 }: {
+  runId: string;
   node: WorkflowNodeRun;
   detail: WorkflowNodeRunDetail | null;
   loading: boolean;
   now: number;
   /** 节点执行中的实时事件流；不在运行时为 null */
   live: AgentEvent[] | null;
+  /** 运行已结束时可从该节点继续 */
+  canResume: boolean;
+  onResume: () => void;
 }) {
+  const [tab, setTab] = useState<NodeDetailTab>("conversation");
+  const [preview, setPreview] = useState<{
+    path: string;
+    content: string;
+  } | null>(null);
+  const [previewLoading, setPreviewLoading] = useState<string | null>(null);
+  // 切换节点时回到对话页，避免停在“结果/产物”看到空内容
+  useEffect(() => {
+    setTab("conversation");
+    setPreview(null);
+  }, [node.id]);
   const meta = NODE_STATUS[node.status];
   const attempts = detail?.attempts ?? [];
+  const files = detail?.files ?? [];
+  const notices = detail?.notices ?? [];
   const hasConversation =
     attempts.some((attempt) => attempt.messages.length > 0) ||
     (live?.length ?? 0) > 0;
+
+  const openFile = async (relativePath: string) => {
+    const ok = await ipc.openWorkflowNodeFile(runId, node.id, relativePath);
+    if (!ok) toast.error("无法打开产物文件");
+  };
+
+  const openDir = async () => {
+    const ok = await ipc.openWorkflowNodeArtifacts(runId, node.id);
+    if (!ok) toast.error("无法打开产物目录");
+  };
+
+  const previewFile = async (relativePath: string) => {
+    setPreviewLoading(relativePath);
+    try {
+      const content = await ipc.readWorkflowNodeFile(
+        runId,
+        node.id,
+        relativePath,
+      );
+      if (content === null) {
+        toast.error("无法预览该文件（可能不是文本或文件过大）");
+      } else {
+        setPreview({ path: relativePath, content });
+      }
+    } finally {
+      setPreviewLoading(null);
+    }
+  };
+
+  const tabs: Array<{ id: NodeDetailTab; label: string; count?: number }> = [
+    { id: "conversation", label: "对话" },
+    { id: "result", label: "结果" },
+    { id: "artifacts", label: "产物文件", count: files.length },
+    ...(notices.length > 0
+      ? [{ id: "notices" as const, label: "提示", count: notices.length }]
+      : []),
+    { id: "execution", label: "执行信息" },
+  ];
 
   return (
     <div className="space-y-3">
@@ -640,38 +853,236 @@ function NodeDetailPanel({
           </span>
         </div>
 
+        {node.decision && (
+          <p
+            className={`mt-2 rounded-lg px-2.5 py-2 text-meta leading-relaxed ${
+              node.decision === "approved"
+                ? "bg-success/10 text-success"
+                : "bg-error-bg text-error"
+            }`}
+          >
+            审核{node.decision === "approved" ? "通过" : "驳回"}
+            {node.decidedAt ? ` · ${formatDateTime(node.decidedAt)}` : ""}
+            {node.decisionNote ? ` · ${node.decisionNote}` : ""}
+          </p>
+        )}
+
         {node.error && (
           <p className="mt-2 rounded-lg bg-error-bg px-2.5 py-2 text-meta leading-relaxed text-error">
             {node.error}
           </p>
         )}
+
+        {canResume && node.nodeType === "employee" && (
+          <div className="mt-3">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="rounded-full"
+              icon={<RotateCw className="h-3.5 w-3.5" />}
+              onClick={onResume}
+            >
+              从该节点重跑（重置下游）
+            </Button>
+          </div>
+        )}
       </section>
+
+      <div className="flex flex-wrap gap-1 rounded-xl bg-surface-hover/60 p-1">
+        {tabs.map((item) => (
+          <button
+            key={item.id}
+            type="button"
+            onClick={() => setTab(item.id)}
+            className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-meta font-medium transition-colors ${
+              tab === item.id
+                ? "bg-surface text-text shadow-[var(--c-shadow-sm)]"
+                : "text-text-muted hover:text-text"
+            }`}
+          >
+            {item.label}
+            {typeof item.count === "number" && (
+              <span className="rounded-full bg-surface-hover px-1.5 text-caption">
+                {item.count}
+              </span>
+            )}
+          </button>
+        ))}
+      </div>
 
       {loading ? (
         <div className="flex items-center justify-center gap-2 py-10 text-body text-text-muted">
           <Loader2 className="h-4 w-4 animate-spin" />
           正在读取节点详情
         </div>
-      ) : !hasConversation ? (
-        <p className="py-10 text-center text-meta italic text-text-muted">
-          （还没有记录到对话）
-        </p>
-      ) : (
-        <div className="space-y-4">
-          {attempts.map((attempt) =>
-            attempt.messages.map((message) => (
-              <MessageGroup
-                key={message.id}
-                events={message.content}
-                isUser={message.role === "user"}
-              />
-            )),
-          )}
-          {live && live.length > 0 && (
-            <MessageGroup events={live} isUser={false} />
+      ) : tab === "conversation" ? (
+        !hasConversation ? (
+          <p className="py-10 text-center text-meta italic text-text-muted">
+            （还没有记录到对话）
+          </p>
+        ) : (
+          <div className="space-y-3">
+            {attempts.map((attempt) => (
+              <section
+                key={attempt.attempt}
+                className="overflow-hidden rounded-xl border border-border bg-surface-2/40"
+              >
+                <div className="flex items-center justify-between gap-2 border-b border-border px-3 py-2 text-meta">
+                  <span className="font-medium text-text-secondary">
+                    第 {attempt.attempt} 次尝试
+                  </span>
+                  <span className="truncate font-mono text-caption text-text-muted">
+                    {attempt.sessionId
+                      ? `会话 ${attempt.sessionId.slice(0, 8)}`
+                      : "无会话"}
+                  </span>
+                </div>
+                <div className="space-y-3 p-3">
+                  {attempt.messages.length === 0 ? (
+                    <p className="text-meta italic text-text-muted">
+                      （本次尝试没有对话记录）
+                    </p>
+                  ) : (
+                    attempt.messages.map((message) => (
+                      <MessageGroup
+                        key={message.id}
+                        events={message.content}
+                        isUser={message.role === "user"}
+                      />
+                    ))
+                  )}
+                </div>
+              </section>
+            ))}
+
+            {live && live.length > 0 && (
+              <section className="overflow-hidden rounded-xl border border-accent/30 bg-accent-soft/20">
+                <div className="border-b border-accent/20 px-3 py-2 text-meta font-medium text-accent">
+                  实时执行
+                </div>
+                <div className="p-3">
+                  <MessageGroup events={live} isUser={false} />
+                </div>
+              </section>
+            )}
+          </div>
+        )
+      ) : tab === "result" ? (
+        detail?.result?.trim() ? (
+          <div className="rounded-xl border border-border bg-surface-2/50 p-4">
+            <MarkdownRenderer content={detail.result} />
+          </div>
+        ) : (
+          <p className="py-10 text-center text-meta italic text-text-muted">
+            （没有结果文件）
+          </p>
+        )
+      ) : tab === "artifacts" ? (
+        <div className="overflow-hidden rounded-xl border border-border bg-surface-2/50">
+          <div className="flex items-center justify-between gap-2 border-b border-border px-3 py-2">
+            <span className="text-meta font-medium text-text-secondary">
+              产物文件（{files.length}）
+            </span>
+            <Button
+              variant="ghost"
+              size="xs"
+              className="rounded-full"
+              icon={<FolderOpen className="h-3.5 w-3.5" />}
+              onClick={() => void openDir()}
+            >
+              打开目录
+            </Button>
+          </div>
+          {files.length === 0 ? (
+            <p className="px-3 py-8 text-center text-meta italic text-text-muted">
+              （没有产物文件）
+            </p>
+          ) : (
+            <div className="divide-y divide-border">
+              {files.map((file) => (
+                <div
+                  key={file.relativePath}
+                  className="flex items-center gap-3 px-3 py-2"
+                >
+                  <FileText className="h-4 w-4 shrink-0 text-text-muted" />
+                  <div className="min-w-0 flex-1">
+                    <p
+                      className="truncate text-body text-text"
+                      title={file.relativePath}
+                    >
+                      {file.relativePath}
+                    </p>
+                    <p className="font-mono text-caption text-text-muted">
+                      {formatSize(file.size)}
+                    </p>
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="xs"
+                    className="shrink-0 rounded-full"
+                    loading={previewLoading === file.relativePath}
+                    onClick={() => void previewFile(file.relativePath)}
+                  >
+                    预览
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="xs"
+                    className="shrink-0 rounded-full"
+                    onClick={() => void openFile(file.relativePath)}
+                  >
+                    打开
+                  </Button>
+                </div>
+              ))}
+            </div>
           )}
         </div>
+      ) : tab === "notices" ? (
+        <div className="space-y-2">
+          {notices.map((notice, index) => (
+            <div
+              key={`${notice.type}-${index}`}
+              className={`rounded-xl border px-3 py-2.5 text-meta leading-relaxed ${
+                notice.level === "error"
+                  ? "border-error/30 bg-error-bg text-error"
+                  : notice.level === "warning"
+                    ? "border-accent/30 bg-accent-soft/40 text-text-secondary"
+                    : "border-border bg-surface-2/50 text-text-secondary"
+              }`}
+            >
+              <div className="mb-1 flex items-center justify-between gap-2 text-caption text-text-muted">
+                <span>
+                  {notice.type === "node_retry"
+                    ? "重试"
+                    : notice.type === "approval_decided"
+                      ? "审核"
+                      : "提示"}
+                </span>
+                <span className="font-mono">
+                  {formatDateTime(notice.createdAt)}
+                </span>
+              </div>
+              <p className="whitespace-pre-wrap">{notice.message}</p>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <pre className="max-h-[60vh] overflow-auto whitespace-pre-wrap rounded-xl border border-border bg-surface-2/50 p-4 font-sans text-meta leading-relaxed text-text-secondary">
+          {detail?.execution || "（没有执行信息）"}
+        </pre>
       )}
+
+      <Dialog
+        open={preview !== null}
+        onClose={() => setPreview(null)}
+        title={preview ? `预览 · ${preview.path}` : "预览"}
+        widthClass="w-[80vw] max-w-[900px]"
+      >
+        <pre className="max-h-[65vh] overflow-auto whitespace-pre-wrap rounded-lg bg-surface-2/60 p-3 font-mono text-meta leading-relaxed text-text-secondary">
+          {preview?.content}
+        </pre>
+      </Dialog>
     </div>
   );
 }

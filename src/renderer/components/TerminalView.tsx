@@ -9,9 +9,14 @@
 import { useEffect, useRef, useState } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
-import { PanelRightClose, PanelRightOpen, SquareTerminal } from "lucide-react";
+import {
+  PanelRightClose,
+  PanelRightOpen,
+  RotateCcw,
+  SquareTerminal,
+} from "lucide-react";
 import "@xterm/xterm/css/xterm.css";
-import type { TerminalSession } from "../stores/terminal";
+import { useTerminalStore, type TerminalSession } from "../stores/terminal";
 import { ipc } from "../lib/ipc";
 import { newId } from "../lib/utils";
 import { useSkin, useThemeStore } from "../hooks/useTheme";
@@ -57,12 +62,17 @@ export function TerminalView({
   } | null>(null);
   const skin = useSkin();
   const terminalFontSize = useThemeStore((s) => s.terminalFontSize);
+  /** PTY 退出后置为退出码，用于在顶栏给出「重新启动」入口 */
+  const [exited, setExited] = useState<number | null>(null);
+  const restart = useTerminalStore((s) => s.restart);
 
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
 
-    const processId = `${tab.id}:${newId()}`;
+    setExited(null);
+    setRuntime(null);
+    const processId = `${tab.id}:${tab.generation}:${newId()}`;
     const term = new Terminal({
       cursorBlink: true,
       convertEol: false,
@@ -89,6 +99,7 @@ export function TerminalView({
     });
     const exitSub = ipc.on.terminalExit((payload) => {
       if (payload.id !== processId) return;
+      setExited(payload.exitCode);
       term.writeln(
         `\r\n\x1b[90m[process exited with code ${payload.exitCode}]\x1b[0m`,
       );
@@ -185,6 +196,7 @@ export function TerminalView({
       })
       .catch((error) => {
         if (disposed) return;
+        setExited(-1);
         term.writeln(
           `\x1b[31mFailed to start terminal: ${String(error)}\x1b[0m`,
         );
@@ -201,8 +213,9 @@ export function TerminalView({
       fitRef.current = null;
       void ipc.killTerminal(processId);
     };
-    // 字体不放进依赖：改字体不应销毁并重建 PTY
-  }, [tab.cwd, tab.id]);
+    // 字体不放进依赖：改字体不应销毁并重建 PTY。
+    // generation 变化表示用户点了「重新启动」，需要重开一个 PTY。
+  }, [tab.cwd, tab.id, tab.generation]);
 
   // 字号修改：更新 xterm 选项后重新量字并适配行列
   useEffect(() => {
@@ -237,11 +250,28 @@ export function TerminalView({
             {runtime?.cwd ?? tab.cwd}
           </span>
         </div>
-        {onToggleWorkspace && (
-          <WorkspaceToggleButton
-            showWorkspace={Boolean(showWorkspace)}
-            onToggle={onToggleWorkspace}
-          />
+        {exited !== null ? (
+          <div className="flex shrink-0 items-center gap-2">
+            <span className="text-caption text-text-muted">
+              {exited === -1 ? "启动失败" : `终端已退出（${exited}）`}
+            </span>
+            <button
+              type="button"
+              onClick={() => restart(tab.id)}
+              title="重新启动终端"
+              className="ui-btn flex items-center gap-1 rounded-full px-2.5 py-1 text-caption text-text"
+            >
+              <RotateCcw className="h-3.5 w-3.5" />
+              重新启动
+            </button>
+          </div>
+        ) : (
+          onToggleWorkspace && (
+            <WorkspaceToggleButton
+              showWorkspace={Boolean(showWorkspace)}
+              onToggle={onToggleWorkspace}
+            />
+          )
         )}
       </div>
       {/* 内边距由 .ui-terminal .xterm 提供：FitAddon 会从可用尺寸里扣除

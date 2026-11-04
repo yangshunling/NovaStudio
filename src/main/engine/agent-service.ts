@@ -18,6 +18,7 @@ import { appendEvent } from "../../shared/merge";
 import type { AgentInfo } from "../../shared/contracts/agent";
 import type { IpcPushChannel, IpcPushMap } from "../../shared/contracts/ipc";
 import { getProvider, listProviders } from "../agents/registry";
+import { isResumeFailure } from "../agents/resume-error";
 import type { AgentInvocationInfo, RunSession } from "../agents/types";
 import * as db from "../db/sqlite";
 
@@ -297,6 +298,47 @@ export function createAgentService(emit: Emit): AgentService {
       try {
         const result = await runSession.done;
 
+        /*
+         * 恢复失败自愈：--resume 指向的 CLI 会话已经不存在（文件被删、
+         * cwd 变化、版本不兼容）。不能继续沿用旧引用，否则后续每次发送
+         * 都会重复失败。清掉引用并告知用户，下一轮自动开启新上下文。
+         *
+         * 诊断文本有两个来源：line-run 收集的 stderr 尾部，以及解码层
+         * 从 CLI result 行提取的错误事件。两者任一包含失效文案都要自愈，
+         * 避免某些版本只把错误写进 stdout。
+         */
+        const errorMessages = assistantContent
+          .filter(
+            (event): event is Extract<AgentEvent, { type: "error" }> =>
+              event.type === "error",
+          )
+          .map((event) => event.message);
+        const failureText = [result.error, ...errorMessages]
+          .filter(Boolean)
+          .join("\n");
+
+        const resumeFailed =
+          Boolean(sessionRef) &&
+          !runSession.aborted &&
+          isResumeFailure(failureText);
+        if (resumeFailed) {
+          const previousKey = historyKey(session);
+          if (previousKey) historyCache.delete(previousKey);
+          db.clearAgentSessionId(sessionId);
+
+          const warning: AgentEvent = {
+            type: "warning",
+            message:
+              "上一次的会话上下文已失效（CLI 找不到该会话），已清除旧引用。下一次发送会开启新的上下文。",
+          };
+          assistantContent = appendEvent(assistantContent, warning);
+          // 工作流会话只在引擎内部使用，不往聊天界面推
+          if (session.source !== "workflow") {
+            emit("agent:event", { sessionId, event: warning });
+          }
+          onEvent?.(warning);
+        }
+
         // 持久化 assistant 消息：无论成功/失败/中断，已累积的事件流都落库
         if (assistantContent.length > 0) {
           db.saveSessionMessage(sessionId, {
@@ -311,7 +353,8 @@ export function createAgentService(emit: Emit): AgentService {
         // 只要本轮已经拿到 CLI 侧的会话 id，就必须落库 —— 即便本轮被中断/超时，
         // CLI 侧会话依然存在且可恢复。否则用户随后在同一会话里追问时会话引用缺失，
         // Agent 会"失忆"（自动化任务被停止/超时后追问，就是这种表现）。
-        if (captured.rawId) {
+        // resume 失败时 CLI 回报的仍是那个失效的旧 id，不要把它写回数据库
+        if (!resumeFailed && captured.rawId) {
           const ref = provider.normalizeSessionRef(captured.rawId, { cwd });
           if (ref !== session.agentSessionId) {
             const previousKey = historyKey(session);

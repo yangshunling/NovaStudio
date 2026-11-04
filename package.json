@@ -9,7 +9,7 @@
     "build": "electron-vite build",
     "preview": "electron-vite preview",
     "verify:skins": "node scripts/verify-skin-tokens.mjs",
-    "test": "node --test tests/merge.test.ts tests/parse.test.ts tests/trigger-schedule.test.ts tests/graph.test.ts tests/mcp.test.ts tests/execution-report.test.ts",
+    "test": "node --test tests/merge.test.ts tests/parse.test.ts tests/protocol.test.ts tests/trigger-schedule.test.ts tests/graph.test.ts tests/mcp.test.ts tests/execution-report.test.ts tests/batch.test.ts",
     "package": "electron-vite build && electron-builder",
     "package:win": "electron-vite build && electron-builder --win",
     "package:win:publish": "electron-vite build && electron-builder --win --publish always"

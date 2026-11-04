@@ -234,15 +234,3 @@ export function useSkin(): SkinVariant {
   return useThemeStore((s) => getSkin(s.currentTheme));
 }
 
-/**
- * 技能相关页面的专用字号。
- *
- * 技能页信息密度高（来源标签、校验提示、文件路径、SKILL.md 正文），
- * 若沿用全局字号，`text-caption` / `text-meta` 两档会明显偏小。
- * 这里在用户全局字号基础上放大 2px，并保证基准不低于 15px；
- * 组件把返回值写回 --c-font-size，整棵子树的字号量表随之等比放大。
- */
-export function useSkillFontSize(): number {
-  const fontSize = useThemeStore((s) => s.fontSize);
-  return Math.max(fontSize + 2, 15);
-}

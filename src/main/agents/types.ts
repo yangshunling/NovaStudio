@@ -120,6 +120,11 @@ export interface PreparedAgentRun {
 export interface RunResult {
   exitCode: number;
   duration: number;
+  /**
+   * 非零退出时的诊断信息（stderr 尾部或启动错误）。
+   * 语义由 provider 填写，宿主只用于展示与恢复策略判断。
+   */
+  error?: string;
 }
 
 /**

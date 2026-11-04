@@ -17,6 +17,11 @@ export interface TerminalSession {
   workspaceId: string | null;
   cwd: string;
   name: string;
+  /**
+   * 重启计数。PTY 退出后需要重新创建进程，但标签 id 不变（保持列表顺序），
+   * TerminalView 通过这个值感知「应该重开一个 shell」。
+   */
+  generation: number;
 }
 
 interface TerminalState {
@@ -31,6 +36,8 @@ interface TerminalState {
   }) => string;
   activate: (id: string) => void;
   close: (id: string) => void;
+  /** 在同一个标签里重新拉起 shell（PTY 退出后使用） */
+  restart: (id: string) => void;
   /** 关闭某工作区下的所有终端（删除工作区时调用） */
   closeByWorkspace: (workspaceId: string) => void;
   /** 同步工作区改名后的终端标题 */
@@ -53,13 +60,25 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
 
     const id = `terminal:${newId()}`;
     set((state) => ({
-      terminals: [...state.terminals, { id, workspaceId, cwd, name }],
+      terminals: [
+        ...state.terminals,
+        { id, workspaceId, cwd, name, generation: 0 },
+      ],
       activeId: id,
     }));
     return id;
   },
 
   activate: (id) => set({ activeId: id }),
+
+  restart: (id) => {
+    set((state) => ({
+      terminals: state.terminals.map((item) =>
+        item.id === id ? { ...item, generation: item.generation + 1 } : item,
+      ),
+      activeId: id,
+    }));
+  },
 
   close: (id) => {
     set((state) => {

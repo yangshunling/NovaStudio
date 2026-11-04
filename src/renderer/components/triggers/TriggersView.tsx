@@ -15,7 +15,9 @@ import {
   Pencil,
   Plus,
   Repeat,
+  Search,
   Trash2,
+  Workflow as WorkflowIcon,
   Zap,
 } from "lucide-react";
 import { ipc } from "../../lib/ipc";
@@ -24,10 +26,18 @@ import { useLoad } from "../../hooks/useLoad";
 import { EmptyState, ErrorState, LoadingState } from "../ui/EmptyState";
 import { Page, PageBody, PageHeader } from "../ui/Page";
 import { OptionChips } from "../ui/OptionChips";
+import {
+  CARD_ACTION_FOOTER,
+  CARD_DESCRIPTION,
+  CARD_ICON_TILE,
+  CARD_SHELL,
+  CARD_TITLE,
+} from "../ui/cardStyles";
 import { toast } from "../../stores/toast";
 import { confirmDialog } from "../../stores/confirm";
 import { Dialog, DialogActions } from "../ui/Dialog";
 import { Button } from "../ui/Button";
+import { SearchInput } from "../ui/SearchInput";
 import { Field, TextArea, TextInput } from "../ui/Field";
 import { Toggle } from "../employees/ui";
 import {
@@ -86,8 +96,24 @@ export function TriggersView() {
   const setTriggers = (next: Parameters<typeof patch<"triggers">>[1]) => patch("triggers", next);
   const setBindings = (next: Parameters<typeof patch<"bindings">>[1]) => patch("bindings", next);
 
+  const [query, setQuery] = useState("");
+  const filtered = useMemo(() => {
+    const keyword = query.trim().toLowerCase();
+    if (!keyword) return triggers;
+    return triggers.filter((trigger) =>
+      [trigger.title, trigger.description].some((value) =>
+        value.toLowerCase().includes(keyword),
+      ),
+    );
+  }, [triggers, query]);
+
   /** null 表示弹框关闭；"new" 表示新建；否则为正在编辑的触发器 */
   const [editing, setEditing] = useState<WorkflowTrigger | "new" | null>(null);
+
+  /** 触发器 → 绑定工作流 */
+  const [bindingTarget, setBindingTarget] = useState<WorkflowTrigger | null>(null);
+  const [bindingWorkflowIds, setBindingWorkflowIds] = useState<string[]>([]);
+  const [bindingSaving, setBindingSaving] = useState(false);
 
   // 调度器触发后会推送新的 lastFiredAt / nextFireAt，直接就地更新卡片
   useEffect(
@@ -183,6 +209,54 @@ export function TriggersView() {
     }
   };
 
+  const openBindings = (trigger: WorkflowTrigger) => {
+    setBindingTarget(trigger);
+    setBindingWorkflowIds(
+      bindings
+        .filter((binding) => binding.triggerId === trigger.id)
+        .map((binding) => binding.workflowId),
+    );
+  };
+
+  const toggleBinding = (workflowId: string) => {
+    setBindingWorkflowIds((current) =>
+      current.includes(workflowId)
+        ? current.filter((id) => id !== workflowId)
+        : [...current, workflowId],
+    );
+  };
+
+  /**
+   * 绑定接口是按工作流整体替换的，这里把每个工作流的目标集合算好再逐个写回。
+   * 只写有变化的工作流，避免无谓的数据库更新。
+   */
+  const saveBindings = async () => {
+    if (!bindingTarget || bindingSaving) return;
+    setBindingSaving(true);
+    try {
+      const target = new Set(bindingWorkflowIds);
+      for (const workflow of workflows) {
+        const current = bindings
+          .filter((binding) => binding.workflowId === workflow.id)
+          .map((binding) => binding.triggerId);
+        const shouldBind = target.has(workflow.id);
+        const bound = current.includes(bindingTarget.id);
+        if (shouldBind === bound) continue;
+        const next = shouldBind
+          ? [...current, bindingTarget.id]
+          : current.filter((id) => id !== bindingTarget.id);
+        await ipc.setWorkflowTriggers(workflow.id, next);
+      }
+      setBindings(await ipc.listTriggerBindings());
+      toast.success(`已更新「${bindingTarget.title}」的绑定`);
+      setBindingTarget(null);
+    } catch (err) {
+      toast.error(toMessage(err), 5000);
+    } finally {
+      setBindingSaving(false);
+    }
+  };
+
   return (
     <Page>
       <PageHeader
@@ -190,14 +264,20 @@ export function TriggersView() {
         count={triggers.length}
         countSuffix=" 个"
         actions={
-          <button
-            type="button"
-            onClick={() => setEditing("new")}
-            className="ui-btn-primary flex h-9 shrink-0 items-center gap-1.5 rounded-full px-4 text-body font-medium active:scale-95"
-          >
-            <Plus className="h-4 w-4" />
-            新建触发器
-          </button>
+          <>
+            <SearchInput
+              value={query}
+              onChange={setQuery}
+              placeholder="搜索标题 / 描述"
+            />
+            <Button
+              variant="primary"
+              onClick={() => setEditing("new")}
+              icon={<Plus className="h-4 w-4" />}
+            >
+              新建触发器
+            </Button>
+          </>
         }
       />
 
@@ -208,14 +288,29 @@ export function TriggersView() {
             <ErrorState message={error} onRetry={reload} />
           ) : triggers.length === 0 ? (
             <EmptyTriggers onCreate={() => setEditing("new")} />
+          ) : filtered.length === 0 ? (
+            <EmptyState
+              size="compact"
+              icon={<Search />}
+              title={`没有匹配「${query}」的触发器`}
+              action={
+                <button
+                  type="button"
+                  onClick={() => setQuery("")}
+                  className="text-meta text-accent hover:underline"
+                >
+                  清除搜索
+                </button>
+              }
+            />
           ) : (
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 2xl:grid-cols-3">
-              {triggers.map((trigger) => (
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
+              {filtered.map((trigger) => (
                 <TriggerCard
                   key={trigger.id}
                   trigger={trigger}
-                  boundWorkflows={boundWorkflowNames.get(trigger.id) ?? []}
                   onToggle={(enabled) => void toggleTrigger(trigger, enabled)}
+                  onBind={() => openBindings(trigger)}
                   onEdit={() => setEditing(trigger)}
                   onDelete={() => void deleteTrigger(trigger)}
                 />
@@ -230,6 +325,69 @@ export function TriggersView() {
         onClose={() => setEditing(null)}
         onSubmit={saveTrigger}
       />
+
+      {/* 触发器 → 绑定工作流（从触发器侧配置，避免只能去工作流右键菜单找） */}
+      <Dialog
+        open={bindingTarget !== null}
+        onClose={() => setBindingTarget(null)}
+        title={bindingTarget ? `绑定工作流 · ${bindingTarget.title}` : "绑定工作流"}
+        widthClass="w-[500px] max-w-[92vw]"
+        description="勾选要由这个触发器定时启动的工作流；一个触发器可以驱动多条工作流。"
+      >
+        {workflows.length === 0 ? (
+          <div className="flex flex-col items-center gap-2 rounded-xl border border-dashed border-border-strong bg-surface-2/30 px-6 py-10 text-center text-text-muted">
+            <WorkflowIcon className="h-7 w-7 opacity-50" />
+            <p className="text-body text-text-secondary">还没有工作流</p>
+            <p className="text-meta">先创建一个工作流，再回来绑定。</p>
+          </div>
+        ) : (
+          <div className="max-h-[320px] space-y-1.5 overflow-y-auto pr-0.5">
+            {workflows.map((workflow) => {
+              const selected = bindingWorkflowIds.includes(workflow.id);
+              return (
+                <label
+                  key={workflow.id}
+                  className={`flex cursor-pointer items-center gap-2.5 rounded-lg border px-3 py-2.5 transition-colors ${
+                    selected
+                      ? "border-accent/50 bg-accent-soft/40"
+                      : "border-border bg-surface-2/40 hover:bg-surface-hover"
+                  }`}
+                >
+                  <input
+                    type="checkbox"
+                    checked={selected}
+                    onChange={() => toggleBinding(workflow.id)}
+                    className="h-4 w-4 shrink-0"
+                    style={{ accentColor: "var(--c-accent)" }}
+                  />
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-body font-medium text-text">
+                      {workflow.name}
+                    </span>
+                    {workflow.description && (
+                      <span className="mt-0.5 block truncate text-meta text-text-muted">
+                        {workflow.description}
+                      </span>
+                    )}
+                  </span>
+                </label>
+              );
+            })}
+          </div>
+        )}
+
+        <DialogActions>
+          <Button onClick={() => setBindingTarget(null)}>取消</Button>
+          <Button
+            variant="primary"
+            onClick={() => void saveBindings()}
+            disabled={workflows.length === 0}
+            loading={bindingSaving}
+          >
+            保存
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Page>
   );
 }
@@ -240,28 +398,26 @@ export function TriggersView() {
 
 function TriggerCard({
   trigger,
-  boundWorkflows,
   onToggle,
+  onBind,
   onEdit,
   onDelete,
 }: {
   trigger: WorkflowTrigger;
-  boundWorkflows: string[];
   onToggle: (enabled: boolean) => void;
+  onBind: () => void;
   onEdit: () => void;
   onDelete: () => void;
 }) {
   return (
-    <div className="flex h-full flex-col rounded-xl border border-border bg-surface-2/60 p-card shadow-[var(--c-shadow-sm)] transition-colors hover:border-border-strong hover:bg-surface-2/85">
+    <div className={CARD_SHELL}>
       <div className="flex items-start gap-3">
-        <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-accent-soft text-accent">
+        <span className={CARD_ICON_TILE}>
           <Zap className="h-5 w-5" />
         </span>
         <div className="min-w-0 flex-1">
-          <h3 className="truncate text-heading font-semibold text-text">
-            {trigger.title}
-          </h3>
-          <p className="mt-1 line-clamp-2 text-body leading-relaxed text-text-muted">
+          <h3 className={CARD_TITLE}>{trigger.title}</h3>
+          <p className={`mt-1 ${CARD_DESCRIPTION}`}>
             {trigger.description || "暂无说明"}
           </p>
         </div>
@@ -273,56 +429,57 @@ function TriggerCard({
       </div>
 
       <div className="mt-3 flex flex-wrap items-center gap-1.5 text-meta">
-        <span className="flex items-center gap-1 rounded-full bg-surface-hover px-2.5 py-1 text-text-secondary">
-          <AlarmClock className="h-3.5 w-3.5 text-accent" />
+        <span className="flex items-center gap-1 rounded-full bg-surface-hover px-2 py-0.5 text-text-secondary">
+          <AlarmClock className="h-3 w-3 text-accent" />
           {describeTriggerSchedule(trigger.schedule)}
         </span>
-        <span
-          className={`rounded-full px-2.5 py-1 ${
-            trigger.enabled
-              ? "bg-surface-hover text-text-muted"
-              : "bg-surface-hover text-text-muted opacity-70"
+      </div>
+
+      {trigger.lastError && (
+        <p
+          className="mt-2 line-clamp-2 break-words rounded-lg bg-error-bg px-2.5 py-1.5 text-meta leading-relaxed text-error"
+          title={trigger.lastError}
+        >
+          最近一次触发失败：{trigger.lastError}
+        </p>
+      )}
+
+      <div className={CARD_ACTION_FOOTER}>
+        <p
+          className={`min-w-0 truncate text-meta text-text-muted ${
+            trigger.enabled ? "" : "opacity-70"
           }`}
         >
           {trigger.enabled
-            ? `下次 ${formatFireTime(trigger.nextFireAt) ?? "待计算"}`
+            ? `下次执行 ${formatFireTime(trigger.nextFireAt) ?? "待计算"}`
             : "已停用"}
-        </span>
-        {trigger.lastFiredAt && (
-          <span className="text-caption text-text-muted">
-            上次触发 {formatFireTime(trigger.lastFiredAt)}
-          </span>
-        )}
-      </div>
-
-      <div className="mt-4 flex items-center justify-between gap-2 border-t border-border pt-3">
-        <p
-          className="min-w-0 truncate text-meta text-text-muted"
-          title={boundWorkflows.join("、")}
-        >
-          {boundWorkflows.length > 0
-            ? `已绑定 ${boundWorkflows.length} 条工作流：${boundWorkflows.join("、")}`
-            : "未绑定工作流（在工作流右键菜单中绑定）"}
         </p>
         <div className="flex shrink-0 items-center gap-1">
-          <button
-            type="button"
+          <Button
+            size="xs"
+            onClick={onBind}
+            title="绑定工作流"
+            icon={<WorkflowIcon className="h-3.5 w-3.5" />}
+          >
+            绑定
+          </Button>
+          <Button
+            size="xs"
             onClick={onEdit}
             title="编辑触发器"
-            className="ui-btn-ghost flex h-7 items-center gap-1 rounded-full px-2.5 text-meta font-medium active:scale-95"
+            icon={<Pencil className="h-3.5 w-3.5" />}
           >
-            <Pencil className="h-3.5 w-3.5" />
             编辑
-          </button>
-          <button
-            type="button"
+          </Button>
+          <Button
+            size="xs"
+            variant="dangerLink"
             onClick={onDelete}
             title="删除触发器"
-            className="flex h-7 items-center gap-1 rounded-full px-2.5 text-meta font-medium text-error transition-colors hover:bg-error-bg active:scale-95"
+            icon={<Trash2 className="h-3.5 w-3.5" />}
           >
-            <Trash2 className="h-3.5 w-3.5" />
             删除
-          </button>
+          </Button>
         </div>
       </div>
     </div>

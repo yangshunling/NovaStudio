@@ -6,9 +6,7 @@
  * 工作流执行节点时，启用的知识库会作为系统提示词的一部分交给 Agent。
  */
 
-import { type CSSProperties } from "react";
 import { FileText, Library, Loader2, Trash2 } from "lucide-react";
-import { useSkillFontSize } from "../../../hooks/useTheme";
 import {
   useAssetCatalog,
   useKnowledgeBasesStore,
@@ -23,7 +21,6 @@ export function KnowledgeTab({
   bases: EmployeeKnowledge[];
   onChange: (bases: EmployeeKnowledge[]) => void;
 }) {
-  const skillFontSize = useSkillFontSize();
   /** 与知识库页共用同一份缓存，打开员工抽屉不会再次扫描目录 */
   const { items: catalog, loading, error: loadError } =
     useAssetCatalog(useKnowledgeBasesStore);
@@ -53,10 +50,7 @@ export function KnowledgeTab({
   };
 
   return (
-    <div
-      className="space-y-3"
-      style={{ "--c-font-size": `${skillFontSize}px` } as CSSProperties}
-    >
+    <div className="space-y-3">
       <p className="text-body leading-relaxed text-text-muted">
         直接在下方列表中添加这位员工可引用的 Markdown 资料。知识库统一在「知识库」页面
         管理，这里只保存引用；工作流执行时会作为员工能力的一部分交给 Agent。

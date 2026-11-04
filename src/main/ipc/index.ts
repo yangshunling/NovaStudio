@@ -6,6 +6,7 @@
  */
 
 import { app, BrowserWindow } from "electron";
+import * as db from "../db/sqlite";
 import { createAgentService, type AgentService } from "../engine/agent-service";
 import {
   createWorkflowRunner,
@@ -16,7 +17,7 @@ import {
   createTriggerScheduler,
   type TriggerScheduler,
 } from "../workflow/trigger-scheduler";
-import { push, setMainWindow } from "./push";
+import { flushEvents, push, setMainWindow } from "./push";
 import { registerAgentHandlers } from "./handlers/agent";
 import { registerSessionHandlers } from "./handlers/session";
 import { registerProjectHandlers } from "./handlers/project";
@@ -73,7 +74,20 @@ export function initIpcHandlers(window: BrowserWindow): void {
     service,
     emit: (event) => push("workflow:run:event", event),
     emitAgentEvent: (payload) => push("workflow:run:agentEvent", payload),
+    flushEvents,
     userDataDir: app.getPath("userData"),
+    // 触发器启动的运行结束后，把结果回写到触发器卡片
+    onRunFinished: (run) => {
+      if (run.source !== "trigger" || !run.triggerId) return;
+      const error =
+        run.status === "failed" || run.status === "interrupted"
+          ? run.error ?? run.status
+          : null;
+      const updated = db.updateWorkflowTriggerRuntime(run.triggerId, {
+        lastError: error,
+      });
+      if (updated) push("triggers:updated", updated);
+    },
   });
   workflowRunner = runner;
 
@@ -89,7 +103,7 @@ export function initIpcHandlers(window: BrowserWindow): void {
   registerSkillHandlers();
   registerKnowledgeHandlers();
   registerWorkflowHandlers(service, runner);
-  registerWorkflowRunHandlers(runner);
+  registerWorkflowRunHandlers(service, runner);
   registerTriggerHandlers();
   registerUpdaterHandlers();
   registerAppHandlers();

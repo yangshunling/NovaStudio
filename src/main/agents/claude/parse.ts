@@ -187,8 +187,9 @@ export function decode(
     return null; // 非 JSON 行（如 claude 自己打印的告警），忽略
   }
 
-  // 子代理的对话（parent_tool_use_id 非空）不进入主对话视图
-  if (obj.parent_tool_use_id != null) return null;
+  // 子代理的对话（parent_tool_use_id 非空）不进入主对话视图。
+  // 空字符串按“主链”处理：部分网关/版本会用 "" 而不是 null 表示无父调用。
+  if (obj.parent_tool_use_id != null && obj.parent_tool_use_id !== "") return null;
 
   const type = obj.type;
 
@@ -265,6 +266,28 @@ export function decode(
     return events.length > 0 ? events : null;
   }
 
-  // system / result 等：无内容可展示
+  /*
+   * 最终结果行。成功时没有可展示内容；但错误子类型（error_during_execution /
+   * error_max_turns 等）必须上报 —— 否则 CLI 以 0 退出时宿主会误判为成功。
+   * 例：--resume 失效时 CLI 会输出
+   * {"type":"result","subtype":"error_during_execution","is_error":true,
+   *  "errors":["No conversation found with session ID: ..."]}
+   */
+  if (type === "result") {
+    const subtype = typeof obj.subtype === "string" ? obj.subtype : "";
+    const isError = obj.is_error === true || subtype.startsWith("error");
+    if (!isError) return null;
+
+    const errors = Array.isArray(obj.errors)
+      ? obj.errors.filter((item): item is string => typeof item === "string")
+      : [];
+    const message =
+      errors.join("\n").trim() ||
+      (typeof obj.result === "string" ? obj.result.trim() : "") ||
+      `Agent 执行失败（${subtype || "unknown"}）`;
+    return { type: "error", message };
+  }
+
+  // 其余 system 等记录：无内容可展示
   return null;
 }

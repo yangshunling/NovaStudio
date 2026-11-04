@@ -20,6 +20,12 @@ import { EmptyState, ErrorState, LoadingState } from "../ui/EmptyState";
 import { Page, PageBody, PageHeader } from "../ui/Page";
 import { Button } from "../ui/Button";
 import { SearchInput } from "../ui/SearchInput";
+import {
+  CARD_DESCRIPTION,
+  CARD_META,
+  CARD_SHELL,
+  CARD_TITLE,
+} from "../ui/cardStyles";
 import { EmployeeAvatar } from "./EmployeeAvatar";
 import { EmployeeDrawer } from "./EmployeeDrawer";
 import type { DigitalEmployee } from "@shared/types";
@@ -62,21 +68,18 @@ export function EmployeesView() {
         actions={
           <>
             <SearchInput
-              size="sm"
-              widthClass="w-52"
               value={query}
               onChange={setQuery}
               placeholder="搜索名称 / 职位"
             />
 
-            <button
-              type="button"
+            <Button
+              variant="primary"
               onClick={openCreate}
-              className="ui-btn-primary flex h-8 shrink-0 items-center gap-1.5 rounded-full px-3.5 text-meta font-medium"
+              icon={<Plus className="h-4 w-4" />}
             >
-              <Plus className="h-4 w-4" />
               新建数字员工
-            </button>
+            </Button>
           </>
         }
       />
@@ -91,6 +94,7 @@ export function EmployeesView() {
             <EmptyEmployees onCreate={openCreate} />
           ) : filtered.length === 0 ? (
             <EmptyState
+              size="compact"
               icon={<Search />}
               title={`没有匹配「${query}」的数字员工`}
               action={
@@ -150,7 +154,7 @@ function EmployeeCard({
     <button
       type="button"
       onClick={onOpen}
-      className="group relative flex h-full min-h-40 flex-col rounded-xl border border-border bg-surface-2/60 p-card text-left transition-all hover:-translate-y-0.5 hover:border-border-strong hover:bg-surface-2/85 hover:shadow-[var(--c-shadow-sm)]"
+      className={CARD_SHELL}
     >
       <div className="flex items-start gap-3">
         <EmployeeAvatar employee={employee} size={48} />
@@ -163,9 +167,7 @@ function EmployeeCard({
                 employee.enabled ? "bg-success" : "bg-error"
               }`}
             />
-            <h3 className="truncate text-title font-semibold text-text">
-              {employee.name}
-            </h3>
+            <h3 className={CARD_TITLE}>{employee.name}</h3>
           </div>
           <p className="mt-0.5 truncate text-meta text-text-muted">
             {employee.role || "未设置职位"}
@@ -173,13 +175,12 @@ function EmployeeCard({
         </div>
       </div>
 
-      <p className="mt-2.5 line-clamp-2 whitespace-pre-line text-body leading-relaxed text-text-secondary">
+      <p className={`mt-2.5 whitespace-pre-line ${CARD_DESCRIPTION}`}>
         {employee.systemPrompt.trim() || "暂无系统提示词"}
       </p>
 
-      {/* mt-auto 把工具标签顶到卡片底部：网格拉伸产生的多余高度留在提示词与标签之间，
-          而不是堆在标签下面，保证卡片上、下、左、右的 padding 一致 */}
-      <div className="mt-auto flex flex-wrap items-center gap-1.5 pt-2.5 text-caption text-text-muted">
+      {/* mt-auto 把工具标签顶到卡片底部，保证卡片上、下、左、右的 padding 一致 */}
+      <div className={CARD_META}>
         <span className="flex items-center gap-1 rounded-full bg-accent-soft px-2 py-0.5 text-accent">
           <Plug className="h-3 w-3" />
           {mcpCount} MCP

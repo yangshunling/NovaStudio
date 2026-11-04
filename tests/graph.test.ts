@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { GraphValidationError, validateGraph } from "../src/main/workflow/graph.ts";
+import { GraphValidationError, validateGraph } from "../src/shared/workflow-graph.ts";
 import type { DigitalEmployee, WorkflowGraph, WorkflowNode } from "../src/shared/types.ts";
 
 function node(id: string, type: WorkflowNode["type"], employeeId: string | null = null): WorkflowNode {
@@ -101,5 +101,56 @@ test("必须只有一个开始节点和一个结束节点", () => {
       err instanceof GraphValidationError &&
       err.issues.some((issue) => issue.includes("有且仅有一个开始节点")) &&
       err.issues.some((issue) => issue.includes("缺少结束节点")),
+  );
+});
+
+test("结束节点必须有入边、开始节点不能有入边", () => {
+  const g = graph(
+    [node("s", "start"), node("a", "employee", "e1"), node("e", "end")],
+    [["e", "s"], ["s", "a"], ["a", "e"]],
+  );
+  const employees = new Map([["e1", employee("e1")]]);
+  assert.throws(
+    () => validateGraph(g, employees),
+    (err: unknown) =>
+      err instanceof GraphValidationError &&
+      err.issues.some((issue) => issue.includes("开始节点不能有入边")) &&
+      err.issues.some((issue) => issue.includes("结束节点不能有出边")),
+  );
+});
+
+test("执行节点必须能到达结束节点，悬空的结束节点也会被拒绝", () => {
+  const g = graph(
+    [node("s", "start"), node("a", "employee", "e1"), node("e", "end")],
+    [["s", "a"]],
+  );
+  const employees = new Map([["e1", employee("e1")]]);
+  assert.throws(
+    () => validateGraph(g, employees),
+    (err: unknown) =>
+      err instanceof GraphValidationError &&
+      err.issues.some((issue) => issue.includes("无法到达结束节点")) &&
+      err.issues.some((issue) => issue.includes("结束节点「e」从开始节点不可达")),
+  );
+});
+
+test("分支不会阻断运行，但会提示并行写文件的冲突风险", () => {
+  const g = graph(
+    [
+      node("s", "start"),
+      node("a", "employee", "e1"),
+      node("b", "employee", "e1"),
+      node("c", "employee", "e1"),
+      node("e", "end"),
+    ],
+    [["s", "a"], ["s", "b"], ["a", "c"], ["b", "c"], ["c", "e"]],
+  );
+  const employees = new Map([["e1", employee("e1")]]);
+  const validated = validateGraph(g, employees);
+  assert.ok(
+    validated.warnings.some((warning) => warning.includes("分支会并行执行")),
+  );
+  assert.ok(
+    validated.warnings.some((warning) => warning.includes("AND 汇合")),
   );
 });

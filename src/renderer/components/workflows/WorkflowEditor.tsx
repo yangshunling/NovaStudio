@@ -20,20 +20,23 @@ import {
   type ReactNode,
 } from "react";
 import {
+  AlertTriangle,
   ArrowLeft,
   Bot,
   Bug,
   CircleStop,
   Flag,
   History,
+  Info,
   LayoutGrid,
-  Loader2,
   Play,
   Plus,
+  Redo2,
   RotateCw,
   Save,
   SkipForward,
   Trash2,
+  Undo2,
   UserCheck,
   X,
   Zap,
@@ -44,10 +47,15 @@ import { newId } from "../../lib/utils";
 import { toast } from "../../stores/toast";
 import { confirmDialog } from "../../stores/confirm";
 import { EmployeeAvatar } from "../employees/EmployeeAvatar";
+import { Button } from "../ui/Button";
 import { Select } from "../ui/Select";
 import { WorkflowCanvas, WF_NODE_W } from "./WorkflowCanvas";
 import { WorkflowDebugPanel } from "./WorkflowDebugPanel";
 import { defaultNodeConfig } from "./defaults";
+import {
+  GraphValidationError,
+  validateGraph,
+} from "@shared/workflow-graph";
 import type {
   DigitalEmployee,
   Project,
@@ -67,6 +75,11 @@ const INPUT_CLASS =
 
 const COL_W = 300;
 const ROW_H = 160;
+
+interface GraphSnapshot {
+  nodes: WorkflowNode[];
+  edges: WorkflowEdge[];
+}
 
 /** 失败策略的文案与解释；执行引擎按同一套语义实现 */
 const FAILURE_OPTIONS: ReadonlyArray<{
@@ -105,13 +118,13 @@ const REVIEW_OPTIONS: ReadonlyArray<{
   {
     value: "auto",
     label: "自动通过",
-    hint: "节点执行前无需确认，直接运行。",
+    hint: "节点执行完成后直接视为通过，继续下游。",
     icon: Zap,
   },
   {
     value: "manual",
     label: "人工审核",
-    hint: "执行前暂停等待人工处理；驳回按失败策略处理。",
+    hint: "节点执行完成后暂停，等人工确认产物。驳回会立即终止整条运行，不重试。",
     icon: UserCheck,
   },
 ];
@@ -142,12 +155,12 @@ interface WorkflowEditorProps {
   workspaces: Project[];
   employees: DigitalEmployee[];
   onBack: () => void;
-  /** 保存成功后回传最新工作流，供列表更新 */
-  onSaved: (workflow: Workflow) => void;
-  /** 仅更新列表、不退出编辑器（调试前的自动保存用） */
+  /** 保存后只更新列表、不退出编辑器 */
   onDraftSaved: (workflow: Workflow) => void;
   /** 打开该工作流的运行记录列表 */
   onOpenHistory: () => void;
+  /** 打开本次运行详情（调试面板里的入口） */
+  onOpenRunDetail?: (runId: string) => void;
   /** 从卡片直接点「调试」时，带着已启动的 runId 进入编辑器 */
   initialDebugRunId?: string | null;
 }
@@ -157,9 +170,9 @@ export function WorkflowEditor({
   workspaces,
   employees,
   onBack,
-  onSaved,
   onDraftSaved,
   onOpenHistory,
+  onOpenRunDetail,
   initialDebugRunId = null,
 }: WorkflowEditorProps) {
   const [name, setName] = useState(workflow.name);
@@ -170,8 +183,17 @@ export function WorkflowEditor({
   const [nodes, setNodes] = useState<WorkflowNode[]>(workflow.graph.nodes);
   const [edges, setEdges] = useState<WorkflowEdge[]>(workflow.graph.edges);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+  const [selectedNodeIds, setSelectedNodeIds] = useState<string[]>([]);
   const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
   const [dirty, setDirty] = useState(false);
+
+  // === 画布历史（撤销 / 重做） ===
+  const undoStack = useRef<GraphSnapshot[]>([]);
+  const redoStack = useRef<GraphSnapshot[]>([]);
+  const lastCommitted = useRef<GraphSnapshot>({ nodes, edges });
+  const historyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const skipCommit = useRef(false);
+  const [, setHistoryVersion] = useState(0);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [fitRequest, setFitRequest] = useState(0);
@@ -210,6 +232,43 @@ export function WorkflowEditor({
     [nodes, selectedNodeId],
   );
 
+  /*
+   * 与主进程共用同一套图校验：保存前就能看到问题，而不是等到点调试
+   * 才收到一条会被很快关掉的 toast。
+   */
+  const validation = useMemo(() => {
+    const employeeMap = new Map(
+      employees.map((employee) => [employee.id, employee]),
+    );
+    try {
+      const result = validateGraph({ nodes, edges }, employeeMap);
+      return { issues: [] as string[], warnings: result.warnings };
+    } catch (err) {
+      if (err instanceof GraphValidationError) {
+        return { issues: err.issues, warnings: err.warnings };
+      }
+      return {
+        issues: [err instanceof Error ? err.message : String(err)],
+        warnings: [] as string[],
+      };
+    }
+  }, [nodes, edges, employees]);
+
+  const canDebug = validation.issues.length === 0;
+
+  /** 校验信息里带节点名的，直接标到画布节点上 */
+  const nodeIssues = useMemo(() => {
+    const map: Record<string, string[]> = {};
+    for (const issue of validation.issues) {
+      for (const node of nodes) {
+        if (issue.includes(`「${node.name}」`)) {
+          (map[node.id] ??= []).push(issue);
+        }
+      }
+    }
+    return map;
+  }, [validation.issues, nodes]);
+
   const handleChange = useCallback(
     (nextNodes: WorkflowNode[], nextEdges: WorkflowEdge[]) => {
       setNodes(nextNodes);
@@ -218,6 +277,111 @@ export function WorkflowEditor({
     },
     [],
   );
+
+  // 变更停止 350ms 后记一次历史，拖拽过程不会产生几十个撤销点
+  useEffect(() => {
+    if (skipCommit.current) {
+      skipCommit.current = false;
+      lastCommitted.current = { nodes, edges };
+      return;
+    }
+    // 一旦产生新改动，之前的重做链立即失效
+    if (redoStack.current.length > 0) {
+      redoStack.current = [];
+      setHistoryVersion((value) => value + 1);
+    }
+    if (historyTimer.current) clearTimeout(historyTimer.current);
+    historyTimer.current = setTimeout(() => {
+      const current = { nodes, edges };
+      const last = lastCommitted.current;
+      if (last.nodes === nodes && last.edges === edges) return;
+      if (JSON.stringify(last) === JSON.stringify(current)) {
+        lastCommitted.current = current;
+        return;
+      }
+      undoStack.current.push(last);
+      if (undoStack.current.length > 100) undoStack.current.shift();
+      redoStack.current = [];
+      lastCommitted.current = current;
+      setHistoryVersion((value) => value + 1);
+    }, 350);
+    return () => {
+      if (historyTimer.current) clearTimeout(historyTimer.current);
+    };
+  }, [nodes, edges]);
+
+  const undo = useCallback(() => {
+    if (historyTimer.current) {
+      // 当前改动还没提交：撤销就是回到上一次已提交的快照，
+      // 不能直接弹栈，否则会多退一步。
+      clearTimeout(historyTimer.current);
+      historyTimer.current = null;
+      redoStack.current.push({ nodes, edges });
+      skipCommit.current = true;
+      setNodes(lastCommitted.current.nodes);
+      setEdges(lastCommitted.current.edges);
+      setDirty(true);
+      setHistoryVersion((value) => value + 1);
+      return;
+    }
+    const previous = undoStack.current.pop();
+    if (!previous) return;
+    redoStack.current.push({ nodes, edges });
+    skipCommit.current = true;
+    setNodes(previous.nodes);
+    setEdges(previous.edges);
+    lastCommitted.current = previous;
+    setDirty(true);
+    setHistoryVersion((value) => value + 1);
+  }, [nodes, edges]);
+
+  const redo = useCallback(() => {
+    // 有未提交改动时重做没有意义（新改动已经清空重做链）
+    if (historyTimer.current) return;
+    const next = redoStack.current.pop();
+    if (!next) return;
+    undoStack.current.push({ nodes, edges });
+    skipCommit.current = true;
+    setNodes(next.nodes);
+    setEdges(next.edges);
+    lastCommitted.current = next;
+    setDirty(true);
+    setHistoryVersion((value) => value + 1);
+  }, [nodes, edges]);
+
+  /** 单击选中；Shift / Ctrl 追加选择 */
+  const selectNode = useCallback(
+    (id: string | null, additive = false) => {
+      if (!id) {
+        setSelectedNodeId(null);
+        setSelectedNodeIds([]);
+        return;
+      }
+      if (additive) {
+        const exists = selectedNodeIds.includes(id);
+        const next = exists
+          ? selectedNodeIds.filter((item) => item !== id)
+          : [...selectedNodeIds, id];
+        setSelectedNodeIds(next);
+        setSelectedNodeId(exists ? (next[next.length - 1] ?? null) : id);
+        return;
+      }
+      setSelectedNodeId(id);
+      setSelectedNodeIds([id]);
+    },
+    [selectedNodeIds],
+  );
+
+  // 节点被删除 / 撤销掉后，清掉已经不存在的选中项
+  useEffect(() => {
+    setSelectedNodeIds((current) => {
+      const next = current.filter((id) => nodes.some((node) => node.id === id));
+      return next.length === current.length ? current : next;
+    });
+    setSelectedNodeId((current) =>
+      current && nodes.some((node) => node.id === current) ? current : null,
+    );
+  }, [nodes]);
 
   const addNode = (type: WorkflowNodeType, employee?: DigitalEmployee) => {
     const id = newId();
@@ -239,6 +403,7 @@ export function WorkflowEditor({
     };
     setNodes((current) => [...current, node]);
     setSelectedNodeId(id);
+    setSelectedNodeIds([id]);
     setSelectedEdgeId(null);
     setDirty(true);
   };
@@ -263,7 +428,8 @@ export function WorkflowEditor({
     setEdges((current) =>
       current.filter((edge) => edge.source !== id && edge.target !== id),
     );
-    setSelectedNodeId(null);
+    setSelectedNodeIds((current) => current.filter((item) => item !== id));
+    setSelectedNodeId((current) => (current === id ? null : current));
     setDirty(true);
   };
 
@@ -344,9 +510,12 @@ export function WorkflowEditor({
 
   const save = useCallback(async () => {
     const updated = await persist();
-    // 保存成功即退出编辑：由父级负责刷新列表并弹出 toast
-    if (updated) onSaved(updated);
-  }, [persist, onSaved]);
+    // 保存留在编辑器：用户通常要连续调整多个节点，不应每保存一次就退出
+    if (updated) {
+      onDraftSaved(updated);
+      toast.success("工作流已保存");
+    }
+  }, [persist, onDraftSaved]);
 
   /** 重新进入编辑器时，如果该工作流还有活跃调试，直接把状态接回来 */
   useEffect(() => {
@@ -378,7 +547,10 @@ export function WorkflowEditor({
     const load = async () => {
       try {
         const next = await ipc.getWorkflowRun(debugRunId);
-        if (alive) setDebugDetail(next);
+        if (!alive) return;
+        setDebugDetail(next);
+        // 运行被删除后不能一直停在“调试中”
+        if (!next) setDebugRunId(null);
       } catch {
         // 单次读取失败不打断调试
       }
@@ -410,7 +582,8 @@ export function WorkflowEditor({
     else if (status === "failed")
       toast.error(debugDetail?.run.error || "调试失败", 5000);
     else if (status === "canceled") toast.info("调试已取消");
-    else if (status === "interrupted") toast.error("调试被中断");
+    else if (status === "interrupted")
+      toast.error(debugDetail?.run.error || "调试被中断", 5000);
   }, [debugDetail?.run.status, debugDetail?.run.error]);
 
   const nodeStates = useMemo(() => {
@@ -431,7 +604,7 @@ export function WorkflowEditor({
   /** 调试：留在当前画布，实时显示节点状态 */
   const startDebug = async () => {
     if (!workspace) {
-      toast.error("工作流未绑定工作区，无法调试");
+      toast.error("工作流未指定工作区，无法调试");
       return;
     }
     if (saving || debugActive || startingDebugRef.current) return;
@@ -458,16 +631,25 @@ export function WorkflowEditor({
     }
   };
 
-  const decideDebug = async (action: "approve" | "reject") => {
-    if (!debugRunId || !debugDetail || debugBusy) return;
-    const awaiting = debugDetail.nodes.find(
-      (node) => node.status === "awaiting_approval",
-    );
-    if (!awaiting) return;
+  const decideDebug = async (
+    nodeRunId: string,
+    action: "approve" | "reject",
+    note: string,
+  ) => {
+    if (!debugRunId || debugBusy) return;
 
     setDebugBusy(true);
     try {
-      await ipc.approveWorkflowNode(debugRunId, awaiting.id, action);
+      const handled = await ipc.approveWorkflowNode(
+        debugRunId,
+        nodeRunId,
+        action,
+        note.trim() || undefined,
+      );
+      // 返回 false 说明这条审批已失效（运行结束或被别处处理），必须告诉用户
+      if (!handled) {
+        toast.error("该审核已失效：运行可能已结束或在别处处理过", 5000);
+      }
     } catch (err) {
       toast.error(err instanceof Error ? err.message : String(err));
     } finally {
@@ -491,6 +673,17 @@ export function WorkflowEditor({
     if (!debugRunId) return;
     const ok = await ipc.openWorkflowArtifacts(debugRunId);
     if (!ok) toast.error("无法打开产物目录");
+  };
+
+  /** 打开本次运行的完整详情；有未保存改动先落库，避免切页丢失 */
+  const openRunDetail = async () => {
+    if (!debugRunId) return;
+    if (dirty) {
+      const updated = await persist();
+      if (!updated) return;
+      onDraftSaved(updated);
+    }
+    onOpenRunDetail?.(debugRunId);
   };
 
   const closeDebug = () => {
@@ -524,17 +717,39 @@ export function WorkflowEditor({
     onOpenHistory();
   };
 
-  // Ctrl/Cmd + S 保存
+  // Ctrl/Cmd + S 保存；Ctrl/Cmd + Z 撤销；Ctrl/Cmd + Shift + Z / Y 重做
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s") {
+      if (!(event.ctrlKey || event.metaKey)) return;
+      const key = event.key.toLowerCase();
+      if (key === "s") {
         event.preventDefault();
         void save();
+        return;
+      }
+      if (key === "z" || key === "y") {
+        const tag = (document.activeElement?.tagName ?? "").toLowerCase();
+        // 输入框里保留浏览器自己的文本撤销
+        if (tag === "input" || tag === "textarea") return;
+        event.preventDefault();
+        if (key === "y" || event.shiftKey) redo();
+        else undo();
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [save]);
+  }, [save, undo, redo]);
+
+  // 有未保存改动时拦截窗口关闭，避免直接丢画布
+  useEffect(() => {
+    if (!dirty) return;
+    const onBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => window.removeEventListener("beforeunload", onBeforeUnload);
+  }, [dirty]);
 
   return (
     <main className="relative flex flex-1 flex-col overflow-hidden">
@@ -586,29 +801,32 @@ export function WorkflowEditor({
             )}
           </div>
 
-          {!workspace &&
-            (workspaces.length > 0 ? (
-              <Select
-                value={workspaceId}
-                onChange={(next) => {
-                  setWorkspaceId(next);
-                  setDirty(true);
-                }}
-                title="该工作流还没有归属工作区，选择后才可调试"
-                className="ui-ring h-8 shrink-0 rounded-lg bg-input-bg px-2.5 text-meta text-text transition-colors focus:border-input-border-focus"
-                options={[
-                  { value: "", label: "未归属 · 选择工作区…" },
-                  ...workspaces.map((item) => ({
-                    value: item.id,
-                    label: item.name,
-                  })),
-                ]}
-              />
-            ) : (
-              <span className="shrink-0 text-meta text-error">
-                未归属 · 请先创建工作区
-              </span>
-            ))}
+          {workspaces.length > 0 ? (
+            <Select
+              value={
+                workspaces.some((item) => item.id === workspaceId)
+                  ? workspaceId
+                  : ""
+              }
+              onChange={(next) => {
+                setWorkspaceId(next);
+                setDirty(true);
+              }}
+              title="工作区决定运行目录与产物位置；切换后对下一次运行生效"
+              className="ui-ring h-8 shrink-0 rounded-lg bg-input-bg px-2.5 text-meta text-text transition-colors focus:border-input-border-focus"
+              options={[
+                { value: "", label: "未归属 · 选择工作区…" },
+                ...workspaces.map((item) => ({
+                  value: item.id,
+                  label: item.name,
+                })),
+              ]}
+            />
+          ) : (
+            <span className="shrink-0 text-meta text-error">
+              未归属 · 请先创建工作区
+            </span>
+          )}
 
           <div className="min-w-0 flex-1" />
 
@@ -618,58 +836,78 @@ export function WorkflowEditor({
             </span>
           )}
 
-          <button
-            type="button"
+          <Button
+            variant="ghost"
+            size="sm"
+            className="shrink-0 rounded-full"
+            icon={<History className="h-4 w-4" />}
             onClick={() => void openHistory()}
             title="查看这个工作流的历史运行"
-            className="ui-btn-ghost flex h-8 shrink-0 items-center gap-1.5 rounded-full px-4 text-body font-medium active:scale-95"
           >
-            <History className="h-4 w-4" />
             运行记录
-          </button>
+          </Button>
 
-          <button
-            type="button"
+          <Button
+            variant="ghost"
+            size="sm"
+            className="shrink-0 rounded-full text-text-muted"
+            icon={<Undo2 className="h-4 w-4" />}
+            onClick={undo}
+            disabled={undoStack.current.length === 0}
+            title="撤销（Ctrl/Cmd + Z）"
+            aria-label="撤销"
+          />
+          <Button
+            variant="ghost"
+            size="sm"
+            className="shrink-0 rounded-full text-text-muted"
+            icon={<Redo2 className="h-4 w-4" />}
+            onClick={redo}
+            disabled={redoStack.current.length === 0}
+            title="重做（Ctrl/Cmd + Shift + Z）"
+            aria-label="重做"
+          />
+
+          <Button
+            variant="ghost"
+            size="sm"
+            className="shrink-0 rounded-full"
+            icon={<LayoutGrid className="h-4 w-4" />}
             onClick={autoLayout}
             title="按连线自动排列节点"
-            className="ui-btn-ghost flex h-8 shrink-0 items-center gap-1.5 rounded-full px-4 text-body font-medium active:scale-95"
           >
-            <LayoutGrid className="h-4 w-4" />
             自动布局
-          </button>
+          </Button>
 
-          <button
-            type="button"
+          <Button
+            variant="ghost"
+            size="sm"
+            className="shrink-0 rounded-full"
+            loading={saving}
+            icon={<Save className="h-4 w-4" />}
             onClick={() => void save()}
-            disabled={saving}
-            className="ui-btn-ghost flex h-8 shrink-0 items-center gap-1.5 rounded-full px-4 text-body font-medium active:scale-95"
           >
-            {saving ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <Save className="h-4 w-4" />
-            )}
             保存
-          </button>
+          </Button>
 
-          <button
-            type="button"
+          <Button
+            variant="primary"
+            size="sm"
+            className="shrink-0 rounded-full"
+            loading={debugActive}
+            icon={<Bug className="h-4 w-4" />}
             onClick={() => void startDebug()}
-            disabled={saving || !workspace || debugActive}
+            disabled={saving || !workspace || !canDebug}
             title={
-              workspace
-                ? `在当前工作流中调试（产物写入 ${workspace.cwd} 下的 .novastudio）`
-                : "工作流未绑定工作区，无法调试"
+              !canDebug
+                ? `先修复 ${validation.issues.length} 个问题再调试`
+                : workspace
+                  ? `在当前工作流中调试（产物写入 ${workspace.cwd} 下的 .novastudio）`
+                  : "工作流未指定工作区，无法调试"
             }
-            className="ui-btn-primary flex h-8 shrink-0 items-center gap-1.5 rounded-full px-4 text-body font-medium active:scale-95 disabled:opacity-50"
           >
-            {debugActive ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <Bug className="h-4 w-4" />
-            )}
             {debugActive ? "调试中" : "调试"}
-          </button>
+          </Button>
         </header>
 
         <div className="relative flex min-h-0 flex-1">
@@ -746,13 +984,21 @@ export function WorkflowEditor({
 
           {/* 右侧：调试状态栏 + 画布 + 节点配置浮层 */}
           <div className="relative flex min-w-0 flex-1 flex-col">
+            <ValidationBanner
+              issues={validation.issues}
+              warnings={validation.warnings}
+            />
+
             {debugDetail && (
               <WorkflowDebugPanel
                 detail={debugDetail}
                 busy={debugBusy}
-                onApprove={(action) => void decideDebug(action)}
+                onApprove={(nodeRunId, action, note) =>
+                  void decideDebug(nodeRunId, action, note)
+                }
                 onCancel={() => void cancelDebug()}
                 onOpenArtifacts={() => void openDebugArtifacts()}
+                onOpenRun={() => void openRunDetail()}
                 onClose={closeDebug}
               />
             )}
@@ -763,18 +1009,23 @@ export function WorkflowEditor({
                 edges={edges}
                 employees={employees}
                 selectedNodeId={selectedNodeId}
+                selectedNodeIds={selectedNodeIds}
                 selectedEdgeId={selectedEdgeId}
                 onChange={handleChange}
-                onSelectNode={(id) => {
-                  setSelectedNodeId(id);
+                onSelectNode={(id, additive) => {
+                  selectNode(id, additive);
                   if (id) setSelectedEdgeId(null);
                 }}
                 onSelectEdge={(id) => {
                   setSelectedEdgeId(id);
-                  if (id) setSelectedNodeId(null);
+                  if (id) {
+                    setSelectedNodeId(null);
+                    setSelectedNodeIds([]);
+                  }
                 }}
                 fitRequest={fitRequest}
                 nodeStates={nodeStates}
+                nodeIssues={nodeIssues}
               />
 
               {selectedNode && (
@@ -995,7 +1246,7 @@ function NodeInspector({
             )}
           </div>
 
-          {/* 审核门禁：执行前是否需要人工确认 */}
+          {/* 审核门禁：执行完成后是否需要人工确认产物 */}
           <div className="mt-4 border-t border-border pt-4">
             <p className={SECTION_TITLE_CLASS}>审核门禁</p>
             <Segmented
@@ -1071,5 +1322,71 @@ function Segmented<T extends string>({
         );
       })}
     </div>
+  );
+}
+
+// ============================================================================
+// 校验提示条
+// ============================================================================
+
+function ValidationBanner({
+  issues,
+  warnings,
+}: {
+  issues: string[];
+  warnings: string[];
+}) {
+  const [expanded, setExpanded] = useState(false);
+  if (issues.length === 0 && warnings.length === 0) return null;
+
+  const hasErrors = issues.length > 0;
+  return (
+    <section
+      className={`shrink-0 border-b border-border px-4 py-2 ${
+        hasErrors ? "bg-error-bg" : "bg-surface-2/60"
+      }`}
+    >
+      <button
+        type="button"
+        onClick={() => setExpanded((value) => !value)}
+        className="flex w-full items-center gap-2 text-left"
+      >
+        {hasErrors ? (
+          <AlertTriangle className="h-4 w-4 shrink-0 text-error" />
+        ) : (
+          <Info className="h-4 w-4 shrink-0 text-text-muted" />
+        )}
+        <span
+          className={`min-w-0 flex-1 truncate text-meta font-medium ${
+            hasErrors ? "text-error" : "text-text-secondary"
+          }`}
+        >
+          {hasErrors
+            ? `有 ${issues.length} 个问题会阻止调试`
+            : `有 ${warnings.length} 条配置提示`}
+          {hasErrors && warnings.length > 0
+            ? `，另有 ${warnings.length} 条提示`
+            : ""}
+        </span>
+        <span className="shrink-0 text-caption text-text-muted">
+          {expanded ? "收起" : "查看"}
+        </span>
+      </button>
+
+      {expanded && (
+        <ul className="mt-2 max-h-40 list-disc space-y-1 overflow-y-auto pl-9 text-meta leading-relaxed">
+          {issues.map((issue, index) => (
+            <li key={`issue-${index}`} className="text-error">
+              {issue}
+            </li>
+          ))}
+          {warnings.map((warning, index) => (
+            <li key={`warning-${index}`} className="text-text-muted">
+              {warning}
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
   );
 }

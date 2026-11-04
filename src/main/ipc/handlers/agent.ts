@@ -68,7 +68,12 @@ export function registerAgentHandlers(service: AgentService): void {
     });
 
     const outcome = await service.run({ sessionId, prompt, cwd });
-    if (!outcome.ok) return { ok: false, error: outcome.error ?? "运行失败" };
+    if (!outcome.ok) {
+      // 运行没起来：把刚才记的用户消息撤回，避免消息数虚增导致
+      // 「首条消息自动命名」和侧栏计数都失真。
+      db.touchSession(sessionId, { countDelta: -1 });
+      return { ok: false, error: outcome.error ?? "运行失败" };
+    }
 
     flushEvents();
 

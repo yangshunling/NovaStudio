@@ -56,6 +56,7 @@ export function CenterTabs() {
                 type="button"
                 onClick={() => closeTab(tab.id)}
                 title={`关闭 ${tab.name}`}
+                aria-label={`关闭 ${tab.name}`}
                 className="mr-1 rounded p-0.5 text-text-muted opacity-0 transition-opacity hover:bg-surface-hover hover:text-text group-hover:opacity-100 group-focus-within:opacity-100"
               >
                 <X className="h-3.5 w-3.5" />

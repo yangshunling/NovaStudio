@@ -5,14 +5,13 @@
  * 「移除」。不再经过「点添加 → 弹窗选择」两步。
  */
 
-import { useMemo, type CSSProperties } from "react";
+import { useMemo } from "react";
 import {
   AlertTriangle,
   Loader2,
   Sparkles,
   Trash2,
 } from "lucide-react";
-import { useSkillFontSize } from "../../../hooks/useTheme";
 import { useAssetCatalog, useSkillsStore } from "../../../stores/assets";
 import { SKILL_ORIGIN_CLASS, SKILL_ORIGIN_LABEL } from "../../skills/presentation";
 import { BindAction, EmptyTab, Toggle } from "../ui";
@@ -25,8 +24,6 @@ export function SkillsTab({
   skills: EmployeeSkill[];
   onChange: (skills: EmployeeSkill[]) => void;
 }) {
-  // 技能标签页同样使用放大后的字号，避免来源标签与路径看不清
-  const skillFontSize = useSkillFontSize();
   /** 可添加到员工的候选：Claude 全局技能（与技能页共用同一份缓存） */
   const { items: catalog, loading, error: loadError } =
     useAssetCatalog(useSkillsStore);
@@ -56,10 +53,7 @@ export function SkillsTab({
   };
 
   return (
-    <div
-      className="space-y-3"
-      style={{ "--c-font-size": `${skillFontSize}px` } as CSSProperties}
-    >
+    <div className="space-y-3">
       <p className="text-body leading-relaxed text-text-muted">
         直接在下方列表中添加这位员工可使用的技能。技能内容统一在「Skill」页面管理，
         这里只保存引用，修改技能时所有员工同时生效。运行时是否生效取决于工作流节点

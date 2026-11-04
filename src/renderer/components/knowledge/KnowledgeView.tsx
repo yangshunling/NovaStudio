@@ -38,7 +38,6 @@ import {
 } from "lucide-react";
 import { ipc } from "../../lib/ipc";
 import { formatBytes, toMessage } from "../../lib/utils";
-import { useSkillFontSize } from "../../hooks/useTheme";
 import {
   useAssetCatalog,
   useKnowledgeBasesStore,
@@ -49,8 +48,9 @@ import { countUsage, useEmployeesStore } from "../../stores/employees";
 import { formatAssetTime } from "../assets/assetUi";
 import { MarkdownRenderer } from "../MarkdownRenderer";
 import { Field, TextArea, TextInput } from "../ui/Field";
-import { Page } from "../ui/Page";
+import { Page, PageHeader } from "../ui/Page";
 import { SearchInput } from "../ui/SearchInput";
+import { ListItem, ListPane } from "../ui/ListPane";
 import { EmptyState, ErrorState, LoadingState } from "../ui/EmptyState";
 import { FileTypeIcon } from "../ui/FileTypeIcon";
 import { Dialog, DialogActions } from "../ui/Dialog";
@@ -81,7 +81,6 @@ const KB_MENU_HEIGHT = 132;
 // ============================================================================
 
 export function KnowledgeView() {
-  const skillFontSize = useSkillFontSize();
   const employees = useEmployeesStore((s) => s.employees);
   const loadEmployees = useEmployeesStore((s) => s.load);
   // 知识库目录在启动时已扫描过一次，切换页面直接读缓存
@@ -343,7 +342,7 @@ export function KnowledgeView() {
   };
 
   return (
-    <Page fontSize={skillFontSize}>
+    <Page>
         {loading && bases.length === 0 ? (
           <LoadingState text="正在扫描知识库" className="h-full" />
         ) : error && bases.length === 0 ? (
@@ -353,133 +352,99 @@ export function KnowledgeView() {
         ) : (
           <div className="flex min-h-0 flex-1">
             {/* 左：知识库列表 */}
-            <aside className="flex w-[268px] shrink-0 flex-col border-r border-border bg-[var(--c-panel-bg)] shadow-[var(--c-shadow-sm)]">
-              <div className="flex h-[var(--c-layout-header)] shrink-0 items-center justify-between border-b border-border px-4">
-                <p className="text-meta font-semibold tracking-wide text-text-muted">
-                  知识库
-                </p>
+            <ListPane
+              title="知识库"
+              count={bases.length}
+              action={
                 <button
                   type="button"
                   onClick={() => setCreateOpen(true)}
                   title="新建知识库"
-                  className="ui-btn-round ui-icon-action flex h-8 w-8 items-center justify-center rounded-full text-text-muted transition-colors active:scale-95"
+                  aria-label="新建知识库"
+                  className="ui-btn-round ui-icon-action flex h-9 w-9 items-center justify-center rounded-full text-text-muted transition-colors active:scale-95"
                 >
                   <FolderPlus className="h-4 w-4" />
                 </button>
-              </div>
-
-              <div className="min-h-0 flex-1 space-y-1 overflow-y-auto px-2.5 pb-4 pt-4">
-                {bases.map((asset) => {
-                  const active = asset.id === selectedId;
-                  return (
-                    <button
-                      key={asset.id}
-                      type="button"
-                      onClick={() => selectBase(asset.id)}
-                      onContextMenu={(event) => openBaseMenu(asset, event)}
-                      className={`group flex w-full items-center gap-3 rounded-xl px-2.5 py-2.5 text-left transition-colors ${
-                        active
-                          ? "bg-surface-active text-text shadow-[var(--c-shadow-sm)]"
-                          : "text-text-secondary hover:bg-surface-hover hover:text-text"
-                      }`}
-                    >
-                      <span
-                        className={`grid h-9 w-9 shrink-0 place-items-center rounded-lg ${
-                          active
-                            ? "bg-accent-soft text-accent"
-                            : "bg-surface-hover text-text-muted"
-                        }`}
-                      >
-                        <Library className="h-4 w-4" />
-                      </span>
-                      <span className="min-w-0 flex-1">
-                        <span className="block truncate text-body-lg font-medium">
-                          {asset.name}
-                        </span>
-                        <span className="block truncate text-caption text-text-muted">
-                          {asset.description || "暂无简介"}
-                        </span>
-                      </span>
-                      <span className="shrink-0 rounded-full bg-surface-hover px-2 py-0.5 font-mono text-caption text-text-muted">
-                        {asset.documentCount}
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
-
-              <div className="shrink-0 border-t border-border p-2.5">
-                <button
-                  type="button"
+              }
+              footer={
+                <Button
+                  className="w-full"
                   onClick={() => setCreateOpen(true)}
-                  className="ui-btn-ghost flex w-full items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-body font-medium"
+                  icon={<Plus className="h-4 w-4" />}
                 >
-                  <Plus className="h-4 w-4" />
                   新建知识库
-                </button>
-              </div>
-            </aside>
+                </Button>
+              }
+            >
+              {bases.map((asset) => (
+                <ListItem
+                  key={asset.id}
+                  active={asset.id === selectedId}
+                  icon={<Library className="h-4 w-4" />}
+                  title={asset.name}
+                  subtitle={asset.description || "暂无简介"}
+                  onClick={() => selectBase(asset.id)}
+                  onContextMenu={(event) => openBaseMenu(asset, event)}
+                  trailing={
+                    <span className="shrink-0 rounded-full bg-surface-hover px-2 py-0.5 font-mono text-caption text-text-muted">
+                      {asset.documentCount}
+                    </span>
+                  }
+                />
+              ))}
+            </ListPane>
 
             {/* 右：当前知识库 */}
             <div className="flex min-w-0 flex-1 flex-col">
-              <header className="ui-glass relative z-10 flex h-[var(--c-layout-header)] shrink-0 items-center justify-between gap-3 border-b border-border px-card">
-                <div className="flex min-w-0 items-center gap-2.5">
-                  <Library className="h-4 w-4 shrink-0 text-accent" />
-                  <div className="min-w-0">
-                    <div className="flex min-w-0 items-center gap-2">
-                      <p className="truncate text-title font-semibold text-text">
-                        {selected?.name ?? "知识库"}
-                      </p>
-                      {selected && (
-                        <span className="shrink-0 rounded-full bg-surface-hover px-2 py-0.5 font-mono text-caption text-text-muted">
-                          {selected.documentCount} 篇 ·{" "}
-                          {formatBytes(selected.totalBytes)}
-                        </span>
-                      )}
-                      {selected && (usageCount.get(selected.id) ?? 0) > 0 && (
+              <PageHeader
+                title={selected?.name ?? "知识库"}
+                icon={<Library className="h-4 w-4" />}
+                subtitle={selected?.path}
+                badge={
+                  selected ? (
+                    <>
+                      <span className="shrink-0 rounded-full bg-surface-hover px-2 py-0.5 font-mono text-meta text-text-muted">
+                        {selected.documentCount} 篇 ·{" "}
+                        {formatBytes(selected.totalBytes)}
+                      </span>
+                      {(usageCount.get(selected.id) ?? 0) > 0 && (
                         <span
                           title="启用该知识库的数字员工数"
-                          className="flex shrink-0 items-center gap-0.5 rounded-full bg-success/10 px-2 py-0.5 text-caption text-success"
+                          className="flex shrink-0 items-center gap-1 rounded-full bg-success/10 px-2 py-0.5 text-meta text-success"
                         >
-                          <Users className="h-2.5 w-2.5" />
+                          <Users className="h-3 w-3" />
                           {usageCount.get(selected.id)} 位员工
                         </span>
                       )}
-                    </div>
-                    <p
-                      className="truncate font-mono text-caption text-text-muted"
-                      title={selected?.path}
+                    </>
+                  ) : undefined
+                }
+                actions={
+                  <>
+                    <Button
+                      onClick={() => setFolderOpen(true)}
+                      disabled={!selected}
+                      icon={<FolderPlus className="h-4 w-4" />}
                     >
-                      {selected?.path ?? ""}
-                    </p>
-                  </div>
-                </div>
-
-                <div className="flex min-w-0 items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setFolderOpen(true)}
-                    disabled={!selected}
-                    className="ui-btn-ghost flex h-8 shrink-0 items-center gap-1.5 rounded-full px-3.5 text-body font-medium active:scale-95 disabled:opacity-50"
-                  >
-                    <FolderPlus className="h-4 w-4" />
-                    新建文件夹
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleUpload}
-                    disabled={!selected || uploading}
-                    className="ui-btn-primary flex h-8 shrink-0 items-center gap-1.5 rounded-full px-4 text-body font-medium active:scale-95 disabled:opacity-50"
-                  >
-                    {uploading ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : (
-                      <Upload className="h-4 w-4" />
-                    )}
-                    上传 Markdown
-                  </button>
-                </div>
-              </header>
+                      新建文件夹
+                    </Button>
+                    <Button
+                      variant="primary"
+                      onClick={handleUpload}
+                      disabled={!selected || uploading}
+                      icon={
+                        uploading ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <Upload className="h-4 w-4" />
+                        )
+                      }
+                    >
+                      上传 Markdown
+                    </Button>
+                  </>
+                }
+              />
 
               {/* 面包屑 + 检索 */}
               <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-border px-card py-2">
@@ -545,10 +510,11 @@ export function KnowledgeView() {
                     type="button"
                     onClick={() => void refresh()}
                     title="刷新"
-                    className="ui-btn-round ui-icon-action flex h-8 w-8 items-center justify-center rounded-full"
+                    aria-label="刷新文档列表"
+                    className="ui-btn-round ui-icon-action flex h-9 w-9 items-center justify-center rounded-full text-text-muted transition-colors active:scale-95"
                   >
                     <RefreshCw
-                      className={`h-3.5 w-3.5 ${docsLoading ? "animate-spin" : ""}`}
+                      className={`h-4 w-4 ${docsLoading ? "animate-spin" : ""}`}
                     />
                   </button>
                 </div>
@@ -649,7 +615,7 @@ export function KnowledgeView() {
                             ) : (
                               <FileTypeIcon name={document.name} size={16} />
                             )}
-                            <span className="truncate text-body-lg text-text">
+                            <span className="truncate text-body text-text">
                               {document.name}
                             </span>
                             {document.isDirectory && (
@@ -697,13 +663,13 @@ export function KnowledgeView() {
                     已选 {selectedPaths.size} 项
                   </span>
                   <div className="flex items-center gap-2">
-                    <button
-                      type="button"
+                    <Button
+                      variant="ghost"
+                      size="sm"
                       onClick={() => setSelectedPaths(new Set())}
-                      className="ui-btn-ghost rounded-lg px-3 py-1.5 text-meta"
                     >
                       取消选择
-                    </button>
+                    </Button>
                     <button
                       type="button"
                       onClick={() => void handleDeleteDocuments([...selectedPaths])}
@@ -847,13 +813,12 @@ function SearchResults({
 
   if (!result || result.hits.length === 0) {
     return (
-      <div className="flex flex-col items-center gap-2 py-20 text-center text-text-muted">
-        <Search className="h-6 w-6 opacity-50" />
-        <p className="text-body">没有找到匹配「{query.trim()}」的内容</p>
-        <p className="text-meta">
-          只检索 Markdown 正文；超过 8MB 的文档未建立全文索引。
-        </p>
-      </div>
+      <EmptyState
+        size="compact"
+        icon={<Search />}
+        title={`没有找到匹配「${query.trim()}」的内容`}
+        description="只检索 Markdown 正文；超过 8MB 的文档未建立全文索引。"
+      />
     );
   }
 
@@ -1307,19 +1272,16 @@ function EmptyDocuments({
       <p className="text-caption">
         只支持 .md / .markdown，单文件最大 100MB；同名文件会自动加序号。
       </p>
-      <button
-        type="button"
+      <Button
+        variant="primary"
+        size="sm"
+        loading={uploading}
+        icon={<Upload className="h-4 w-4" />}
         onClick={onUpload}
-        disabled={uploading}
-        className="ui-btn-primary mt-1 flex h-8 items-center gap-1.5 rounded-full px-4 text-body font-medium disabled:opacity-60"
+        className="mt-1"
       >
-        {uploading ? (
-          <Loader2 className="h-4 w-4 animate-spin" />
-        ) : (
-          <Upload className="h-4 w-4" />
-        )}
         上传 Markdown
-      </button>
+      </Button>
     </div>
   );
 }

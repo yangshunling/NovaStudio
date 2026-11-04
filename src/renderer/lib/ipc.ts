@@ -190,6 +190,11 @@ export const ipc = {
     call("workflow:run:list", { workflowId }),
   listWorkspaceRuns: (workspaceId: string) =>
     call("workflow:run:listByWorkspace", { workspaceId }),
+  listActiveWorkflowRuns: () => call("workflow:run:listActive"),
+  resumeWorkflowRun: (runId: string, nodeRunId?: string) =>
+    call("workflow:run:resume", { runId, nodeRunId }),
+  deleteWorkflowRun: (runId: string) =>
+    call("workflow:run:delete", { runId }),
   cancelWorkflowRun: (runId: string) =>
     call("workflow:run:cancel", { runId }),
   approveWorkflowNode: (
@@ -210,6 +215,12 @@ export const ipc = {
     relativePath: string,
   ) =>
     call("workflow:run:openNodeFile", { runId, nodeRunId, relativePath }),
+  readWorkflowNodeFile: (
+    runId: string,
+    nodeRunId: string,
+    relativePath: string,
+  ) =>
+    call("workflow:run:readNodeFile", { runId, nodeRunId, relativePath }),
 
   // === 工作流触发器 ===
   listTriggers: () => call("triggers:list"),

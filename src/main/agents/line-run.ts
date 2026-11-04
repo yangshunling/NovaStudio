@@ -25,6 +25,12 @@ const DEFAULT_TIMEOUT_MS = 30 * 60 * 1000;
 /** 中断后等待 exit 回调的兜底时长：部分平台上 kill 可能不触发 exit */
 const ABORT_FALLBACK_MS = 1500;
 
+/**
+ * 保留多少 stderr 尾部用于非零退出时的错误说明。
+ * 只取尾部：CLI 的致命错误通常在最后几行，早期告警没有诊断价值。
+ */
+const STDERR_TAIL_LIMIT = 4000;
+
 export interface LineRunConfig {
   /** 完整命令行，第 0 项为可执行文件，由 provider 自行拼装 */
   args: string[];
@@ -67,34 +73,56 @@ export function startLineRun(
   let transport: Transport | null = null;
   let timer: NodeJS.Timeout | null = null;
 
+  /** stderr 尾部：只用于非零退出时的诊断，不进入协议解析 */
+  let stderrTail = "";
+  /** 本次运行是否已经发过 error 事件，避免 result 错误与退出码错误重复上报 */
+  let sawErrorEvent = false;
+
   let resolveDone!: (result: RunResult) => void;
   const done = new Promise<RunResult>((resolve) => {
     resolveDone = resolve;
   });
 
+  const emit = (event: AgentEvent): void => {
+    if (event.type === "error") sawErrorEvent = true;
+    handlers.onEvent(event);
+  };
+
   const finish = (exitCode: number, message?: string) => {
     if (settled) return;
     settled = true;
     if (timer) clearTimeout(timer);
-    // 非零退出且未被打断：补一条错误事件
-    // （用户中断是主动行为，不应报错；超时原因已在触发处单独发出）
-    if (exitCode !== 0 && !muted && message) {
-      handlers.onEvent({ type: "error", message });
+
+    // 用户中断是主动行为，不带错误信息；超时/失败才需要诊断
+    const diagnostic =
+      exitCode !== 0 && !aborted
+        ? message?.trim() || `Agent 进程退出码 ${exitCode}`
+        : undefined;
+
+    /*
+     * 非零退出且调用方还没有看到具体错误时，补一条。
+     * 解码层可能已经从 CLI 的 result 行拿到更准确的错误（如 resume 失效），
+     * 此时不重复上报，但仍把诊断信息放进 RunResult，供宿主的恢复策略使用。
+     */
+    if (diagnostic && !muted && !sawErrorEvent) {
+      emit({ type: "error", message: diagnostic });
     }
-    resolveDone({ exitCode, duration: Date.now() - startedAt });
+    resolveDone({
+      exitCode,
+      duration: Date.now() - startedAt,
+      ...(diagnostic ? { error: diagnostic } : {}),
+    });
   };
 
   timer = setTimeout(() => {
     if (settled) return;
+    const message = `Agent timed out after ${Math.round(timeoutMs / 60000)} min`;
     // 超时原因必须在 muted 置位之前发出：finish 在 muted 时会抑制 error
-    handlers.onEvent({
-      type: "error",
-      message: `Agent timed out after ${Math.round(timeoutMs / 60000)} min`,
-    });
+    emit({ type: "error", message });
     // 超时属于失败，不算用户中断 —— 否则调用方会一直停在"执行中"
     muted = true;
     transport?.kill();
-    finish(-1);
+    finish(-1, message);
   }, timeoutMs);
 
   /** 单行 → 会话 id + 事件 */
@@ -106,19 +134,23 @@ export function startLineRun(
     const decoded = config.decode(line);
     if (!decoded) return;
     for (const event of Array.isArray(decoded) ? decoded : [decoded]) {
-      handlers.onEvent(event);
+      emit(event);
     }
   };
 
   const transportHandlers: TransportHandlers = {
     onData: (chunk) => {
-      if (muted) return;
+      // settled 之后到达的数据属于迟到输出，不能再进消息流
+      if (muted || settled) return;
       for (const line of lines.push(stripAnsi(chunk))) handleLine(line);
+    },
+    onStderr: (chunk) => {
+      stderrTail = (stderrTail + stripAnsi(chunk)).slice(-STDERR_TAIL_LIMIT);
     },
     onExit: (exitCode) => {
       // 处理尾部残片（最后一行可能没有换行符）
-      if (!muted) handleLine(lines.take());
-      finish(exitCode);
+      if (!muted && !settled) handleLine(lines.take());
+      finish(exitCode, exitCode !== 0 ? stderrTail.trim() || undefined : undefined);
     },
   };
 
@@ -137,9 +169,10 @@ export function startLineRun(
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     // 启动失败属于失败（不是用户中断），只是不需要再补一条重复的 error
+    const diagnostic = `启动失败：${message}`;
     muted = true;
-    handlers.onEvent({ type: "error", message: `启动失败：${message}` });
-    finish(-1);
+    emit({ type: "error", message: diagnostic });
+    finish(-1, diagnostic);
   }
 
   return {

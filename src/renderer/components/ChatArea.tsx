@@ -73,6 +73,7 @@ export function ChatArea({ embedded = false }: { embedded?: boolean } = {}) {
   const handleSend = () => {
     const trimmed = input.trim();
     const references = fileMention.references;
+    // 流式中再次提交会被主进程拒绝，但仍清空了输入框：这里直接短路
     if ((!trimmed && references.length === 0) || isStreaming) return;
     const referenceText = references
       .map((entry) => `@${entry.relativePath}`)
@@ -150,6 +151,7 @@ export function ChatArea({ embedded = false }: { embedded?: boolean } = {}) {
                         type="button"
                         onClick={() => fileMention.removeReference(entry.relativePath)}
                         title={`移除 ${entry.name}`}
+                        aria-label={`移除引用文件 ${entry.name}`}
                         className="rounded-full p-0.5 text-current opacity-70 hover:bg-surface-hover hover:opacity-100"
                       >
                         <X className="h-3 w-3" />
@@ -170,6 +172,9 @@ export function ChatArea({ embedded = false }: { embedded?: boolean } = {}) {
                     onChange={(e) => fileMention.handleChange(e)}
                     onKeyDown={(e) => {
                       if (fileMention.handleKeyDown(e)) return;
+                      // 中文输入法选词时的回车不能当发送：
+                      // 否则会把还没上屏的拼音当成完整消息发出去
+                      if (e.nativeEvent.isComposing || e.keyCode === 229) return;
                       if (e.key === "Enter" && !e.shiftKey) {
                         e.preventDefault();
                         handleSend();
@@ -206,6 +211,7 @@ export function ChatArea({ embedded = false }: { embedded?: boolean } = {}) {
                 <button
                   onClick={() => abort()}
                   title="停止运行"
+                  aria-label="停止运行"
                   className="ui-btn-primary flex size-icon-btn shrink-0 items-center justify-center rounded-full"
                 >
                   <Square className="h-4 w-4" />
@@ -213,9 +219,10 @@ export function ChatArea({ embedded = false }: { embedded?: boolean } = {}) {
               ) : (
                 <button
                   onClick={handleSend}
-                  disabled={!input.trim()}
+                  disabled={!input.trim() && fileMention.references.length === 0}
                   title="发送"
-                  className="ui-btn-primary flex size-icon-btn shrink-0 items-center justify-center rounded-full"
+                  aria-label="发送消息"
+                  className="ui-btn-primary flex size-icon-btn shrink-0 items-center justify-center rounded-full disabled:cursor-not-allowed disabled:opacity-40"
                 >
                   <Send className="h-4 w-4" />
                 </button>

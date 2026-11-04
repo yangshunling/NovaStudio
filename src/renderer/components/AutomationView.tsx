@@ -23,6 +23,7 @@ import { useState } from "react";
 import { Clock, Check, Loader2 } from "lucide-react";
 import { useAutomationStore } from "../stores/automation";
 import { useChatStore } from "../stores/chat";
+import { PageHeader } from "./ui/Page";
 import { BoardColumn } from "./automation/BoardColumn";
 import { TaskCreateModal } from "./automation/TaskCreateModal";
 import { TaskDetailDrawer } from "./automation/TaskDetailDrawer";
@@ -54,14 +55,11 @@ export function AutomationView() {
     <main className="relative flex flex-1 flex-col overflow-hidden">
       {/* 主体纸面：顶栏 + 看板同属一张纸，浮在画布底色之上 */}
       <div className="ui-page relative z-10 flex flex-1 flex-col overflow-hidden rounded-xl">
-        <header className="ui-glass relative z-10 flex h-[var(--c-layout-header)] shrink-0 items-center justify-between border-b border-border px-4">
-          <div className="flex items-center gap-2">
-            <span className="ui-serif text-title font-semibold tracking-wide text-text-secondary">任务中心</span>
-            <span className="rounded-full bg-surface-hover px-2 py-0.5 text-caption font-mono text-text-muted">
-              {tasks.length} 个任务
-            </span>
-          </div>
-        </header>
+        <PageHeader
+          title="任务中心"
+          count={tasks.length}
+          countSuffix=" 个任务"
+        />
 
         {/* 三列看板 */}
         <div className="relative z-10 flex flex-1 overflow-hidden">

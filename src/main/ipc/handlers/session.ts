@@ -35,7 +35,10 @@ export function registerSessionHandlers(service: AgentService): void {
   handle("session:get", ({ id }) => service.getSessionWithHistory(id));
 
   handle("session:rename", ({ id, title }) => {
-    db.setSessionTitle(id, title);
+    const next = title.trim();
+    if (!next) throw new Error("会话标题不能为空");
+    if (next.length > 120) throw new Error("会话标题不能超过 120 个字符");
+    db.setSessionTitle(id, next);
     return true;
   });
 

@@ -2,7 +2,8 @@
  * 工作流运行引擎（P0）
  *
  * 模型：工作流是编排器，每个节点是一次独立的数字员工执行。
- * - 严格串行：只有上一个节点成功/跳过后，下一个节点才启动
+ * - DAG 调度：节点在前置节点全部进入终态后启动，独立分支并行执行
+ *   （并发上限 MAX_PARALLEL_NODES，汇合语义为 AND）
  * - 每节点独立会话；上下文只通过上游节点的输出摘要传递
  * - Claude 节点使用独立 CLAUDE_CONFIG_DIR，MCP 走独立配置文件
  *
@@ -29,6 +30,7 @@ import {
   type WorkflowRun,
   type WorkflowRunEvent,
   type WorkflowRunEventType,
+  type WorkflowRunSource,
   type WorkflowRunStatus,
 } from "../../shared/types";
 import {
@@ -54,10 +56,44 @@ const RETRY_BASE_MS = 2000;
 /** 单个节点尝试保留的实时事件上限：超出后只继续推增量，不再占用内存 */
 const LIVE_EVENT_LIMIT = 20_000;
 
+/** 同一工作流内并行执行的节点数上限。每个节点都是一个独立的 Agent 进程。 */
+const MAX_PARALLEL_NODES = 3;
+
+/**
+ * 人工审核最长等待时间。
+ * 超时只是「没人确认」，不是「人工驳回」：运行按中断收尾并保留产物，
+ * 用户回来后可以继续执行；否则一个被遗忘的审批会把工作区永久锁住。
+ */
+const APPROVAL_TIMEOUT_MS = 30 * 60 * 1000;
+
+/**
+ * 节点实际生效的自动重试次数。
+ * 数据可能来自旧版本或外部导入，不能信任 UI 的 1-5 限制。
+ */
+function effectiveMaxRetries(node: WorkflowNode): number {
+  if (node.config.failureStrategy !== "retry") return 0;
+  const raw = Number(node.config.maxRetries);
+  if (!Number.isFinite(raw)) return 1;
+  return Math.min(5, Math.max(1, Math.round(raw)));
+}
+
 class CanceledError extends Error {
   constructor() {
     super("运行已取消");
     this.name = "CanceledError";
+  }
+}
+
+/**
+ * 等待人工审核超时。
+ *
+ * 必须与 CanceledError / 普通失败区分开：运行应记为 interrupted（可续跑），
+ * 而不是写成「人工驳回」——那会让 resume 永久拒绝这条运行。
+ */
+class ApprovalTimeoutError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ApprovalTimeoutError";
   }
 }
 
@@ -74,20 +110,37 @@ export class WorkspaceBusyError extends Error {
   }
 }
 
+interface ApprovalDecision {
+  /** timeout：等待超时，既不是通过也不是人工驳回 */
+  action: "approve" | "reject" | "cancel" | "timeout";
+  note: string;
+}
+
 interface ActiveRun {
   id: string;
   workflow: Workflow;
   workspaceId: string;
   workspacePath: string;
   runDir: string;
+  /** 完整计划顺序：用于产物目录编号与画布展示 */
   order: WorkflowNode[];
+  /** 本次实际要执行的节点（续跑时是失败节点及其下游） */
+  executionOrder: WorkflowNode[];
+  /** 续跑时，已在上一次执行中完成、本次直接视为 done 的节点 */
+  seededDone: Set<string>;
   predecessors: Map<string, string[]>;
   employees: Map<string, DigitalEmployee>;
   /** nodeId → 本次运行的节点执行记录 */
   nodeRuns: Map<string, WorkflowNodeRun>;
   canceled: boolean;
-  currentSessionId: string | null;
-  approvals: Map<string, (decision: "approve" | "reject" | "cancel") => void>;
+  /** 失败停止：阻止尚未创建会话的节点继续启动 */
+  stopping: boolean;
+  /** 当前正在运行的节点会话；并行执行时可能有多个 */
+  sessions: Set<string>;
+  approvals: Map<
+    string,
+    { resolve: (decision: ApprovalDecision) => void; timer: NodeJS.Timeout }
+  >;
   /**
    * nodeRunId → 本次尝试的原始事件（不落库）。
    * 运行记录中途打开时用它回放已产生的对话，之后的增量走推送。
@@ -100,7 +153,15 @@ interface ActiveRun {
 
 export interface WorkflowRunner {
   /** 启动前会先做 Agent 安装 / 连接配置校验，因此是异步的 */
-  start(workflowId: string): Promise<WorkflowRun>;
+  start(
+    workflowId: string,
+    options?: { source?: WorkflowRunSource; triggerId?: string | null },
+  ): Promise<WorkflowRun>;
+  /**
+   * 从失败节点（或其下游）继续执行同一个运行。
+   * 未指定 nodeRunId 时自动选择第一个失败 / 已取消的节点。
+   */
+  resume(runId: string, nodeRunId?: string): Promise<WorkflowRun>;
   cancel(runId: string): boolean;
   approve(
     runId: string,
@@ -135,6 +196,18 @@ export interface WorkflowRunnerDeps {
     event: AgentEvent;
   }) => void;
   userDataDir: string;
+  /**
+   * 冲掉推送层缓冲区里尚未发送的流式事件。
+   *
+   * 节点 token 走批量聚合（16ms 一批），而运行状态事件（run_finished 等）
+   * 是立即发送的。收尾前不冲缓冲，渲染层可能先收到「已完成」再收到最后一批 token。
+   */
+  flushEvents?: () => void;
+  /**
+   * 运行收尾回调（成功 / 失败 / 中断）。
+   * 触发器调度器用它把运行结果回写到触发器，避免只看到“已触发”却不知道结果。
+   */
+  onRunFinished?: (run: WorkflowRun) => void;
 }
 
 export function createWorkflowRunner(deps: WorkflowRunnerDeps): WorkflowRunner {
@@ -170,6 +243,12 @@ export function createWorkflowRunner(deps: WorkflowRunnerDeps): WorkflowRunner {
     type: WorkflowRunEventType,
     payload: Record<string, unknown> = {},
   ): void {
+    /*
+     * 状态事件（node_finished / run_finished 等）立即发送，而节点 token
+     * 走 16ms 批量聚合。先冲掉缓冲，否则渲染层会先看到“节点已完成”，
+     * 再收到最后一批 token。
+     */
+    deps.flushEvents?.();
     const event = db.appendWorkflowRunEvent({ runId, nodeRunId, type, payload });
     deps.emit(event);
   }
@@ -193,13 +272,16 @@ export function createWorkflowRunner(deps: WorkflowRunnerDeps): WorkflowRunner {
   // 启动
   // ==========================================================================
 
-  async function start(workflowId: string): Promise<WorkflowRun> {
+  async function start(
+    workflowId: string,
+    options: { source?: WorkflowRunSource; triggerId?: string | null } = {},
+  ): Promise<WorkflowRun> {
     const workflow = db.getWorkflow(workflowId);
     if (!workflow) throw new Error("工作流不存在");
 
     const workspace = db.getProject(workflow.workspaceId);
     if (!workspace) {
-      throw new Error("工作流未绑定工作区，请先在编辑器中选一个工作区");
+      throw new Error("工作流未指定工作区，请先在编辑器中选一个工作区");
     }
     if (!workspace.cwd || !existsSync(workspace.cwd)) {
       throw new Error(`工作区目录不存在：${workspace.cwd || "（空）"}`);
@@ -250,6 +332,8 @@ export function createWorkflowRunner(deps: WorkflowRunnerDeps): WorkflowRunner {
         graph: workflow.graph,
         artifactDir: runDir,
         status: "running",
+        source: options.source ?? "manual",
+        triggerId: options.triggerId ?? null,
         createdAt: now,
       });
       runCreated = true;
@@ -271,10 +355,7 @@ export function createWorkflowRunner(deps: WorkflowRunnerDeps): WorkflowRunner {
           agentId: resolveAgentId(),
           status: "pending",
           attempt: 1,
-          maxRetries:
-            node.config.failureStrategy === "retry"
-              ? node.config.maxRetries
-              : 0,
+          maxRetries: effectiveMaxRetries(node),
         });
       }
 
@@ -285,6 +366,8 @@ export function createWorkflowRunner(deps: WorkflowRunnerDeps): WorkflowRunner {
         workspacePath: workspace.cwd,
         runDir,
         order: validated.order,
+        executionOrder: validated.order,
+        seededDone: new Set(),
         predecessors: validated.predecessors,
         employees,
         nodeRuns: new Map(
@@ -293,7 +376,8 @@ export function createWorkflowRunner(deps: WorkflowRunnerDeps): WorkflowRunner {
             .map((nodeRun) => [nodeRun.nodeId, nodeRun] as const),
         ),
         canceled: false,
-        currentSessionId: null,
+        stopping: false,
+        sessions: new Set(),
         approvals: new Map(),
         live: new Map(),
       };
@@ -307,6 +391,15 @@ export function createWorkflowRunner(deps: WorkflowRunnerDeps): WorkflowRunner {
         artifactDir: runDir,
         nodeCount: validated.order.length,
       });
+
+      // 图校验的警告不阻断运行，但必须留下记录：分支串行、空任务详情等
+      for (const message of validated.warnings) {
+        emitEvent(runId, null, "log", {
+          level: "warning",
+          message,
+          source: "graph",
+        });
+      }
 
       const run = db.getWorkflowRun(runId)!;
 
@@ -344,6 +437,8 @@ export function createWorkflowRunner(deps: WorkflowRunnerDeps): WorkflowRunner {
         }
       }
       emitEvent(runId, null, "run_finished", { status: "failed", error });
+      const finished = db.getWorkflowRun(runId);
+      if (finished) deps.onRunFinished?.(finished);
     } catch {
       // 收尾失败（例如数据库已关闭）不能掩盖真正的启动错误
     }
@@ -382,6 +477,201 @@ export function createWorkflowRunner(deps: WorkflowRunnerDeps): WorkflowRunner {
     }
   }
 
+  /**
+   * 续跑：在同一个运行里，从指定节点（默认第一个失败节点）重新执行
+   * 该节点及其全部下游。上游节点保留原有输出，下游直接复用。
+   */
+  async function resume(
+    runId: string,
+    nodeRunId?: string,
+  ): Promise<WorkflowRun> {
+    const run = db.getWorkflowRun(runId);
+    if (!run) throw new Error("运行记录不存在");
+    if (activeRuns.has(runId) || reservations.has(runId)) {
+      throw new Error("该运行正在执行，请等待结束");
+    }
+    if (run.status === "running" || run.status === "awaiting_approval") {
+      throw new Error("该运行正在执行，请等待结束");
+    }
+
+    const workflow = db.getWorkflow(run.workflowId);
+    if (!workflow) throw new Error("工作流不存在");
+    const workspace = db.getProject(run.workspaceId);
+    if (!workspace?.cwd || !existsSync(workspace.cwd)) {
+      throw new Error(`工作区目录不存在：${workspace?.cwd || "（空）"}`);
+    }
+    if (workspaceBusy(workspace.id)) throw new WorkspaceBusyError();
+
+    const nodeRuns = db.listWorkflowNodeRuns(runId);
+    // 人工审核驳回意味着产物本身不合格，重跑没有意义：整条运行就此终止
+    const rejectedNode = nodeRuns.find((item) => item.decision === "rejected");
+    if (rejectedNode) {
+      throw new Error(
+        `节点「${rejectedNode.nodeName}」已被人工驳回，该运行不能继续执行`,
+      );
+    }
+    const target = nodeRunId
+      ? nodeRuns.find((item) => item.id === nodeRunId)
+      : (nodeRuns.find((item) => item.status === "failed") ??
+        nodeRuns.find(
+          (item) => item.status === "canceled" || item.status === "skipped",
+        ));
+    if (!target) throw new Error("找不到可续跑的节点");
+    if (target.nodeType !== "employee") {
+      throw new Error("只能从执行节点续跑");
+    }
+
+    reservations.set(runId, {
+      workspaceId: workspace.id,
+      workflowId: workflow.id,
+    });
+
+    let active: ActiveRun | null = null;
+    try {
+      await assertAgentReady();
+
+      const employees = new Map(
+        db.listDigitalEmployees().map((employee) => [employee.id, employee]),
+      );
+      const validated = validateGraph(run.graph, employees);
+
+      // target 及其全部下游
+      const outgoing = new Map<string, string[]>();
+      for (const node of run.graph.nodes) outgoing.set(node.id, []);
+      for (const edge of run.graph.edges) {
+        outgoing.get(edge.source)?.push(edge.target);
+      }
+      const descendants = new Set<string>();
+      const stack = [target.nodeId];
+      while (stack.length > 0) {
+        const id = stack.pop()!;
+        if (descendants.has(id)) continue;
+        descendants.add(id);
+        for (const next of outgoing.get(id) ?? []) stack.push(next);
+      }
+
+      /*
+       * 除了目标节点及其下游，还要把「没有成功完成的上游」补进执行集合。
+       * 例如并行分支 A/B 汇合到 C，A 失败导致 B 被取消；从 A 续跑时，
+       * B 也必须重跑，否则 C 会拿到一个 canceled 的上游。
+       */
+      const executionIds = new Set(descendants);
+      const queue = [...descendants];
+      const statusByNode = new Map(
+        nodeRuns.map((item) => [item.nodeId, item.status] as const),
+      );
+      while (queue.length > 0) {
+        const id = queue.shift()!;
+        for (const predecessorId of validated.predecessors.get(id) ?? []) {
+          if (executionIds.has(predecessorId)) continue;
+          const status = statusByNode.get(predecessorId);
+          if (status === "succeeded" || status === "skipped") continue;
+          executionIds.add(predecessorId);
+          queue.push(predecessorId);
+        }
+      }
+
+      const executionOrder = validated.order.filter((node) =>
+        executionIds.has(node.id),
+      );
+      if (executionOrder.length === 0) {
+        throw new Error("该节点没有可执行的后续节点");
+      }
+      const seededDone = new Set(
+        validated.order
+          .filter((node) => !executionIds.has(node.id))
+          .map((node) => node.id),
+      );
+
+      // 重置本次要执行的节点；历次尝试记录保留在 workflow_node_attempts
+      for (const node of executionOrder) {
+        const nodeRun = nodeRuns.find((item) => item.nodeId === node.id);
+        if (!nodeRun) continue;
+        const attempts = db.listWorkflowNodeAttempts(nodeRun.id);
+        const nextAttempt =
+          Math.max(0, ...attempts.map((attempt) => attempt.attempt)) + 1;
+        db.updateWorkflowNodeRun(nodeRun.id, {
+          status: "pending",
+          attempt: nextAttempt,
+          sessionId: null,
+          artifactDir: null,
+          inputPath: null,
+          outputPath: null,
+          outputSummary: null,
+          error: null,
+          decision: null,
+          decisionNote: null,
+          decidedAt: null,
+          startedAt: null,
+          finishedAt: null,
+        });
+      }
+
+      // 先取好节点快照，再切 run 状态：避免状态已变 running 但 active 未挂上
+      const refreshedNodeRuns = new Map(
+        db
+          .listWorkflowNodeRuns(runId)
+          .map((nodeRun) => [nodeRun.nodeId, nodeRun] as const),
+      );
+
+      db.updateWorkflowRun(runId, {
+        status: "running",
+        error: null,
+        startedAt: Date.now(),
+        finishedAt: null,
+      });
+
+      active = {
+        id: runId,
+        workflow: { ...workflow, graph: run.graph },
+        workspaceId: workspace.id,
+        workspacePath: workspace.cwd,
+        runDir: run.artifactDir,
+        order: validated.order,
+        executionOrder,
+        seededDone,
+        predecessors: validated.predecessors,
+        employees,
+        nodeRuns: refreshedNodeRuns,
+        canceled: false,
+        stopping: false,
+        sessions: new Set(),
+        approvals: new Map(),
+        live: new Map(),
+      };
+      activeRuns.set(runId, active);
+
+      emitEvent(runId, null, "run_started", {
+        workflowId: workflow.id,
+        workflowName: workflow.name,
+        workspacePath: workspace.cwd,
+        artifactDir: run.artifactDir,
+        nodeCount: executionOrder.length,
+        resumed: true,
+        fromNodeId: target.nodeId,
+        fromNodeName: target.nodeName,
+      });
+      for (const message of validated.warnings) {
+        emitEvent(runId, null, "log", {
+          level: "warning",
+          message,
+          source: "graph",
+        });
+      }
+
+      void prepareRunFiles(active)
+        .then(() => execute(active!))
+        .catch((err) => finish(active!, "failed", messageOf(err)));
+
+      return db.getWorkflowRun(runId)!;
+    } catch (err) {
+      if (active) finish(active, "failed", messageOf(err));
+      throw err;
+    } finally {
+      reservations.delete(runId);
+    }
+  }
+
   async function prepareRunFiles(active: ActiveRun): Promise<void> {
     await ensureArtifactsRoot(active.workspacePath);
     await ensureDir(active.runDir);
@@ -403,89 +693,171 @@ export function createWorkflowRunner(deps: WorkflowRunnerDeps): WorkflowRunner {
   // 主循环
   // ==========================================================================
 
-  async function execute(active: ActiveRun): Promise<void> {
-    try {
-      for (const node of active.order) {
-        if (active.canceled) throw new CanceledError();
+  /** 终止本次运行中所有正在执行的节点会话 */
+  function abortSessions(active: ActiveRun): void {
+    for (const sessionId of active.sessions) {
+      deps.service.abort(sessionId);
+    }
+  }
 
-        const outcome = await executeNode(active, node);
-        if (active.canceled || outcome === "canceled") {
-          throw new CanceledError();
+  /** 结束所有等待中的审批，让它们从 waitApproval 正常返回 */
+  function cancelApprovals(active: ActiveRun): void {
+    for (const entry of active.approvals.values()) {
+      clearTimeout(entry.timer);
+      entry.resolve({ action: "cancel", note: "" });
+    }
+    active.approvals.clear();
+  }
+
+  /**
+   * DAG 调度：节点在前置节点全部进入终态后启动，独立分支并行执行。
+   *
+   * - 汇合语义是 AND：所有直接前驱都完成后才执行；
+   * - skipped 也算终态，下游继续执行（并在提示词里看到“已跳过”）；
+   * - 失败策略 stop / retry 耗尽会终止整个运行，并中断其它并行节点；
+   * - 并发上限 MAX_PARALLEL_NODES，避免一次拉起过多 Agent 进程。
+   */
+  async function execute(active: ActiveRun): Promise<void> {
+    const done = new Set<string>(active.seededDone);
+    const remaining = new Set(active.executionOrder.map((node) => node.id));
+    const running = new Map<
+      string,
+      Promise<{
+        node: WorkflowNode;
+        outcome?:
+          | "succeeded"
+          | "skipped"
+          | "failed"
+          | "canceled"
+          | "interrupted";
+        error?: string;
+      }>
+    >();
+    let failedError: string | null = null;
+    /** 审核超时导致的中断原因：优先于普通失败展示 */
+    let interruptedError: string | null = null;
+
+    const launch = (node: WorkflowNode) => {
+      /*
+       * 注意：这里不要在 promise 的 finally 里把自己从 running 删除。
+       * 两个并行节点可能在同一微任务批次完成；先完成的那个如果立刻摘掉，
+       * 下一个 race 就看不到它的结果，remaining 还在，会导致重复启动。
+       * 由主循环处理完结果后再删除。
+       */
+      const task = executeNode(active, node)
+        .then((outcome) => ({ node, outcome }))
+        .catch((err) => ({ node, error: messageOf(err) }));
+      running.set(node.id, task);
+    };
+
+    try {
+      while (remaining.size > 0 || running.size > 0) {
+        if (active.canceled) break;
+
+        if (!failedError) {
+          for (const node of active.executionOrder) {
+            if (running.size >= MAX_PARALLEL_NODES) break;
+            if (!remaining.has(node.id) || running.has(node.id)) continue;
+            const predecessors = active.predecessors.get(node.id) ?? [];
+            if (!predecessors.every((id) => done.has(id))) continue;
+            launch(node);
+          }
         }
+
+        if (running.size === 0) {
+          if (failedError || active.canceled) break;
+          // 还有节点没执行，但没有任何节点就绪：图 / 运行快照不一致
+          failedError = "工作流调度无法继续：存在未满足的前置节点";
+          break;
+        }
+
+        const settled = await Promise.race(running.values());
+        running.delete(settled.node.id);
+        if (settled.error) {
+          if (active.canceled) break;
+          failedError = settled.error;
+          break;
+        }
+
+        const outcome = settled.outcome!;
+        done.add(settled.node.id);
+        remaining.delete(settled.node.id);
+
         if (outcome === "failed") {
-          finish(active, "failed", nodeFailureMessage(active, node));
-          return;
+          failedError = nodeFailureMessage(active, settled.node);
+          break;
+        }
+        if (outcome === "interrupted") {
+          /*
+           * 人工审核超时：不是失败，运行按「中断」收尾并保留产物，
+           * 用户回来审核后可以从这条运行继续。
+           */
+          interruptedError = nodeFailureMessage(active, settled.node);
+          break;
+        }
+        if (outcome === "canceled") {
+          // executeNode 目前用抛错表达取消；这里兜底，避免误判为成功
+          if (!active.canceled) failedError = "节点执行被取消";
+          break;
         }
       }
-      finish(active, "succeeded");
-    } catch (err) {
-      if (err instanceof CanceledError || active.canceled) {
-        finish(active, "canceled");
-      } else {
-        finish(active, "failed", messageOf(err));
+    } finally {
+      /*
+       * 失败停止 / 取消：终止其它并行节点并等它们收尾。
+       * 否则 finish 把节点标记为 canceled 之后，它们还可能继续写库。
+       */
+      if (failedError || interruptedError || active.canceled) {
+        active.stopping = true;
+        // 等待审核的节点没有子进程，必须主动结束它的 Promise
+        cancelApprovals(active);
+        abortSessions(active);
+        await Promise.allSettled([...running.values()]);
       }
     }
+
+    if (active.canceled) {
+      finish(active, "canceled");
+      return;
+    }
+    if (interruptedError) {
+      // 审核超时：产物已生成，保留为可续跑的中断态，而不是失败
+      finish(active, "interrupted", interruptedError);
+      return;
+    }
+    if (failedError) {
+      finish(active, "failed", failedError);
+      return;
+    }
+    finish(active, "succeeded");
   }
 
   async function executeNode(
     active: ActiveRun,
     node: WorkflowNode,
-  ): Promise<"succeeded" | "skipped" | "failed" | "canceled"> {
+  ): Promise<"succeeded" | "skipped" | "failed" | "canceled" | "interrupted"> {
     const employee = active.employees.get(node.config.employeeId ?? "");
     if (!employee) throw new Error(`节点「${node.name}」没有可用数字员工`);
 
     const initial = nodeRunOf(active, node.id);
-    const startedAt = Date.now();
-    updateStatus(initial.id, "running", { startedAt, error: null });
+    updateStatus(initial.id, "running", { startedAt: Date.now(), error: null });
     emitEvent(active.id, initial.id, "node_status", {
       nodeId: node.id,
       nodeName: node.name,
       status: "running",
     });
 
-    const maxRetries =
-      node.config.failureStrategy === "retry" ? node.config.maxRetries : 0;
+    const maxRetries = effectiveMaxRetries(node);
     let attempt = initial.attempt || 1;
     let lastError = "";
 
     while (true) {
-      if (active.canceled) throw new CanceledError();
-
-      // ---- 审核门禁：执行前等待人工决定 ----
-      if (node.config.reviewMode === "manual") {
-        updateStatus(initial.id, "awaiting_approval", { attempt });
-        db.updateWorkflowRun(active.id, { status: "awaiting_approval" });
-        emitEvent(active.id, initial.id, "approval_required", {
-          nodeId: node.id,
-          nodeName: node.name,
-          employeeName: employee.name,
-          taskDetail: node.config.taskDetail,
-          attempt,
-        });
-
-        const decision = await waitApproval(active, initial.id);
-        if (decision === "cancel" || active.canceled) throw new CanceledError();
-
-        db.updateWorkflowNodeRun(initial.id, {
-          decision: decision === "approve" ? "approved" : "rejected",
-          decidedAt: Date.now(),
-        });
-        emitEvent(active.id, initial.id, "approval_decided", {
-          nodeId: node.id,
-          decision,
-        });
-        db.updateWorkflowRun(active.id, { status: "running" });
-
-        if (decision === "reject") {
-          lastError = "人工审核驳回";
-        } else {
-          lastError = "";
-        }
-      }
+      if (active.canceled || active.stopping) throw new CanceledError();
 
       if (!lastError) {
-        // 审批通过 / 重试后再执行：把状态切回 running，界面不会一直停在“等待审核”
-        updateStatus(initial.id, "running", { attempt });
+        // 重试时以本轮实际开始时间为准：否则 startedAt 会一直停在首轮，
+        // 把等待重试的时间也算进节点耗时
+        const attemptStartedAt = Date.now();
+        updateStatus(initial.id, "running", { attempt, startedAt: attemptStartedAt });
         emitEvent(active.id, initial.id, "node_status", {
           nodeId: node.id,
           nodeName: node.name,
@@ -494,10 +866,71 @@ export function createWorkflowRunner(deps: WorkflowRunnerDeps): WorkflowRunner {
         });
         const outcome = await runAttempt(active, node, employee, attempt);
         if (outcome.ok) {
+          // 立即定格完成时间：人工审核的等待时长不应算进节点耗时
+          const attemptFinishedAt = Date.now();
+          // ---- 审核门禁：产物已生成，人工确认后才算节点通过 ----
+          if (node.config.reviewMode === "manual") {
+            let rejection: string | null;
+            try {
+              rejection = await reviewNodeOutput(
+                active,
+                node,
+                employee,
+                initial.id,
+                attempt,
+                outcome,
+              );
+            } catch (err) {
+              if (!(err instanceof ApprovalTimeoutError)) throw err;
+              /*
+               * 没人来审核：按「中断」收尾，节点置为 canceled 而不是 failed。
+               * 这样运行记录仍可续跑，用户回来确认后不会被迫从头重跑。
+               */
+              updateStatus(initial.id, "canceled", {
+                attempt,
+                finishedAt: attemptFinishedAt,
+                error: err.message,
+                sessionId: outcome.sessionId,
+                artifactDir: outcome.attemptDir,
+                inputPath: outcome.inputPath,
+                outputPath: outcome.outputPath,
+                outputSummary: outcome.summary,
+              });
+              emitEvent(active.id, initial.id, "node_finished", {
+                nodeId: node.id,
+                nodeName: node.name,
+                status: "canceled",
+                attempt,
+                error: err.message,
+              });
+              return "interrupted";
+            }
+            if (rejection) {
+              // 产物不合格：直接终止整条运行，不重试、也不按 skip 放行下游
+              updateStatus(initial.id, "failed", {
+                attempt,
+                finishedAt: attemptFinishedAt,
+                error: rejection,
+                sessionId: outcome.sessionId,
+                artifactDir: outcome.attemptDir,
+                inputPath: outcome.inputPath,
+                outputPath: outcome.outputPath,
+                outputSummary: outcome.summary,
+              });
+              emitEvent(active.id, initial.id, "node_finished", {
+                nodeId: node.id,
+                nodeName: node.name,
+                status: "failed",
+                attempt,
+                error: rejection,
+              });
+              return "failed";
+            }
+          }
           updateStatus(initial.id, "succeeded", {
             attempt,
-            startedAt,
-            finishedAt: Date.now(),
+            startedAt: attemptStartedAt,
+            finishedAt: attemptFinishedAt,
             error: null,
             sessionId: outcome.sessionId,
             artifactDir: outcome.attemptDir,
@@ -522,6 +955,7 @@ export function createWorkflowRunner(deps: WorkflowRunnerDeps): WorkflowRunner {
       // ---- 失败处理 ----
       updateStatus(initial.id, "failed", { attempt, error: lastError });
 
+      // 执行失败按重试策略处理；人工驳回在上面已直接终止，不会走到这里
       if (attempt <= maxRetries) {
         updateStatus(initial.id, "retrying", { attempt, error: lastError });
         emitEvent(active.id, initial.id, "node_retry", {
@@ -601,8 +1035,7 @@ export function createWorkflowRunner(deps: WorkflowRunnerDeps): WorkflowRunner {
       Number.isFinite(timeoutSetting) && timeoutSetting > 0
         ? Math.max(1, Math.round(timeoutSetting))
         : DEFAULT_SETTINGS.agentTimeoutMinutes;
-    const maxRetries =
-      node.config.failureStrategy === "retry" ? node.config.maxRetries : 0;
+    const maxRetries = effectiveMaxRetries(node);
 
     const reportState: {
       prepared: PreparedAgentRun | null;
@@ -760,7 +1193,7 @@ export function createWorkflowRunner(deps: WorkflowRunnerDeps): WorkflowRunner {
         sessionId: session.id,
         artifactDir: attemptDir,
       });
-      active.currentSessionId = session.id;
+      active.sessions.add(session.id);
 
       // 只注入宿主自己生成的内容；模型 / 权限 / 接入等运行方式
       // 完全继承 Agent 平台的本机配置。
@@ -792,6 +1225,18 @@ export function createWorkflowRunner(deps: WorkflowRunnerDeps): WorkflowRunner {
             message,
             attempt,
           });
+        }
+
+        // 兄弟节点已经失败停止：不要为新节点再拉起 Agent 进程
+        if (active.canceled || active.stopping) {
+          return failedAttempt(
+            "运行已停止",
+            true,
+            session.id,
+            attemptDir,
+            inputPath,
+            outputPath,
+          );
         }
 
         const texts: string[] = [];
@@ -894,7 +1339,7 @@ export function createWorkflowRunner(deps: WorkflowRunnerDeps): WorkflowRunner {
       } finally {
         // 保证报告文件在节点结束前落盘（后续还会清理 runtimeDir）
         await reportChain;
-        active.currentSessionId = null;
+        active.sessions.delete(session.id);
         // 尝试结束后以 messages 表里的完整消息为准，实时快照不再需要
         active.live.delete(nodeRun.id);
         try {
@@ -917,7 +1362,7 @@ export function createWorkflowRunner(deps: WorkflowRunnerDeps): WorkflowRunner {
       // 异常（配置投影失败、落盘失败等）也要记到节点上，
       // 而不是冒泡成「运行失败 + 节点被标记取消」这种无法排查的状态。
       // 同时清掉实时快照：错误可能发生在内层 try 之前，不会走它的 finally。
-      active.currentSessionId = null;
+      if (sessionId) active.sessions.delete(sessionId);
       active.live.delete(nodeRun.id);
 
       const message = messageOf(err);
@@ -946,16 +1391,28 @@ export function createWorkflowRunner(deps: WorkflowRunnerDeps): WorkflowRunner {
    */
   function assistantTextFromSession(sessionId: string): string {
     const messages = db.readSessionMessages(sessionId) ?? [];
-    const parts: string[] = [];
-    for (const message of messages) {
+    /*
+     * 取最后一条「非空」assistant 文本。
+     *
+     * 一次运行通常只落一条 assistant 消息，里面包含「我先读文件」「接下来修改」
+     * 这类过程叙述和最终结论。把全部文本拼起来会把过程当成节点产物传给
+     * 下游，既冗长又容易误导。
+     *
+     * 但收尾阶段可能还有只带工具调用、或空文本的 assistant 消息
+     * （例如最后一步是写文件），此时若只认「最后一条消息」会拿到空串，
+     * 从而退化成全程叙述拼接。因此按时间倒序找第一个有正文的文本块。
+     */
+    for (let i = messages.length - 1; i >= 0; i -= 1) {
+      const message = messages[i];
       if (message.role !== "assistant") continue;
-      for (const event of message.content) {
-        if (event.type === "text" && event.content.trim()) {
-          parts.push(event.content.trim());
-        }
+      for (let j = message.content.length - 1; j >= 0; j -= 1) {
+        const event = message.content[j];
+        if (event.type !== "text") continue;
+        const text = event.content.trim();
+        if (text) return text;
       }
     }
-    return parts.join("\n\n").trim();
+    return "";
   }
 
   async function failedAttempt(
@@ -985,12 +1442,117 @@ export function createWorkflowRunner(deps: WorkflowRunnerDeps): WorkflowRunner {
   // 审批 / 取消 / 收尾
   // ==========================================================================
 
+  /**
+   * 人工审核（执行后）：产物已经生成，等人工确认才允许节点通过。
+   *
+   * 返回 null 表示通过；返回字符串表示驳回原因 —— 调用方据此把节点置为
+   * failed 并终止整条运行。驳回不重试、也不按 failureStrategy=skip 放行下游，
+   * 因为被驳回意味着产物本身不合格，重跑没有意义。
+   */
+  async function reviewNodeOutput(
+    active: ActiveRun,
+    node: WorkflowNode,
+    employee: DigitalEmployee,
+    nodeRunId: string,
+    attempt: number,
+    outcome: AttemptOutcome,
+  ): Promise<string | null> {
+    // 产物先落库：审批界面要能直接读到结果，而不是只有一个任务描述。
+    // 同时定格 finishedAt，避免把人工等待的时间算进节点耗时。
+    updateStatus(nodeRunId, "awaiting_approval", {
+      attempt,
+      finishedAt: Date.now(),
+      sessionId: outcome.sessionId,
+      artifactDir: outcome.attemptDir,
+      inputPath: outcome.inputPath,
+      outputPath: outcome.outputPath,
+      outputSummary: outcome.summary,
+    });
+    db.updateWorkflowRun(active.id, { status: "awaiting_approval" });
+    emitEvent(active.id, nodeRunId, "approval_required", {
+      nodeId: node.id,
+      nodeName: node.name,
+      employeeName: employee.name,
+      taskDetail: node.config.taskDetail,
+      attempt,
+      outputPath: outcome.outputPath,
+      summary: outcome.summary,
+    });
+
+    const decision = await waitApproval(active, nodeRunId);
+    if (decision.action === "cancel" || active.canceled) {
+      throw new CanceledError();
+    }
+    if (decision.action === "timeout") {
+      // 超时不是驳回：不写 decision，让这条运行之后还能继续执行
+      throw new ApprovalTimeoutError(
+        `节点「${node.name}」等待人工审核超时（${decision.note}），本次运行已中断；继续执行会重新执行该节点并重新审核`,
+      );
+    }
+
+    db.updateWorkflowNodeRun(nodeRunId, {
+      decision: decision.action === "approve" ? "approved" : "rejected",
+      decisionNote: decision.note || null,
+      decidedAt: Date.now(),
+    });
+    emitEvent(active.id, nodeRunId, "approval_decided", {
+      nodeId: node.id,
+      decision: decision.action,
+      note: decision.note,
+    });
+
+    // 并行分支可能还有别的节点在等审核：run 状态不能简单切回 running
+    const stillAwaiting =
+      active.approvals.size > 0 ||
+      db
+        .listWorkflowNodeRuns(active.id)
+        .some(
+          (item) => item.id !== nodeRunId && item.status === "awaiting_approval",
+        );
+    if (stillAwaiting) {
+      db.updateWorkflowRun(active.id, { status: "awaiting_approval" });
+    } else {
+      // 运行可能已被取消 / 终止，不能被一次迟到的审批回翻成 running
+      const run = db.getWorkflowRun(active.id);
+      if (run?.status === "awaiting_approval") {
+        db.updateWorkflowRun(active.id, { status: "running" });
+      }
+    }
+
+    if (decision.action === "approve") return null;
+
+    const reason = decision.note
+      ? `人工审核驳回：${decision.note}`
+      : "人工审核驳回";
+    emitEvent(active.id, nodeRunId, "log", {
+      level: "warning",
+      message: `${reason}，本次运行已终止`,
+    });
+    return reason;
+  }
+
   function waitApproval(
     active: ActiveRun,
     nodeRunId: string,
-  ): Promise<"approve" | "reject" | "cancel"> {
+  ): Promise<ApprovalDecision> {
     return new Promise((resolve) => {
-      active.approvals.set(nodeRunId, resolve);
+      const timer = setTimeout(() => {
+        if (!active.approvals.has(nodeRunId)) return;
+        active.approvals.delete(nodeRunId);
+        emitEvent(active.id, nodeRunId, "log", {
+          level: "warning",
+          message: `等待人工审核超过 ${Math.round(
+            APPROVAL_TIMEOUT_MS / 60000,
+          )} 分钟，本次运行按中断处理，可稍后继续执行`,
+        });
+        // 超时只是没人确认：交给调用方按「中断」收尾，不能写成人工驳回
+        resolve({
+          action: "timeout",
+          note: `超过 ${Math.round(APPROVAL_TIMEOUT_MS / 60000)} 分钟未确认`,
+        });
+      }, APPROVAL_TIMEOUT_MS);
+
+      active.approvals.set(nodeRunId, { resolve, timer });
     });
   }
 
@@ -998,15 +1560,16 @@ export function createWorkflowRunner(deps: WorkflowRunnerDeps): WorkflowRunner {
     runId: string,
     nodeRunId: string,
     action: "approve" | "reject",
-    _note?: string,
+    note?: string,
   ): boolean {
     const active = activeRuns.get(runId);
     if (!active) return false;
-    const resolver = active.approvals.get(nodeRunId);
-    if (!resolver) return false;
+    const entry = active.approvals.get(nodeRunId);
+    if (!entry) return false;
 
     active.approvals.delete(nodeRunId);
-    resolver(action);
+    clearTimeout(entry.timer);
+    entry.resolve({ action, note: note?.trim() ?? "" });
     return true;
   }
 
@@ -1014,11 +1577,9 @@ export function createWorkflowRunner(deps: WorkflowRunnerDeps): WorkflowRunner {
     const active = activeRuns.get(runId);
     if (!active) return false;
     active.canceled = true;
-    if (active.currentSessionId) {
-      deps.service.abort(active.currentSessionId);
-    }
-    for (const resolver of active.approvals.values()) resolver("cancel");
-    active.approvals.clear();
+    active.stopping = true;
+    abortSessions(active);
+    cancelApprovals(active);
     return true;
   }
 
@@ -1056,6 +1617,8 @@ export function createWorkflowRunner(deps: WorkflowRunnerDeps): WorkflowRunner {
       error: error ?? null,
     });
     activeRuns.delete(active.id);
+    const finished = db.getWorkflowRun(active.id);
+    if (finished) deps.onRunFinished?.(finished);
   }
 
   function nodeFailureMessage(active: ActiveRun, node: WorkflowNode): string {
@@ -1086,20 +1649,36 @@ export function createWorkflowRunner(deps: WorkflowRunnerDeps): WorkflowRunner {
   function shutdown(): void {
     for (const active of [...activeRuns.values()]) {
       active.canceled = true;
-      if (active.currentSessionId) {
-        deps.service.abort(active.currentSessionId);
-      }
-      for (const resolver of active.approvals.values()) resolver("cancel");
-      active.approvals.clear();
+      active.stopping = true;
+      abortSessions(active);
+      cancelApprovals(active);
+
+      const finishedAt = Date.now();
       db.updateWorkflowRun(active.id, {
         status: "interrupted",
         error: "应用已退出，运行被中断",
-        finishedAt: Date.now(),
+        finishedAt,
       });
+      // 同一会话内也要把节点状态收干净，不能只改 run 状态
+      for (const nodeRun of db.listWorkflowNodeRuns(active.id)) {
+        if (
+          nodeRun.status === "pending" ||
+          nodeRun.status === "running" ||
+          nodeRun.status === "awaiting_approval" ||
+          nodeRun.status === "retrying"
+        ) {
+          db.updateWorkflowNodeRun(nodeRun.id, {
+            status: "canceled",
+            finishedAt,
+          });
+        }
+      }
       emitEvent(active.id, null, "run_finished", {
         status: "interrupted",
         error: "应用已退出，运行被中断",
       });
+      const finished = db.getWorkflowRun(active.id);
+      if (finished) deps.onRunFinished?.(finished);
     }
     activeRuns.clear();
   }
@@ -1119,6 +1698,12 @@ export function createWorkflowRunner(deps: WorkflowRunnerDeps): WorkflowRunner {
       // 简介已从员工配置中移除，身份与职责统一由系统提示词表达
       employee.systemPrompt,
       knowledgeSection,
+      [
+        "## 工作流协作约定",
+        "你的最终回复会作为该节点的产物，交给下游节点使用。",
+        "请只输出最终结论或交付物说明，不要重复分析过程；",
+        "如果需要下游读取文件，请写出文件的完整路径。",
+      ].join("\n"),
     ]
       .filter((part) => part && part.trim())
       .join("\n\n");
@@ -1147,10 +1732,15 @@ export function createWorkflowRunner(deps: WorkflowRunnerDeps): WorkflowRunner {
         return [
           `### 上游节点：${predecessor?.name ?? predecessorId}`,
           `状态：${nodeRun.status}`,
+          nodeRun.outputPath ? `产物文件：${nodeRun.outputPath}` : "",
+          nodeRun.artifactDir ? `产物目录：${nodeRun.artifactDir}` : "",
           nodeRun.outputSummary
             ? `输出摘要：\n${nodeRun.outputSummary}`
             : "输出摘要：无",
-        ].join("\n");
+          "需要完整内容时，请直接读取上面的产物文件。",
+        ]
+          .filter(Boolean)
+          .join("\n");
       });
       parts.push(`## 上游产物\n\n${blocks.filter(Boolean).join("\n\n")}`);
     }
@@ -1161,13 +1751,14 @@ export function createWorkflowRunner(deps: WorkflowRunnerDeps): WorkflowRunner {
   async function delay(active: ActiveRun, ms: number): Promise<void> {
     const end = Date.now() + ms;
     while (Date.now() < end) {
-      if (active.canceled) throw new CanceledError();
+      if (active.canceled || active.stopping) throw new CanceledError();
       await new Promise((resolve) => setTimeout(resolve, 100));
     }
   }
 
   return {
     start,
+    resume,
     cancel,
     approve,
     hasActiveRunForWorkflow,

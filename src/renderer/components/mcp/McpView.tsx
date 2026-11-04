@@ -16,7 +16,6 @@ import {
   FileJson,
   FolderOpen,
   KeyRound,
-  Loader2,
   Lock,
   Plus,
   RefreshCw,
@@ -29,7 +28,6 @@ import {
 } from "lucide-react";
 import { ipc } from "../../lib/ipc";
 import { dirName, toMessage } from "../../lib/utils";
-import { useSkillFontSize } from "../../hooks/useTheme";
 import { useAssetCatalog, useMcpServersStore } from "../../stores/assets";
 import { toast } from "../../stores/toast";
 import { confirmDialog } from "../../stores/confirm";
@@ -43,6 +41,12 @@ import { EmptyState, ErrorState, LoadingState } from "../ui/EmptyState";
 import { Page, PageBody, PageHeader, PageToolbar } from "../ui/Page";
 import { SearchInput } from "../ui/SearchInput";
 import { OptionChips } from "../ui/OptionChips";
+import {
+  CARD_DESCRIPTION,
+  CARD_META,
+  CARD_SHELL,
+  CARD_TITLE,
+} from "../ui/cardStyles";
 import {
   Drawer,
   DrawerBody,
@@ -104,7 +108,6 @@ function assetToJson(asset: McpServerAsset): string {
 // ============================================================================
 
 export function McpView() {
-  const skillFontSize = useSkillFontSize();
   const employees = useEmployeesStore((s) => s.employees);
   const loadEmployees = useEmployeesStore((s) => s.load);
   // MCP 配置在启动时已读取过一次，切换页面直接读缓存
@@ -143,7 +146,7 @@ export function McpView() {
       : null;
 
   return (
-    <Page fontSize={skillFontSize}>
+    <Page>
       {/* 顶栏 */}
       <PageHeader
         title="MCP"
@@ -161,28 +164,26 @@ export function McpView() {
               type="button"
               onClick={reload}
               title="重新扫描 MCP 配置"
+              aria-label="重新扫描 MCP 配置"
               className="ui-btn-round ui-icon-action flex h-9 w-9 shrink-0 items-center justify-center rounded-full"
             >
               <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
             </button>
 
-            <button
-              type="button"
+            <Button
               onClick={() => setImportOpen(true)}
-              className="ui-btn-ghost flex h-9 shrink-0 items-center gap-1.5 rounded-full px-3.5 text-body font-medium"
+              icon={<Upload className="h-4 w-4" />}
             >
-              <Upload className="h-4 w-4" />
               导入
-            </button>
+            </Button>
 
-            <button
-              type="button"
+            <Button
+              variant="primary"
               onClick={() => setDrawer({ mode: "create" })}
-              className="ui-btn-primary flex h-9 shrink-0 items-center gap-1.5 rounded-full px-4 text-body font-medium"
+              icon={<Plus className="h-4 w-4" />}
             >
-              <Plus className="h-4 w-4" />
               新建 MCP
-            </button>
+            </Button>
           </>
         }
       />
@@ -215,6 +216,7 @@ export function McpView() {
             <EmptyMcp onCreate={() => setDrawer({ mode: "create" })} onImport={() => setImportOpen(true)} />
           ) : filtered.length === 0 ? (
             <EmptyState
+              size="compact"
               icon={<Search />}
               title={query ? `没有匹配「${query}」的 MCP 服务` : "该来源下还没有 MCP 服务"}
               action={
@@ -286,11 +288,11 @@ function McpCard({
     <button
       type="button"
       onClick={onOpen}
-      className="group flex h-full min-h-36 flex-col rounded-xl border border-border bg-surface-2/60 p-card text-left transition-all hover:-translate-y-0.5 hover:border-border-strong hover:bg-surface-2/85 hover:shadow-[var(--c-shadow-sm)]"
+      className={CARD_SHELL}
     >
       <div className="flex min-w-0 items-start justify-between gap-2">
         <div className="min-w-0">
-          <h3 className="truncate text-title font-semibold text-text">{server.name}</h3>
+          <h3 className={CARD_TITLE}>{server.name}</h3>
         </div>
         <SourceTag
           label={MCP_SOURCE_LABEL[server.source]}
@@ -298,11 +300,11 @@ function McpCard({
         />
       </div>
 
-      <p className="mt-2.5 line-clamp-2 text-body-lg leading-relaxed text-text-secondary">
+      <p className={`mt-2.5 ${CARD_DESCRIPTION}`}>
         {server.description || "暂无描述"}
       </p>
 
-      <div className="mt-auto flex flex-wrap items-center gap-1.5 pt-3">
+      <div className={CARD_META}>
         <span className={`rounded-full px-2 py-0.5 text-meta ${MCP_TRANSPORT_CLASS[server.transport]}`}>
           {MCP_TRANSPORT_LABEL[server.transport]}
         </span>
@@ -503,15 +505,14 @@ function McpDrawer({
             <div className="flex min-h-0 flex-1 flex-col">
               <div className="mb-3 flex shrink-0 items-center justify-between gap-2">
                 <span className="text-meta font-medium text-text-secondary">服务定义</span>
-                <button
-                  type="button"
+                <Button
+                  variant="primary"
+                  loading={saving}
+                  icon={<Save className="h-4 w-4" />}
                   onClick={handleSave}
-                  disabled={saving}
-                  className="ui-btn-primary flex items-center gap-1.5 rounded-lg px-3.5 py-2 text-body font-medium disabled:opacity-50"
                 >
-                  {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
                   {creating ? "创建" : "保存"}
-                </button>
+                </Button>
               </div>
 
               <div className="space-y-3">

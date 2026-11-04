@@ -4,7 +4,7 @@
  * 统一列表/内容为空时的展示。三种形态覆盖全部场景：
  *
  *   <EmptyState icon={<Users />} title="..." description="..." action={<Button />} />
- *   <EmptyState variant="compact" icon={<Search />} title="没有匹配的结果" />
+ *   <EmptyState size="compact" icon={<Search />} title="没有匹配的结果" />
  *   <EmptyState title="正在加载" />           // 无图标的最简形态
  *
  * size:

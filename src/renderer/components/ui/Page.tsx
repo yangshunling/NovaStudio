@@ -9,28 +9,22 @@
  *     <PageBody>...主体...</PageBody>
  *   </Page>
  *
- * - 资产页需要放大字号时传 fontSize（注入 --c-font-size）
+ * - 全站使用同一套字号量表，页面不再局部覆盖 --c-font-size
  * - PageHeader 标题栏统一 h-[--c-layout-header]、glass、底分隔线
  * - 标题右侧统一放搜索/刷新/新建；count 作为紧凑徽标
  */
 
-import type { CSSProperties, ReactNode } from "react";
+import type { ReactNode } from "react";
 
 interface PageProps {
   children: ReactNode;
-  /** 资产页放大字号（注入 --c-font-size）；不传则不注入 */
-  fontSize?: number;
   className?: string;
 }
 
-export function Page({ children, fontSize, className = "" }: PageProps) {
-  const style = (
-    fontSize ? { "--c-font-size": `${fontSize}px` } as CSSProperties : undefined
-  );
+export function Page({ children, className = "" }: PageProps) {
   return (
     <main
       className={`relative flex flex-1 flex-col overflow-hidden ${className}`.trim()}
-      style={style}
     >
       <div className="ui-page relative z-10 flex flex-1 flex-col overflow-hidden rounded-xl">
         {children}
@@ -48,6 +42,10 @@ interface PageHeaderProps {
   countSuffix?: string;
   /** 自定义徽标节点，优先于 count（用于「本机配置」这类固定文案） */
   badge?: ReactNode;
+  /** 标题左侧图标（页面级 / 双栏右侧面板） */
+  icon?: ReactNode;
+  /** 标题下方副标题（工作区路径等），统一等宽小字 */
+  subtitle?: ReactNode;
   /** 标题栏右侧操作区（搜索/刷新/新建） */
   actions?: ReactNode;
   /** 标题栏额外类名 */
@@ -59,6 +57,8 @@ export function PageHeader({
   count,
   countSuffix,
   badge,
+  icon,
+  subtitle,
   actions,
   className = "",
 }: PageHeaderProps) {
@@ -66,16 +66,30 @@ export function PageHeader({
     <header
       className={`ui-glass relative z-10 flex h-[var(--c-layout-header)] shrink-0 items-center justify-between gap-3 border-b border-border px-card ${className}`.trim()}
     >
-      <div className="flex min-w-0 items-center gap-2">
-        <span className="ui-serif text-title font-semibold tracking-wide text-text-secondary">
-          {title}
-        </span>
-        {badge ?? (count !== undefined && (
-          <span className="rounded-full bg-surface-hover px-2 py-0.5 text-meta font-mono text-text-muted">
-            {count}
-            {countSuffix}
-          </span>
-        ))}
+      <div className="flex min-w-0 items-center gap-2.5">
+        {icon && <span className="shrink-0 text-accent">{icon}</span>}
+        <div className="min-w-0">
+          <div className="flex min-w-0 items-center gap-2">
+            <span className="ui-serif truncate text-title font-semibold tracking-wide text-text-secondary">
+              {title}
+            </span>
+            {badge ??
+              (count !== undefined && (
+                <span className="shrink-0 rounded-full bg-surface-hover px-2 py-0.5 text-meta font-mono text-text-muted">
+                  {count}
+                  {countSuffix}
+                </span>
+              ))}
+          </div>
+          {subtitle && (
+            <div
+              className="truncate font-mono text-caption text-text-muted"
+              title={typeof subtitle === "string" ? subtitle : undefined}
+            >
+              {subtitle}
+            </div>
+          )}
+        </div>
       </div>
       {actions && (
         <div className="flex min-w-0 items-center gap-2">{actions}</div>

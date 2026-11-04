@@ -25,6 +25,9 @@ import { useTerminalStore } from "../../stores/terminal";
 import { ipc } from "../../lib/ipc";
 import type { FileTab } from "../../stores/fileViewer";
 import { NoWorkspaceState } from "../ui/NoWorkspaceState";
+import { ListItem, ListPane } from "../ui/ListPane";
+import { Button } from "../ui/Button";
+import { EmptyState } from "../ui/EmptyState";
 import { TerminalView, WorkspaceToggleButton } from "../TerminalView";
 import { WorkspacePanel } from "../WorkspacePanel";
 import { FilePreview } from "../FilePreview";
@@ -52,11 +55,21 @@ export function TerminalsView() {
     y: number;
   } | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+  /**
+   * 左栏当前选中的工作区。
+   *
+   * 不能从 activeTerminal 反推：关闭终端时 activeId 会落到别的工作区，
+   * 反推会让左栏选中项莫名跳走，看起来像关错了终端。这里只在用户
+   * 主动点击工作区时改变，关闭终端不影响当前选中项。
+   */
+  const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string | null>(
+    null,
+  );
 
-  // 当前终端所属的工作区；没有打开任何终端时默认落到第一个工作区
   const activeTerminal =
     terminals.find((tab) => tab.id === activeId) ?? terminals[0] ?? null;
   const selectedWorkspace =
+    projects.find((project) => project.id === selectedWorkspaceId) ??
     projects.find((project) => project.id === activeTerminal?.workspaceId) ??
     projects[0] ??
     null;
@@ -66,6 +79,7 @@ export function TerminalsView() {
 
   /** 点击工作区：定位到该目录打开终端；已有终端则直接切回 */
   const openInWorkspace = (project: Project) => {
+    setSelectedWorkspaceId(project.id);
     openTerminal({
       workspaceId: project.id,
       cwd: project.cwd,
@@ -140,92 +154,67 @@ export function TerminalsView() {
     <main className="relative flex min-w-0 flex-1 flex-col overflow-hidden">
       <div className="ui-page relative z-10 flex min-h-0 flex-1 overflow-hidden">
         {/* 左：工作区列表（与工作流页一致） */}
-        <aside className="flex w-[280px] shrink-0 flex-col border-r border-border bg-[var(--c-panel-bg)] shadow-[var(--c-shadow-sm)]">
-          <div className="flex h-[var(--c-layout-header)] shrink-0 items-center justify-between border-b border-border px-4">
-            <div className="flex min-w-0 items-center gap-2">
-              <p className="truncate text-meta font-semibold tracking-wide text-text-muted">
-                工作区
-              </p>
-              <span className="shrink-0 rounded-full bg-surface-hover px-2 py-0.5 font-mono text-caption text-text-muted">
-                {projects.length}
-              </span>
-            </div>
+        <ListPane
+          title="工作区"
+          count={projects.length}
+          action={
             <button
               type="button"
               onClick={() => setViewMode("workspaces")}
               title="管理工作区"
-              className="ui-btn-round ui-icon-action flex h-8 w-8 items-center justify-center rounded-full text-text-muted transition-colors active:scale-95"
+              aria-label="管理工作区"
+              className="ui-btn-round ui-icon-action flex h-9 w-9 items-center justify-center rounded-full text-text-muted transition-colors active:scale-95"
             >
               <FolderKanban className="h-4 w-4" />
             </button>
-          </div>
+          }
+          footer={
+            <p className="px-1.5 py-0.5 text-caption leading-relaxed text-text-muted">
+              点击工作区即可在该目录打开终端
+            </p>
+          }
+        >
+          {projects.map((project) => {
+            const isActive = project.id === selectedWorkspace?.id;
+            const terminal =
+              terminals.find((tab) => tab.workspaceId === project.id) ?? null;
 
-          <div className="min-h-0 flex-1 space-y-1 overflow-y-auto px-2.5 pb-4 pt-4">
-            {projects.map((project) => {
-              const isActive = project.id === selectedWorkspace?.id;
-              const terminal =
-                terminals.find((tab) => tab.workspaceId === project.id) ?? null;
-
-              return (
-                <div
-                  key={project.id}
-                  onContextMenu={(event) => {
-                    event.preventDefault();
-                    setMenu({ project, ...menuPosition(event) });
-                  }}
-                  className={`flex w-full items-center rounded-xl transition-colors ${
-                    isActive
-                      ? "bg-surface-active text-text shadow-[var(--c-shadow-sm)]"
-                      : "text-text-secondary hover:bg-surface-hover hover:text-text"
-                  }`}
-                >
-                  <button
-                    type="button"
-                    onClick={() => openInWorkspace(project)}
-                    title={
-                      terminal
-                        ? `切换到「${project.name}」的终端（右键可关闭）`
-                        : `在「${project.name}」打开终端（右键可关闭）`
-                    }
-                    className="flex min-w-0 flex-1 items-center gap-3 px-2.5 py-2.5 text-left"
-                  >
+            return (
+              <ListItem
+                key={project.id}
+                active={isActive}
+                icon={
+                  terminal ? (
+                    <SquareTerminal className="h-4 w-4" />
+                  ) : (
+                    <Folder className="h-4 w-4" />
+                  )
+                }
+                title={project.name}
+                subtitle={project.cwd}
+                monoSubtitle
+                titleAttr={
+                  terminal
+                    ? `切换到「${project.name}」的终端（右键可关闭）`
+                    : `在「${project.name}」打开终端（右键可关闭）`
+                }
+                onClick={() => openInWorkspace(project)}
+                onContextMenu={(event) => {
+                  event.preventDefault();
+                  setMenu({ project, ...menuPosition(event) });
+                }}
+                trailing={
+                  terminal ? (
                     <span
-                      className={`grid h-9 w-9 shrink-0 place-items-center rounded-lg ${
-                        isActive
-                          ? "bg-accent-soft text-accent"
-                          : "bg-surface-hover text-text-muted"
-                      }`}
-                    >
-                      {terminal ? (
-                        <SquareTerminal className="h-4 w-4" />
-                      ) : (
-                        <Folder className="h-4 w-4" />
-                      )}
-                    </span>
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate text-body-lg font-medium">
-                        {project.name}
-                      </span>
-                      <span className="block truncate font-mono text-caption text-text-muted">
-                        {project.cwd}
-                      </span>
-                    </span>
-                    {terminal && (
-                      <span
-                        title="已打开"
-                        className="h-2 w-2 shrink-0 rounded-full bg-success"
-                      />
-                    )}
-                  </button>
-                </div>
-              );
-            })}
-          </div>
-
-          <div className="border-t border-border px-4 py-3 text-caption leading-relaxed text-text-muted">
-            点击工作区即可在该目录打开终端
-          </div>
-        </aside>
+                      title="已打开"
+                      className="h-2 w-2 shrink-0 rounded-full bg-success"
+                    />
+                  ) : undefined
+                }
+              />
+            );
+          })}
+        </ListPane>
 
         {/* 中：当前工作区的终端；其他终端保持挂载，切换不会重启进程 */}
         <div className="relative flex min-w-0 flex-1 flex-col overflow-hidden">
@@ -325,6 +314,7 @@ export function TerminalsView() {
                 danger
                 onClick={() => {
                   closeTerminal(menuTerminal.id);
+                  setSelectedWorkspaceId(menu.project.id);
                   setMenu(null);
                 }}
               />
@@ -373,24 +363,22 @@ function WorkspacePrompt({
   onOpen: () => void;
 }) {
   return (
-    <div className="mx-auto flex h-full max-w-md flex-col items-center justify-center gap-3 px-6 text-center text-text-muted">
-      <div className="ui-btn-round flex h-16 w-16 items-center justify-center rounded-2xl">
-        <SquareTerminal className="h-6 w-6" />
-      </div>
-      <h2 className="ui-serif text-heading font-semibold text-text-secondary">
-        「{project.name}」还没有打开终端
-      </h2>
-      <p className="text-body leading-relaxed">
-        打开后会直接定位到该工作区目录。
-      </p>
-      <button
-        type="button"
-        onClick={onOpen}
-        className="ui-btn-primary mt-2 flex h-9 items-center gap-1.5 rounded-full px-4 text-body font-medium active:scale-95"
-      >
-        <SquareTerminal className="h-4 w-4" />
-        打开终端
-      </button>
+    <div className="mx-auto flex h-full max-w-md items-center justify-center">
+      <EmptyState
+        icon={<SquareTerminal />}
+        title={`「${project.name}」还没有打开终端`}
+        description="打开后会直接定位到该工作区目录。"
+        action={
+          <Button
+            variant="primary"
+            size="sm"
+            icon={<SquareTerminal className="h-4 w-4" />}
+            onClick={onOpen}
+          >
+            打开终端
+          </Button>
+        }
+      />
     </div>
   );
 }
