@@ -4,6 +4,7 @@
 
 import { Plus, Trash2, type LucideIcon } from "lucide-react";
 import { Button } from "../ui/Button";
+import { EmptyBlock } from "../ui/EmptyState";
 
 export function Toggle({
   checked,
@@ -89,10 +90,6 @@ export function EmptyTab({
   hint?: string;
 }) {
   return (
-    <div className="flex flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-border-strong bg-surface-2/30 px-6 py-14 text-center text-text-muted">
-      <Icon className="h-7 w-7 opacity-50" />
-      <p className="text-body text-text-secondary">{text}</p>
-      {hint && <p className="text-caption">{hint}</p>}
-    </div>
+    <EmptyBlock icon={<Icon />} title={text} description={hint} />
   );
 }

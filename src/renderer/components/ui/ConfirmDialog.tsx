@@ -35,7 +35,7 @@ export function ConfirmDialog() {
       open
       onClose={() => settle(false)}
       title={title}
-      widthClass="w-[440px] max-w-[90vw]"
+      width="sm"
     >
       {message && (
         <p className="whitespace-pre-line text-body-lg leading-relaxed text-text-secondary">

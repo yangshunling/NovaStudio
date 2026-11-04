@@ -12,7 +12,12 @@ import { forwardRef } from "react";
 import { Loader2 } from "lucide-react";
 import type { ButtonHTMLAttributes, ReactNode } from "react";
 
-export type ButtonVariant = "primary" | "ghost" | "danger" | "dangerLink";
+export type ButtonVariant =
+  | "primary"
+  | "ghost"
+  | "danger"
+  | "dangerSoft"
+  | "dangerLink";
 /** md=36px/body，sm=32px/meta，xs=28px/meta */
 export type ButtonSize = "md" | "sm" | "xs";
 
@@ -20,6 +25,7 @@ const VARIANT_CLASS: Record<ButtonVariant, string> = {
   primary: "ui-btn-primary",
   ghost: "ui-btn-ghost",
   danger: "ui-btn-danger",
+  dangerSoft: "ui-btn-danger-soft",
   dangerLink: "ui-btn-danger-link",
 };
 

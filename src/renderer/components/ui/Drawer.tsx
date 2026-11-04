@@ -16,11 +16,22 @@ import { X } from "lucide-react";
 import type { ReactNode } from "react";
 import { isTopOverlay, popOverlay, pushOverlay } from "./overlayStack";
 
+/** 抽屉宽度档位：sm=默认 token / md=680 / lg=760 */
+export type DrawerWidth = "sm" | "md" | "lg";
+
+const DRAWER_WIDTHS: Record<DrawerWidth, string> = {
+  sm: "w-[var(--c-layout-drawer)]",
+  md: "w-[680px]",
+  lg: "w-[760px]",
+};
+
 interface DrawerProps {
   onClose: () => void;
   /** 抽屉的可读名称 */
   ariaLabel: string;
-  /** 面板宽度（Tailwind 类名），默认取布局 token */
+  /** 宽度档位；优先于 widthClass */
+  width?: DrawerWidth;
+  /** 自定义面板宽度（Tailwind 类名），覆盖 width */
   widthClass?: string;
   /** 额外面板类名 */
   className?: string;
@@ -30,7 +41,8 @@ interface DrawerProps {
 export function Drawer({
   onClose,
   ariaLabel,
-  widthClass = "w-[var(--c-layout-drawer)]",
+  width = "sm",
+  widthClass,
   className = "",
   children,
 }: DrawerProps) {
@@ -79,7 +91,7 @@ export function Drawer({
         aria-modal="true"
         aria-label={ariaLabel}
         tabIndex={-1}
-        className={`ui-glass-strong relative flex h-full max-w-[94vw] flex-col border-l border-border-strong shadow-[var(--c-shadow)] outline-none ${widthClass} ${className}`}
+        className={`ui-glass-strong relative flex h-full max-w-[94vw] flex-col border-l border-border-strong shadow-[var(--c-shadow)] outline-none ${widthClass ?? DRAWER_WIDTHS[width]} ${className}`}
         onClick={(e) => e.stopPropagation()}
       >
         {children}

@@ -50,7 +50,7 @@ export function BoardColumn({
         <div className="board-col-accent flex items-center gap-2">
           {icon}
           <span className="text-body font-semibold">{title}</span>
-          <span className="board-col-badge rounded-full px-2 py-0.5 text-caption font-mono leading-none">
+          <span className="board-col-badge rounded-full px-2 py-0.5 text-meta font-mono leading-none">
             {count}
           </span>
         </div>
@@ -59,7 +59,7 @@ export function BoardColumn({
             onClick={onAdd}
             title="新建任务"
             aria-label="新建任务"
-            className="ui-btn-round ui-icon-action flex h-7 w-7 items-center justify-center rounded-full"
+            className="ui-btn-round ui-icon-action flex h-9 w-9 items-center justify-center rounded-full"
           >
             <Plus className="h-4 w-4" />
           </button>

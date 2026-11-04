@@ -6,6 +6,8 @@
  */
 
 import { Folder, FolderKanban } from "lucide-react";
+import { Button } from "./Button";
+import { EmptyState } from "./EmptyState";
 
 export function NoWorkspaceState({
   description,
@@ -15,22 +17,19 @@ export function NoWorkspaceState({
   onManage: () => void;
 }) {
   return (
-    <div className="mx-auto flex max-w-md flex-col items-center justify-center gap-3 py-24 text-center text-text-muted">
-      <div className="ui-btn-round flex h-16 w-16 items-center justify-center rounded-2xl">
-        <Folder className="h-6 w-6" />
-      </div>
-      <h2 className="ui-serif text-heading font-semibold text-text-secondary">
-        还没有工作区
-      </h2>
-      <p className="text-body leading-relaxed">{description}</p>
-      <button
-        type="button"
-        onClick={onManage}
-        className="ui-btn-primary mt-2 flex items-center gap-1.5 rounded-full px-4 py-2 text-body font-medium active:scale-95"
-      >
-        <FolderKanban className="h-4 w-4" />
-        去管理工作区
-      </button>
-    </div>
+    <EmptyState
+      icon={<Folder />}
+      title="还没有工作区"
+      description={description}
+      action={
+        <Button
+          variant="primary"
+          icon={<FolderKanban className="h-4 w-4" />}
+          onClick={onManage}
+        >
+          去管理工作区
+        </Button>
+      }
+    />
   );
 }

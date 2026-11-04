@@ -18,7 +18,7 @@ import {
 import {
   Send,
   Square,
-  ChevronRight,
+  MessageSquare,
   PanelRightClose,
   PanelRightOpen,
   X,
@@ -28,7 +28,7 @@ import { ProjectSelector } from "./ProjectSelector";
 import { useFileMention, FileMentionPopup } from "./FileMention";
 import { AssistantMessageList } from "./AssistantMessageList";
 import { FileTypeIcon } from "./ui/FileTypeIcon";
-import { FolderTypeIcon } from "./ui/FolderTypeIcon";
+import { PageHeader } from "./ui/Page";
 
 // ============================================================================
 // 对话主区域
@@ -94,39 +94,30 @@ export function ChatArea({ embedded = false }: { embedded?: boolean } = {}) {
             : "ui-page relative z-10 flex flex-1 flex-col overflow-hidden rounded-xl"
         }
       >
-        {/* 顶栏：会话标题 › 绑定的工作目录 */}
-        <header className="ui-glass relative z-10 flex h-[var(--c-layout-header)] shrink-0 items-center justify-between border-b border-border px-4">
-          <div className="flex min-w-0 items-center gap-1.5 text-body-lg">
-            <span className="truncate text-text-secondary">
-              {currentSession?.title ?? "新会话"}
-            </span>
-            {currentProject && (
-              <>
-                <ChevronRight className="h-3 w-3 shrink-0 text-text-muted" />
-                <FolderTypeIcon size={13} />
-                <span className="truncate font-mono text-caption text-text-muted">
-                  {currentProject.cwd}
-                </span>
-              </>
-            )}
-          </div>
-          <button
-            type="button"
-            onClick={() => setShowWorkspace(!showWorkspace)}
-            title={showWorkspace ? "隐藏工作区文件" : "显示工作区文件"}
-            aria-label={showWorkspace ? "隐藏工作区文件" : "显示工作区文件"}
-            aria-pressed={showWorkspace}
-            className={`ui-btn-round ui-icon-action flex size-icon-btn shrink-0 items-center justify-center rounded-full ${
-              showWorkspace ? "text-accent" : ""
-            }`}
-          >
-            {showWorkspace ? (
-              <PanelRightClose className="h-4 w-4" />
-            ) : (
-              <PanelRightOpen className="h-4 w-4" />
-            )}
-          </button>
-        </header>
+        {/* 顶栏：会话标题 + 绑定的工作目录 */}
+        <PageHeader
+          icon={<MessageSquare className="h-4 w-4" />}
+          title={currentSession?.title ?? "新会话"}
+          subtitle={currentProject?.cwd}
+          actions={
+            <button
+              type="button"
+              onClick={() => setShowWorkspace(!showWorkspace)}
+              title={showWorkspace ? "隐藏工作区文件" : "显示工作区文件"}
+              aria-label={showWorkspace ? "隐藏工作区文件" : "显示工作区文件"}
+              aria-pressed={showWorkspace}
+              className={`ui-btn-round ui-icon-action flex size-icon-btn shrink-0 items-center justify-center rounded-full ${
+                showWorkspace ? "text-accent" : ""
+              }`}
+            >
+              {showWorkspace ? (
+                <PanelRightClose className="h-4 w-4" />
+              ) : (
+                <PanelRightOpen className="h-4 w-4" />
+              )}
+            </button>
+          }
+        />
 
         {/* 消息区由 assistant-ui 运行时渲染，视觉仍由 Nova token 控制 */}
         <div className="relative z-10 min-h-0 flex-1 overflow-hidden">
@@ -143,7 +134,7 @@ export function ChatArea({ embedded = false }: { embedded?: boolean } = {}) {
                     <span
                       key={entry.relativePath}
                       title={entry.relativePath}
-                      className="flex max-w-64 items-center gap-1.5 rounded-full border border-accent/25 bg-accent-soft px-2 py-1 text-caption font-medium text-accent"
+                      className="flex max-w-64 items-center gap-1.5 rounded-full border border-accent/25 bg-accent-soft px-2 py-1 text-meta font-medium text-accent"
                     >
                       <FileTypeIcon name={entry.name} size={13} />
                       <span className="truncate">{entry.name}</span>

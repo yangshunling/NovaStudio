@@ -47,13 +47,13 @@ export function TaskCard({
 
   return (
     <div
-      className={`group relative rounded-lg border border-border border-l-[3px] ${borderColor} bg-surface-2/60 p-card shadow-[var(--c-shadow-sm)] backdrop-blur-sm transition-colors hover:bg-surface-2/80 ${
+      className={`group relative rounded-xl border border-border border-l-[3px] ${borderColor} bg-surface-2/60 p-card shadow-[var(--c-shadow-sm)] backdrop-blur-sm transition-colors hover:bg-surface-2/80 ${
         canViewDetail ? "cursor-pointer" : ""
       }`}
       onClick={() => canViewDetail && onViewDetail()}
     >
       {/* 状态点 + Prompt — 右侧留出操作按钮空间 */}
-      <div className="flex items-start gap-2 pr-14">
+      <div className="flex items-start gap-2 pr-24">
         <StatusDot
           status={isRunning ? "streaming" : isCompleted ? "success" : isFailed ? "error" : "inactive"}
           className="mt-1.5"
@@ -108,7 +108,7 @@ export function TaskCard({
               onClick={(e) => { e.stopPropagation(); onRetry(); }}
               title="重试"
               aria-label="重试任务"
-              className="rounded-md p-1.5 text-text-muted hover:bg-surface-hover hover:text-accent"
+              className="ui-btn-round ui-icon-action flex h-9 w-9 items-center justify-center rounded-full text-text-muted hover:text-accent"
             >
               <RotateCcw className="h-4 w-4" />
             </button>
@@ -125,7 +125,7 @@ export function TaskCard({
             onClick={(e) => { e.stopPropagation(); onStop(); }}
             title="停止执行"
             aria-label="停止执行"
-            className="rounded-md p-1 text-text-muted hover:bg-surface-hover hover:text-error"
+            className="ui-btn-round ui-icon-action flex h-9 w-9 items-center justify-center rounded-full text-text-muted hover:text-error"
           >
             <Square className="h-3.5 w-3.5" />
           </button>

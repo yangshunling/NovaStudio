@@ -109,14 +109,14 @@ export function SkillsTab({
                             {asset.name}
                           </span>
                           <span
-                            className={`shrink-0 rounded-full px-2 py-0.5 text-caption ${SKILL_ORIGIN_CLASS[asset.origin]}`}
+                            className={`shrink-0 rounded-full px-2 py-0.5 text-meta ${SKILL_ORIGIN_CLASS[asset.origin]}`}
                           >
                             {SKILL_ORIGIN_LABEL[asset.origin]}
                           </span>
                           {problems.length > 0 && (
                             <span
                               title={problems.join("\n")}
-                              className="flex shrink-0 items-center gap-0.5 rounded-full bg-error-bg px-2 py-0.5 text-caption text-error"
+                              className="flex shrink-0 items-center gap-0.5 rounded-full bg-error-bg px-2 py-0.5 text-meta text-error"
                             >
                               <AlertTriangle className="h-2.5 w-2.5" />
                               需处理
@@ -182,25 +182,25 @@ export function SkillsTab({
                           </span>
                           {asset && (
                             <span
-                              className={`shrink-0 rounded-full px-2 py-0.5 text-caption ${SKILL_ORIGIN_CLASS[asset.origin]}`}
+                              className={`shrink-0 rounded-full px-2 py-0.5 text-meta ${SKILL_ORIGIN_CLASS[asset.origin]}`}
                             >
                               {SKILL_ORIGIN_LABEL[asset.origin]}
                             </span>
                           )}
                           {legacy && (
-                            <span className="shrink-0 rounded-full bg-agent-amber/10 px-2 py-0.5 text-caption text-agent-amber">
+                            <span className="shrink-0 rounded-full bg-agent-amber/10 px-2 py-0.5 text-meta text-agent-amber">
                               旧版路径
                             </span>
                           )}
                           {missing && (
-                            <span className="shrink-0 rounded-full bg-error-bg px-2 py-0.5 text-caption text-error">
+                            <span className="shrink-0 rounded-full bg-error-bg px-2 py-0.5 text-meta text-error">
                               已失效
                             </span>
                           )}
                           {problems.length > 0 && (
                             <span
                               title={problems.join("\n")}
-                              className="flex shrink-0 items-center gap-0.5 rounded-full bg-error-bg px-2 py-0.5 text-caption text-error"
+                              className="flex shrink-0 items-center gap-0.5 rounded-full bg-error-bg px-2 py-0.5 text-meta text-error"
                             >
                               <AlertTriangle className="h-2.5 w-2.5" />
                               需处理

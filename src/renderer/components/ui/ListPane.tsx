@@ -40,7 +40,7 @@ export function ListPane({
             {title}
           </p>
           {count !== undefined && (
-            <span className="shrink-0 rounded-full bg-surface-hover px-2 py-0.5 font-mono text-caption leading-none text-text-muted">
+            <span className="shrink-0 rounded-full bg-surface-hover px-2 py-0.5 font-mono text-meta leading-none text-text-muted">
               {count}
             </span>
           )}

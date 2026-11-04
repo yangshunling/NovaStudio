@@ -341,6 +341,17 @@ body {
   opacity: 0.55;
 }
 
+/* 危险操作的浅色按钮（终止运行 / 停止任务） */
+.ui-btn-danger-soft {
+  border: 1px solid color-mix(in srgb, var(--c-error) 40%, transparent);
+  background: var(--c-error-bg);
+  color: var(--c-error);
+  transition: border-color var(--c-motion-fast) var(--c-ease-standard);
+}
+.ui-btn-danger-soft:hover:not(:disabled) {
+  border-color: var(--c-error);
+}
+
 /* 危险操作的次级入口（抽屉页脚的“删除”） */
 .ui-btn-danger-link {
   border: 1px solid transparent;

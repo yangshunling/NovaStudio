@@ -35,6 +35,7 @@ import type { AgentEvent, Message, ToolKind } from "@shared/types";
 import { selectEffectiveAgentId, useChatStore } from "../stores/chat";
 import { MarkdownRenderer } from "./MarkdownRenderer";
 import { AgentAvatar, NovaAvatar } from "./ui/MessageAvatar";
+import { UserBubble } from "./ui/UserBubble";
 import { truncateText } from "../lib/utils";
 
 export function AssistantMessageList() {
@@ -114,9 +115,9 @@ function ThreadEmpty() {
 function UserMessage() {
   return (
     <MessagePrimitive.Root className="relative mx-auto mb-4 flex max-w-[var(--c-layout-content)] justify-end last:mb-0">
-      <div className="max-w-[80%] rounded-2xl rounded-br-sm border border-border-strong bg-bubble-user px-4 py-2.5 text-body-lg text-bubble-user-text shadow-[var(--c-shadow-sm)]">
+      <UserBubble>
         <MessagePrimitive.Parts components={{ Text: UserTextPart }} />
-      </div>
+      </UserBubble>
       <NovaAvatar className="ui-chat-avatar-right" />
     </MessagePrimitive.Root>
   );

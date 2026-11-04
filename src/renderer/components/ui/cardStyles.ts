@@ -24,10 +24,19 @@ export const CARD_TITLE = "truncate text-title font-semibold text-text";
 export const CARD_DESCRIPTION =
   "line-clamp-2 text-body leading-relaxed text-text-muted";
 
-/** 卡片底部标签 / 元信息行 */
+/**
+ * 卡片底栏：六类资产卡片（员工 / 技能 / MCP / 工作流 / 工作区 / 触发器）
+ * 都必须是同一个底栏结构 —— 统一不带分隔线，只用留白拉开层次，元信息在左、操作在右。
+ */
+
+/** 只有元信息、没有操作的底栏 */
 export const CARD_META =
   "mt-auto flex flex-wrap items-center gap-1.5 pt-3 text-meta text-text-muted";
 
-/** 卡片底部操作行（带分隔线） */
-export const CARD_ACTION_FOOTER =
-  "mt-auto flex items-center justify-between gap-2 border-t border-border pt-3";
+/** 元信息 + 操作按钮的底栏 */
+export const CARD_FOOTER =
+  "mt-auto flex flex-wrap items-center justify-between gap-2 pt-3 text-meta text-text-muted";
+
+/** 底栏左侧的元信息容器（用于 CARD_FOOTER 内） */
+export const CARD_FOOTER_META =
+  "flex min-w-0 flex-wrap items-center gap-1.5";

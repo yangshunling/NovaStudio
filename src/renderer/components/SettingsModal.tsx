@@ -141,7 +141,7 @@ function ConcurrencyControl() {
       <Select
         value={String(value)}
         onChange={(next) => handleChange(Number(next))}
-        className="ui-ring w-40 rounded-lg bg-input-bg px-inset py-inset text-body-lg text-text"
+        className="ui-ring w-40 rounded-lg bg-input-bg px-inset py-inset text-body text-text"
         minMenuWidth={160}
         options={CONCURRENCY_OPTIONS.map((n) => ({
           value: String(n),
@@ -559,7 +559,7 @@ export function SettingsModal() {
                 type="button"
                 onClick={() => setSection(id)}
                 aria-current={active ? "page" : undefined}
-                className={`flex w-full items-center gap-2 rounded-md px-3 py-2.5 text-body font-medium transition-colors ${
+                className={`flex w-full items-center gap-2 rounded-xl px-2.5 py-2.5 text-body-lg font-medium transition-colors ${
                   active
                     ? "bg-surface-active text-text"
                     : "text-text-secondary hover:bg-surface-hover hover:text-text"

@@ -43,11 +43,17 @@ import {
   DrawerHeader,
 } from "../ui/Drawer";
 import { Button } from "../ui/Button";
-import { EmptyState, ErrorState, LoadingState } from "../ui/EmptyState";
+import {
+  EmptyState,
+  ErrorState,
+  FilterEmpty,
+  LoadingState,
+} from "../ui/EmptyState";
 import { Page, PageBody, PageHeader } from "../ui/Page";
 import { SearchInput } from "../ui/SearchInput";
 import {
   CARD_DESCRIPTION,
+  CARD_ICON_TILE,
   CARD_META,
   CARD_SHELL,
   CARD_TITLE,
@@ -130,6 +136,7 @@ export function SkillsView() {
         title="技能"
         count={skills.length}
         countSuffix=" 个"
+        icon={<Sparkles className="h-4 w-4" />}
         actions={
           <>
             <SearchInput
@@ -176,21 +183,9 @@ export function SkillsView() {
           ) : skills.length === 0 ? (
             <EmptySkills onImport={handleImport} importing={importing} />
           ) : filtered.length === 0 ? (
-            <EmptyState
-              size="compact"
-              icon={<Search />}
+            <FilterEmpty
               title={`没有匹配「${query}」的技能`}
-              action={
-                query ? (
-                  <button
-                    type="button"
-                    onClick={() => setQuery("")}
-                    className="text-meta text-accent hover:underline"
-                  >
-                    清除搜索
-                  </button>
-                ) : undefined
-              }
+              onClear={query ? () => setQuery("") : undefined}
             />
           ) : (
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
@@ -241,17 +236,20 @@ function SkillCard({
       onClick={onOpen}
       className={CARD_SHELL}
     >
-      <div className="flex min-w-0 items-start justify-between gap-2">
-        <div className="min-w-0">
+      <div className="flex items-start gap-3">
+        <span className={CARD_ICON_TILE}>
+          <Sparkles className="h-5 w-5" />
+        </span>
+        <div className="flex min-w-0 flex-1 items-start justify-between gap-2">
           <h3 className={CARD_TITLE}>{skill.name}</h3>
+          <SourceTag
+            label={SKILL_ORIGIN_LABEL[skill.origin]}
+            className={SKILL_ORIGIN_CLASS[skill.origin]}
+          />
         </div>
-        <SourceTag
-          label={SKILL_ORIGIN_LABEL[skill.origin]}
-          className={SKILL_ORIGIN_CLASS[skill.origin]}
-        />
       </div>
 
-      <p className={`mt-2.5 ${CARD_DESCRIPTION}`}>
+      <p className={`mt-2 ${CARD_DESCRIPTION}`}>
         {skill.description || "暂无描述"}
       </p>
 
@@ -376,7 +374,7 @@ function SkillDrawer({
   };
 
   return (
-    <Drawer onClose={onClose} ariaLabel="技能详情" widthClass="w-[720px]">
+    <Drawer onClose={onClose} ariaLabel="技能详情" width="lg">
       {/* 头部 */}
       <DrawerHeader>
         <Sparkles className="h-5 w-5 shrink-0 text-accent" />

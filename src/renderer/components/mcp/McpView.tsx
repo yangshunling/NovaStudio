@@ -37,12 +37,18 @@ import { formatAssetTime, Meta, SourceTag, Tag } from "../assets/assetUi";
 import { Field, TextArea, FORM_INPUT_CLASS as INPUT_CLASS } from "../ui/Field";
 import { Dialog, DialogActions } from "../ui/Dialog";
 import { Button } from "../ui/Button";
-import { EmptyState, ErrorState, LoadingState } from "../ui/EmptyState";
+import {
+  EmptyState,
+  ErrorState,
+  FilterEmpty,
+  LoadingState,
+} from "../ui/EmptyState";
 import { Page, PageBody, PageHeader, PageToolbar } from "../ui/Page";
 import { SearchInput } from "../ui/SearchInput";
 import { OptionChips } from "../ui/OptionChips";
 import {
   CARD_DESCRIPTION,
+  CARD_ICON_TILE,
   CARD_META,
   CARD_SHELL,
   CARD_TITLE,
@@ -152,6 +158,7 @@ export function McpView() {
         title="MCP"
         count={servers.length}
         countSuffix=" 个服务"
+        icon={<Server className="h-4 w-4" />}
         actions={
           <>
             <SearchInput
@@ -215,21 +222,13 @@ export function McpView() {
           ) : servers.length === 0 ? (
             <EmptyMcp onCreate={() => setDrawer({ mode: "create" })} onImport={() => setImportOpen(true)} />
           ) : filtered.length === 0 ? (
-            <EmptyState
-              size="compact"
-              icon={<Search />}
-              title={query ? `没有匹配「${query}」的 MCP 服务` : "该来源下还没有 MCP 服务"}
-              action={
-                query ? (
-                  <button
-                    type="button"
-                    onClick={() => setQuery("")}
-                    className="text-meta text-accent hover:underline"
-                  >
-                    清除搜索
-                  </button>
-                ) : undefined
+            <FilterEmpty
+              title={
+                query
+                  ? `没有匹配「${query}」的 MCP 服务`
+                  : "该来源下还没有 MCP 服务"
               }
+              onClear={query ? () => setQuery("") : undefined}
             />
           ) : (
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
@@ -290,17 +289,20 @@ function McpCard({
       onClick={onOpen}
       className={CARD_SHELL}
     >
-      <div className="flex min-w-0 items-start justify-between gap-2">
-        <div className="min-w-0">
+      <div className="flex items-start gap-3">
+        <span className={CARD_ICON_TILE}>
+          <Server className="h-5 w-5" />
+        </span>
+        <div className="flex min-w-0 flex-1 items-start justify-between gap-2">
           <h3 className={CARD_TITLE}>{server.name}</h3>
+          <SourceTag
+            label={MCP_SOURCE_LABEL[server.source]}
+            className={MCP_SOURCE_CLASS[server.source]}
+          />
         </div>
-        <SourceTag
-          label={MCP_SOURCE_LABEL[server.source]}
-          className={MCP_SOURCE_CLASS[server.source]}
-        />
       </div>
 
-      <p className={`mt-2.5 ${CARD_DESCRIPTION}`}>
+      <p className={`mt-2 ${CARD_DESCRIPTION}`}>
         {server.description || "暂无描述"}
       </p>
 
@@ -415,7 +417,7 @@ function McpDrawer({
   const title = creating ? "新建 MCP 服务" : server?.name ?? "MCP 服务";
 
   return (
-    <Drawer onClose={onClose} ariaLabel={title} widthClass="w-[720px]">
+    <Drawer onClose={onClose} ariaLabel={title} width="lg">
       {/* 头部 */}
       <DrawerHeader>
         <Server className="h-5 w-5 shrink-0 text-accent" />
@@ -703,7 +705,7 @@ function ImportMcpModal({
       open={open}
       onClose={onClose}
       title="导入 MCP 服务"
-      widthClass="w-[640px] max-w-[92vw]"
+      width="lg"
       headerClassName="mb-2"
       description={
         <>

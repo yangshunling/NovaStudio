@@ -31,7 +31,7 @@ export function ConfirmDeleteButton({
     return () => clearTimeout(t);
   }, [confirming, timeoutMs]);
 
-  const baseClass = `shrink-0 rounded p-1.5 transition-colors ${className}`;
+  const baseClass = `ui-btn-round ui-icon-action flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-colors ${className}`;
 
   if (confirming) {
     return (

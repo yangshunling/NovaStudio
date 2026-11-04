@@ -30,6 +30,7 @@ import {
 } from "lucide-react";
 import { MarkdownRenderer } from "./MarkdownRenderer";
 import { StreamingIndicator } from "./ui/StreamingIndicator";
+import { UserBubble } from "./ui/UserBubble";
 import { truncateText, isToolResultError, firstText } from "../lib/utils";
 import type { AgentEvent, ToolKind } from "@shared/types";
 
@@ -275,9 +276,7 @@ export function MessageGroup({ events, isUser }: { events: AgentEvent[]; isUser:
     const text = firstText(events);
     return (
       <div className="mb-4 flex justify-end">
-        <div className="max-w-[80%] rounded-2xl rounded-br-sm border border-border-strong bg-bubble-user px-4 py-2.5 text-body-lg text-bubble-user-text shadow-[var(--c-shadow-sm)]">
-          {text}
-        </div>
+        <UserBubble>{text}</UserBubble>
       </div>
     );
   }

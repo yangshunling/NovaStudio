@@ -25,6 +25,8 @@ import { formatBytes, stripPreTag } from "../lib/utils";
 import { MarkdownRenderer } from "./MarkdownRenderer";
 import { Button } from "./ui/Button";
 import { FileTypeIcon } from "./ui/FileTypeIcon";
+import { PageHeader } from "./ui/Page";
+import { SegmentedTabs } from "./ui/SegmentedTabs";
 import type { FileTab } from "../stores/fileViewer";
 
 export function FilePreview({
@@ -86,84 +88,70 @@ export function FilePreview({
 
   return (
     <main className="relative flex h-full min-h-0 flex-col overflow-hidden">
-      <header className="ui-glass flex h-[var(--c-layout-header)] shrink-0 items-center justify-between border-b border-border px-4">
-        <div className="flex min-w-0 items-center gap-2">
-          <FileTypeIcon name={tab.name} size={17} />
-          <span className="truncate text-body-lg font-medium text-text">{tab.name}</span>
-          {!embedded && (
-            <span className="hidden min-w-0 truncate font-mono text-caption text-text-muted min-[1100px]:inline">
-              {tab.relativePath}
-            </span>
-          )}
-        </div>
-        <div className="ml-3 flex shrink-0 items-center gap-1">
-          {file && (
-            <span className="mr-1 hidden text-caption text-text-muted sm:inline">
-              {formatBytes(file.size)}
-              {file.truncated ? " · 已截断" : ""}
-            </span>
-          )}
-          {file?.kind === "markdown" && (
-            <div className="ui-ring mr-1 flex items-center rounded-md p-0.5">
-              <button
-                type="button"
-                onClick={() => setMarkdownMode("preview")}
-                title="预览 Markdown"
-                aria-label="预览 Markdown"
-                className={`rounded px-1.5 py-1 ${
-                  markdownMode === "preview"
-                    ? "bg-surface-active text-text"
-                    : "text-text-muted hover:text-text"
-                }`}
-              >
-                <Eye className="h-3.5 w-3.5" />
-              </button>
-              <button
-                type="button"
-                onClick={() => setMarkdownMode("source")}
-                title="查看 Markdown 源码"
-                aria-label="查看 Markdown 源码"
-                className={`rounded px-1.5 py-1 ${
-                  markdownMode === "source"
-                    ? "bg-surface-active text-text"
-                    : "text-text-muted hover:text-text"
-                }`}
-              >
-                <FileCode2 className="h-3.5 w-3.5" />
-              </button>
-            </div>
-          )}
-          <button
-            type="button"
-            onClick={() => setReloadKey((value) => value + 1)}
-            title="重新读取文件"
-            aria-label="重新读取文件"
-            className="rounded p-2 text-text-muted transition-colors hover:bg-surface-hover hover:text-text"
-          >
-            <RotateCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
-          </button>
-          <button
-            type="button"
-            onClick={openExternal}
-            title="用系统默认程序打开"
-            aria-label="用系统默认程序打开"
-            className="rounded p-2 text-text-muted transition-colors hover:bg-surface-hover hover:text-text"
-          >
-            <ExternalLink className="h-4 w-4" />
-          </button>
-          {onClose && (
+      <PageHeader
+        icon={<FileTypeIcon name={tab.name} size={17} />}
+        title={tab.name}
+        subtitle={!embedded ? tab.relativePath : undefined}
+        actions={
+          <>
+            {file && (
+              <span className="mr-1 hidden text-meta text-text-muted sm:inline">
+                {formatBytes(file.size)}
+                {file.truncated ? " · 已截断" : ""}
+              </span>
+            )}
+            {file?.kind === "markdown" && (
+              <SegmentedTabs
+                size="sm"
+                value={markdownMode}
+                onChange={setMarkdownMode}
+                className="mr-1"
+                options={[
+                  {
+                    id: "preview",
+                    label: <Eye className="h-3.5 w-3.5" />,
+                    title: "预览 Markdown",
+                  },
+                  {
+                    id: "source",
+                    label: <FileCode2 className="h-3.5 w-3.5" />,
+                    title: "查看 Markdown 源码",
+                  },
+                ]}
+              />
+            )}
             <button
               type="button"
-              onClick={onClose}
-              title="关闭预览"
-              aria-label="关闭预览"
-              className="rounded p-2 text-text-muted transition-colors hover:bg-surface-hover hover:text-text"
+              onClick={() => setReloadKey((value) => value + 1)}
+              title="重新读取文件"
+              aria-label="重新读取文件"
+              className="ui-btn-round ui-icon-action flex h-9 w-9 items-center justify-center rounded-full text-text-muted"
             >
-              <X className="h-4 w-4" />
+              <RotateCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
             </button>
-          )}
-        </div>
-      </header>
+            <button
+              type="button"
+              onClick={openExternal}
+              title="用系统默认程序打开"
+              aria-label="用系统默认程序打开"
+              className="ui-btn-round ui-icon-action flex h-9 w-9 items-center justify-center rounded-full text-text-muted"
+            >
+              <ExternalLink className="h-4 w-4" />
+            </button>
+            {onClose && (
+              <button
+                type="button"
+                onClick={onClose}
+                title="关闭预览"
+                aria-label="关闭预览"
+                className="ui-btn-round ui-icon-action flex h-9 w-9 items-center justify-center rounded-full text-text-muted"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            )}
+          </>
+        }
+      />
 
       {externalError && (
         <div className="shrink-0 border-b border-error/30 bg-error-bg px-4 py-2 text-meta text-error">
@@ -185,7 +173,7 @@ export function FilePreview({
           />
         ) : file?.kind === "markdown" ? (
           markdownMode === "preview" ? (
-            <div className="h-full overflow-y-auto p-5">
+            <div className="h-full overflow-y-auto p-section">
               <div className="mx-auto max-w-[var(--c-layout-content)]">
                 <MarkdownRenderer
                   content={file.content ?? ""}
@@ -201,7 +189,7 @@ export function FilePreview({
         ) : file?.kind === "text" ? (
           <CodePreview code={file.content ?? ""} language={file.language ?? "text"} />
         ) : file?.kind === "image" && file.dataUrl ? (
-          <div className="flex h-full items-center justify-center overflow-auto bg-surface-2 p-5">
+          <div className="flex h-full items-center justify-center overflow-auto bg-surface-2 p-section">
             <img
               src={file.dataUrl}
               alt={file.name}

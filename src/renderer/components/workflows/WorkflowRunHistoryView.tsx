@@ -18,6 +18,8 @@ import { toast } from "../../stores/toast";
 import { confirmDialog } from "../../stores/confirm";
 import { Button } from "../ui/Button";
 import { EmptyState, ErrorState, LoadingState } from "../ui/EmptyState";
+import { Page } from "../ui/Page";
+import { SegmentedTabs } from "../ui/SegmentedTabs";
 import { formatDateTime, formatDuration } from "../../lib/workflowFormat";
 import { ACTIVE_RUN_STATUSES, RUN_STATUS } from "../../lib/workflowStatus";
 import type { WorkflowRun } from "@shared/types";
@@ -136,22 +138,21 @@ export function WorkflowRunHistoryView({
 
 
   return (
-    <main className="relative flex flex-1 flex-col overflow-hidden">
-      <div className="ui-page relative z-10 flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl">
+    <Page>
         <header className="ui-glass relative z-10 flex h-[var(--c-layout-header)] shrink-0 items-center gap-3 border-b border-border px-4">
-          <button
-            type="button"
+          <Button
+            variant="ghost"
+            size="sm"
+            icon={<ArrowLeft className="h-4 w-4" />}
             onClick={onBack}
             title="返回"
-            className="flex h-8 shrink-0 items-center gap-1.5 rounded-lg px-2 text-body text-text-muted transition-colors hover:bg-surface-hover hover:text-text active:scale-95"
           >
-            <ArrowLeft className="h-4 w-4" />
             返回
-          </button>
+          </Button>
 
           <span className="h-5 w-px shrink-0 bg-border" />
 
-          <p className="min-w-0 truncate text-heading font-semibold text-text">
+          <p className="ui-serif min-w-0 truncate text-title font-semibold tracking-wide text-text-secondary">
             {title}
           </p>
 
@@ -187,51 +188,25 @@ export function WorkflowRunHistoryView({
           ) : (
             <>
               <div className="mb-3 flex flex-wrap items-center gap-2">
-                <div className="flex items-center gap-1 rounded-full bg-surface-hover/60 p-1">
-                  {(
-                    [
-                      ["all", "全部来源"],
-                      ["manual", "手动"],
-                      ["trigger", "触发器"],
-                    ] as const
-                  ).map(([value, label]) => (
-                    <button
-                      key={value}
-                      type="button"
-                      onClick={() => setSourceFilter(value)}
-                      className={`rounded-full px-3 py-1 text-meta font-medium transition-colors ${
-                        sourceFilter === value
-                          ? "bg-surface text-text shadow-[var(--c-shadow-sm)]"
-                          : "text-text-muted hover:text-text"
-                      }`}
-                    >
-                      {label}
-                    </button>
-                  ))}
-                </div>
-                <div className="flex items-center gap-1 rounded-full bg-surface-hover/60 p-1">
-                  {(
-                    [
-                      ["all", "全部状态"],
-                      ["active", "进行中"],
-                      ["failed", "失败"],
-                      ["succeeded", "成功"],
-                    ] as const
-                  ).map(([value, label]) => (
-                    <button
-                      key={value}
-                      type="button"
-                      onClick={() => setStatusFilter(value)}
-                      className={`rounded-full px-3 py-1 text-meta font-medium transition-colors ${
-                        statusFilter === value
-                          ? "bg-surface text-text shadow-[var(--c-shadow-sm)]"
-                          : "text-text-muted hover:text-text"
-                      }`}
-                    >
-                      {label}
-                    </button>
-                  ))}
-                </div>
+                <SegmentedTabs
+                  value={sourceFilter}
+                  onChange={setSourceFilter}
+                  options={[
+                    { id: "all", label: "全部来源" },
+                    { id: "manual", label: "手动" },
+                    { id: "trigger", label: "触发器" },
+                  ] as const}
+                />
+                <SegmentedTabs
+                  value={statusFilter}
+                  onChange={setStatusFilter}
+                  options={[
+                    { id: "all", label: "全部状态" },
+                    { id: "active", label: "进行中" },
+                    { id: "failed", label: "失败" },
+                    { id: "succeeded", label: "成功" },
+                  ] as const}
+                />
                 <span className="ml-auto font-mono text-caption text-text-muted">
                   {visibleRuns.length} / {runs.length}
                 </span>
@@ -369,7 +344,6 @@ export function WorkflowRunHistoryView({
             </>
           )}
         </div>
-      </div>
-    </main>
+    </Page>
   );
 }

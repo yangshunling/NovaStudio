@@ -28,7 +28,7 @@ export function AgentPill({
 
   return (
     <span
-      className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-caption ${tone.soft} ${tone.fg} ${className}`}
+      className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-meta ${tone.soft} ${tone.fg} ${className}`}
     >
       <Bot size={iconSize} className="shrink-0" />
       <span className={`truncate ${maxWidth}`}>{getAgentName(agents, agentId)}</span>

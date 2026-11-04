@@ -20,7 +20,6 @@ import {
   Search,
   Trash2,
   Workflow as WorkflowIcon,
-  type LucideIcon,
 } from "lucide-react";
 import { ipc } from "../../lib/ipc";
 import { dirName, toMessage } from "../../lib/utils";
@@ -29,15 +28,23 @@ import { useChatStore } from "../../stores/chat";
 import { useTerminalStore } from "../../stores/terminal";
 import { toast } from "../../stores/toast";
 import { confirmDialog } from "../../stores/confirm";
-import { EmptyState, ErrorState, LoadingState } from "../ui/EmptyState";
+import {
+  EmptyState,
+  ErrorState,
+  FilterEmpty,
+  LoadingState,
+} from "../ui/EmptyState";
 import { Page, PageBody, PageHeader } from "../ui/Page";
 import { Button } from "../ui/Button";
 import {
-  CARD_META,
+  CARD_FOOTER,
+  CARD_FOOTER_META,
+  CARD_ICON_TILE,
   CARD_SHELL,
   CARD_TITLE,
 } from "../ui/cardStyles";
 import { SearchInput } from "../ui/SearchInput";
+import { INLINE_INPUT_CLASS } from "../ui/Field";
 import type { Project, Workflow } from "@shared/types";
 
 /** 路径比较：Windows 下大小写与分隔符都不敏感，其他平台大小写敏感 */
@@ -237,19 +244,9 @@ export function WorkspacesView() {
               onCreate={() => void createWorkspace()}
             />
           ) : filtered.length === 0 ? (
-            <EmptyState
-              size="compact"
-              icon={<Search />}
+            <FilterEmpty
               title={`没有匹配「${query}」的工作区`}
-              action={
-                <button
-                  type="button"
-                  onClick={() => setQuery("")}
-                  className="text-meta text-accent hover:underline"
-                >
-                  清除搜索
-                </button>
-              }
+              onClear={() => setQuery("")}
             />
           ) : (
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
@@ -305,7 +302,7 @@ function WorkspaceCard({
   return (
     <div className={CARD_SHELL}>
       <div className="flex items-start gap-3">
-        <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-accent-soft text-accent">
+        <span className={CARD_ICON_TILE}>
           <Folder className="h-5 w-5" />
         </span>
         <div className="min-w-0 flex-1">
@@ -319,7 +316,7 @@ function WorkspaceCard({
                   if (event.key === "Enter") submitRename();
                   if (event.key === "Escape") setRenaming(false);
                 }}
-                className="min-w-0 flex-1 rounded-md border border-input-border bg-input-bg px-2 py-1 text-title font-semibold text-text outline-none focus:border-input-border-focus"
+                className={`${INLINE_INPUT_CLASS} text-title font-semibold`}
               />
               <button
                 type="button"
@@ -345,70 +342,45 @@ function WorkspaceCard({
         </div>
       </div>
 
-      {/* 会话 / 工作流数量下沉到卡片底部，用颜色区分；右侧保留更新时间与操作 */}
-      <div className={CARD_META}>
-        <span
-          title={`${sessionCount} 个会话`}
-          className="flex items-center gap-1 rounded-full bg-agent-teal/10 px-2.5 py-0.5 text-agent-teal"
-        >
-          <MessageSquare className="h-3 w-3" />
-          {sessionCount} 个会话
-        </span>
-        <span
-          title={`${workflowCount} 个工作流`}
-          className="flex items-center gap-1 rounded-full bg-agent-amber/10 px-2.5 py-0.5 text-agent-amber"
-        >
-          <WorkflowIcon className="h-3 w-3" />
-          {workflowCount} 个工作流
-        </span>
-        <div className="ml-auto flex items-center gap-1">
-          <ActionButton
-            icon={Pencil}
-            label="重命名工作区"
-            disabled={deleting}
+      {/* 会话 / 工作流数量在左，操作按钮在右，与触发器/工作流卡片一致 */}
+      <div className={CARD_FOOTER}>
+        <div className={CARD_FOOTER_META}>
+          <span
+            title={`${sessionCount} 个会话`}
+            className="flex items-center gap-1 rounded-full bg-agent-teal/10 px-2 py-0.5 text-agent-teal"
+          >
+            <MessageSquare className="h-3 w-3" />
+            {sessionCount} 个会话
+          </span>
+          <span
+            title={`${workflowCount} 个工作流`}
+            className="flex items-center gap-1 rounded-full bg-agent-amber/10 px-2 py-0.5 text-agent-amber"
+          >
+            <WorkflowIcon className="h-3 w-3" />
+            {workflowCount} 个工作流
+          </span>
+        </div>
+        <div className="flex shrink-0 items-center gap-1">
+          <Button
+            size="xs"
+            icon={<Pencil className="h-3.5 w-3.5" />}
             onClick={startRename}
-          />
-          <ActionButton
-            icon={Trash2}
-            label="删除工作区"
-            danger
             disabled={deleting}
+          >
+            重命名
+          </Button>
+          <Button
+            size="xs"
+            variant="dangerLink"
+            icon={<Trash2 className="h-3.5 w-3.5" />}
             onClick={onDelete}
-          />
+            disabled={deleting}
+          >
+            删除
+          </Button>
         </div>
       </div>
     </div>
-  );
-}
-
-function ActionButton({
-  icon: Icon,
-  label,
-  danger = false,
-  disabled = false,
-  onClick,
-}: {
-  icon: LucideIcon;
-  label: string;
-  danger?: boolean;
-  disabled?: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      title={label}
-      aria-label={label}
-      className={`ui-ring rounded-md p-1.5 transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
-        danger
-          ? "text-text-muted hover:bg-error-bg hover:text-error"
-          : "text-text-muted hover:bg-surface-hover hover:text-text"
-      }`}
-    >
-      <Icon className="h-3.5 w-3.5" />
-    </button>
   );
 }
 
@@ -424,7 +396,6 @@ function EmptyWorkspaces({
       icon={<FolderKanban />}
       title="先登记一个工作区"
       description="工作区是一个本地根目录。会话、工作流与运行产物都会落在里面；在这里登记一次，其他页面直接选用即可。"
-      className="py-24"
       action={
         <Button
           variant="primary"

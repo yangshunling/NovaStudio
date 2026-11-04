@@ -16,7 +16,12 @@ import {
   Users,
 } from "lucide-react";
 import { useEmployeesStore } from "../../stores/employees";
-import { EmptyState, ErrorState, LoadingState } from "../ui/EmptyState";
+import {
+  EmptyState,
+  ErrorState,
+  FilterEmpty,
+  LoadingState,
+} from "../ui/EmptyState";
 import { Page, PageBody, PageHeader } from "../ui/Page";
 import { Button } from "../ui/Button";
 import { SearchInput } from "../ui/SearchInput";
@@ -65,6 +70,7 @@ export function EmployeesView() {
         title="数字员工"
         count={employees.length}
         countSuffix=" 位"
+        icon={<Users className="h-4 w-4" />}
         actions={
           <>
             <SearchInput
@@ -93,19 +99,9 @@ export function EmployeesView() {
           ) : employees.length === 0 ? (
             <EmptyEmployees onCreate={openCreate} />
           ) : filtered.length === 0 ? (
-            <EmptyState
-              size="compact"
-              icon={<Search />}
+            <FilterEmpty
               title={`没有匹配「${query}」的数字员工`}
-              action={
-                <button
-                  type="button"
-                  onClick={() => setQuery("")}
-                  className="text-meta text-accent hover:underline"
-                >
-                  清除搜索
-                </button>
-              }
+              onClear={() => setQuery("")}
             />
           ) : (
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
@@ -175,7 +171,7 @@ function EmployeeCard({
         </div>
       </div>
 
-      <p className={`mt-2.5 whitespace-pre-line ${CARD_DESCRIPTION}`}>
+      <p className={`mt-2 whitespace-pre-line ${CARD_DESCRIPTION}`}>
         {employee.systemPrompt.trim() || "暂无系统提示词"}
       </p>
 

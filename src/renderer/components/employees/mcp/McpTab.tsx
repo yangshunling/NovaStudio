@@ -160,19 +160,19 @@ export function McpTab({
                             {asset.name}
                           </span>
                           <span
-                            className={`shrink-0 rounded-full px-2 py-0.5 text-caption ${MCP_SOURCE_CLASS[asset.source]}`}
+                            className={`shrink-0 rounded-full px-2 py-0.5 text-meta ${MCP_SOURCE_CLASS[asset.source]}`}
                           >
                             {MCP_SOURCE_LABEL[asset.source]}
                           </span>
                           <span
-                            className={`shrink-0 rounded-full px-2 py-0.5 text-caption ${MCP_TRANSPORT_CLASS[asset.transport]}`}
+                            className={`shrink-0 rounded-full px-2 py-0.5 text-meta ${MCP_TRANSPORT_CLASS[asset.transport]}`}
                           >
                             {MCP_TRANSPORT_LABEL[asset.transport]}
                           </span>
                           {asset.hasSecrets && (
                             <span
                               title="env / headers 中存在字面量密钥"
-                              className="flex shrink-0 items-center gap-0.5 rounded-full bg-agent-amber/10 px-2 py-0.5 text-caption text-agent-amber"
+                              className="flex shrink-0 items-center gap-0.5 rounded-full bg-agent-amber/10 px-2 py-0.5 text-meta text-agent-amber"
                             >
                               <KeyRound className="h-2.5 w-2.5" />
                               含密钥
@@ -181,7 +181,7 @@ export function McpTab({
                           {problems.length > 0 && (
                             <span
                               title={problems.join("\n")}
-                              className="flex shrink-0 items-center gap-0.5 rounded-full bg-error-bg px-2 py-0.5 text-caption text-error"
+                              className="flex shrink-0 items-center gap-0.5 rounded-full bg-error-bg px-2 py-0.5 text-meta text-error"
                             >
                               <AlertTriangle className="h-2.5 w-2.5" />
                               需处理
@@ -241,12 +241,12 @@ export function McpTab({
                             {server.name}
                           </span>
                           {legacy && (
-                            <span className="shrink-0 rounded-full bg-agent-amber/10 px-2 py-0.5 text-caption text-agent-amber">
+                            <span className="shrink-0 rounded-full bg-agent-amber/10 px-2 py-0.5 text-meta text-agent-amber">
                               旧版内联
                             </span>
                           )}
                           {missing && (
-                            <span className="shrink-0 rounded-full bg-error-bg px-2 py-0.5 text-caption text-error">
+                            <span className="shrink-0 rounded-full bg-error-bg px-2 py-0.5 text-meta text-error">
                               已失效
                             </span>
                           )}

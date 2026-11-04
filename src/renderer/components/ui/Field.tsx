@@ -14,6 +14,10 @@ import type {
 export const FORM_INPUT_CLASS =
   "ui-ring w-full rounded-lg bg-input-bg px-inset py-inset text-body text-text placeholder-text-muted outline-none transition-colors focus:border-input-border-focus";
 
+/** 列表行内联重命名输入框（与完整表单的 36px 输入框区分） */
+export const INLINE_INPUT_CLASS =
+  "ui-ring min-w-0 flex-1 rounded-md border border-input-border bg-input-bg px-2 py-1 text-text outline-none transition-colors focus:border-input-border-focus";
+
 /** 单行输入框：外观固定，宽度默认撑满（固定宽度用外层 div 控制） */
 export function TextInput({
   className = "",

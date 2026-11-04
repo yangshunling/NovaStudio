@@ -20,10 +20,10 @@
  */
 
 import { useState } from "react";
-import { Clock, Check, Loader2 } from "lucide-react";
+import { Clock, Check, ListChecks, Loader2 } from "lucide-react";
 import { useAutomationStore } from "../stores/automation";
 import { useChatStore } from "../stores/chat";
-import { PageHeader } from "./ui/Page";
+import { Page, PageHeader } from "./ui/Page";
 import { BoardColumn } from "./automation/BoardColumn";
 import { TaskCreateModal } from "./automation/TaskCreateModal";
 import { TaskDetailDrawer } from "./automation/TaskDetailDrawer";
@@ -52,13 +52,13 @@ export function AutomationView() {
   const hasRunning = tasks.some((t) => t.status === "running");
 
   return (
-    <main className="relative flex flex-1 flex-col overflow-hidden">
-      {/* 主体纸面：顶栏 + 看板同属一张纸，浮在画布底色之上 */}
-      <div className="ui-page relative z-10 flex flex-1 flex-col overflow-hidden rounded-xl">
+    <>
+      <Page>
         <PageHeader
           title="任务中心"
           count={tasks.length}
           countSuffix=" 个任务"
+          icon={<ListChecks className="h-4 w-4" />}
         />
 
         {/* 三列看板 */}
@@ -107,13 +107,13 @@ export function AutomationView() {
             emptyHint="尚无已完成任务"
           />
         </div>
-      </div>
+      </Page>
 
       {/* 创建弹框 */}
       {showCreate && <TaskCreateModal onClose={() => setShowCreate(false)} />}
 
       {/* 详情抽屉 */}
       {detailTask && <TaskDetailDrawer task={detailTask} onClose={() => setDetailTask(null)} />}
-    </main>
+    </>
   );
 }

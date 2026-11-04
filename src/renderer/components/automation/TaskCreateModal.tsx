@@ -42,7 +42,7 @@ export function TaskCreateModal({ onClose }: { onClose: () => void }) {
       open
       onClose={onClose}
       title="新建自动化任务"
-      widthClass="w-[480px] max-w-[90vw]"
+      width="md"
     >
       <div className="space-y-3">
         <Field label="任务描述">

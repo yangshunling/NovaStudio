@@ -168,15 +168,16 @@ export function WorkflowDebugPanel({
         </Button>
 
         {active ? (
-          <button
-            type="button"
+          <Button
+            variant="dangerSoft"
+            size="sm"
+            className="shrink-0 rounded-full"
+            icon={<Square className="h-3 w-3" />}
             onClick={onCancel}
             disabled={busy}
-            className="flex h-8 shrink-0 items-center gap-1.5 rounded-full border border-error/40 bg-error-bg px-3 text-meta font-medium text-error transition-colors hover:border-error active:scale-95 disabled:opacity-50"
           >
-            <Square className="h-3 w-3" />
             终止
-          </button>
+          </Button>
         ) : (
           <Button
             variant="ghost"

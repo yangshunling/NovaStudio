@@ -390,6 +390,7 @@ export function AgentsView() {
       <PageHeader
         title="Agent 配置"
         badge="本机配置"
+        icon={<Bot className="h-4 w-4" />}
         actions={
           <Button
             variant="ghost"
@@ -410,7 +411,7 @@ export function AgentsView() {
 
       <div className="flex min-h-0 flex-1">
           <aside className="flex w-60 shrink-0 flex-col overflow-y-auto border-r border-border bg-surface-2/30 p-3">
-            <div className="px-1 pb-2 text-meta font-medium tracking-wide text-text-muted">
+            <div className="px-1 pb-2 text-meta font-semibold tracking-wide text-text-muted">
               已检测到的 Agent
             </div>
             {agents.length === 0 ? (
@@ -562,7 +563,7 @@ export function AgentsView() {
                       action={
                         <span
                           title="按基础模型名去重"
-                          className="shrink-0 rounded-full bg-accent-soft px-2 py-0.5 text-caption font-medium text-accent"
+                          className="shrink-0 rounded-full bg-accent-soft px-2 py-0.5 text-meta font-medium text-accent"
                         >
                           已配置 {liveModelCount} 个模型
                         </span>
@@ -636,7 +637,7 @@ export function AgentsView() {
                         <FolderOpen className="h-3.5 w-3.5 shrink-0" />
                         <span
                           title={settings.settingsPath}
-                          className="min-w-0 flex-1 break-all font-mono text-[11px] leading-relaxed"
+                          className="min-w-0 flex-1 break-all font-mono text-caption leading-relaxed"
                         >
                           {settings.settingsPath}
                         </span>
@@ -822,14 +823,14 @@ function AgentListItem({
     <button
       type="button"
       onClick={onClick}
-      className={`mb-1 flex w-full items-center gap-2 rounded-lg border px-2.5 py-2.5 text-left transition-colors ${
+      className={`mb-1 flex w-full items-center gap-2 rounded-xl border px-2.5 py-2.5 text-left transition-colors ${
         active
           ? "border-accent/30 bg-accent-soft"
           : "border-transparent hover:bg-surface-hover"
       }`}
     >
       <span
-        className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${
+        className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${
           active ? "bg-accent/10 text-accent" : "bg-surface-hover text-text-muted"
         }`}
       >
@@ -837,7 +838,7 @@ function AgentListItem({
       </span>
       <span className="min-w-0 flex-1">
         <span className="flex items-center gap-1.5">
-          <span className="truncate text-body font-medium text-text">
+          <span className="truncate text-body-lg font-medium text-text">
             {agent.displayName}
           </span>
           <span
@@ -861,7 +862,6 @@ function EmptyAgent() {
       icon={<Terminal />}
       title="没有可展示的 Claude Code"
       description="安装 Claude Code 后点击「重新检测」。"
-      className="py-24"
     />
   );
 }

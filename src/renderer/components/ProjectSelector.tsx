@@ -119,7 +119,7 @@ export function ProjectSelector() {
         }
         aria-haspopup="menu"
         aria-expanded={open}
-        className={`ui-ring flex h-9 shrink-0 items-center gap-1.5 rounded-full bg-input-bg px-3 text-meta text-text-secondary outline-none transition-all hover:border-input-border-focus hover:text-text ${
+        className={`ui-ring flex h-9 shrink-0 items-center gap-1.5 rounded-lg bg-input-bg px-3 text-body text-text-secondary outline-none transition-all hover:border-input-border-focus hover:text-text ${
           open ? "border-input-border-focus text-text" : ""
         }`}
       >
@@ -157,7 +157,7 @@ export function ProjectSelector() {
               <button
                 type="button"
                 onClick={() => void choose(null)}
-                className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-text-secondary transition-colors hover:bg-surface-hover hover:text-text"
+                className="flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left text-text-secondary transition-colors hover:bg-surface-hover hover:text-text"
               >
                 <span className="flex size-avatar shrink-0 items-center justify-center rounded-md bg-surface-hover text-text-muted">
                   <FolderMinus className="h-4 w-4" />

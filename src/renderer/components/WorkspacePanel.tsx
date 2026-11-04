@@ -17,6 +17,7 @@ import { useChatStore } from "../stores/chat";
 import { useFileViewerStore } from "../stores/fileViewer";
 import { FileTypeIcon } from "./ui/FileTypeIcon";
 import { FolderTypeIcon } from "./ui/FolderTypeIcon";
+import { PageHeader, PageToolbar } from "./ui/Page";
 import type {
   FileEntry,
   GitStatusKind,
@@ -418,32 +419,26 @@ export function WorkspacePanel({
         }}
         className="ui-glass flex h-full w-[var(--c-layout-workspace)] shrink-0 flex-col"
       >
-        <header className="flex h-[var(--c-layout-header)] shrink-0 items-center justify-between border-b border-border px-3">
-          <div className="min-w-0">
-            <div className="flex min-w-0 items-center gap-2">
-              <FolderTypeIcon open size={16} />
-              <span className="truncate text-body-lg font-medium text-text">
-                {project?.name ?? "工作区"}
-              </span>
-            </div>
-            <p className="mt-0.5 truncate font-mono text-caption text-text-muted" title={cwd}>
-              {cwd || "尚未选择工作区"}
-            </p>
-          </div>
-          <div className="ml-2 flex shrink-0 items-center gap-1">
+        <PageHeader
+          icon={<FolderTypeIcon open size={16} />}
+          title={project?.name ?? "工作区"}
+          subtitle={cwd || "尚未选择工作区"}
+          actions={
             <button
               type="button"
               onClick={() => setReloadKey((value) => value + 1)}
               disabled={!hasWorkspace || isLoadingRoot}
               title="刷新文件"
-              className="rounded p-2 text-text-muted transition-colors hover:bg-surface-hover hover:text-text disabled:cursor-not-allowed disabled:opacity-40"
+              className="ui-btn-round ui-icon-action flex h-9 w-9 items-center justify-center rounded-full text-text-muted disabled:cursor-not-allowed disabled:opacity-40"
             >
-              <RefreshCw className={`h-4 w-4 ${isLoadingRoot ? "animate-spin" : ""}`} />
+              <RefreshCw
+                className={`h-4 w-4 ${isLoadingRoot ? "animate-spin" : ""}`}
+              />
             </button>
-          </div>
-        </header>
+          }
+        />
 
-        <div className="flex h-10 shrink-0 items-center justify-between border-b border-border px-3">
+        <PageToolbar className="justify-between">
           <div className="flex min-w-0 items-center gap-2">
             <span className="shrink-0 text-caption font-medium text-text-muted">
               工作区文件
@@ -465,7 +460,7 @@ export function WorkspacePanel({
                 ? `${rootItems.length} 项`
                 : ""}
           </span>
-        </div>
+        </PageToolbar>
 
         <div className="min-h-0 flex-1 overflow-y-auto p-1.5">
           {!hasWorkspace ? (

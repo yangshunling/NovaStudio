@@ -17,11 +17,23 @@
 import type { CSSProperties, ReactNode } from "react";
 import { Modal, ModalHeader } from "./Modal";
 
+/** 对话框宽度档位：sm=表单确认 / md=普通表单 / lg=复杂表单 / xl=全屏内容 */
+export type DialogWidth = "sm" | "md" | "lg" | "xl";
+
+const DIALOG_WIDTHS: Record<DialogWidth, string> = {
+  sm: "w-[440px] max-w-[90vw]",
+  md: "w-[520px] max-w-[92vw]",
+  lg: "w-[640px] max-w-[92vw]",
+  xl: "w-[900px] max-w-[94vw]",
+};
+
 interface DialogProps {
   open: boolean;
   onClose: () => void;
   title: string;
-  /** 容器宽度（Tailwind 类名），默认 w-[480px] */
+  /** 宽度档位；优先于 widthClass */
+  width?: DialogWidth;
+  /** 自定义容器宽度（Tailwind 类名），覆盖 width */
   widthClass?: string;
   /** 容器自定义样式（可选） */
   size?: CSSProperties;
@@ -36,14 +48,20 @@ export function Dialog({
   open,
   onClose,
   title,
-  widthClass = "w-[480px] max-w-[90vw]",
+  width = "md",
+  widthClass,
   size,
   description,
   headerClassName,
   children,
 }: DialogProps) {
   return (
-    <Modal open={open} onClose={onClose} widthClass={widthClass} size={size}>
+    <Modal
+      open={open}
+      onClose={onClose}
+      widthClass={widthClass ?? DIALOG_WIDTHS[width]}
+      size={size}
+    >
       <div className="p-section">
         <ModalHeader
           title={title}

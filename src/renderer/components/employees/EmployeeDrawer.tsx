@@ -30,6 +30,7 @@ import {
   DrawerHeader,
 } from "../ui/Drawer";
 import { Button } from "../ui/Button";
+import { SegmentedTabs } from "../ui/SegmentedTabs";
 import { Field, FORM_INPUT_CLASS as INPUT_CLASS } from "../ui/Field";
 import { EmployeeAvatar } from "./EmployeeAvatar";
 import { KnowledgeTab } from "./knowledge/KnowledgeTab";
@@ -174,7 +175,7 @@ export function EmployeeDrawer({
     <Drawer
       onClose={onClose}
       ariaLabel={employee ? "编辑数字员工" : "新建数字员工"}
-      widthClass="w-[680px]"
+      width="md"
     >
       {/* 头部：当前员工身份 */}
       <DrawerHeader>
@@ -185,7 +186,7 @@ export function EmployeeDrawer({
               {draft.name.trim() || (employee ? "未命名员工" : "新建数字员工")}
             </span>
             {!draft.enabled && (
-              <span className="shrink-0 rounded-full bg-surface-hover px-2 py-0.5 text-caption text-text-muted">
+              <span className="shrink-0 rounded-full bg-surface-hover px-2 py-0.5 text-meta text-text-muted">
                 已停用
               </span>
             )}
@@ -198,46 +199,24 @@ export function EmployeeDrawer({
       </DrawerHeader>
 
         {/* 标签栏 */}
-        <div className="ui-scroll-hidden flex shrink-0 items-center gap-0.5 overflow-x-auto border-b border-border px-2">
-          {visibleTabs.map(({ id, label, icon: Icon }) => {
-            const active = tab === id;
-            const count =
-              id === "mcp"
-                ? draft.mcpServers.length
-                : id === "skills"
-                  ? draft.skills.length
-                  : id === "knowledge"
-                    ? draft.knowledgeBases.length
-                    : 0;
-
-            return (
-              <button
-                key={id}
-                type="button"
-                onClick={() => setTab(id)}
-                className={`relative flex shrink-0 items-center gap-1.5 px-3 py-2.5 text-meta transition-colors ${
-                  active ? "text-accent" : "text-text-muted hover:text-text"
-                }`}
-              >
-                <Icon className="h-3.5 w-3.5" />
-                {label}
-                {count > 0 && (
-                  <span
-                    className={`rounded-full px-1.5 py-0.5 text-micro font-medium ${
-                      active
-                        ? "bg-accent-soft text-accent"
-                        : "bg-surface-hover text-text-muted"
-                    }`}
-                  >
-                    {count}
-                  </span>
-                )}
-                {active && (
-                  <span className="absolute inset-x-2 -bottom-px h-0.5 rounded-full bg-accent" />
-                )}
-              </button>
-            );
-          })}
+        <div className="shrink-0 border-b border-border px-2 py-2">
+          <SegmentedTabs
+            value={tab}
+            onChange={setTab}
+            options={visibleTabs.map(({ id, label, icon: Icon }) => ({
+              id,
+              label,
+              icon: <Icon className="h-3.5 w-3.5" />,
+              count:
+                id === "mcp"
+                  ? draft.mcpServers.length
+                  : id === "skills"
+                    ? draft.skills.length
+                    : id === "knowledge"
+                      ? draft.knowledgeBases.length
+                      : undefined,
+            }))}
+          />
         </div>
 
         {/* 标签内容 */}
@@ -400,10 +379,10 @@ function ProfileTab({
         {draft.systemPrompt.length} 字符
       </div>
 
-      <div className="flex items-center justify-between gap-3 rounded-lg border border-border bg-surface-2/40 px-3 py-2.5">
+      <div className="flex items-center justify-between gap-3 rounded-lg bg-surface-2/60 px-3 py-2.5">
         <div>
-          <div className="text-body text-text">启用状态</div>
-          <div className="text-caption text-text-muted">
+          <div className="text-body font-medium text-text">启用状态</div>
+          <div className="mt-0.5 text-meta text-text-muted">
             停用后仍保留配置，但不会出现在可分配列表中。
           </div>
         </div>

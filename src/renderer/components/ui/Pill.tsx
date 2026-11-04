@@ -31,7 +31,7 @@ export function Pill({
 }: PillProps) {
   return (
     <span
-      className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-caption ${variantClasses[variant]} ${className}`}
+      className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-meta ${variantClasses[variant]} ${className}`}
     >
       {icon}
       <span className={`truncate ${maxWidth}`}>{children}</span>

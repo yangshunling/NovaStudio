@@ -13,6 +13,7 @@
  */
 
 import type { ReactNode } from "react";
+import { Search } from "lucide-react";
 
 type EmptyStateSize = "default" | "compact";
 
@@ -77,6 +78,67 @@ export function EmptyState({
       )}
 
       {action && <div className={compact ? "mt-1" : "mt-2"}>{action}</div>}
+    </div>
+  );
+}
+
+/**
+ * 筛选无结果空态：列表页搜索框下方的统一提示。
+ *
+ * 传 onClear 时显示「清除搜索」；没有查询词（例如来源筛选为空）时不传。
+ */
+export function FilterEmpty({
+  title,
+  onClear,
+  icon,
+}: {
+  title: string;
+  onClear?: () => void;
+  icon?: ReactNode;
+}) {
+  return (
+    <EmptyState
+      size="compact"
+      icon={icon ?? <Search />}
+      title={title}
+      action={
+        onClear ? (
+          <button
+            type="button"
+            onClick={onClear}
+            className="text-meta text-accent hover:underline"
+          >
+            清除搜索
+          </button>
+        ) : undefined
+      }
+    />
+  );
+}
+
+/**
+ * 虚线框空态：对话框 / 面板 / 拖拽区里"还没有内容"的统一形态。
+ *
+ * 与 EmptyState compact 的区别只是多一个虚线容器，内容排版完全一致。
+ */
+export function EmptyBlock({
+  icon,
+  title,
+  description,
+  action,
+  className = "",
+}: EmptyStateProps) {
+  return (
+    <div
+      className={`rounded-xl border border-dashed border-border-strong bg-surface-2/30 ${className}`.trim()}
+    >
+      <EmptyState
+        size="compact"
+        icon={icon}
+        title={title}
+        description={description}
+        action={action}
+      />
     </div>
   );
 }

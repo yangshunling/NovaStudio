@@ -48,6 +48,7 @@ import { toast } from "../../stores/toast";
 import { confirmDialog } from "../../stores/confirm";
 import { EmployeeAvatar } from "../employees/EmployeeAvatar";
 import { Button } from "../ui/Button";
+import { Page } from "../ui/Page";
 import { Select } from "../ui/Select";
 import { WorkflowCanvas, WF_NODE_W } from "./WorkflowCanvas";
 import { WorkflowDebugPanel } from "./WorkflowDebugPanel";
@@ -752,19 +753,18 @@ export function WorkflowEditor({
   }, [dirty]);
 
   return (
-    <main className="relative flex flex-1 flex-col overflow-hidden">
-      <div className="ui-page relative z-10 flex min-h-0 flex-1 flex-col overflow-hidden">
+    <Page>
         {/* 顶栏：返回 / 名称 / 保存 */}
         <header className="ui-glass relative z-10 flex h-[var(--c-layout-header)] shrink-0 items-center gap-3 border-b border-border px-4">
-          <button
-            type="button"
+          <Button
+            variant="ghost"
+            size="sm"
+            icon={<ArrowLeft className="h-4 w-4" />}
             onClick={back}
             title="返回工作流列表"
-            className="flex h-8 shrink-0 items-center gap-1.5 rounded-lg px-2 text-body text-text-muted transition-colors hover:bg-surface-hover hover:text-text active:scale-95"
           >
-            <ArrowLeft className="h-4 w-4" />
             返回
-          </button>
+          </Button>
 
           <span className="h-5 w-px shrink-0 bg-border" />
 
@@ -774,7 +774,7 @@ export function WorkflowEditor({
             <span
               ref={nameMeasureRef}
               aria-hidden
-              className="pointer-events-none invisible absolute whitespace-pre text-heading font-semibold"
+              className="ui-serif pointer-events-none invisible absolute whitespace-pre text-title font-semibold tracking-wide"
             >
               {name || "未命名工作流"}
             </span>
@@ -787,13 +787,13 @@ export function WorkflowEditor({
               }}
               placeholder="未命名工作流"
               style={{ width: nameWidth }}
-              className="min-w-0 bg-transparent text-heading font-semibold text-text outline-none placeholder:text-text-muted"
+              className="ui-serif min-w-0 bg-transparent text-title font-semibold tracking-wide text-text outline-none placeholder:text-text-muted"
             />
 
             {dirty && (
               <span
                 title="改动尚未保存，按 Ctrl/Cmd + S 保存"
-                className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-accent/30 bg-accent-soft px-2.5 py-1 text-meta font-medium text-accent"
+                className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-accent/30 bg-accent-soft px-2 py-0.5 text-meta font-medium text-accent"
               >
                 <span className="h-1.5 w-1.5 rounded-full bg-accent" />
                 未保存
@@ -1040,9 +1040,7 @@ export function WorkflowEditor({
             </div>
           </div>
         </div>
-      </div>
-
-    </main>
+    </Page>
   );
 }
 
@@ -1067,7 +1065,7 @@ function PaletteItem({
     <button
       type="button"
       onClick={onClick}
-      className="group flex w-full items-center gap-3 rounded-xl border border-border bg-surface-2/60 px-3 py-2.5 text-left transition-all hover:-translate-y-0.5 hover:border-accent/40 hover:bg-surface-2 hover:shadow-[var(--c-shadow-sm)] active:translate-y-0 active:scale-[0.99]"
+      className="group flex w-full items-center gap-3 rounded-xl border border-border bg-surface-2/60 px-2.5 py-2.5 text-left transition-all hover:-translate-y-0.5 hover:border-accent/40 hover:bg-surface-2 hover:shadow-[var(--c-shadow-sm)] active:translate-y-0 active:scale-[0.99]"
     >
       <span
         className={`grid h-9 w-9 shrink-0 place-items-center rounded-lg ${tone}`}

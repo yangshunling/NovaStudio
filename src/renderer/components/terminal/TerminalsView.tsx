@@ -11,14 +11,13 @@
  */
 
 import { useEffect, useRef, useState } from "react";
-import { createPortal } from "react-dom";
+import { MENU_WIDTH, MenuItem, MenuPanel } from "../ui/Menu";
 import {
   Folder,
   FolderKanban,
   FolderOpen,
   SquareTerminal,
   X,
-  type LucideIcon,
 } from "lucide-react";
 import { useChatStore } from "../../stores/chat";
 import { useTerminalStore } from "../../stores/terminal";
@@ -28,13 +27,13 @@ import { NoWorkspaceState } from "../ui/NoWorkspaceState";
 import { ListItem, ListPane } from "../ui/ListPane";
 import { Button } from "../ui/Button";
 import { EmptyState } from "../ui/EmptyState";
+import { Page, PageHeader } from "../ui/Page";
 import { TerminalView, WorkspaceToggleButton } from "../TerminalView";
 import { WorkspacePanel } from "../WorkspacePanel";
 import { FilePreview } from "../FilePreview";
 import type { Project } from "@shared/types";
 
 /** 右键菜单尺寸：用于贴近视口边缘时收拢位置 */
-const MENU_WIDTH = 192;
 const MENU_HEIGHT = 128;
 
 export function TerminalsView() {
@@ -139,20 +138,18 @@ export function TerminalsView() {
   // 还没有工作区时与工作流页保持一致：整页展示同一个空态
   if (projects.length === 0) {
     return (
-      <main className="relative flex min-w-0 flex-1 flex-col overflow-hidden">
-        <div className="ui-page relative z-10 flex flex-1 flex-col overflow-hidden">
-          <NoWorkspaceState
-            description="工作区是一个根目录。终端会定位到该目录运行。工作区统一在「工作区」页面登记，这里直接选用即可。"
-            onManage={() => setViewMode("workspaces")}
-          />
-        </div>
-      </main>
+      <Page className="min-w-0">
+        <NoWorkspaceState
+          description="工作区是一个根目录。终端会定位到该目录运行。工作区统一在「工作区」页面登记，这里直接选用即可。"
+          onManage={() => setViewMode("workspaces")}
+        />
+      </Page>
     );
   }
 
   return (
-    <main className="relative flex min-w-0 flex-1 flex-col overflow-hidden">
-      <div className="ui-page relative z-10 flex min-h-0 flex-1 overflow-hidden">
+    <Page className="min-w-0">
+      <div className="flex min-h-0 flex-1 overflow-hidden">
         {/* 左：工作区列表（与工作流页一致） */}
         <ListPane
           title="工作区"
@@ -234,24 +231,17 @@ export function TerminalsView() {
           ) : selectedWorkspace ? (
             <main className="flex h-full min-h-0 flex-col overflow-hidden">
               {/* 尚未打开终端时也保留同一条顶栏，工作区文件面板的开关不会消失 */}
-              <div className="ui-glass flex h-[var(--c-layout-header)] shrink-0 items-center justify-between gap-2 border-b border-border px-4 text-meta text-text-muted">
-                <div className="flex min-w-0 items-center gap-2">
-                  <SquareTerminal className="h-4 w-4 shrink-0 text-accent" />
-                  <span className="shrink-0 font-medium text-text">
-                    {selectedWorkspace.name}
-                  </span>
-                  <span
-                    className="min-w-0 truncate font-mono"
-                    title={selectedWorkspace.cwd}
-                  >
-                    {selectedWorkspace.cwd}
-                  </span>
-                </div>
-                <WorkspaceToggleButton
-                  showWorkspace={showWorkspace}
-                  onToggle={() => setShowWorkspace((open) => !open)}
-                />
-              </div>
+              <PageHeader
+                icon={<SquareTerminal className="h-4 w-4" />}
+                title={selectedWorkspace.name}
+                subtitle={selectedWorkspace.cwd}
+                actions={
+                  <WorkspaceToggleButton
+                    showWorkspace={showWorkspace}
+                    onToggle={() => setShowWorkspace((open) => !open)}
+                  />
+                }
+              />
               <div className="min-h-0 flex-1">
                 <WorkspacePrompt
                   project={selectedWorkspace}
@@ -284,76 +274,43 @@ export function TerminalsView() {
       </div>
 
       {/* 工作区右键菜单：关闭终端等低频操作不占列表空间 */}
-      {menu &&
-        createPortal(
-          <div
-            ref={menuRef}
-            style={{ top: menu.y, left: menu.x, width: MENU_WIDTH }}
-            className="ui-dropdown-in ui-glass-strong ui-ring fixed z-[60] rounded-xl p-1.5"
-          >
+      {menu && (
+        <MenuPanel x={menu.x} y={menu.y} menuRef={menuRef}>
+          <MenuItem
+            icon={SquareTerminal}
+            label={menuTerminal ? "切换到终端" : "打开终端"}
+            onClick={() => {
+              openInWorkspace(menu.project);
+              setMenu(null);
+            }}
+          />
+          <MenuItem
+            icon={FolderOpen}
+            label="打开工作区"
+            onClick={() => {
+              void ipc.revealProject(menu.project.id);
+              setMenu(null);
+            }}
+          />
+          {menuTerminal && (
             <MenuItem
-              icon={SquareTerminal}
-              label={menuTerminal ? "切换到终端" : "打开终端"}
+              icon={X}
+              label="关闭终端"
+              danger
               onClick={() => {
-                openInWorkspace(menu.project);
+                closeTerminal(menuTerminal.id);
+                setSelectedWorkspaceId(menu.project.id);
                 setMenu(null);
               }}
             />
-            <MenuItem
-              icon={FolderOpen}
-              label="打开工作区"
-              onClick={() => {
-                void ipc.revealProject(menu.project.id);
-                setMenu(null);
-              }}
-            />
-            {menuTerminal && (
-              <MenuItem
-                icon={X}
-                label="关闭终端"
-                danger
-                onClick={() => {
-                  closeTerminal(menuTerminal.id);
-                  setSelectedWorkspaceId(menu.project.id);
-                  setMenu(null);
-                }}
-              />
-            )}
-          </div>,
-          document.body,
-        )}
-    </main>
+          )}
+        </MenuPanel>
+      )}
+    </Page>
   );
 }
 
 /** 右键菜单项 */
-function MenuItem({
-  icon: Icon,
-  label,
-  danger = false,
-  onClick,
-}: {
-  icon: LucideIcon;
-  label: string;
-  danger?: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left text-meta transition-colors ${
-        danger
-          ? "text-error hover:bg-error-bg"
-          : "text-text-secondary hover:bg-surface-hover hover:text-text"
-      }`}
-    >
-      <Icon className="h-3.5 w-3.5 shrink-0" />
-      {label}
-    </button>
-  );
-}
-
 /** 选中工作区但还没有终端时的引导 */
 function WorkspacePrompt({
   project,

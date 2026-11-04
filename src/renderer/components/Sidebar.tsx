@@ -98,7 +98,7 @@ export function Sidebar() {
   ).length;
 
   const itemClass = (active: boolean) =>
-    `flex w-full items-center gap-2 rounded-md px-2.5 py-2.5 ${FONT_BODY} font-medium transition-colors ${
+    `flex w-full items-center gap-2 rounded-xl px-2.5 py-2.5 ${FONT_BODY} font-medium transition-colors ${
       active
         ? "bg-surface-active text-text shadow-[var(--c-shadow-sm)]"
         : "text-text-secondary hover:bg-surface-hover hover:text-text"
@@ -130,7 +130,7 @@ export function Sidebar() {
 
       {/* 功能分组 */}
       <div className="px-3 pt-3 pb-1">
-        <span className="px-1 text-meta font-medium tracking-wide text-text-muted">功能</span>
+        <span className="px-1 text-meta font-semibold tracking-wide text-text-muted">功能</span>
       </div>
       <div className="space-y-1 px-2.5 pb-2">
         <button
@@ -171,7 +171,7 @@ export function Sidebar() {
                   ? `${awaitingCount} 个运行等待审核`
                   : `${activeRuns.length} 个工作流正在运行`
               }
-              className={`ml-auto shrink-0 rounded-full px-1.5 py-0.5 text-caption font-medium ${
+              className={`ml-auto shrink-0 rounded-full px-2 py-0.5 text-meta font-medium ${
                 awaitingCount > 0
                   ? "bg-accent-soft text-accent"
                   : "bg-surface-hover text-text-muted"
@@ -201,7 +201,7 @@ export function Sidebar() {
 
       {/* 资产分组 */}
       <div className="px-3 pt-4 pb-1">
-        <span className="px-1 text-meta font-medium tracking-wide text-text-muted">资产</span>
+        <span className="px-1 text-meta font-semibold tracking-wide text-text-muted">资产</span>
       </div>
       <div className="space-y-1 px-2.5 pb-2">
         <button
@@ -240,7 +240,7 @@ export function Sidebar() {
 
       {/* 运行时分组 */}
       <div className="px-3 pt-4 pb-1">
-        <span className="px-1 text-meta font-medium tracking-wide text-text-muted">
+        <span className="px-1 text-meta font-semibold tracking-wide text-text-muted">
           运行时
         </span>
       </div>

@@ -23,12 +23,18 @@ import {
 import { ipc } from "../../lib/ipc";
 import { toMessage } from "../../lib/utils";
 import { useLoad } from "../../hooks/useLoad";
-import { EmptyState, ErrorState, LoadingState } from "../ui/EmptyState";
+import {
+  EmptyBlock,
+  EmptyState,
+  ErrorState,
+  FilterEmpty,
+  LoadingState,
+} from "../ui/EmptyState";
 import { Page, PageBody, PageHeader } from "../ui/Page";
 import { OptionChips } from "../ui/OptionChips";
 import {
-  CARD_ACTION_FOOTER,
   CARD_DESCRIPTION,
+  CARD_FOOTER,
   CARD_ICON_TILE,
   CARD_SHELL,
   CARD_TITLE,
@@ -263,6 +269,7 @@ export function TriggersView() {
         title="触发器"
         count={triggers.length}
         countSuffix=" 个"
+        icon={<Zap className="h-4 w-4" />}
         actions={
           <>
             <SearchInput
@@ -289,19 +296,9 @@ export function TriggersView() {
           ) : triggers.length === 0 ? (
             <EmptyTriggers onCreate={() => setEditing("new")} />
           ) : filtered.length === 0 ? (
-            <EmptyState
-              size="compact"
-              icon={<Search />}
+            <FilterEmpty
               title={`没有匹配「${query}」的触发器`}
-              action={
-                <button
-                  type="button"
-                  onClick={() => setQuery("")}
-                  className="text-meta text-accent hover:underline"
-                >
-                  清除搜索
-                </button>
-              }
+              onClear={() => setQuery("")}
             />
           ) : (
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
@@ -331,15 +328,15 @@ export function TriggersView() {
         open={bindingTarget !== null}
         onClose={() => setBindingTarget(null)}
         title={bindingTarget ? `绑定工作流 · ${bindingTarget.title}` : "绑定工作流"}
-        widthClass="w-[500px] max-w-[92vw]"
+        width="md"
         description="勾选要由这个触发器定时启动的工作流；一个触发器可以驱动多条工作流。"
       >
         {workflows.length === 0 ? (
-          <div className="flex flex-col items-center gap-2 rounded-xl border border-dashed border-border-strong bg-surface-2/30 px-6 py-10 text-center text-text-muted">
-            <WorkflowIcon className="h-7 w-7 opacity-50" />
-            <p className="text-body text-text-secondary">还没有工作流</p>
-            <p className="text-meta">先创建一个工作流，再回来绑定。</p>
-          </div>
+          <EmptyBlock
+            icon={<WorkflowIcon />}
+            title="还没有工作流"
+            description="先创建一个工作流，再回来绑定。"
+          />
         ) : (
           <div className="max-h-[320px] space-y-1.5 overflow-y-auto pr-0.5">
             {workflows.map((workflow) => {
@@ -417,7 +414,7 @@ function TriggerCard({
         </span>
         <div className="min-w-0 flex-1">
           <h3 className={CARD_TITLE}>{trigger.title}</h3>
-          <p className={`mt-1 ${CARD_DESCRIPTION}`}>
+          <p className={`mt-2 ${CARD_DESCRIPTION}`}>
             {trigger.description || "暂无说明"}
           </p>
         </div>
@@ -444,7 +441,7 @@ function TriggerCard({
         </p>
       )}
 
-      <div className={CARD_ACTION_FOOTER}>
+      <div className={CARD_FOOTER}>
         <p
           className={`min-w-0 truncate text-meta text-text-muted ${
             trigger.enabled ? "" : "opacity-70"
@@ -592,7 +589,7 @@ function TriggerDialog({
       open={open}
       onClose={onClose}
       title={trigger ? "编辑触发器" : "新建触发器"}
-      widthClass="w-[500px] max-w-[92vw]"
+      width="md"
     >
         <div className="space-y-3">
           <Field label="标题" required>

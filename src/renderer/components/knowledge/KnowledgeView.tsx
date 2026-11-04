@@ -16,7 +16,12 @@ import {
   useRef,
   useState,
 } from "react";
-import { createPortal } from "react-dom";
+import {
+  MENU_WIDTH,
+  MenuItem,
+  MenuPanel,
+  MenuSeparator,
+} from "../ui/Menu";
 import {
   AlertTriangle,
   ChevronRight,
@@ -34,7 +39,6 @@ import {
   Trash2,
   Upload,
   Users,
-  type LucideIcon,
 } from "lucide-react";
 import { ipc } from "../../lib/ipc";
 import { formatBytes, toMessage } from "../../lib/utils";
@@ -48,10 +52,15 @@ import { countUsage, useEmployeesStore } from "../../stores/employees";
 import { formatAssetTime } from "../assets/assetUi";
 import { MarkdownRenderer } from "../MarkdownRenderer";
 import { Field, TextArea, TextInput } from "../ui/Field";
-import { Page, PageHeader } from "../ui/Page";
+import { Page, PageBody, PageHeader, PageToolbar } from "../ui/Page";
 import { SearchInput } from "../ui/SearchInput";
 import { ListItem, ListPane } from "../ui/ListPane";
-import { EmptyState, ErrorState, LoadingState } from "../ui/EmptyState";
+import {
+  EmptyBlock,
+  EmptyState,
+  ErrorState,
+  LoadingState,
+} from "../ui/EmptyState";
 import { FileTypeIcon } from "../ui/FileTypeIcon";
 import { Dialog, DialogActions } from "../ui/Dialog";
 import { Button } from "../ui/Button";
@@ -73,7 +82,6 @@ import type {
 // ============================================================================
 
 /** 右键菜单尺寸：贴近视口边缘时收拢位置 */
-const MENU_WIDTH = 208;
 const KB_MENU_HEIGHT = 132;
 
 // ============================================================================
@@ -447,7 +455,7 @@ export function KnowledgeView() {
               />
 
               {/* 面包屑 + 检索 */}
-              <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-border px-card py-2">
+              <PageToolbar>
                 <div className="flex min-w-0 flex-1 items-center gap-1 text-meta text-text-muted">
                   <button
                     type="button"
@@ -497,8 +505,6 @@ export function KnowledgeView() {
                   </button>
 
                   <SearchInput
-                    size="sm"
-                    widthClass="w-64"
                     value={query}
                     onChange={setQuery}
                     placeholder={
@@ -518,10 +524,10 @@ export function KnowledgeView() {
                     />
                   </button>
                 </div>
-              </div>
+              </PageToolbar>
 
               {/* 文档列表 / 检索结果 */}
-              <div className="min-h-0 flex-1 overflow-y-auto p-section">
+              <PageBody>
                 {searchingNow ? (
                   <SearchResults
                     searching={searching}
@@ -654,7 +660,7 @@ export function KnowledgeView() {
                     })}
                   </div>
                 )}
-              </div>
+              </PageBody>
 
               {/* 批量操作条 */}
               {selectedPaths.size > 0 && !searchingNow && (
@@ -686,46 +692,40 @@ export function KnowledgeView() {
         )}
 
       {/* 知识库右键菜单：与工作流的工作区菜单同一套交互 */}
-      {contextMenu &&
-        createPortal(
-          <div
-            ref={contextMenuRef}
-            style={{
-              top: contextMenu.y,
-              left: contextMenu.x,
-              width: MENU_WIDTH,
+      {contextMenu && (
+        <MenuPanel
+          x={contextMenu.x}
+          y={contextMenu.y}
+          menuRef={contextMenuRef}
+        >
+          <MenuItem
+            icon={FolderOpen}
+            label="打开知识库目录"
+            onClick={() => void openFolder(contextMenu.asset)}
+          />
+          <MenuItem
+            icon={Pencil}
+            label="重命名 / 编辑简介"
+            onClick={() => {
+              const asset = contextMenu.asset;
+              setContextMenu(null);
+              selectBase(asset.id);
+              setEditOpen(true);
             }}
-            className="ui-dropdown-in ui-glass-strong ui-ring fixed z-[60] rounded-xl p-1.5"
-          >
-            <MenuItem
-              icon={FolderOpen}
-              label="打开知识库目录"
-              onClick={() => void openFolder(contextMenu.asset)}
-            />
-            <MenuItem
-              icon={Pencil}
-              label="重命名 / 编辑简介"
-              onClick={() => {
-                const asset = contextMenu.asset;
-                setContextMenu(null);
-                selectBase(asset.id);
-                setEditOpen(true);
-              }}
-            />
-            <div className="my-1 h-px bg-border" />
-            <MenuItem
-              icon={Trash2}
-              label="删除知识库"
-              danger
-              onClick={() => {
-                const asset = contextMenu.asset;
-                setContextMenu(null);
-                void handleDeleteBase(asset);
-              }}
-            />
-          </div>,
-          document.body,
-        )}
+          />
+          <MenuSeparator />
+          <MenuItem
+            icon={Trash2}
+            label="删除知识库"
+            danger
+            onClick={() => {
+              const asset = contextMenu.asset;
+              setContextMenu(null);
+              void handleDeleteBase(asset);
+            }}
+          />
+        </MenuPanel>
+      )}
 
       <KnowledgeFormModal
         key={createOpen ? "create-open" : "create-closed"}
@@ -954,7 +954,7 @@ function KnowledgePreview({
   const name = relativePath.split("/").pop() ?? relativePath;
 
   return (
-    <Drawer onClose={onClose} ariaLabel={name} widthClass="w-[760px]">
+    <Drawer onClose={onClose} ariaLabel={name} width="lg">
       <DrawerHeader>
         <FileTypeIcon name={name} size={20} className="shrink-0" />
         <div className="min-w-0 flex-1">
@@ -1066,7 +1066,7 @@ function KnowledgeFormModal({
       open={open}
       onClose={onClose}
       title={mode === "create" ? "新建知识库" : "编辑知识库"}
-      widthClass="w-[520px] max-w-[92vw]"
+      width="md"
       description={
         <>
           知识库会创建在{" "}
@@ -1179,7 +1179,7 @@ function FolderFormModal({
       open={open}
       onClose={onClose}
       title="新建文件夹"
-      widthClass="w-[440px] max-w-[92vw]"
+      width="sm"
       description={`创建在「${parentLabel || "知识库根目录"}」下。`}
     >
       <TextInput
@@ -1212,33 +1212,6 @@ function FolderFormModal({
 // 小件
 // ============================================================================
 
-function MenuItem({
-  icon: Icon,
-  label,
-  onClick,
-  danger,
-}: {
-  icon: LucideIcon;
-  label: string;
-  onClick: () => void;
-  danger?: boolean;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left text-meta transition-colors ${
-        danger
-          ? "text-error hover:bg-error-bg"
-          : "text-text-secondary hover:bg-surface-hover hover:text-text"
-      }`}
-    >
-      <Icon className="h-3.5 w-3.5 shrink-0" />
-      {label}
-    </button>
-  );
-}
-
 function EmptyKnowledge({ onCreate }: { onCreate: () => void }) {
   return (
     <EmptyState
@@ -1266,22 +1239,21 @@ function EmptyDocuments({
   uploading: boolean;
 }) {
   return (
-    <div className="flex flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-border-strong bg-surface-2/30 px-6 py-16 text-center text-text-muted">
-      <FileText className="h-7 w-7 opacity-50" />
-      <p className="text-body text-text-secondary">这个文件夹还没有 Markdown 文档</p>
-      <p className="text-caption">
-        只支持 .md / .markdown，单文件最大 100MB；同名文件会自动加序号。
-      </p>
-      <Button
-        variant="primary"
-        size="sm"
-        loading={uploading}
-        icon={<Upload className="h-4 w-4" />}
-        onClick={onUpload}
-        className="mt-1"
-      >
-        上传 Markdown
-      </Button>
-    </div>
+    <EmptyBlock
+      icon={<FileText />}
+      title="这个文件夹还没有 Markdown 文档"
+      description="只支持 .md / .markdown，单文件最大 100MB；同名文件会自动加序号。"
+      action={
+        <Button
+          variant="primary"
+          size="sm"
+          loading={uploading}
+          icon={<Upload className="h-4 w-4" />}
+          onClick={onUpload}
+        >
+          上传 Markdown
+        </Button>
+      }
+    />
   );
 }

@@ -46,7 +46,7 @@ export function SourceTag({
 }) {
   return (
     <span
-      className={`shrink-0 rounded-full px-2 py-0.5 text-caption font-medium ${className}`}
+      className={`shrink-0 rounded-full px-2 py-0.5 text-meta font-medium ${className}`}
     >
       {label}
     </span>

@@ -103,7 +103,7 @@ export function KnowledgeTab({
                           <span className="truncate text-body-lg font-medium text-text">
                             {asset.name}
                           </span>
-                          <span className="flex shrink-0 items-center gap-0.5 rounded-full bg-surface-hover px-2 py-0.5 text-caption text-text-muted">
+                          <span className="flex shrink-0 items-center gap-0.5 rounded-full bg-surface-hover px-2 py-0.5 text-meta text-text-muted">
                             <FileText className="h-2.5 w-2.5" />
                             {asset.documentCount}
                           </span>
@@ -155,7 +155,7 @@ export function KnowledgeTab({
                         <span className="truncate text-body-lg font-medium text-text">
                           {base.name || base.assetId}
                         </span>
-                        <span className="shrink-0 rounded-full bg-error-bg px-2 py-0.5 text-caption text-error">
+                        <span className="shrink-0 rounded-full bg-error-bg px-2 py-0.5 text-meta text-error">
                           已失效
                         </span>
                       </div>

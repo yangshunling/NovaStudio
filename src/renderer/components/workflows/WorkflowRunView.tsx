@@ -31,6 +31,9 @@ import {
 import { MarkdownRenderer } from "../MarkdownRenderer";
 import { Button } from "../ui/Button";
 import { Dialog } from "../ui/Dialog";
+import { EmptyState, LoadingState } from "../ui/EmptyState";
+import { Page } from "../ui/Page";
+import { SegmentedTabs } from "../ui/SegmentedTabs";
 import {
   ACTIVE_RUN_STATUSES,
   NODE_STATUS,
@@ -418,28 +421,25 @@ export function WorkflowRunView({
 
   if (loading) {
     return (
-      <main className="relative flex flex-1 items-center justify-center overflow-hidden">
-        <div className="relative z-10 flex items-center gap-2 text-body text-text-muted">
-          <Loader2 className="h-4 w-4 animate-spin" />
-          正在读取运行记录
-        </div>
-      </main>
+      <Page>
+        <LoadingState text="正在读取运行记录" className="h-full" />
+      </Page>
     );
   }
 
   if (!detail) {
     return (
-      <main className="relative flex flex-1 flex-col items-center justify-center gap-3 overflow-hidden">
-        <p className="relative z-10 text-body text-error">{error ?? "运行记录不存在"}</p>
-        <Button
-          variant="ghost"
-          size="sm"
-          className="relative z-10"
-          onClick={onBack}
-        >
-          返回
-        </Button>
-      </main>
+      <Page>
+        <EmptyState
+          icon={<FileText />}
+          title={error ?? "运行记录不存在"}
+          action={
+            <Button variant="ghost" size="sm" onClick={onBack}>
+              返回
+            </Button>
+          }
+        />
+      </Page>
     );
   }
 
@@ -453,23 +453,22 @@ export function WorkflowRunView({
   ).length;
 
   return (
-    <main className="relative flex flex-1 flex-col overflow-hidden">
-      <div className="ui-page relative z-10 flex min-h-0 flex-1 flex-col overflow-hidden">
+    <Page>
         <header className="ui-glass relative z-10 flex h-[var(--c-layout-header)] shrink-0 items-center gap-3 border-b border-border px-4">
-          <button
-            type="button"
+          <Button
+            variant="ghost"
+            size="sm"
+            icon={<ArrowLeft className="h-4 w-4" />}
             onClick={onBack}
             title="返回运行记录"
-            className="flex h-8 shrink-0 items-center gap-1.5 rounded-lg px-2 text-body text-text-muted transition-colors hover:bg-surface-hover hover:text-text active:scale-95"
           >
-            <ArrowLeft className="h-4 w-4" />
             返回
-          </button>
+          </Button>
 
           <span className="h-5 w-px shrink-0 bg-border" />
 
           <div className="min-w-0">
-            <p className="truncate text-heading font-semibold text-text">
+            <p className="ui-serif truncate text-title font-semibold tracking-wide text-text-secondary">
               {run.workflowName}
             </p>
             <p className="truncate font-mono text-caption text-text-muted">
@@ -519,15 +518,16 @@ export function WorkflowRunView({
           </Button>
 
           {active && (
-            <button
-              type="button"
+            <Button
+              variant="dangerSoft"
+              size="sm"
+              className="shrink-0 rounded-full"
+              icon={<Square className="h-3.5 w-3.5" />}
               onClick={() => void cancelRun()}
               disabled={busy}
-              className="flex h-8 shrink-0 items-center gap-1.5 rounded-full border border-error/40 bg-error-bg px-4 text-body font-medium text-error transition-colors hover:border-error active:scale-95 disabled:opacity-50"
             >
-              <Square className="h-3.5 w-3.5" />
               终止
-            </button>
+            </Button>
           )}
 
           {!active &&
@@ -681,8 +681,7 @@ export function WorkflowRunView({
             </div>
           </div>
         </div>
-      </div>
-    </main>
+    </Page>
   );
 }
 
@@ -888,27 +887,7 @@ function NodeDetailPanel({
         )}
       </section>
 
-      <div className="flex flex-wrap gap-1 rounded-xl bg-surface-hover/60 p-1">
-        {tabs.map((item) => (
-          <button
-            key={item.id}
-            type="button"
-            onClick={() => setTab(item.id)}
-            className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-meta font-medium transition-colors ${
-              tab === item.id
-                ? "bg-surface text-text shadow-[var(--c-shadow-sm)]"
-                : "text-text-muted hover:text-text"
-            }`}
-          >
-            {item.label}
-            {typeof item.count === "number" && (
-              <span className="rounded-full bg-surface-hover px-1.5 text-caption">
-                {item.count}
-              </span>
-            )}
-          </button>
-        ))}
-      </div>
+      <SegmentedTabs options={tabs} value={tab} onChange={setTab} />
 
       {loading ? (
         <div className="flex items-center justify-center gap-2 py-10 text-body text-text-muted">
@@ -1077,7 +1056,7 @@ function NodeDetailPanel({
         open={preview !== null}
         onClose={() => setPreview(null)}
         title={preview ? `预览 · ${preview.path}` : "预览"}
-        widthClass="w-[80vw] max-w-[900px]"
+        width="xl"
       >
         <pre className="max-h-[65vh] overflow-auto whitespace-pre-wrap rounded-lg bg-surface-2/60 p-3 font-mono text-meta leading-relaxed text-text-secondary">
           {preview?.content}

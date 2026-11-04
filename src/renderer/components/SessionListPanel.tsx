@@ -10,7 +10,13 @@
  */
 
 import { useEffect, useRef, useState } from "react";
-import { createPortal } from "react-dom";
+import {
+  MENU_WIDTH,
+  MenuItem,
+  MenuPanel,
+  MenuSeparator,
+} from "./ui/Menu";
+import { INLINE_INPUT_CLASS } from "./ui/Field";
 import {
   Check,
   Loader2,
@@ -25,7 +31,6 @@ import { ListPane } from "./ui/ListPane";
 import type { Session } from "@shared/types";
 
 /** 右键菜单尺寸：用于贴近视口边缘时收拢位置 */
-const MENU_WIDTH = 176;
 const MENU_HEIGHT = 88;
 
 export function SessionListPanel() {
@@ -178,7 +183,7 @@ function SessionRow({
             if (e.key === "Enter") submitEdit();
             if (e.key === "Escape") setEditing(false);
           }}
-          className="min-w-0 flex-1 rounded-md border border-input-border bg-input-bg px-2 py-1 text-body text-text outline-none focus:border-input-border-focus"
+          className={`${INLINE_INPUT_CLASS} text-body`}
         />
         <button
           onClick={submitEdit}
@@ -237,35 +242,18 @@ function SessionRow({
       </div>
 
       {/* 重命名 / 删除统一收进右键菜单，保持列表清爽 */}
-      {menu &&
-        createPortal(
-          <div
-            ref={menuRef}
-            style={{ top: menu.y, left: menu.x, width: MENU_WIDTH }}
-            className="ui-dropdown-in ui-glass-strong ui-ring fixed z-[60] space-y-0.5 rounded-xl p-1.5"
-          >
-            <button
-              type="button"
-              onClick={startEdit}
-              className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-body text-text-secondary transition-colors hover:bg-surface-hover hover:text-text"
-            >
-              <PenLine className="h-4 w-4 shrink-0" />
-              重命名
-            </button>
-
-            <div className="my-1 h-px bg-border" />
-
-            <button
-              type="button"
-              onClick={requestDelete}
-              className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-body text-error transition-colors hover:bg-error-bg"
-            >
-              <Trash2 className="h-4 w-4 shrink-0" />
-              删除会话
-            </button>
-          </div>,
-          document.body,
-        )}
+      {menu && (
+        <MenuPanel x={menu.x} y={menu.y} menuRef={menuRef}>
+          <MenuItem icon={PenLine} label="重命名" onClick={startEdit} />
+          <MenuSeparator />
+          <MenuItem
+            icon={Trash2}
+            label="删除会话"
+            danger
+            onClick={requestDelete}
+          />
+        </MenuPanel>
+      )}
     </div>
   );
 }

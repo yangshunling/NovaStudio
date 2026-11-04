@@ -115,7 +115,7 @@ export function AgentSelector({
         title={locked ? "会话已开始，Agent 不可更换" : "选择本次会话使用的 Agent"}
         aria-haspopup="listbox"
         aria-expanded={open}
-        className={`ui-ring flex h-9 shrink-0 items-center gap-1.5 rounded-full bg-input-bg px-3 text-meta text-text-secondary outline-none transition-all ${
+        className={`ui-ring flex h-9 shrink-0 items-center gap-1.5 rounded-lg bg-input-bg px-3 text-body text-text-secondary outline-none transition-all ${
           locked
             ? "cursor-default opacity-70"
             : "hover:border-input-border-focus hover:text-text"
@@ -164,7 +164,7 @@ export function AgentSelector({
                     setOpen(false);
                   }}
                   onMouseEnter={() => setHoverIdx(i)}
-                  className={`relative flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left transition-colors ${
+                  className={`relative flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left transition-colors ${
                     hovered ? "bg-surface-hover" : ""
                   } ${active ? "bg-surface-active" : ""} ${
                     !agent.status.installed ? "opacity-55" : ""

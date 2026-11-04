@@ -10,7 +10,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { createPortal } from "react-dom";
+import { MENU_WIDTH, MenuItem, MenuPanel, MenuSeparator } from "../ui/Menu";
 import {
   Copy,
   Folder,
@@ -25,7 +25,6 @@ import {
   Trash2,
   Workflow as WorkflowIcon,
   Zap,
-  type LucideIcon,
 } from "lucide-react";
 import { ipc } from "../../lib/ipc";
 import { newId, timeAgo, toMessage } from "../../lib/utils";
@@ -37,13 +36,19 @@ import { confirmDialog } from "../../stores/confirm";
 import { Dialog, DialogActions } from "../ui/Dialog";
 import { Button } from "../ui/Button";
 import { Field, TextArea, TextInput } from "../ui/Field";
-import { EmptyState, ErrorState, LoadingState } from "../ui/EmptyState";
+import {
+  EmptyBlock,
+  EmptyState,
+  ErrorState,
+  FilterEmpty,
+  LoadingState,
+} from "../ui/EmptyState";
 import { Page, PageHeader } from "../ui/Page";
 import { SearchInput } from "../ui/SearchInput";
 import { ListItem, ListPane } from "../ui/ListPane";
 import {
-  CARD_ACTION_FOOTER,
   CARD_DESCRIPTION,
+  CARD_FOOTER,
   CARD_ICON_TILE,
   CARD_SHELL,
   CARD_TITLE,
@@ -69,7 +74,6 @@ import type {
 const ORPHAN_ID = "__orphan__";
 
 /** 右键菜单尺寸：用于贴近视口边缘时收拢位置 */
-const MENU_WIDTH = 208;
 const WORKFLOW_MENU_HEIGHT = 340;
 
 /** 新建工作流时预置开始 / 结束两个锚点，画布不至于空得没有参照 */
@@ -729,38 +733,27 @@ export function WorkflowsView() {
 
               <div className="min-h-0 flex-1 overflow-y-auto p-section">
                 {selectedWorkspace?.id === ORPHAN_ID ? (
-                  <div className="mx-auto flex max-w-md flex-col items-center gap-3 py-20 text-center text-text-muted">
-                    <Folder className="h-6 w-6 opacity-50" />
-                    <p className="text-body leading-relaxed">
-                      这些工作流创建于「工作区」功能之前，还没有归属。
-                      请先到「工作区」页面登记目录，再把它们重新归入。
-                    </p>
-                    <Button
-                      variant="primary"
-                      size="sm"
-                      icon={<FolderKanban className="h-4 w-4" />}
-                      onClick={manageWorkspaces}
-                      className="mt-1"
-                    >
-                      去管理工作区
-                    </Button>
-                  </div>
+                  <EmptyState
+                    icon={<Folder />}
+                    title="工作流还没有归属工作区"
+                    description="这些工作流创建于「工作区」功能之前。请先到「工作区」页面登记目录，再把它们重新归入。"
+                    action={
+                      <Button
+                        variant="primary"
+                        size="sm"
+                        icon={<FolderKanban className="h-4 w-4" />}
+                        onClick={manageWorkspaces}
+                      >
+                        去管理工作区
+                      </Button>
+                    }
+                  />
                 ) : selectedWorkflows.length === 0 ? (
                   <EmptyWorkflows onCreate={openCreateWorkflow} />
                 ) : filtered.length === 0 ? (
-                  <EmptyState
-                    size="compact"
-                    icon={<Search />}
+                  <FilterEmpty
                     title={`没有匹配「${query}」的工作流`}
-                    action={
-                      <button
-                        type="button"
-                        onClick={() => setQuery("")}
-                        className="text-meta text-accent hover:underline"
-                      >
-                        清除搜索
-                      </button>
-                    }
+                    onClear={() => setQuery("")}
                   />
                 ) : (
                   <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
@@ -791,7 +784,7 @@ export function WorkflowsView() {
         open={creatingWorkflow}
         onClose={() => setCreatingWorkflow(false)}
         title="新建工作流"
-        widthClass="w-[440px] max-w-[90vw]"
+        width="sm"
         description={`将在工作区「${selectedWorkspace?.name}」下创建。创建后进入画布，从左侧点击节点或数字员工，把它们连成一条流水线。`}
       >
         <div className="space-y-3">
@@ -835,7 +828,7 @@ export function WorkflowsView() {
         open={renameTarget !== null}
         onClose={() => setRenameTarget(null)}
         title="编辑工作流信息"
-        widthClass="w-[440px] max-w-[90vw]"
+        width="sm"
       >
         <div className="space-y-3">
           <Field label="名称" required>
@@ -878,7 +871,7 @@ export function WorkflowsView() {
         open={triggerTarget !== null}
         onClose={() => setTriggerTarget(null)}
         title={triggerTarget ? `触发器 · ${triggerTarget.name}` : "触发器"}
-        widthClass="w-[460px] max-w-[90vw]"
+        width="md"
         description="勾选后，触发器到点会自动启动这条工作流。触发器可在左侧「触发器」页面统一创建与编辑，一个触发器也可以绑定多条工作流。"
       >
           {triggerDialogLoading ? (
@@ -887,25 +880,24 @@ export function WorkflowsView() {
               正在加载触发器
             </div>
           ) : allTriggers.length === 0 ? (
-            <div className="flex flex-col items-center gap-2 rounded-xl border border-dashed border-border-strong bg-surface-2/30 px-6 py-10 text-center text-text-muted">
-              <Zap className="h-7 w-7 opacity-50" />
-              <p className="text-body text-text-secondary">还没有触发器</p>
-              <p className="text-meta">
-                先创建一个定时规则，再回来把它绑定到这条工作流。
-              </p>
-              <Button
-                size="sm"
-                variant="primary"
-                className="mt-1"
-                icon={<Plus className="h-3.5 w-3.5" />}
-                onClick={() => {
-                  setTriggerTarget(null);
-                  useChatStore.getState().setViewMode("triggers");
-                }}
-              >
-                去创建触发器
-              </Button>
-            </div>
+            <EmptyBlock
+              icon={<Zap />}
+              title="还没有触发器"
+              description="先创建一个定时规则，再回来把它绑定到这条工作流。"
+              action={
+                <Button
+                  size="sm"
+                  variant="primary"
+                  icon={<Plus className="h-3.5 w-3.5" />}
+                  onClick={() => {
+                    setTriggerTarget(null);
+                    useChatStore.getState().setViewMode("triggers");
+                  }}
+                >
+                  去创建触发器
+                </Button>
+              }
+            />
           ) : (
             <div className="max-h-[320px] space-y-1.5 overflow-y-auto pr-0.5">
               {allTriggers.map((trigger) => {
@@ -932,7 +924,7 @@ export function WorkflowsView() {
                           {trigger.title}
                         </span>
                         {!trigger.enabled && (
-                          <span className="shrink-0 rounded-full bg-surface-hover px-1.5 py-0.5 text-caption text-text-muted">
+                          <span className="shrink-0 rounded-full bg-surface-hover px-2 py-0.5 text-meta text-text-muted">
                             已停用
                           </span>
                         )}
@@ -962,81 +954,79 @@ export function WorkflowsView() {
       </Dialog>
 
       {/* 右键菜单：工作区 / 工作流卡片共用 */}
-      {contextMenu &&
-        createPortal(
-          <div
-            ref={contextMenuRef}
-            style={{ top: contextMenu.y, left: contextMenu.x, width: MENU_WIDTH }}
-            className="ui-dropdown-in ui-glass-strong ui-ring fixed z-[60] rounded-xl p-1.5"
-          >
-            <CardMenuItem
-              icon={SquarePen}
-              label="编辑"
-              onClick={() => {
-                const workflow = contextMenu.workflow;
-                setContextMenu(null);
-                openEditor(workflow);
-              }}
-            />
-            <CardMenuItem
-              icon={Play}
-              label="运行"
-              onClick={() => {
-                const workflow = contextMenu.workflow;
-                setContextMenu(null);
-                void debugWorkflow(workflow);
-              }}
-            />
-            <CardMenuItem
-              icon={Zap}
-              label="触发器"
-              onClick={() => {
-                const workflow = contextMenu.workflow;
-                setContextMenu(null);
-                void openTriggerDialog(workflow);
-              }}
-            />
-            <CardMenuItem
-              icon={History}
-              label="运行记录"
-              onClick={() => {
-                const workflow = contextMenu.workflow;
-                setContextMenu(null);
-                setHistoryScope({ workflowId: workflow.id });
-              }}
-            />
-            <CardMenuItem
-              icon={PenLine}
-              label="重命名 / 说明"
-              onClick={() => {
-                const workflow = contextMenu.workflow;
-                setContextMenu(null);
-                openRename(workflow);
-              }}
-            />
-            <CardMenuItem
-              icon={Copy}
-              label="复制工作流"
-              onClick={() => {
-                const workflow = contextMenu.workflow;
-                setContextMenu(null);
-                void duplicateWorkflow(workflow);
-              }}
-            />
-            <div className="my-1 h-px bg-border" />
-            <CardMenuItem
-              icon={Trash2}
-              label="删除工作流"
-              danger
-              onClick={() => {
-                const workflow = contextMenu.workflow;
-                setContextMenu(null);
-                void deleteWorkflow(workflow);
-              }}
-            />
-          </div>,
-          document.body,
-        )}
+      {contextMenu && (
+        <MenuPanel
+          x={contextMenu.x}
+          y={contextMenu.y}
+          menuRef={contextMenuRef}
+        >
+          <MenuItem
+            icon={SquarePen}
+            label="编辑"
+            onClick={() => {
+              const workflow = contextMenu.workflow;
+              setContextMenu(null);
+              openEditor(workflow);
+            }}
+          />
+          <MenuItem
+            icon={Play}
+            label="运行"
+            onClick={() => {
+              const workflow = contextMenu.workflow;
+              setContextMenu(null);
+              void debugWorkflow(workflow);
+            }}
+          />
+          <MenuItem
+            icon={Zap}
+            label="触发器"
+            onClick={() => {
+              const workflow = contextMenu.workflow;
+              setContextMenu(null);
+              void openTriggerDialog(workflow);
+            }}
+          />
+          <MenuItem
+            icon={History}
+            label="运行记录"
+            onClick={() => {
+              const workflow = contextMenu.workflow;
+              setContextMenu(null);
+              setHistoryScope({ workflowId: workflow.id });
+            }}
+          />
+          <MenuItem
+            icon={PenLine}
+            label="重命名 / 说明"
+            onClick={() => {
+              const workflow = contextMenu.workflow;
+              setContextMenu(null);
+              openRename(workflow);
+            }}
+          />
+          <MenuItem
+            icon={Copy}
+            label="复制工作流"
+            onClick={() => {
+              const workflow = contextMenu.workflow;
+              setContextMenu(null);
+              void duplicateWorkflow(workflow);
+            }}
+          />
+          <MenuSeparator />
+          <MenuItem
+            icon={Trash2}
+            label="删除工作流"
+            danger
+            onClick={() => {
+              const workflow = contextMenu.workflow;
+              setContextMenu(null);
+              void deleteWorkflow(workflow);
+            }}
+          />
+        </MenuPanel>
+      )}
     </Page>
   );
 }
@@ -1096,7 +1086,7 @@ function WorkflowCard({
         </span>
         <div className="min-w-0 flex-1">
           <h3 className={CARD_TITLE}>{workflow.name}</h3>
-          <p className={`mt-1 ${CARD_DESCRIPTION}`}>
+          <p className={`mt-2 ${CARD_DESCRIPTION}`}>
             {workflow.description || "暂无说明"}
           </p>
         </div>
@@ -1105,27 +1095,27 @@ function WorkflowCard({
       <div className="mt-3 flex flex-wrap items-center gap-1.5 text-meta text-text-muted">
         {runMeta && RunIcon && (
           <span
-            className={`flex items-center gap-1 rounded-full bg-surface-hover px-2.5 py-0.5 ${runMeta.className}`}
+            className={`flex items-center gap-1 rounded-full bg-surface-hover px-2 py-0.5 ${runMeta.className}`}
           >
             <RunIcon className={`h-3 w-3 ${active ? "animate-spin" : ""}`} />
             {runMeta.label}
           </span>
         )}
-        <span className="rounded-full bg-surface-hover px-2.5 py-0.5">
+        <span className="rounded-full bg-surface-hover px-2 py-0.5">
           {nodeCount} 个节点
         </span>
-        <span className="rounded-full bg-surface-hover px-2.5 py-0.5">
+        <span className="rounded-full bg-surface-hover px-2 py-0.5">
           {employeeIds.size} 位数字员工
         </span>
         {triggerCount > 0 && (
-          <span className="flex items-center gap-1 rounded-full bg-accent-soft px-2.5 py-0.5 text-accent">
+          <span className="flex items-center gap-1 rounded-full bg-accent-soft px-2 py-0.5 text-accent">
             <Zap className="h-3 w-3" />
             {triggerCount} 个触发器
           </span>
         )}
       </div>
 
-      <div className={CARD_ACTION_FOOTER}>
+      <div className={CARD_FOOTER}>
         <span className="min-w-0 truncate text-meta text-text-muted">
           {latestRun
             ? `${active ? "本次运行" : "最近运行"} ${timeAgo(latestRun.createdAt)}`
@@ -1155,36 +1145,6 @@ function WorkflowCard({
         </Button>
       </div>
     </div>
-  );
-}
-
-function CardMenuItem({
-  icon: Icon,
-  label,
-  danger = false,
-  disabled = false,
-  onClick,
-}: {
-  icon: LucideIcon;
-  label: string;
-  danger?: boolean;
-  disabled?: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      className={`flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left text-meta transition-colors disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent ${
-        danger
-          ? "text-error hover:bg-error-bg"
-          : "text-text-secondary hover:bg-surface-hover hover:text-text"
-      }`}
-    >
-      <Icon className="h-3.5 w-3.5 shrink-0" />
-      {label}
-    </button>
   );
 }
 
