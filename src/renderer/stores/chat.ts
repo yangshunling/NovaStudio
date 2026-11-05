@@ -96,6 +96,68 @@ interface ChatState {
 
 const EMPTY: readonly Message[] = Object.freeze([]);
 
+/**
+ * 流式事件的渲染层聚合。
+ *
+ * 主进程按 16ms 窗口推送，但每个事件仍是独立的 IPC 消息；渲染进程里每个 IPC
+ * 回调都是独立任务，React 无法跨任务自动合批。于是一个 token 一个事件时，
+ * 就变成每秒几十次完整渲染（每次还要重解析 Markdown）。
+ *
+ * 这里把短窗口内到达的事件合并成**一次** store 更新：渲染频率降到与帧率同阶，
+ * 而消息内容仍然按原顺序逐条 appendEvent，语义不变。
+ */
+const EVENT_FLUSH_MS = 16;
+let pendingEvents: Array<{ sessionId: string; event: AgentEvent }> = [];
+let pendingFlushTimer: ReturnType<typeof setTimeout> | null = null;
+
+function flushPendingEvents(): void {
+  if (pendingFlushTimer) {
+    clearTimeout(pendingFlushTimer);
+    pendingFlushTimer = null;
+  }
+  if (pendingEvents.length === 0) return;
+
+  // 先摘出队列再处理：处理过程中新到达的事件留到下一批
+  const batch = pendingEvents;
+  pendingEvents = [];
+
+  useChatStore.setState((state) => {
+    /* 同一会话的事件合并到一次 appendEvent 链上，避免逐事件复制数组 */
+    const bySession = new Map<string, AgentEvent[]>();
+    for (const { sessionId, event } of batch) {
+      const list = bySession.get(sessionId);
+      if (list) list.push(event);
+      else bySession.set(sessionId, [event]);
+    }
+
+    const messagesBySession = { ...state.messagesBySession };
+    const streamingBySession = { ...state.streamingBySession };
+
+    for (const [sessionId, events] of bySession) {
+      const msgs = messagesBySession[sessionId] ?? [];
+      const last = msgs[msgs.length - 1];
+
+      if (last && last.role === "assistant") {
+        let content = last.content;
+        for (const event of events) content = appendEvent(content, event);
+        messagesBySession[sessionId] = [...msgs.slice(0, -1), { ...last, content }];
+        continue;
+      }
+
+      let content: AgentEvent[] = [];
+      for (const event of events) content = appendEvent(content, event);
+      messagesBySession[sessionId] = [
+        ...msgs,
+        { id: newId(), role: "assistant", content, timestamp: Date.now() },
+      ];
+      // 未知会话收到事件（例如运行中刷新）：恢复“正在执行”状态
+      streamingBySession[sessionId] = true;
+    }
+
+    return { messagesBySession, streamingBySession };
+  });
+}
+
 export const useChatStore = create<ChatState>((set, get) => ({
   agents: [],
   projects: [],
@@ -424,53 +486,51 @@ export const useChatStore = create<ChatState>((set, get) => ({
   // ==========================================================================
 
   _onEvent: ({ sessionId, event }) => {
-    // done 仅复位流状态，不入消息
+    // done 仅复位流状态，不入消息；先冲掉此前累积的增量，保证不丢内容
     if (event.type === "done") {
+      flushPendingEvents();
       set((s) => ({ streamingBySession: { ...s.streamingBySession, [sessionId]: false } }));
       return;
     }
 
-    set((state) => {
-      const msgs = state.messagesBySession[sessionId] ?? [];
-      const last = msgs[msgs.length - 1];
-
-      /*
-       * 只要最后一条是 assistant 就合并，不再依赖 streaming 标记。
-       *
-       * 渲染层刷新后 store 是空的，但主进程仍在推事件；此时若要求
-       * streaming=true 才合并，每个 delta 都会新建一条消息，对话被切成碎片。
-       * 用“最后一条是不是 assistant”判断，刷新后第一条事件会新建消息并
-       * 打开流式标记，后续事件自然合并，done 到达后恢复正常。
-       */
-      if (last && last.role === "assistant") {
-        const updated: Message = { ...last, content: appendEvent(last.content, event) };
-        return {
-          messagesBySession: {
-            ...state.messagesBySession,
-            [sessionId]: [...msgs.slice(0, -1), updated],
-          },
-        };
-      }
-
-      const newMsg: Message = {
-        id: newId(),
-        role: "assistant",
-        content: appendEvent([], event),
-        timestamp: Date.now(),
-      };
-      return {
-        messagesBySession: { ...state.messagesBySession, [sessionId]: [...msgs, newMsg] },
-        // 未知会话收到事件（例如运行中刷新）：恢复“正在执行”状态
-        streamingBySession: { ...state.streamingBySession, [sessionId]: true },
-      };
-    });
+    /*
+     * 事件先入缓冲，短窗口内合并成一次 store 更新。
+     * 合并规则与原先逐事件处理一致：只要最后一条是 assistant 就并入它，
+     * 否则新建一条 assistant 消息（刷新后 store 为空时用这个分支恢复流状态）。
+     */
+    pendingEvents.push({ sessionId, event });
+    if (!pendingFlushTimer) {
+      pendingFlushTimer = setTimeout(flushPendingEvents, EVENT_FLUSH_MS);
+    }
   },
 
   _onDone: (data: { sessionId: string }) => {
+    // 落库回填前必须先把缓冲里的增量应用完，否则会读到旧状态
+    flushPendingEvents();
     set((s) => ({ streamingBySession: { ...s.streamingBySession, [data.sessionId]: false } }));
 
-    // 以主进程落库的消息为准回填：流式期间可能丢事件（刷新 / 断线），
-    // 不重新读取的话碎片化状态会一直留在内存里。
+    /*
+     * 正常情况下不再回读整个会话。
+     *
+     * 主进程与渲染层消费的是同一串事件、同一套 appendEvent 收敛规则，
+     * 内存里的结果与落库内容一致。旧实现每轮都 ipc.getSession 重读全量历史
+     * 并整体替换数组 —— 全部消息对象都换了引用，转换缓存与 React 渲染全部
+     * 失效，长会话在回复结束的瞬间会卡一下。
+     *
+     * 只有「内存里看不到完整一轮」时（窗口刷新 / 运行中重连 / 首次订阅，
+     * 此时桶里只有一条孤立的 assistant 消息）才回读落库结果兜底。
+     */
+    const memory = get().messagesBySession[data.sessionId] ?? [];
+    const last = memory[memory.length - 1];
+    const hasUserMessage = memory.some((message) => message.role === "user");
+    const complete = last?.role === "assistant" && hasUserMessage;
+
+    if (complete) {
+      // 只刷新会话列表（标题/排序更新）
+      void get().loadSessions();
+      return;
+    }
+
     void (async () => {
       try {
         const session = await ipc.getSession(data.sessionId);

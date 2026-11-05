@@ -6,7 +6,10 @@
  * 由调用方在需要时（打开模型下拉、配置加载完成）重新获取。
  */
 
-import type { AgentModelOption } from "../../../shared/contracts/agent";
+import type {
+  AgentAuthMode,
+  AgentModelOption,
+} from "../../../shared/contracts/agent";
 import { isOfficialBaseUrl } from "./config";
 
 const OFFICIAL_BASE_URL = "https://api.anthropic.com";
@@ -76,24 +79,51 @@ function parseModels(payload: unknown): AgentModelOption[] {
   return models;
 }
 
+/**
+ * 解析 `ANTHROPIC_CUSTOM_HEADERS`：每行一个 `Name: Value`。
+ * 与 Claude Code 的格式保持一致；空行与 # 注释行忽略。
+ */
+export function parseCustomHeaders(raw: string): Record<string, string> {
+  const headers: Record<string, string> = {};
+  for (const line of raw.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) continue;
+    const index = trimmed.indexOf(":");
+    if (index <= 0) continue;
+    const name = trimmed.slice(0, index).trim();
+    const value = trimmed.slice(index + 1).trim();
+    if (name) headers[name] = value;
+  }
+  return headers;
+}
+
 export async function listClaudeModels(
   baseUrl: string,
   apiKey: string,
+  authMode?: AgentAuthMode,
+  customHeaders?: string,
 ): Promise<AgentModelOption[]> {
   const key = apiKey.trim();
+  // 鉴权方式必须和 CLI 实际发送的请求头一致；本次请求只发一种，
+  // 避免“列表能拉到但运行时 401”的假阳性。
+  const mode: AgentAuthMode =
+    authMode ?? (isOfficialBaseUrl(baseUrl) ? "api-key" : "auth-token");
+
+  if (mode === "api-key-helper") {
+    throw new Error(
+      "apiKeyHelper 由本机脚本提供 Key，页面无法代其请求模型列表",
+    );
+  }
   if (!key) throw new Error("请先填写 API Key，再获取模型列表");
 
-  const official = isOfficialBaseUrl(baseUrl);
   const headers: Record<string, string> = {
     accept: "application/json",
     "anthropic-version": "2023-06-01",
+    ...parseCustomHeaders(customHeaders ?? ""),
   };
-  if (official) {
-    headers["x-api-key"] = key;
-  } else {
-    // 自定义端点沿用 Claude Code 的 AUTH_TOKEN 约定（Bearer）；
-    // 同时附带 x-api-key，兼容只认其中一种鉴权头的网关。
+  if (mode === "auth-token") {
     headers.Authorization = `Bearer ${key}`;
+  } else {
     headers["x-api-key"] = key;
   }
 

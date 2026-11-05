@@ -31,7 +31,14 @@ import { NODE_STATUS } from "../../lib/workflow/status";
 import { EmployeeAvatar } from "../employees/EmployeeAvatar";
 
 export const WF_NODE_W = 240;
-export const WF_NODE_H = 112;
+/**
+ * 节点卡片高度。
+ *
+ * 必须容得下「头部 50px + 描述 + 标签行 + 上下内边距」：带失败策略 / 人工审核
+ * 两个标签时内容实测约 119px。原值 112 会让底部标签溢出卡片边界，看起来像
+ * 缺少下边距。留出少量余量，避免字体或字号变化后再次溢出。
+ */
+export const WF_NODE_H = 124;
 
 const MIN_ZOOM = 0.35;
 const MAX_ZOOM = 2;

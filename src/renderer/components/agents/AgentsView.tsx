@@ -20,6 +20,7 @@ import {
   KeyRound,
   Loader2,
   RefreshCw,
+  RotateCw,
   Save,
   ShieldCheck,
   Sparkles,
@@ -323,8 +324,11 @@ export function AgentsView() {
       const view = await ipc.getAgentSettings(CLAUDE_ID);
       setSettings(view);
       setForm(toForm(view));
+      toast.success("已重新读取本机配置");
     } catch (err) {
-      setLoadError(toMessage(err));
+      const message = toMessage(err);
+      setLoadError(message);
+      toast.error(message);
     } finally {
       setLoading(false);
     }
@@ -389,23 +393,58 @@ export function AgentsView() {
     <Page>
       <PageHeader
         title="Agent 配置"
-        badge="本机配置"
+        badge={
+          dirty ? (
+            <span className="rounded-full bg-accent-soft px-2 py-0.5 text-meta font-medium text-accent">
+              有未保存的修改
+            </span>
+          ) : (
+            "本机配置"
+          )
+        }
         icon={<Bot className="h-4 w-4" />}
         actions={
-          <Button
-            variant="ghost"
-            size="sm"
-            className="rounded-full"
-            icon={
-              <RefreshCw
-                className={`h-3.5 w-3.5 ${detecting ? "animate-spin" : ""}`}
-              />
-            }
-            onClick={refreshAgents}
-            disabled={detecting}
-          >
-            重新检测
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="rounded-full"
+              icon={
+                <RefreshCw
+                  className={`h-3.5 w-3.5 ${detecting ? "animate-spin" : ""}`}
+                />
+              }
+              onClick={refreshAgents}
+              disabled={detecting}
+            >
+              检测 Agent
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="rounded-full"
+              icon={
+                <RotateCw
+                  className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`}
+                />
+              }
+              onClick={handleReload}
+              disabled={loading || selected?.id !== CLAUDE_ID}
+            >
+              刷新配置
+            </Button>
+            <Button
+              variant="primary"
+              size="sm"
+              className="rounded-full"
+              loading={saving}
+              icon={<Save className="h-3.5 w-3.5" />}
+              onClick={handleSave}
+              disabled={!dirty}
+            >
+              保存并同步
+            </Button>
+          </div>
         }
       />
 
@@ -666,40 +705,6 @@ export function AgentsView() {
               </div>
             </div>
 
-            {selected?.id === CLAUDE_ID && form && settings && !loading && !loadError && (
-              <footer className="ui-glass shrink-0 border-t border-border px-section py-3">
-                <div className="mx-auto flex max-w-3xl flex-wrap items-center justify-between gap-2">
-                  <div className="min-w-0 text-caption text-text-muted">
-                    {settings.exists ? "配置已加载" : "配置文件尚未创建"}
-                    {dirty && (
-                      <span className="ml-2 text-accent">有未保存的修改</span>
-                    )}
-                  </div>
-                  <div className="flex shrink-0 items-center gap-2">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="rounded-full"
-                      icon={<RefreshCw className="h-3.5 w-3.5" />}
-                      onClick={handleReload}
-                    >
-                      重新加载
-                    </Button>
-                    <Button
-                      variant="primary"
-                      size="sm"
-                      className="rounded-full"
-                      loading={saving}
-                      icon={<Save className="h-3.5 w-3.5" />}
-                      onClick={handleSave}
-                      disabled={!dirty}
-                    >
-                      保存并同步
-                    </Button>
-                  </div>
-                </div>
-              </footer>
-            )}
           </section>
         </div>
     </Page>
@@ -764,7 +769,7 @@ function InstallCard({
             未检测到 {agent.displayName}
           </h2>
           <p className="mt-1 text-meta leading-relaxed text-text-secondary">
-            请先在终端执行安装命令，安装完成后回到这里点击「重新检测」。
+            请先在终端执行安装命令，安装完成后回到这里点击「检测 Agent」。
           </p>
           {agent.installCommand ? (
             <div className="mt-2 flex items-center gap-2 rounded-lg border border-border bg-input-bg px-inset py-2">
@@ -798,7 +803,7 @@ function InstallCard({
               onClick={onDetect}
               disabled={detecting}
             >
-              重新检测
+              检测 Agent
             </Button>
             <span className="text-caption text-text-muted">
               若已安装仍检测不到，请重启 Nova 以刷新 PATH。
@@ -861,7 +866,7 @@ function EmptyAgent() {
       size="compact"
       icon={<Terminal />}
       title="没有可展示的 Claude Code"
-      description="安装 Claude Code 后点击「重新检测」。"
+      description="安装 Claude Code 后点击「检测 Agent」。"
     />
   );
 }

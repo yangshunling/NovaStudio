@@ -185,8 +185,9 @@ export const provider: AgentProvider = {
         extractSessionId,
         // 每次运行新建解码器：它记住本次运行内 tool_use id → 工具名，
         // 让随后到达的 tool_result 能补上工具名。
-        // 工作流保留命令类工具（Bash 等），运行记录才能还原完整链路。
-        decode: createDecoder(opts.mode === "workflow"),
+        // 所有工具（含 Bash 等命令类）都进入事件流，聊天、任务中心与
+        // 工作流运行记录看到的是同一条完整执行链路。
+        decode: createDecoder(),
       },
       opts,
     );

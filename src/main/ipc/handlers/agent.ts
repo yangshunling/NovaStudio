@@ -32,12 +32,15 @@ export function registerAgentHandlers(service: AgentService): void {
   handle("agent:settings:save", ({ draft }) => saveClaudeSettings(draft));
 
   /** 按当前 Base URL / API Key 拉取可用模型（仅 Claude 兼容端点） */
-  handle("agent:models:list", ({ agentId, baseUrl, apiKey }) => {
-    if (agentId !== "claude") {
-      throw new Error(`暂不支持获取该 Agent 的模型列表：${agentId}`);
-    }
-    return listClaudeModels(baseUrl, apiKey);
-  });
+  handle(
+    "agent:models:list",
+    ({ agentId, baseUrl, apiKey, authMode, customHeaders }) => {
+      if (agentId !== "claude") {
+        throw new Error(`暂不支持获取该 Agent 的模型列表：${agentId}`);
+      }
+      return listClaudeModels(baseUrl, apiKey, authMode, customHeaders);
+    },
+  );
 
   /** 打开某个 Agent 的本机配置目录 */
   handle("agent:openConfigDir", async ({ agentId }) => {

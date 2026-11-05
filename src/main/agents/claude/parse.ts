@@ -30,13 +30,12 @@
  *   （见 decode 的 user 分支）。
  * - tool_use 与 tool_result 靠 id 配对：tool_result 协议里只有 tool_use_id、
  *   没有工具名，因此解码器记住本次运行内 id → 工具名，给结果补上宿主需要的 name
- * - 工具名到展示分类的归一化交给 tool-display；按约定不展示的工具（Bash 等
- *   shell 执行类）在聊天模式下调用与结果两侧都被丢掉；工作流模式需要还原
- *   完整执行链路，因此通过 includeSilentTools 保留
+ * - 工具名到展示分类的归一化交给 tool-display；所有工具（含 Bash 等 shell
+ *   执行类）都进入消息流，聊天 / 任务中心 / 工作流看到的是同一条链路
  */
 
 import type { AgentEvent } from "../../../shared/types";
-import { describeTool, isSilentTool } from "../tool-display";
+import { describeTool } from "../tool-display";
 
 /** Anthropic 风格的内容块（只声明我们关心的字段） */
 interface ContentBlock {
@@ -90,7 +89,6 @@ function resultText(content: unknown): string {
 export function mapAssistantBlocks(
   content: unknown,
   names: CallNames,
-  includeSilentTools = false,
 ): AgentEvent[] {
   if (!Array.isArray(content)) return [];
   const out: AgentEvent[] = [];
@@ -104,9 +102,7 @@ export function mapAssistantBlocks(
       if (block.text) out.push({ type: "text", content: block.text });
     } else if (block.type === "tool_use" && typeof block.name === "string") {
       if (block.id) names.set(block.id, block.name);
-      const display = describeTool(block.name, block.input, includeSilentTools);
-      // 约定不展示的工具：调用不进消息流（名字已记录，其结果同样会被丢掉）
-      if (!display) continue;
+      const display = describeTool(block.name, block.input);
       out.push({
         type: "tool_call",
         callId: block.id,
@@ -125,7 +121,6 @@ export function mapAssistantBlocks(
 export function mapToolResultBlocks(
   content: unknown,
   names: CallNames,
-  includeSilentTools = false,
 ): AgentEvent[] {
   if (!Array.isArray(content)) return [];
   const out: AgentEvent[] = [];
@@ -134,7 +129,6 @@ export function mapToolResultBlocks(
     const block = raw as ContentBlock;
     if (block.type !== "tool_result") continue;
     const name = (block.tool_use_id && names.get(block.tool_use_id)) || "tool";
-    if (!includeSilentTools && isSilentTool(name)) continue;
     out.push({
       type: "tool_result",
       callId: block.tool_use_id,
@@ -163,12 +157,10 @@ export interface MessageBuffer {
  * 已累积了哪些块」记在闭包里。前者让 tool_result 能补上工具名（协议只给 id），
  * 后者让按块到达的 assistant 事件能拼成完整消息再发权威块。
  */
-export function createDecoder(
-  includeSilentTools = false,
-): (line: string) => AgentEvent | AgentEvent[] | null {
+export function createDecoder(): (line: string) => AgentEvent | AgentEvent[] | null {
   const names: CallNames = new Map();
   const buffer: MessageBuffer = { id: null, blocks: [] };
-  return (line) => decode(line, names, buffer, includeSilentTools);
+  return (line) => decode(line, names, buffer);
 }
 
 /** 把一行 JSON 解码为事件 */
@@ -176,7 +168,6 @@ export function decode(
   line: string,
   names: CallNames,
   buffer: MessageBuffer,
-  includeSilentTools = false,
 ): AgentEvent | AgentEvent[] | null {
   if (!line.trim()) return null;
 
@@ -223,12 +214,8 @@ export function decode(
     // 兜底：万一没收到 message_start，靠 message.id 变化识别新消息
     if (messageId && buffer.id && messageId !== buffer.id) buffer.blocks = [];
     if (messageId) buffer.id = messageId;
-    const blocks = mapAssistantBlocks(
-      message?.content,
-      names,
-      includeSilentTools,
-    );
-    // 只剩不展示的工具（Bash 等）：不发事件，也不并入累积块
+    const blocks = mapAssistantBlocks(message?.content, names);
+    // 没有可展示的块（例如纯 image 块）：不发事件
     if (blocks.length === 0) return null;
     buffer.blocks.push(...blocks);
     return { type: "message_end", blocks: [...buffer.blocks] };
@@ -238,11 +225,7 @@ export function decode(
   if (type === "user") {
     const message = obj.message as { content?: unknown } | undefined;
 
-    const events = mapToolResultBlocks(
-      message?.content,
-      names,
-      includeSilentTools,
-    );
+    const events = mapToolResultBlocks(message?.content, names);
 
     /*
      * 展示了工具回执，就说明消息流里出现了一次执行边界，必须切断累积。
@@ -254,10 +237,6 @@ export function decode(
      * 规则遇到中间夹着的 tool_result 就停住，只能整段追加 —— 于是回执
      * 之前的正文与 tool_call 被重复一遍。重复的 tool_call 还只有一份
      * result，界面上就会永久停在“进行中”。
-     *
-     * 只为「实际发射的」回执清零：静默工具（Bash 等）的回执不进消息流，
-     * 事件模型里没有边界可依据，清零反而会让下一条 message_end 把回执
-     * 之前的正文当成“末尾累积块”替换掉。保持累积则能正常收敛。
      */
     if (events.length > 0) {
       buffer.blocks = [];

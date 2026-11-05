@@ -50,6 +50,7 @@ import type {
   WorkflowTriggerDraft,
 } from "../types";
 import type {
+  AgentAuthMode,
   AgentInfo,
   AgentModelOption,
   AgentSettingsDraft,
@@ -79,9 +80,17 @@ export interface IpcInvokeMap {
     args: [{ draft: AgentSettingsDraft }];
     result: AgentSettingsView;
   };
-  /** 按当前 Base URL / API Key 拉取可用模型列表 */
+  /** 按当前 Base URL / API Key 拉取可用模型列表（鉴权方式与自定义请求头需与 CLI 一致） */
   "agent:models:list": {
-    args: [{ agentId: string; baseUrl: string; apiKey: string }];
+    args: [
+      {
+        agentId: string;
+        baseUrl: string;
+        apiKey: string;
+        authMode?: AgentAuthMode;
+        customHeaders?: string;
+      },
+    ];
     result: AgentModelOption[];
   };
   /** 统一发送：主进程按会话是否已有会话引用决定新建 / 恢复 */

@@ -34,15 +34,6 @@ const KIND_BY_NAME: Record<string, ToolKind> = {
   sh: "exec",
 };
 
-/**
- * 不进消息流的工具名。
- *
- * shell 执行类：CLI 会把命令的完整输出回吐，逐条展示会淹没正文，
- * 因此约定不展示。
- * 按名字而非分类匹配 —— 避免把未来某个叫法不同的 exec 类工具一并静默掉。
- */
-const SILENT_TOOLS: ReadonlySet<string> = new Set(["bash", "shell", "sh"]);
-
 /** 操作对象候选字段，按优先级排列 */
 const TARGET_KEYS = [
   "path",
@@ -57,22 +48,12 @@ const TARGET_KEYS = [
 /**
  * 归一化一次工具调用。
  *
- * 返回 null 表示该调用按约定不进入消息流（调用方直接不发射事件）。
- * `includeSilent` 为 true 时保留 shell 执行类工具 —— 工作流运行记录需要
- * 还原完整执行链路，聊天界面则继续过滤掉这类噪声。
+ * 所有工具都进入消息流（包括 Bash 等 shell 执行类）：聊天、任务中心与
+ * 工作流运行记录需要看到完整执行链路，是否折叠由展示层决定 —— 这里的
+ * 职责只是给出分类与操作对象。
  */
-export function describeTool(
-  name: string,
-  input: unknown,
-  includeSilent = false,
-): ToolDisplay | null {
-  if (!includeSilent && isSilentTool(name)) return null;
+export function describeTool(name: string, input: unknown): ToolDisplay {
   return { kind: KIND_BY_NAME[name.toLowerCase()] ?? "other", target: rawTarget(input) };
-}
-
-/** 该工具是否按约定不进消息流（同时适用于它的 tool_result） */
-export function isSilentTool(name: string): boolean {
-  return SILENT_TOOLS.has(name.toLowerCase());
 }
 
 /** 从 input 里取出操作对象原文；取不到则返回空串 */

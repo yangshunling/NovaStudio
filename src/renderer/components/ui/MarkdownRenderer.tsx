@@ -9,7 +9,7 @@
  */
 
 import { createContext, useContext, useEffect, useMemo, useState, memo } from "react";
-import ReactMarkdown from "react-markdown";
+import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeRaw from "rehype-raw";
 import rehypeSanitize, { defaultSchema } from "rehype-sanitize";
@@ -30,6 +30,14 @@ interface MarkdownImageContextValue {
 }
 
 const MarkdownImageContext = createContext<MarkdownImageContextValue | null>(null);
+
+/**
+ * 是否处于流式输出中。
+ *
+ * 流式期间代码块内容还在增长，Shiki 的同步 tokenize 会在每个增量上阻塞主线程；
+ * 此时先按纯文本渲染，等消息结束后再高亮一次（视觉上相同，开销从 O(n²) 降到 O(n)）。
+ */
+const MarkdownStreamingContext = createContext(false);
 
 /** 允许 raw HTML 时使用的清洗规则：保留 README 常用的表格 / 图片属性 */
 const htmlSchema = {
@@ -115,9 +123,16 @@ function MarkdownImage({
 /** 代码块组件 — Shiki 高亮（主题取自当前皮肤） */
 function CodeBlock({ code, lang }: { code: string; lang: string }) {
   const { codeTheme } = useSkin();
+  const streaming = useContext(MarkdownStreamingContext);
   const [highlighted, setHighlighted] = useState<string | null>(null);
 
   useEffect(() => {
+    // 流式期间代码还没定型：跳过 Shiki，先显示纯文本
+    if (streaming) {
+      setHighlighted(null);
+      return;
+    }
+
     // 先尝试同步高亮（高亮器已就绪时）
     const sync = highlightCodeSync(code, lang, codeTheme);
     if (sync) {
@@ -136,7 +151,7 @@ function CodeBlock({ code, lang }: { code: string; lang: string }) {
     return () => {
       cancelled = true;
     };
-  }, [code, lang, codeTheme]);
+  }, [code, lang, codeTheme, streaming]);
 
   if (highlighted) {
     return (
@@ -164,6 +179,80 @@ function InlineCode({ children }: { children: React.ReactNode }) {
   );
 }
 
+/**
+ * Markdown 元素渲染表。
+ *
+ * 必须放在模块作用域：react-markdown 会把这里的函数**直接当作 React 元素类型**
+ * 使用，函数引用一变，React 就认为组件类型变了，会卸载并重建整棵子树。
+ * 内联写法会让流式期间每次刷新都把整段已渲染的 Markdown DOM 摧毁重建，
+ * 代价远高于正常的差分更新（还会丢失文本选中和代码块的内部状态）。
+ *
+ * 这些渲染器都不依赖 props / state，可以安全地长期复用同一引用。
+ */
+const MARKDOWN_COMPONENTS: Components = {
+  // 代码块 vs 内联代码
+  code({ className, children }) {
+    const match = /language-(\w+)/.exec(className || "");
+    const isBlock = !!match || String(children).includes("\n");
+
+    if (isBlock) {
+      const lang = match?.[1] ?? "text";
+      const code = String(children).replace(/\n$/, "");
+      return <CodeBlock code={code} lang={lang} />;
+    }
+
+    return <InlineCode>{children}</InlineCode>;
+  },
+
+  // 自定义元素样式
+  h1: ({ children }) => <h1 className="ui-serif mb-3 mt-4 text-display font-bold text-text">{children}</h1>,
+  h2: ({ children }) => <h2 className="ui-serif mb-2 mt-3 text-heading font-bold text-text">{children}</h2>,
+  h3: ({ children }) => <h3 className="ui-serif mb-2 mt-3 text-body-lg font-bold text-text">{children}</h3>,
+
+  p: ({ children }) => <p className="mb-2 leading-relaxed">{children}</p>,
+
+  ul: ({ children }) => <ul className="mb-2 ml-4 list-disc space-y-1">{children}</ul>,
+  ol: ({ children }) => <ol className="mb-2 ml-4 list-decimal space-y-1">{children}</ol>,
+  li: ({ children }) => <li className="text-text">{children}</li>,
+
+  a: ({ href, children }) => (
+    <a href={href} target="_blank" rel="noopener noreferrer" className="text-accent hover:underline">
+      {children}
+    </a>
+  ),
+
+  img: MarkdownImage,
+
+  blockquote: ({ children }) => (
+    <blockquote className="mb-2 border-l-2 border-border-strong pl-3 text-text-secondary italic">
+      {children}
+    </blockquote>
+  ),
+
+  table: ({ children }) => (
+    <table className="mb-2 border-collapse border border-border text-meta">
+      {children}
+    </table>
+  ),
+  th: ({ children }) => (
+    <th className="border border-border bg-surface px-2 py-1 font-semibold text-text">
+      {children}
+    </th>
+  ),
+  td: ({ children }) => (
+    <td className="border border-border px-2 py-1 text-text-secondary">
+      {children}
+    </td>
+  ),
+
+  hr: () => <hr className="my-3 border-border" />,
+
+  pre: ({ children }) => <>{children}</>, // pre 由 CodeBlock 自己处理
+};
+
+/** remark 插件表：同样保持引用稳定 */
+const REMARK_PLUGINS = [remarkGfm];
+
 export interface MarkdownRendererProps {
   content: string;
   /** 项目文件预览时传入，用于解析 Markdown 中的本地相对路径图片 */
@@ -172,6 +261,8 @@ export interface MarkdownRendererProps {
   markdownPath?: string;
   /** 是否渲染 raw HTML（README 等文档里的 <img> / <table>） */
   allowHtml?: boolean;
+  /** 内容仍在流式增长：跳过昂贵的代码高亮，等定型后再执行 */
+  streaming?: boolean;
 }
 
 function MarkdownRendererImpl({
@@ -179,6 +270,7 @@ function MarkdownRendererImpl({
   projectId,
   markdownPath,
   allowHtml = false,
+  streaming = false,
 }: MarkdownRendererProps) {
   const imageContext = useMemo(
     () =>
@@ -198,74 +290,17 @@ function MarkdownRendererImpl({
 
   return (
     <MarkdownImageContext.Provider value={imageContext}>
+      <MarkdownStreamingContext.Provider value={streaming}>
       <div className="nova-markdown text-body-lg leading-relaxed text-text">
       <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
+        remarkPlugins={REMARK_PLUGINS}
         rehypePlugins={rehypePlugins}
-        components={{
-          // 代码块 vs 内联代码
-          code({ className, children }) {
-            const match = /language-(\w+)/.exec(className || "");
-            const isBlock = !!match || String(children).includes("\n");
-
-            if (isBlock) {
-              const lang = match?.[1] ?? "text";
-              const code = String(children).replace(/\n$/, "");
-              return <CodeBlock code={code} lang={lang} />;
-            }
-
-            return <InlineCode>{children}</InlineCode>;
-          },
-
-          // 自定义元素样式
-          h1: ({ children }) => <h1 className="ui-serif mb-3 mt-4 text-display font-bold text-text">{children}</h1>,
-          h2: ({ children }) => <h2 className="ui-serif mb-2 mt-3 text-heading font-bold text-text">{children}</h2>,
-          h3: ({ children }) => <h3 className="ui-serif mb-2 mt-3 text-body-lg font-bold text-text">{children}</h3>,
-
-          p: ({ children }) => <p className="mb-2 leading-relaxed">{children}</p>,
-
-          ul: ({ children }) => <ul className="mb-2 ml-4 list-disc space-y-1">{children}</ul>,
-          ol: ({ children }) => <ol className="mb-2 ml-4 list-decimal space-y-1">{children}</ol>,
-          li: ({ children }) => <li className="text-text">{children}</li>,
-
-          a: ({ href, children }) => (
-            <a href={href} target="_blank" rel="noopener noreferrer" className="text-accent hover:underline">
-              {children}
-            </a>
-          ),
-
-          img: MarkdownImage,
-
-          blockquote: ({ children }) => (
-            <blockquote className="mb-2 border-l-2 border-border-strong pl-3 text-text-secondary italic">
-              {children}
-            </blockquote>
-          ),
-
-          table: ({ children }) => (
-            <table className="mb-2 border-collapse border border-border text-meta">
-              {children}
-            </table>
-          ),
-          th: ({ children }) => (
-            <th className="border border-border bg-surface px-2 py-1 font-semibold text-text">
-              {children}
-            </th>
-          ),
-          td: ({ children }) => (
-            <td className="border border-border px-2 py-1 text-text-secondary">
-              {children}
-            </td>
-          ),
-
-          hr: () => <hr className="my-3 border-border" />,
-
-          pre: ({ children }) => <>{children}</>, // pre 由 CodeBlock 自己处理
-        }}
+        components={MARKDOWN_COMPONENTS}
       >
         {content}
       </ReactMarkdown>
       </div>
+      </MarkdownStreamingContext.Provider>
     </MarkdownImageContext.Provider>
   );
 }

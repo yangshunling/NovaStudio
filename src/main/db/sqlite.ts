@@ -110,16 +110,6 @@ export function initDatabase(): void {
       value TEXT NOT NULL
     );
 
-    -- Nova 创建的 MCP / Skill 标记。
-    -- 资产定义统一放在 Claude 配置里；这张表只记录「哪些条目是 Nova 创建的」，
-    -- 用于区分可编辑条目与 Claude 原有的只读条目。
-    CREATE TABLE IF NOT EXISTS managed_assets (
-      kind TEXT NOT NULL,
-      key TEXT NOT NULL,
-      created_at INTEGER NOT NULL,
-      PRIMARY KEY (kind, key)
-    );
-
     CREATE TABLE IF NOT EXISTS automation_tasks (
       id TEXT PRIMARY KEY,
       prompt TEXT NOT NULL,
@@ -240,8 +230,14 @@ export function initDatabase(): void {
       ON workflow_node_runs (run_id);
     CREATE INDEX IF NOT EXISTS idx_workflow_node_attempts_run
       ON workflow_node_attempts (run_id);
+    -- 运行详情按节点查尝试列表，run_id 索引无法覆盖
+    CREATE INDEX IF NOT EXISTS idx_workflow_node_attempts_node
+      ON workflow_node_attempts (node_run_id, attempt, round);
     CREATE INDEX IF NOT EXISTS idx_workflow_run_events_run
       ON workflow_run_events (run_id, seq);
+    -- 节点详情 / 告警列表按 node_run_id 过滤并按 seq 排序
+    CREATE INDEX IF NOT EXISTS idx_workflow_run_events_node
+      ON workflow_run_events (node_run_id, seq);
     -- 运行记录列表按工作流 / 工作区过滤并按创建时间倒序，三条路径都要走索引
     CREATE INDEX IF NOT EXISTS idx_workflow_runs_workflow
       ON workflow_runs (workflow_id, created_at DESC);
@@ -304,6 +300,8 @@ export function initDatabase(): void {
 
   // 旧版本由 Nova 自己维护的 Agent 连接配置已废弃，统一改用各 CLI 本机配置
   db.exec("DROP TABLE IF EXISTS agent_connections;");
+  // 旧版「Nova 创建的 MCP / 技能」标记：资产改为全部可编辑后已无任何读取
+  db.exec("DROP TABLE IF EXISTS managed_assets;");
 
   // 未绑定项目的会话是合法状态，不再把孤儿会话收编到「收件箱」项目：
   // 否则每次启动都会把用户有意留空的会话重新绑定上。
@@ -2274,47 +2272,6 @@ export function setSetting(key: string, value: string): void {
   db!.prepare(
     "INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = ?",
   ).run(key, value, value);
-}
-
-// ============================================================================
-// Nova 创建的资产标记
-// ============================================================================
-
-export type ManagedAssetKind = "mcp" | "skill";
-
-export function listManagedAssetKeys(kind: ManagedAssetKind): string[] {
-  const rows = db!
-    .prepare("SELECT key FROM managed_assets WHERE kind = ?")
-    .all(kind) as Array<{ key: string }>;
-  return rows.map((row) => row.key);
-}
-
-export function isManagedAsset(
-  kind: ManagedAssetKind,
-  key: string,
-): boolean {
-  return Boolean(
-    db!
-      .prepare("SELECT 1 FROM managed_assets WHERE kind = ? AND key = ?")
-      .get(kind, key),
-  );
-}
-
-export function markManagedAsset(kind: ManagedAssetKind, key: string): void {
-  db!
-    .prepare(
-      "INSERT OR IGNORE INTO managed_assets (kind, key, created_at) VALUES (?, ?, ?)",
-    )
-    .run(kind, key, Date.now());
-}
-
-export function unmarkManagedAsset(
-  kind: ManagedAssetKind,
-  key: string,
-): void {
-  db!
-    .prepare("DELETE FROM managed_assets WHERE kind = ? AND key = ?")
-    .run(kind, key);
 }
 
 // ============================================================================

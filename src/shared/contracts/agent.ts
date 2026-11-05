@@ -90,6 +90,25 @@ export interface AgentInfo extends AgentManifest {
 export type AgentModelAlias = "fable" | "opus" | "sonnet" | "haiku";
 
 /**
+ * Claude Code 的接入端点类型。
+ *
+ * 字段映射（settings.json → env）：
+ * - anthropic → 不设 CLAUDE_CODE_USE_*，走 ANTHROPIC_BASE_URL
+ * - bedrock   → CLAUDE_CODE_USE_BEDROCK = "1"
+ * - vertex    → CLAUDE_CODE_USE_VERTEX = "1"
+ * - foundry   → CLAUDE_CODE_USE_FOUNDRY = "1"
+ */
+export type AgentProvider = "anthropic" | "bedrock" | "vertex" | "foundry";
+
+/**
+ * API Key 的落点。Claude Code 认三个来源：
+ * - api-key         → env.ANTHROPIC_API_KEY（请求头 x-api-key）
+ * - auth-token      → env.ANTHROPIC_AUTH_TOKEN（请求头 Authorization: Bearer）
+ * - api-key-helper  → settings.json 顶层 apiKeyHelper（命令输出 key 到 stdout）
+ */
+export type AgentAuthMode = "api-key" | "auth-token" | "api-key-helper";
+
+/**
  * 别名槽位的唯一来源。
  *
  * 新增 / 调整别名时只改这里：设置读写、模型设置页与环境变量命名都从这里推导，
@@ -130,6 +149,49 @@ export interface AgentSettingsView {
   apiKey: string;
   hasApiKey: boolean;
   apiKeyHint: string;
+
+  // === 接入方式 ===
+  /** 由 env.CLAUDE_CODE_USE_BEDROCK / _VERTEX / _FOUNDRY 推导 */
+  provider: AgentProvider;
+  /** 由实际存在的 key 槽位 / apiKeyHelper 推导 */
+  authMode: AgentAuthMode;
+  /** settings.json 顶层 apiKeyHelper（命令，输出 key 到 stdout） */
+  apiKeyHelper: string;
+
+  /** env.ANTHROPIC_CUSTOM_HEADERS，每行 `Name: Value` */
+  customHeaders: string;
+
+  // === 网络 ===
+  /** env.HTTPS_PROXY */
+  httpsProxy: string;
+  /** env.NO_PROXY */
+  noProxy: string;
+  /** env.API_TIMEOUT_MS（毫秒） */
+  apiTimeoutMs: string;
+
+  // === 运行限制 ===
+  /** env.CLAUDE_CODE_MAX_OUTPUT_TOKENS */
+  maxOutputTokens: string;
+  /** env.MAX_THINKING_TOKENS */
+  maxThinkingTokens: string;
+  /** env.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC */
+  disableNonessentialTraffic: boolean;
+
+  // === 云厂商专属 ===
+  /** env.AWS_REGION（Bedrock） */
+  bedrockRegion: string;
+  /** env.ANTHROPIC_BEDROCK_BASE_URL（Bedrock，可选） */
+  bedrockBaseUrl: string;
+  /** env.ANTHROPIC_VERTEX_PROJECT_ID（Vertex） */
+  vertexProjectId: string;
+  /** env.CLOUD_ML_REGION（Vertex） */
+  vertexRegion: string;
+  /** env.ANTHROPIC_VERTEX_BASE_URL（Vertex，可选） */
+  vertexBaseUrl: string;
+  /** env.ANTHROPIC_FOUNDRY_RESOURCE（Foundry） */
+  foundryResource: string;
+  /** env.ANTHROPIC_FOUNDRY_BASE_URL（Foundry，可选） */
+  foundryBaseUrl: string;
   defaultModel: AgentModelEntry;
   /** 别名槽位 → 模型配置 */
   modelAliases: Record<AgentModelAlias, AgentModelEntry>;
@@ -156,7 +218,26 @@ export interface AgentSettingsDraft {
   baseUrl: string;
   /** undefined = 保持原值；"" = 清除；其他 = 更新 */
   apiKey?: string;
+  /** 不传时按 Base URL 自动推断，兼容旧调用方 */
+  authMode?: AgentAuthMode;
   defaultModel: AgentModelEntry;
   modelAliases: Record<AgentModelAlias, AgentModelEntry>;
   permissionMode: string;
+
+  provider?: AgentProvider;
+  apiKeyHelper?: string;
+  customHeaders?: string;
+  httpsProxy?: string;
+  noProxy?: string;
+  apiTimeoutMs?: string;
+  maxOutputTokens?: string;
+  maxThinkingTokens?: string;
+  disableNonessentialTraffic?: boolean;
+  bedrockRegion?: string;
+  bedrockBaseUrl?: string;
+  vertexProjectId?: string;
+  vertexRegion?: string;
+  vertexBaseUrl?: string;
+  foundryResource?: string;
+  foundryBaseUrl?: string;
 }

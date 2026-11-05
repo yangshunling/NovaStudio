@@ -45,8 +45,8 @@ export function TerminalsView() {
   const closeTerminal = useTerminalStore((s) => s.close);
   /** 右侧文件面板里点开的文件：终端上方内嵌预览，关闭后回到终端 */
   const [preview, setPreview] = useState<FileTab | null>(null);
-  /** 右侧工作区文件面板是否展开；按钮位于中间栏顶栏右侧，与对话页一致 */
-  const [showWorkspace, setShowWorkspace] = useState(true);
+  /** 右侧工作区文件面板是否展开；默认收起，由顶栏按钮手动打开 */
+  const [showWorkspace, setShowWorkspace] = useState(false);
   /** 工作区右键菜单：同一时间只开一个 */
   const [menu, setMenu] = useState<{
     project: Project;

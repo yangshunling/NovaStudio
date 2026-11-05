@@ -13,7 +13,7 @@ import type {
   IpcResult,
   SendAgentResult,
 } from "@shared/contracts/ipc";
-import type { AgentSettingsDraft } from "@shared/contracts/agent";
+import type { AgentAuthMode, AgentSettingsDraft } from "@shared/contracts/agent";
 import type {
   AppSettings,
   DigitalEmployeeDraft,
@@ -59,6 +59,8 @@ export const ipc = {
     agentId: string;
     baseUrl: string;
     apiKey: string;
+    authMode?: AgentAuthMode;
+    customHeaders?: string;
   }) => call("agent:models:list", input),
   sendAgent: (sessionId: string, prompt: string): Promise<SendAgentResult> =>
     call("agent:send", { sessionId, prompt }),

@@ -74,6 +74,15 @@ import type {
 const INPUT_CLASS =
   "ui-ring w-full rounded-lg bg-input-bg px-3 py-2 text-body-lg text-text placeholder-text-muted outline-none transition-colors focus:border-input-border-focus";
 
+/**
+ * 数字小输入框：视觉与 INPUT_CLASS 一致，但**不含 w-full**。
+ *
+ * 若直接拼 `${INPUT_CLASS} w-16`，Tailwind 产物里 .w-full 排在 .w-16 之后，
+ * 实际生效的是 w-full；再叠加 shrink-0 就会把输入框撑出父容器。
+ */
+const COMPACT_INPUT_CLASS =
+  "ui-ring rounded-lg bg-input-bg px-3 py-2 text-center text-body-lg text-text outline-none transition-colors focus:border-input-border-focus";
+
 const COL_W = 300;
 const ROW_H = 160;
 
@@ -1236,7 +1245,7 @@ function NodeInspector({
                       );
                       onPatch(node.id, {}, { maxRetries: next });
                     }}
-                    className={`${INPUT_CLASS} w-16 shrink-0 text-center`}
+                    className={`${COMPACT_INPUT_CLASS} w-16 shrink-0`}
                   />
                   <span className="text-meta text-text-muted">次</span>
                 </div>
@@ -1282,7 +1291,7 @@ function NodeInspector({
                       );
                       onPatch(node.id, {}, { maxRevisions: next });
                     }}
-                    className={`${INPUT_CLASS} w-16 shrink-0 text-center`}
+                    className={`${COMPACT_INPUT_CLASS} w-16 shrink-0`}
                   />
                   <span className="text-meta text-text-muted">轮</span>
                 </div>

@@ -6,7 +6,7 @@
  * 视觉样式全部走 Nova 的语义 token，因此昼夜皮肤自动兼容。
  */
 
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import {
   AssistantRuntimeProvider,
   MessagePrimitive,
@@ -14,7 +14,6 @@ import {
   useExternalStoreRuntime,
   useMessagePartReasoning,
   useMessagePartText,
-  useSmooth,
   type DataMessagePartProps,
   type ThreadMessageLike,
   type ToolCallMessagePartProps,
@@ -37,18 +36,32 @@ import { MarkdownRenderer } from "../ui/MarkdownRenderer";
 import { AgentAvatar, NovaAvatar } from "../ui/MessageAvatar";
 import { UserBubble } from "../ui/UserBubble";
 import { truncateText } from "../../lib/utils";
+import { markdownInterval, useThrottledValue } from "../../hooks/useThrottledValue";
 
 export function AssistantMessageList() {
   const messages = useChatStore((s) => s.messagesBySession[s.currentSessionId ?? ""] ?? []);
   const streaming = useChatStore(
     (s) => !!s.streamingBySession[s.currentSessionId ?? ""],
   );
+  const messageCount = messages.length;
+
+  /*
+   * convertMessage 必须保持引用稳定。
+   *
+   * assistant-ui 以 callback 引用作为转换缓存的失效条件：回调每次渲染都新建，
+   * 缓存就会整体丢弃，导致每来一个 token 都把**整个会话**重新转换一遍
+   * （重建 part、序列化每个工具调用参数）。长会话下这是最主要的卡顿来源。
+   */
+  const convertMessage = useCallback(
+    (message: Message, index: number) =>
+      toThreadMessage(message, streaming && index === messageCount - 1),
+    [streaming, messageCount],
+  );
 
   const runtime = useExternalStoreRuntime<Message>({
     messages,
     isRunning: streaming,
-    convertMessage: (message, index) =>
-      toThreadMessage(message, streaming && index === messages.length - 1),
+    convertMessage,
     // 输入框仍由 Nova 管理，这里只借用 assistant-ui 的展示运行时。
     onNew: async () => {},
   });
@@ -124,7 +137,7 @@ function UserMessage() {
 }
 
 function UserTextPart() {
-  const part = useSmooth(useMessagePartText(), false);
+  const part = useMessagePartText();
   return <>{part.text}</>;
 }
 
@@ -161,15 +174,25 @@ function AssistantMessage() {
 }
 
 function AnswerPart() {
-  const part = useSmooth(useMessagePartText(), {
-    drainMs: 260,
-    maxCharsPerFrame: 80,
-  });
+  /*
+   * 直接渲染权威文本，不再套 useSmooth 的打字机动画。
+   *
+   * useSmooth 会在 part 对象身份变化（流式时每个 delta 都会新建）时把
+   * 已显示文本清空重播，于是文字永远追不上流，表现为“一个字一个字往外蹦”。
+   * 事件已经由主进程 + 渲染进程合并过，直接渲染本身就是平滑的。
+   */
+  const part = useMessagePartText();
   const running = part.status.type === "running";
+  /*
+   * Markdown 解析是 O(文本长度) 的，而且流式期间每次都要从头解析。
+   * 固定 80ms 在长回复上会明显吃掉主线程（实测 32KB 单次约 48ms），
+   * 因此间隔随文本长度自适应：短文本保持打字机手感，长文本降低刷新频率。
+   */
+  const text = useThrottledValue(part.text, markdownInterval(part.text.length));
 
   return (
     <div className="ui-bubble w-fit max-w-full bg-surface-2 px-4 py-3 text-text">
-      <MarkdownRenderer content={part.text} />
+      <MarkdownRenderer content={text} streaming={running} />
       {running && (
         <span className="ml-0.5 inline-block h-3.5 w-1 animate-pulse rounded-full bg-accent align-middle" />
       )}
@@ -179,11 +202,10 @@ function AnswerPart() {
 
 function ReasoningPart() {
   const [collapsed, setCollapsed] = useState(true);
-  const part = useSmooth(useMessagePartReasoning(), {
-    drainMs: 320,
-    maxCharsPerFrame: 80,
-  });
+  const part = useMessagePartReasoning();
   const running = part.status.type === "running";
+  // 思考块默认折叠，展开时同样需要节流（原因见 AnswerPart）
+  const text = useThrottledValue(part.text, markdownInterval(part.text.length, 120));
 
   return (
     <div className="group max-w-full">
@@ -204,7 +226,7 @@ function ReasoningPart() {
 
       {!collapsed && (
         <div className="mt-2 max-h-60 overflow-auto rounded-md border-l-4 border-thinking bg-thinking-bg px-4 py-3 text-meta text-text-secondary backdrop-blur-md">
-          <MarkdownRenderer content={part.text} />
+          <MarkdownRenderer content={text} streaming={running} />
         </div>
       )}
     </div>

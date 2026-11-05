@@ -120,7 +120,6 @@ async function migrateMcp(): Promise<{
     servers[name] = server;
     changed = true;
     mapBySlug.set(slug, name);
-    db.markManagedAsset("mcp", name);
   }
 
   if (changed) {
@@ -165,7 +164,6 @@ async function migrateSkills(): Promise<{
 
     try {
       await cp(source, target, { recursive: true, filter: copyFilter });
-      db.markManagedAsset("skill", dirName);
       mapBySlug.set(dirName, dirName);
     } catch {
       // 单个技能复制失败不影响其它技能

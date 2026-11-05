@@ -73,6 +73,9 @@ function createWindow(): BrowserWindow {
       nodeIntegration: false,
       contextIsolation: true,
       sandbox: true,
+      // 会话在后台也要持续接收流式事件：窗口失焦 / 被遮挡时，
+      // Chromium 默认会把定时器节流到 1 次/秒，切回来时会看到文字成块蹦出。
+      backgroundThrottling: false,
     },
   });
 

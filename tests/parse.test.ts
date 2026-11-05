@@ -57,8 +57,8 @@ function messageStart(): string {
 }
 
 /** 按解码 → 合并的真实链路累积成一条 assistant 消息的内容 */
-function reduce(lines: string[], includeSilentTools = false): AgentEvent[] {
-  const decoder = parse.createDecoder(includeSilentTools);
+function reduce(lines: string[]): AgentEvent[] {
+  const decoder = parse.createDecoder();
   let content: AgentEvent[] = [];
   for (const input of lines) {
     const decoded = decoder(input);
@@ -107,9 +107,9 @@ test("工具回执穿插在同一条 assistant 消息中时，不会重复累积
   );
 });
 
-test("静默工具的回执不展示，但正文既不重复也不丢失", () => {
-  // Bash 在聊天模式下不展示，消息流里没有可见的边界事件；
-  // 此时继续累积、由 message_end 收敛，前后两段正文都能保留。
+test("Bash 等命令类工具同样进入消息流，正文既不重复也不丢失", () => {
+  // 命令类工具不再被静默：调用（exec 分类）与回执都要出现在消息流里，
+  // 且回执作为执行边界会切断累积，前后两段正文仍然完整。
   const content = reduce([
     messageStart(),
     assistant([{ type: "text", text: "X" }]),
@@ -122,7 +122,17 @@ test("静默工具的回执不展示，但正文既不重复也不丢失", () =>
     content.filter((e) => e.type === "text").map((e) => e.content),
     ["X", "Y"],
   );
-  assert.equal(content.filter((e) => e.type === "tool_call").length, 0);
+
+  const calls = content.filter((e) => e.type === "tool_call");
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].callId, "bash1");
+  assert.equal(calls[0].kind, "exec");
+  assert.equal(calls[0].target, "ls");
+
+  const results = content.filter((e) => e.type === "tool_result");
+  assert.equal(results.length, 1);
+  assert.equal(results[0].callId, "bash1");
+  assert.equal(results[0].name, "Bash");
 });
 
 test("同一段内的增量仍由 message_end 收敛，不产生重复", () => {
