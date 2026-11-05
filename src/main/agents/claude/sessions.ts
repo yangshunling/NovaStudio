@@ -50,6 +50,7 @@ export function locateSessionFile(
   configDir?: string | null,
 ): string | null {
   if (!cwd || !sessionId) return null;
+  if (!SESSION_ID_PATTERN.test(sessionId)) return null;
   const root = projectsRoot(configDir);
   const file = `${sessionId}.jsonl`;
 
@@ -83,6 +84,13 @@ export function fileVersion(
     return null;
   }
 }
+
+/**
+ * 会话 id 只允许 UUID 常见字符。
+ * 它会直接拼进文件路径，必须挡住 `/`、`\`、`.` 等分隔符，
+ * 否则 `"../../x"` 这类 id 能让读取 / 删除跑到会话目录之外。
+ */
+const SESSION_ID_PATTERN = /^[A-Za-z0-9_-]+$/;
 
 /** 会话 JSONL 的单条记录（只声明我们关心的字段） */
 interface ClaudeSessionEntry {

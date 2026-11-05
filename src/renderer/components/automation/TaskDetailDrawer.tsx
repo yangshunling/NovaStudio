@@ -8,7 +8,7 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import { Loader2 } from "lucide-react";
-import { MessageGroup } from "../MessageList";
+import { MessageGroup } from "../chat/MessageList";
 import {
   Drawer,
   DrawerBody,
@@ -100,7 +100,7 @@ export function TaskDetailDrawer({ task, onClose }: { task: AutomationTask; onCl
           <div className="flex flex-wrap items-center gap-2 text-caption">
             {project && (
               <span className="inline-flex items-center gap-1 rounded-full bg-surface-hover px-2 py-0.5 text-text-muted">
-                <FolderTypeIcon size={12} toneClassName="text-text-muted" />
+                <FolderTypeIcon size={12} />
                 {project.name}
               </span>
             )}

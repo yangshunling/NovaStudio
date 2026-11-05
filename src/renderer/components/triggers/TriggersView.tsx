@@ -8,14 +8,12 @@
  * 页面只负责定义与状态展示；到点启动的逻辑在主进程 trigger-scheduler。
  */
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   AlarmClock,
-  Loader2,
   Pencil,
   Plus,
   Repeat,
-  Search,
   Trash2,
   Workflow as WorkflowIcon,
   Zap,
@@ -45,7 +43,7 @@ import { Dialog, DialogActions } from "../ui/Dialog";
 import { Button } from "../ui/Button";
 import { SearchInput } from "../ui/SearchInput";
 import { Field, TextArea, TextInput } from "../ui/Field";
-import { Toggle } from "../employees/ui";
+import { Toggle } from "../ui/Toggle";
 import {
   describeTriggerSchedule,
   sortWeekdays,

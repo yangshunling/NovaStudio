@@ -19,10 +19,10 @@ import {
   useCallback,
 } from "react";
 import { ChevronRight, Loader2 } from "lucide-react";
-import { ipc } from "../lib/ipc";
+import { ipc } from "../../lib/ipc";
 import type { FileEntry } from "@shared/types";
-import { FileTypeIcon } from "./ui/FileTypeIcon";
-import { FolderTypeIcon } from "./ui/FolderTypeIcon";
+import { FileTypeIcon } from "../ui/FileTypeIcon";
+import { FolderTypeIcon } from "../ui/FolderTypeIcon";
 
 // ============================================================================
 // Hook
@@ -103,12 +103,13 @@ export function useFileMention({
     };
   }, [mentionQuery, subPath, projectId]);
 
-  // ---- 切换项目时清空缓存 ----
+  // ---- 切换项目时清空缓存与已引用的文件：旧路径在新工作区里不存在 ----
   useEffect(() => {
     cacheRef.current = {};
     loadedSubPathRef.current = null;
     setMentionQuery(null);
     setRawItems([]);
+    setReferences([]);
   }, [projectId]);
 
   // ---- 客户端过滤 ----

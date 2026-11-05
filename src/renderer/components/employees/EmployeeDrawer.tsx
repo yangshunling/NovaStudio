@@ -36,7 +36,7 @@ import { EmployeeAvatar } from "./EmployeeAvatar";
 import { KnowledgeTab } from "./knowledge/KnowledgeTab";
 import { McpTab } from "./mcp/McpTab";
 import { SkillsTab } from "./skills/SkillsTab";
-import { Toggle } from "./ui";
+import { Toggle } from "../ui/Toggle";
 import type { DigitalEmployee, DigitalEmployeeDraft } from "@shared/types";
 
 // ============================================================================

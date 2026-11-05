@@ -28,9 +28,9 @@ import { ListItem, ListPane } from "../ui/ListPane";
 import { Button } from "../ui/Button";
 import { EmptyState } from "../ui/EmptyState";
 import { Page, PageHeader } from "../ui/Page";
-import { TerminalView, WorkspaceToggleButton } from "../TerminalView";
-import { WorkspacePanel } from "../WorkspacePanel";
-import { FilePreview } from "../FilePreview";
+import { TerminalView, WorkspaceToggleButton } from "./TerminalView";
+import { WorkspacePanel } from "../workspaces/WorkspacePanel";
+import { FilePreview } from "../files/FilePreview";
 import type { Project } from "@shared/types";
 
 /** 右键菜单尺寸：用于贴近视口边缘时收拢位置 */

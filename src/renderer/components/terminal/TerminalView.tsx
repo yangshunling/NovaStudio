@@ -16,12 +16,12 @@ import {
   SquareTerminal,
 } from "lucide-react";
 import "@xterm/xterm/css/xterm.css";
-import { useTerminalStore, type TerminalSession } from "../stores/terminal";
-import { ipc } from "../lib/ipc";
-import { newId } from "../lib/utils";
-import { useSkin, useThemeStore } from "../hooks/useTheme";
-import { Button } from "./ui/Button";
-import { PageHeader } from "./ui/Page";
+import { useTerminalStore, type TerminalSession } from "../../stores/terminal";
+import { ipc } from "../../lib/ipc";
+import { newId } from "../../lib/utils";
+import { useSkin, useThemeStore } from "../../hooks/useTheme";
+import { Button } from "../ui/Button";
+import { PageHeader } from "../ui/Page";
 
 /**
  * 终端默认使用操作系统自带的等宽字体。

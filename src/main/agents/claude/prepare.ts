@@ -10,7 +10,9 @@
  *     claude-home/skills/         ← 只复制该员工选中的 skill
  *   MCP 则通过 `--mcp-config` + `--strict-mcp-config` 精确指定。
  *
- * 临时目录位于 userData 的 workflow-runs 下，节点结束由宿主删除；
+ * 临时目录位于 userData 的 workflow-runs 下，按「执行尝试」创建一次；
+ * 同一尝试内的多轮修正共用这个目录，因此 CLAUDE_CONFIG_DIR 里的会话文件
+ * 可以被下一轮 --resume 找到。整个尝试结束时由宿主删除。
  * 它不是 Nova 维护的第二套配置，只是运行时的投影。
  */
 
@@ -161,7 +163,11 @@ export async function prepareClaudeWorkflowRun(
       "--mcp-config",
       mcpConfigPath,
       "--strict-mcp-config",
-      "--no-session-persistence",
+      /*
+       * 不传 --no-session-persistence：人工审核「要求修改」需要在同一个
+       * CLI 会话里续聊。会话文件落在本次尝试的临时 configDir 下，
+       * 由 runner 在该尝试结束时一并删除。
+       */
     ],
     warnings,
     injected: {

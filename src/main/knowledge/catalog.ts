@@ -11,17 +11,7 @@
  */
 
 import { existsSync } from "fs";
-import {
-  copyFile,
-  mkdir,
-  open,
-  readFile,
-  readdir,
-  realpath,
-  rm,
-  stat,
-  writeFile,
-} from "fs/promises";
+import { copyFile, mkdir, readFile, readdir, rm, stat } from "fs/promises";
 import { basename, extname, join, relative, resolve, sep } from "path";
 import {
   deleteKnowledgeDocument,
@@ -30,11 +20,17 @@ import {
   searchKnowledgeDocuments,
   upsertKnowledgeDocument,
 } from "../db/sqlite";
-import { DATA_DIR } from "../utils/paths";
+import { DATA_DIR, isInside, isInsideReal } from "../utils/paths";
+import {
+  readTextFileLimited,
+  writeFileAtomic,
+  writeTextFileLimited,
+} from "../utils/fs";
 import type {
   KnowledgeBaseAsset,
   KnowledgeDocument,
   KnowledgeDocumentContent,
+  KnowledgeDocumentWriteResult,
   KnowledgeSearchResult,
   KnowledgeUploadResult,
   KnowledgeWriteResult,
@@ -104,21 +100,7 @@ function resolveRelative(root: string, relativePath: string): string | null {
 
   const rootAbs = resolve(root);
   const target = resolve(rootAbs, normalized);
-  if (target !== rootAbs && !target.startsWith(rootAbs + sep)) return null;
-  return target;
-}
-
-/** 真实路径必须仍在知识库内：防止符号链接 / junction 把操作带出根目录 */
-async function isInsideReal(root: string, target: string): Promise<boolean> {
-  try {
-    const realRoot = await realpath(root);
-    const realTarget = await realpath(target);
-    return (
-      realTarget === realRoot || realTarget.startsWith(realRoot + sep)
-    );
-  } catch {
-    return false;
-  }
+  return isInside(rootAbs, target) ? target : null;
 }
 
 // ============================================================================
@@ -435,10 +417,9 @@ export async function createKnowledgeBase(
       createdAt: now,
       updatedAt: now,
     };
-    await writeFile(
+    await writeFileAtomic(
       join(dir, META_FILE),
       `${JSON.stringify(meta, null, 2)}\n`,
-      "utf8",
     );
     invalidateKnowledgeBaseCache();
 
@@ -487,10 +468,9 @@ export async function updateKnowledgeBase(
       description: description.trim(),
       updatedAt: Date.now(),
     };
-    await writeFile(
+    await writeFileAtomic(
       join(asset.path, META_FILE),
       `${JSON.stringify(meta, null, 2)}\n`,
-      "utf8",
     );
     invalidateKnowledgeBaseCache();
 
@@ -759,27 +739,79 @@ export async function readKnowledgeDocument(
   const target = resolveRelative(asset.path, relativePath);
   if (!target || !(await isInsideReal(asset.path, target))) return null;
 
-  try {
-    const info = await stat(target);
-    if (!info.isFile() || !isMarkdown(target)) return null;
+  if (!isMarkdown(target)) return null;
 
-    const length = Math.min(info.size, PREVIEW_MAX_BYTES);
-    const handle = await open(target, "r");
-    try {
-      const buffer = Buffer.alloc(length);
-      await handle.read(buffer, 0, length, 0);
-      return {
-        content: buffer.toString("utf8"),
-        size: info.size,
-        updatedAt: info.mtimeMs,
-        truncated: info.size > PREVIEW_MAX_BYTES,
-      };
-    } finally {
-      await handle.close();
-    }
-  } catch {
-    return null;
+  const snapshot = await readTextFileLimited(target, PREVIEW_MAX_BYTES);
+  if (!snapshot) return null;
+
+  return {
+    content: snapshot.content,
+    size: snapshot.size,
+    updatedAt: snapshot.updatedAt,
+    truncated: snapshot.truncated,
+  };
+}
+
+/**
+ * 保存知识库里的 Markdown 文档。
+ *
+ * 只允许覆盖已存在的 .md / .markdown 文件：路径必须在知识库内，
+ * 写入后同步更新全文索引与知识库统计缓存。
+ */
+export async function writeKnowledgeDocument(
+  id: string,
+  relativePath: string,
+  content: string,
+): Promise<KnowledgeDocumentWriteResult> {
+  const asset = await getKnowledgeBase(id);
+  if (!asset) return { ok: false, error: "知识库不存在，可能已被删除" };
+
+  const target = resolveRelative(asset.path, relativePath);
+  if (!target || !(await isInsideReal(asset.path, target))) {
+    return { ok: false, error: "文档路径不合法" };
   }
+
+  let info;
+  try {
+    info = await stat(target);
+  } catch {
+    return { ok: false, error: "文档不存在，可能已被删除" };
+  }
+  if (!info.isFile() || !isMarkdown(target)) {
+    return { ok: false, error: "只能编辑 Markdown 文档" };
+  }
+
+  const written = await writeTextFileLimited(
+    target,
+    content,
+    MAX_FILE_BYTES,
+    "文档超过 100MB 上限",
+  );
+  if (!written.ok) return written;
+
+  const updated = await stat(target);
+  const document: KnowledgeDocument = {
+    name: basename(target),
+    relativePath: toPosix(relative(asset.path, target)),
+    isDirectory: false,
+    size: updated.size,
+    updatedAt: updated.mtimeMs,
+    indexed: updated.size <= INDEX_MAX_BYTES,
+  };
+
+  // 索引与统计都跟着文件走：保存后立即生效，搜索结果不会滞后
+  await indexDocument(asset, document);
+  invalidateKnowledgeBaseCache();
+
+  return {
+    ok: true,
+    document: {
+      content,
+      size: updated.size,
+      updatedAt: updated.mtimeMs,
+      truncated: false,
+    },
+  };
 }
 
 /** 返回文档的绝对路径；供「用系统程序打开」使用 */

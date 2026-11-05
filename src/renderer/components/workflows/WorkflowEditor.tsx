@@ -125,7 +125,7 @@ const REVIEW_OPTIONS: ReadonlyArray<{
   {
     value: "manual",
     label: "人工审核",
-    hint: "节点执行完成后暂停，等人工确认产物。驳回会立即终止整条运行，不重试。",
+    hint: "节点执行完成后暂停，等人工确认产物。可要求修改（同一会话继续），驳回会立即终止整条运行。",
     icon: UserCheck,
   },
 ];
@@ -634,7 +634,7 @@ export function WorkflowEditor({
 
   const decideDebug = async (
     nodeRunId: string,
-    action: "approve" | "reject",
+    action: "approve" | "reject" | "revise",
     note: string,
   ) => {
     if (!debugRunId || debugBusy) return;
@@ -1259,6 +1259,35 @@ function NodeInspector({
                 )?.hint
               }
             </p>
+
+            {node.config.reviewMode === "manual" && (
+              <div className="mt-3 flex items-center justify-between rounded-lg bg-surface-hover/60 px-3 py-2">
+                <label
+                  htmlFor={`revisions-${node.id}`}
+                  className="text-meta text-text-secondary"
+                >
+                  最大修改轮数
+                </label>
+                <div className="flex items-center gap-1.5">
+                  <input
+                    id={`revisions-${node.id}`}
+                    type="number"
+                    min={0}
+                    max={3}
+                    value={node.config.maxRevisions ?? 1}
+                    onChange={(event) => {
+                      const next = Math.min(
+                        3,
+                        Math.max(0, Math.round(Number(event.target.value) || 0)),
+                      );
+                      onPatch(node.id, {}, { maxRevisions: next });
+                    }}
+                    className={`${INPUT_CLASS} w-16 shrink-0 text-center`}
+                  />
+                  <span className="text-meta text-text-muted">轮</span>
+                </div>
+              </div>
+            )}
           </div>
         </>
       ) : (

@@ -41,16 +41,19 @@ function safeSegment(value: string): string {
 }
 
 /**
- * 单次节点尝试的产物目录。
+ * 单次节点调用的产物目录。
  *
- * 首次尝试直接用 `<序号>-<节点名>`；重试使用同级 `<序号>-<节点名>.try-N`，
- * 不再为每次尝试多加一层目录。序号保证同名节点不会互相覆盖。
+ * 首次尝试直接用 `<序号>-<节点名>`；
+ * 执行失败重试用同级 `.try-N`，人工要求修改用同级 `.rev-N`。
+ * 两者可以叠加（例如第 2 次尝试的第 2 轮 = `.try-2.rev-2`）。
+ * 序号保证同名节点不会互相覆盖。
  */
 export function nodeArtifactDir(
   runDir: string,
   node: WorkflowNode,
   index: number,
   attempt: number,
+  round = 1,
 ): string {
   const label =
     safeSegment(node.name).slice(0, 40) || node.id.slice(0, 8);
@@ -58,7 +61,9 @@ export function nodeArtifactDir(
     runDir,
     `${String(Math.max(0, index) + 1).padStart(2, "0")}-${label}`,
   );
-  return attempt > 1 ? `${base}.try-${attempt}` : base;
+  const attemptSuffix = attempt > 1 ? `.try-${attempt}` : "";
+  const roundSuffix = round > 1 ? `.rev-${round}` : "";
+  return `${base}${attemptSuffix}${roundSuffix}`;
 }
 
 /**

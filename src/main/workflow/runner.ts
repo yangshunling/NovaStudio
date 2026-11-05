@@ -16,7 +16,7 @@ import { rm, rmdir } from "fs/promises";
 import { dirname, join } from "path";
 import { getProvider, listProviders } from "../agents/registry";
 import type { AgentInvocationInfo, PreparedAgentRun } from "../agents/types";
-import type { AgentService, RunOutcome } from "../engine/agent-service";
+import type { AgentService, RunOutcome } from "../agents/agent-service";
 import * as db from "../db/sqlite";
 import {
   DEFAULT_SETTINGS,
@@ -25,6 +25,7 @@ import {
   type SessionOptions,
   type Workflow,
   type WorkflowNode,
+  type WorkflowNodeAttemptKind,
   type WorkflowNodeRun,
   type WorkflowNodeRunStatus,
   type WorkflowRun,
@@ -77,6 +78,16 @@ function effectiveMaxRetries(node: WorkflowNode): number {
   return Math.min(5, Math.max(1, Math.round(raw)));
 }
 
+/**
+ * 人工审核允许的「要求修改」轮数。
+ * 旧数据没有该字段时默认 1 轮；范围 0-3，0 表示只能通过 / 驳回。
+ */
+function effectiveMaxRevisions(node: WorkflowNode): number {
+  const raw = Number(node.config.maxRevisions);
+  if (!Number.isFinite(raw)) return 1;
+  return Math.min(3, Math.max(0, Math.round(raw)));
+}
+
 class CanceledError extends Error {
   constructor() {
     super("运行已取消");
@@ -111,8 +122,13 @@ export class WorkspaceBusyError extends Error {
 }
 
 interface ApprovalDecision {
-  /** timeout：等待超时，既不是通过也不是人工驳回 */
-  action: "approve" | "reject" | "cancel" | "timeout";
+  /**
+   * - approve / reject：最终决定
+   * - revise：要求修改，复用当前会话再执行一轮
+   * - cancel：运行被终止
+   * - timeout：等待超时，既不是通过也不是人工驳回
+   */
+  action: "approve" | "reject" | "revise" | "cancel" | "timeout";
   note: string;
 }
 
@@ -147,7 +163,7 @@ interface ActiveRun {
    */
   live: Map<
     string,
-    { attempt: number; seq: number; events: AgentEvent[] }
+    { attempt: number; round: number; seq: number; events: AgentEvent[] }
   >;
 }
 
@@ -166,7 +182,7 @@ export interface WorkflowRunner {
   approve(
     runId: string,
     nodeRunId: string,
-    action: "approve" | "reject",
+    action: "approve" | "reject" | "revise",
     note?: string,
   ): boolean;
   /** 删除工作流 / 工作区前检查是否有活跃运行 */
@@ -176,7 +192,7 @@ export interface WorkflowRunner {
   liveTranscript(
     runId: string,
     nodeRunId: string,
-  ): { attempt: number; seq: number; events: AgentEvent[] } | null;
+  ): { attempt: number; round: number; seq: number; events: AgentEvent[] } | null;
   shutdown(): void;
 }
 
@@ -192,6 +208,7 @@ export interface WorkflowRunnerDeps {
     runId: string;
     nodeRunId: string;
     attempt: number;
+    round: number;
     seq: number;
     event: AgentEvent;
   }) => void;
@@ -593,6 +610,7 @@ export function createWorkflowRunner(deps: WorkflowRunnerDeps): WorkflowRunner {
         db.updateWorkflowNodeRun(nodeRun.id, {
           status: "pending",
           attempt: nextAttempt,
+          round: 1,
           sessionId: null,
           artifactDir: null,
           inputPath: null,
@@ -839,11 +857,16 @@ export function createWorkflowRunner(deps: WorkflowRunnerDeps): WorkflowRunner {
     if (!employee) throw new Error(`节点「${node.name}」没有可用数字员工`);
 
     const initial = nodeRunOf(active, node.id);
-    updateStatus(initial.id, "running", { startedAt: Date.now(), error: null });
+    updateStatus(initial.id, "running", {
+      startedAt: Date.now(),
+      error: null,
+      round: 1,
+    });
     emitEvent(active.id, initial.id, "node_status", {
       nodeId: node.id,
       nodeName: node.name,
       status: "running",
+      round: 1,
     });
 
     const maxRetries = effectiveMaxRetries(node);
@@ -857,80 +880,31 @@ export function createWorkflowRunner(deps: WorkflowRunnerDeps): WorkflowRunner {
         // 重试时以本轮实际开始时间为准：否则 startedAt 会一直停在首轮，
         // 把等待重试的时间也算进节点耗时
         const attemptStartedAt = Date.now();
-        updateStatus(initial.id, "running", { attempt, startedAt: attemptStartedAt });
+        updateStatus(initial.id, "running", {
+          attempt,
+          round: 1,
+          startedAt: attemptStartedAt,
+          finishedAt: null,
+          error: null,
+        });
         emitEvent(active.id, initial.id, "node_status", {
           nodeId: node.id,
           nodeName: node.name,
           status: "running",
           attempt,
+          round: 1,
         });
-        const outcome = await runAttempt(active, node, employee, attempt);
+
+        // 一次「执行尝试」包含初次执行与后续的人工要求修改；
+        // 执行失败重试才会开新的 attempt / 新会话。
+        const outcome = await runChain(active, node, employee, attempt);
+
         if (outcome.ok) {
-          // 立即定格完成时间：人工审核的等待时长不应算进节点耗时
-          const attemptFinishedAt = Date.now();
-          // ---- 审核门禁：产物已生成，人工确认后才算节点通过 ----
-          if (node.config.reviewMode === "manual") {
-            let rejection: string | null;
-            try {
-              rejection = await reviewNodeOutput(
-                active,
-                node,
-                employee,
-                initial.id,
-                attempt,
-                outcome,
-              );
-            } catch (err) {
-              if (!(err instanceof ApprovalTimeoutError)) throw err;
-              /*
-               * 没人来审核：按「中断」收尾，节点置为 canceled 而不是 failed。
-               * 这样运行记录仍可续跑，用户回来确认后不会被迫从头重跑。
-               */
-              updateStatus(initial.id, "canceled", {
-                attempt,
-                finishedAt: attemptFinishedAt,
-                error: err.message,
-                sessionId: outcome.sessionId,
-                artifactDir: outcome.attemptDir,
-                inputPath: outcome.inputPath,
-                outputPath: outcome.outputPath,
-                outputSummary: outcome.summary,
-              });
-              emitEvent(active.id, initial.id, "node_finished", {
-                nodeId: node.id,
-                nodeName: node.name,
-                status: "canceled",
-                attempt,
-                error: err.message,
-              });
-              return "interrupted";
-            }
-            if (rejection) {
-              // 产物不合格：直接终止整条运行，不重试、也不按 skip 放行下游
-              updateStatus(initial.id, "failed", {
-                attempt,
-                finishedAt: attemptFinishedAt,
-                error: rejection,
-                sessionId: outcome.sessionId,
-                artifactDir: outcome.attemptDir,
-                inputPath: outcome.inputPath,
-                outputPath: outcome.outputPath,
-                outputSummary: outcome.summary,
-              });
-              emitEvent(active.id, initial.id, "node_finished", {
-                nodeId: node.id,
-                nodeName: node.name,
-                status: "failed",
-                attempt,
-                error: rejection,
-              });
-              return "failed";
-            }
-          }
           updateStatus(initial.id, "succeeded", {
             attempt,
+            round: outcome.round,
             startedAt: attemptStartedAt,
-            finishedAt: attemptFinishedAt,
+            finishedAt: outcome.finishedAt,
             error: null,
             sessionId: outcome.sessionId,
             artifactDir: outcome.attemptDir,
@@ -943,55 +917,129 @@ export function createWorkflowRunner(deps: WorkflowRunnerDeps): WorkflowRunner {
             nodeName: node.name,
             status: "succeeded",
             attempt,
+            round: outcome.round,
             sessionId: outcome.sessionId,
             outputPath: outcome.outputPath,
           });
           return "succeeded";
         }
+
+        if (outcome.interrupted) {
+          /*
+           * 没人来审核：按「中断」收尾，节点置为 canceled 而不是 failed。
+           * 这样运行记录仍可续跑，用户回来确认后不会被迫从头重跑。
+           */
+          updateStatus(initial.id, "canceled", {
+            attempt,
+            round: outcome.round,
+            finishedAt: outcome.finishedAt,
+            error: outcome.error,
+            sessionId: outcome.sessionId,
+            artifactDir: outcome.attemptDir,
+            inputPath: outcome.inputPath,
+            outputPath: outcome.outputPath,
+            outputSummary: outcome.summary,
+          });
+          emitEvent(active.id, initial.id, "node_finished", {
+            nodeId: node.id,
+            nodeName: node.name,
+            status: "canceled",
+            attempt,
+            round: outcome.round,
+            error: outcome.error,
+          });
+          return "interrupted";
+        }
+
+        if (outcome.rejected) {
+          // 人工驳回 / 修改轮数耗尽：直接终止整条运行，不走失败重试策略
+          updateStatus(initial.id, "failed", {
+            attempt,
+            round: outcome.round,
+            finishedAt: outcome.finishedAt,
+            error: outcome.error,
+            sessionId: outcome.sessionId,
+            artifactDir: outcome.attemptDir,
+            inputPath: outcome.inputPath,
+            outputPath: outcome.outputPath,
+            outputSummary: outcome.summary,
+          });
+          emitEvent(active.id, initial.id, "node_finished", {
+            nodeId: node.id,
+            nodeName: node.name,
+            status: "failed",
+            attempt,
+            round: outcome.round,
+            error: outcome.error,
+          });
+          return "failed";
+        }
+
         if (outcome.canceled) throw new CanceledError();
-        lastError = outcome.error;
+        lastError = outcome.error || "节点执行失败";
       }
 
       // ---- 失败处理 ----
-      updateStatus(initial.id, "failed", { attempt, error: lastError });
+      updateStatus(initial.id, "failed", {
+        attempt,
+        round: nodeRunOf(active, node.id).round,
+        error: lastError,
+      });
 
-      // 执行失败按重试策略处理；人工驳回在上面已直接终止，不会走到这里
+      // 执行失败按重试策略处理；人工驳回 / 修改耗尽在上面已直接终止
       if (attempt <= maxRetries) {
-        updateStatus(initial.id, "retrying", { attempt, error: lastError });
+        updateStatus(initial.id, "retrying", {
+          attempt,
+          round: nodeRunOf(active, node.id).round,
+          error: lastError,
+        });
         emitEvent(active.id, initial.id, "node_retry", {
           nodeId: node.id,
           nodeName: node.name,
           attempt,
+          round: nodeRunOf(active, node.id).round,
           maxRetries,
           error: lastError,
         });
         await delay(active, RETRY_BASE_MS * attempt);
         attempt += 1;
-        // 必须清空上一轮错误，否则下一轮会跳过 runAttempt（只重试等待、不真正执行）
+        // 必须清空上一轮错误，否则下一轮会跳过执行（只重试等待、不真正运行）
         lastError = "";
-        db.updateWorkflowNodeRun(initial.id, { attempt, error: null });
+        db.updateWorkflowNodeRun(initial.id, { attempt, round: 1, error: null });
         continue;
       }
 
       const finishedAt = Date.now();
       if (node.config.failureStrategy === "skip") {
-        updateStatus(initial.id, "skipped", { attempt, finishedAt, error: lastError });
+        updateStatus(initial.id, "skipped", {
+          attempt,
+          round: nodeRunOf(active, node.id).round,
+          finishedAt,
+          error: lastError,
+        });
         emitEvent(active.id, initial.id, "node_finished", {
           nodeId: node.id,
           nodeName: node.name,
           status: "skipped",
           attempt,
+          round: nodeRunOf(active, node.id).round,
           error: lastError,
         });
         return "skipped";
       }
 
-      updateStatus(initial.id, "failed", { attempt, finishedAt, error: lastError });
+      updateStatus(initial.id, "failed", {
+        attempt,
+        round: nodeRunOf(active, node.id).round,
+        finishedAt,
+        error: lastError,
+      });
       emitEvent(active.id, initial.id, "node_finished", {
         nodeId: node.id,
         nodeName: node.name,
         status: "failed",
         attempt,
+        round: nodeRunOf(active, node.id).round,
         error: lastError,
       });
       return "failed";
@@ -1001,7 +1049,15 @@ export function createWorkflowRunner(deps: WorkflowRunnerDeps): WorkflowRunner {
   interface AttemptOutcome {
     ok: boolean;
     canceled?: boolean;
+    /** 人工审核驳回 / 修改轮数耗尽：不套用失败重试策略 */
+    rejected?: boolean;
+    /** 审核等待超时：运行按中断收尾，可续跑 */
+    interrupted?: boolean;
     error: string;
+    /** 本结果对应的修正轮次，从 1 开始 */
+    round: number;
+    /** 本轮执行结束时间（不含人工审核等待） */
+    finishedAt: number;
     sessionId: string | null;
     attemptDir: string;
     inputPath: string;
@@ -1009,26 +1065,184 @@ export function createWorkflowRunner(deps: WorkflowRunnerDeps): WorkflowRunner {
     summary: string;
   }
 
-  async function runAttempt(
+  /**
+   * 一次「执行尝试」的共享上下文。
+   *
+   * 同一 attempt 内的多轮修正必须复用：
+   * - sessionId：Nova 会话（消息落库与前端事件路由）
+   * - runtimeDir / prepared：临时 CLAUDE_CONFIG_DIR 与 MCP 投影
+   * 这样下一轮才能靠 --resume 接上同一个 CLI 会话。
+   */
+  interface AttemptChain {
+    attempt: number;
+    sessionId: string;
+    runtimeDir: string;
+    prepared: PreparedAgentRun;
+    warnings: string[];
+    agentLabel: string;
+    runtimeConfig: Record<string, string>;
+    systemPrompt: string;
+    knowledge: ExecutionReportKnowledgeBase[];
+  }
+
+  async function cleanupRuntimeDir(runtimeDir: string): Promise<void> {
+    try {
+      await rm(runtimeDir, {
+        recursive: true,
+        force: true,
+        maxRetries: 4,
+        retryDelay: 120,
+      });
+    } catch {
+      // 清理失败不影响节点结果
+    }
+    try {
+      await rmdir(dirname(runtimeDir));
+    } catch {
+      // run 目录下还有其它节点时保留
+    }
+  }
+
+  /**
+   * 为一次执行尝试创建会话与运行时投影。
+   *
+   * 只在 attempt 开始时调用一次；人工要求修改不会重建，否则会得到新的
+   * CLAUDE_CONFIG_DIR，CLI 会话文件随之消失，--resume 就失效了。
+   */
+  async function createAttemptChain(
     active: ActiveRun,
     node: WorkflowNode,
     employee: DigitalEmployee,
     attempt: number,
+  ): Promise<AttemptChain> {
+    const nodeRun = nodeRunOf(active, node.id);
+    const agentId = resolveAgentId();
+    const provider = getProvider(agentId);
+    if (!provider) {
+      throw new Error(`Agent「${agentId}」不存在或未注册`);
+    }
+
+    // 运行时投影目录：一个 attempt 一份，整条修正链共用，结束统一删除
+    const runtimeDir = join(
+      deps.userDataDir,
+      "workflow-runs",
+      active.id,
+      `${node.id}-attempt-${attempt}`,
+    );
+
+    let runtimeConfig: Record<string, string> = {};
+    try {
+      runtimeConfig = provider.describeRuntimeConfig?.() ?? {};
+    } catch (err) {
+      runtimeConfig = { "配置读取失败": messageOf(err) };
+    }
+
+    const warnings: string[] = [];
+    const capabilities = provider.manifest.capabilities;
+    const enabledSkills = employee.skills.filter((skill) => skill.enabled);
+    const enabledMcp = employee.mcpServers.filter((server) => server.enabled);
+    if (enabledSkills.length > 0 && !capabilities.skills) {
+      warnings.push(
+        `当前 Agent（${agentId}）不支持技能注入，本次已忽略 ${enabledSkills.length} 个技能。`,
+      );
+    }
+    if (enabledMcp.length > 0 && !capabilities.mcp) {
+      warnings.push(
+        `当前 Agent（${agentId}）不支持 MCP 注入，本次已忽略 ${enabledMcp.length} 个 MCP 服务。`,
+      );
+    }
+
+    // 知识库属于员工能力的一部分：解析成目录清单后写进系统提示词
+    const knowledge = await resolveEmployeeKnowledge(employee.knowledgeBases);
+    warnings.push(...knowledge.warnings);
+
+    const systemPrompt = buildSystemPrompt(employee, knowledge.promptSection);
+
+    // 运行时投影目录：一个 attempt 一份，整条修正链共用，结束统一删除
+    await ensureDir(runtimeDir);
+
+    const session = db.createSession(
+      agentId,
+      active.workspaceId,
+      active.workspacePath,
+      `工作流「${active.workflow.name}」· ${node.name} · 第 ${attempt} 次`,
+      null,
+      "workflow",
+    );
+    active.sessions.add(session.id);
+
+    const opts: SessionOptions = {};
+    if (systemPrompt) opts.systemPrompt = systemPrompt;
+
+    let prepared: PreparedAgentRun;
+    try {
+      // 由 provider 决定是否需要运行时投影（Claude 按员工 MCP/Skill 子集生成临时配置）
+      prepared =
+        (await provider.prepareRun?.({
+          mode: "workflow",
+          sessionId: session.id,
+          cwd: active.workspacePath,
+          runtimeDir,
+          employee,
+          opts,
+        })) ?? {};
+    } catch (err) {
+      // 投影失败：会话还没有任何消息，直接回收，避免留下隐形空会话；
+      // 临时目录可能已复制了凭证 / 技能，也必须在这里清掉。
+      active.sessions.delete(session.id);
+      db.deleteSession(session.id);
+      await cleanupRuntimeDir(runtimeDir);
+      throw err;
+    }
+
+    warnings.push(...(prepared.warnings ?? []));
+    for (const message of warnings) {
+      emitEvent(active.id, nodeRun.id, "log", {
+        level: "warning",
+        message,
+        attempt,
+      });
+    }
+
+    return {
+      attempt,
+      sessionId: session.id,
+      runtimeDir,
+      prepared,
+      warnings,
+      agentLabel: `${provider.manifest.displayName}（${provider.manifest.id}）`,
+      runtimeConfig,
+      systemPrompt,
+      knowledge: knowledge.bases.map((base) => ({
+        name: base.name,
+        path: base.path,
+        fileCount: base.fileCount,
+      })),
+    };
+  }
+
+  async function runRound(
+    active: ActiveRun,
+    node: WorkflowNode,
+    employee: DigitalEmployee,
+    chain: AttemptChain,
+    round: number,
+    kind: WorkflowNodeAttemptKind,
+    feedback = "",
   ): Promise<AttemptOutcome> {
     const nodeRun = nodeRunOf(active, node.id);
     const attemptDir = nodeArtifactDir(
       active.runDir,
       node,
       active.order.findIndex((item) => item.id === node.id),
-      attempt,
+      chain.attempt,
+      round,
     );
     await ensureDir(attemptDir);
 
     // execution.md：完整执行现场（Agent 配置 / 注入能力 / 命令行 / 提示词 / 结果）
     const inputPath = join(attemptDir, "execution.md");
     const outputPath = join(attemptDir, "result.md");
-    let sessionId: string | null = null;
-
     const attemptStartedAt = Date.now();
     const timeoutSetting = Number(db.getSetting("agentTimeoutMinutes"));
     const timeoutMinutes =
@@ -1036,42 +1250,25 @@ export function createWorkflowRunner(deps: WorkflowRunnerDeps): WorkflowRunner {
         ? Math.max(1, Math.round(timeoutSetting))
         : DEFAULT_SETTINGS.agentTimeoutMinutes;
     const maxRetries = effectiveMaxRetries(node);
+    const maxRevisions = effectiveMaxRevisions(node);
 
     const reportState: {
-      prepared: PreparedAgentRun | null;
       invocation: AgentInvocationInfo | null;
       outcome: RunOutcome | null;
       error: string | null;
-      sessionId: string | null;
       sessionRef: string | null;
     } = {
-      prepared: null,
       invocation: null,
       outcome: null,
       error: null,
-      sessionId: null,
       sessionRef: null,
     };
     const reportContext: {
-      systemPrompt: string;
       prompt: string;
-      knowledge: ExecutionReportKnowledgeBase[];
-      warnings: string[];
-      runtimeConfig: Record<string, string>;
-      agentLabel: string;
-      runtimeDir: string | null;
-    } = {
-      systemPrompt: "",
-      prompt: "",
-      knowledge: [],
-      warnings: [],
-      runtimeConfig: {},
-      agentLabel: "",
-      runtimeDir: null,
-    };
+    } = { prompt: "" };
 
     let reportChain: Promise<void> = Promise.resolve();
-    /** 每次调用都重写一份完整报告；链式写入保证最终内容是最新的 */
+    /** 每轮都重写一份完整报告；链式写入保证最终内容是最新的 */
     const writeReport = (): void => {
       const content = buildExecutionReport({
         runId: active.id,
@@ -1084,22 +1281,25 @@ export function createWorkflowRunner(deps: WorkflowRunnerDeps): WorkflowRunner {
         employeeId: employee.id,
         employeeName: employee.name,
         employeeRole: employee.role,
-        attempt,
+        attempt: chain.attempt,
+        round,
+        kind,
         maxRetries,
+        maxRevisions,
         failureStrategy: node.config.failureStrategy,
         reviewMode: node.config.reviewMode,
         startedAt: attemptStartedAt,
         timeoutMinutes,
-        sessionId: reportState.sessionId,
+        sessionId: chain.sessionId,
         sessionRef: reportState.sessionRef,
-        agentLabel: reportContext.agentLabel,
-        runtimeConfig: reportContext.runtimeConfig,
-        runtimeDir: reportContext.runtimeDir,
-        prepared: reportState.prepared,
+        agentLabel: chain.agentLabel,
+        runtimeConfig: chain.runtimeConfig,
+        runtimeDir: chain.runtimeDir,
+        prepared: chain.prepared,
         invocation: reportState.invocation,
-        knowledge: reportContext.knowledge,
-        warnings: reportContext.warnings,
-        systemPrompt: reportContext.systemPrompt,
+        knowledge: chain.knowledge,
+        warnings: chain.warnings,
+        systemPrompt: chain.systemPrompt,
         prompt: reportContext.prompt,
         outcome: reportState.outcome,
         error: reportState.error,
@@ -1112,307 +1312,408 @@ export function createWorkflowRunner(deps: WorkflowRunnerDeps): WorkflowRunner {
     };
 
     // 运行中的事件只留在内存里，供运行记录中途打开时回放
-    active.live.set(nodeRun.id, { attempt, seq: 0, events: [] });
+    active.live.set(nodeRun.id, {
+      attempt: chain.attempt,
+      round,
+      seq: 0,
+      events: [],
+    });
 
+    const attemptId = randomUUID();
     try {
-      const agentId = resolveAgentId();
-      const provider = getProvider(agentId);
-      if (!provider) {
-        throw new Error(`Agent「${agentId}」不存在或未注册`);
-      }
-
-      // 运行时投影目录：放在 userData 下，节点结束后删除；不写入工作区产物
-      const runtimeDir = join(
-        deps.userDataDir,
-        "workflow-runs",
-        active.id,
-        `${node.id}-attempt-${attempt}`,
-      );
-      await ensureDir(runtimeDir);
-      reportContext.runtimeDir = runtimeDir;
-      reportContext.agentLabel = `${provider.manifest.displayName}（${provider.manifest.id}）`;
-      try {
-        reportContext.runtimeConfig = provider.describeRuntimeConfig?.() ?? {};
-      } catch (err) {
-        reportContext.runtimeConfig = {
-          "配置读取失败": messageOf(err),
-        };
-      }
-
-      const runtimeWarnings: string[] = [];
-      reportContext.warnings = runtimeWarnings;
-      const capabilities = provider.manifest.capabilities;
-      const enabledSkills = employee.skills.filter((skill) => skill.enabled);
-      const enabledMcp = employee.mcpServers.filter((server) => server.enabled);
-      if (enabledSkills.length > 0 && !capabilities.skills) {
-        runtimeWarnings.push(
-          `当前 Agent（${agentId}）不支持技能注入，本次已忽略 ${enabledSkills.length} 个技能。`,
-        );
-      }
-      if (enabledMcp.length > 0 && !capabilities.mcp) {
-        runtimeWarnings.push(
-          `当前 Agent（${agentId}）不支持 MCP 注入，本次已忽略 ${enabledMcp.length} 个 MCP 服务。`,
-        );
-      }
-
-      // 知识库属于员工能力的一部分：解析成目录清单后写进系统提示词
-      const knowledge = await resolveEmployeeKnowledge(employee.knowledgeBases);
-      runtimeWarnings.push(...knowledge.warnings);
-
-      const systemPrompt = buildSystemPrompt(employee, knowledge.promptSection);
-      const prompt = buildPrompt(active, node);
-      reportContext.systemPrompt = systemPrompt;
-      reportContext.prompt = prompt;
-      reportContext.knowledge = knowledge.bases.map((base) => ({
-        name: base.name,
-        path: base.path,
-        fileCount: base.fileCount,
-      }));
-
-      const session = db.createSession(
-        agentId,
-        active.workspaceId,
-        active.workspacePath,
-        `工作流「${active.workflow.name}」· ${node.name} · 第 ${attempt} 次`,
-        null,
-        "workflow",
-      );
-      sessionId = session.id;
-      reportState.sessionId = session.id;
-      writeReport();
-      db.updateWorkflowNodeRun(nodeRun.id, {
-        sessionId: session.id,
-        inputPath,
-        artifactDir: attemptDir,
-      });
+      // 先登记本轮调用；消息边界在运行结束后回填
       db.createWorkflowNodeAttempt({
-        id: randomUUID(),
+        id: attemptId,
         runId: active.id,
         nodeRunId: nodeRun.id,
-        attempt,
-        sessionId: session.id,
+        attempt: chain.attempt,
+        round,
+        kind,
+        sessionId: chain.sessionId,
         artifactDir: attemptDir,
       });
-      active.sessions.add(session.id);
+      db.updateWorkflowNodeRun(nodeRun.id, {
+        sessionId: chain.sessionId,
+        inputPath,
+        // 先指向本轮路径：即使本轮失败，结果页也不会继续展示上一轮的旧结果
+        outputPath,
+        artifactDir: attemptDir,
+        outputSummary: null,
+        round,
+      });
+      writeReport();
 
-      // 只注入宿主自己生成的内容；模型 / 权限 / 接入等运行方式
-      // 完全继承 Agent 平台的本机配置。
-      const opts: SessionOptions = {};
-      if (systemPrompt) opts.systemPrompt = systemPrompt;
+      const prompt =
+        kind === "revise"
+          ? buildRevisionPrompt(feedback)
+          : buildPrompt(active, node);
+      reportContext.prompt = prompt;
+      writeReport();
 
-      try {
-        // 由 provider 决定是否需要运行时投影（Claude 按员工 MCP/Skill 子集生成临时配置）
-        const prepared =
-          (await provider.prepareRun?.({
-            mode: "workflow",
-            sessionId: session.id,
-            cwd: active.workspacePath,
-            runtimeDir,
-            employee,
-            opts,
-          })) ?? {};
-        reportState.prepared = prepared;
-
-        // configDir 指向本次运行的临时投影目录，节点结束后就会被删除。
-        // 不写入 sessions：留着只会得到一个永远失效的路径。
-        runtimeWarnings.push(...(prepared.warnings ?? []));
-        writeReport();
-
-        // 告警不再单独落文件，直接写进事件日志；运行详情按节点读取
-        for (const message of runtimeWarnings) {
-          emitEvent(active.id, nodeRun.id, "log", {
-            level: "warning",
-            message,
-            attempt,
-          });
-        }
-
-        // 兄弟节点已经失败停止：不要为新节点再拉起 Agent 进程
-        if (active.canceled || active.stopping) {
-          return failedAttempt(
-            "运行已停止",
-            true,
-            session.id,
-            attemptDir,
-            inputPath,
-            outputPath,
-          );
-        }
-
-        const texts: string[] = [];
-        const deltas: string[] = [];
-        /** 运行时错误（超时 / 启动失败等）：非零退出码时要给用户具体原因 */
-        let runtimeError = "";
-        const result = await deps.service.run({
-          sessionId: session.id,
-          prompt,
-          cwd: active.workspacePath,
-          opts,
-          env: prepared.env,
-          envRemove: prepared.envRemove,
-          extraArgs: prepared.extraArgs,
-          onInvocation: (info) => {
-            reportState.invocation = info;
-            writeReport();
-          },
-          onEvent: (event) => {
-            // 实时链路：先在内存里留一份快照，再推给渲染层。
-            // seq 始终递增；快照超过上限后只停止保留前缀，
-            // 推送仍然连续，运行记录中途打开时按 seq 合并即可。
-            const live = active.live.get(nodeRun.id);
-            if (live && live.attempt === attempt) {
-              live.seq += 1;
-              if (live.events.length < LIVE_EVENT_LIMIT) {
-                live.events.push(event);
-              }
-              deps.emitAgentEvent({
-                runId: active.id,
-                nodeRunId: nodeRun.id,
-                attempt,
-                seq: live.seq,
-                event,
-              });
-            }
-
-            if (event.type === "text") texts.push(event.content);
-            else if (event.type === "text_delta") deltas.push(event.delta);
-            else if (event.type === "error") runtimeError = event.message;
-          },
-        });
-
-        reportState.outcome =
-          result.exitCode !== 0
-            ? {
-                ...result,
-                ok: false,
-                error: runtimeError || result.error,
-              }
-            : result;
-        if (active.canceled) reportState.error = "运行已取消";
-        reportState.sessionRef =
-          db.getSession(session.id)?.agentSessionId ?? null;
-        writeReport();
-        await reportChain;
-
-        if (active.canceled) {
-          return failedAttempt("运行已取消", true, session.id, attemptDir, inputPath, outputPath);
-        }
-        if (result.aborted) {
-          return failedAttempt("运行被中断", true, session.id, attemptDir, inputPath, outputPath);
-        }
-        if (!result.ok) {
-          return failedAttempt(result.error ?? "Agent 启动失败", false, session.id, attemptDir, inputPath, outputPath);
-        }
-        if (result.exitCode !== 0) {
-          return failedAttempt(
-            runtimeError || `Agent 退出码 ${result.exitCode}`,
-            false,
-            session.id,
-            attemptDir,
-            inputPath,
-            outputPath,
-          );
-        }
-
-        /*
-         * 结果优先取本地落库的 assistant 消息：
-         * Claude 的正文以 message_end 块到达，只靠 text / text_delta 累积
-         * 会在 “没有 partial messages” 的版本上得到空结果。
-         * 落库消息已经过 appendEvent 收敛，是本次运行的权威文本。
-         */
-        const output =
-          assistantTextFromSession(session.id) ||
-          texts.join("\n\n").trim() ||
-          deltas.join("").trim() ||
-          "（无文本输出）";
-        await writeText(outputPath, output);
-
-        return {
-          ok: true,
-          error: "",
-          sessionId: session.id,
+      // 兄弟节点已经失败停止：不要为新节点再拉起 Agent 进程
+      if (active.canceled || active.stopping) {
+        return failedAttempt(
+          "运行已停止",
+          true,
+          chain.sessionId,
           attemptDir,
           inputPath,
           outputPath,
-          summary: truncate(output, UPSTREAM_SUMMARY_LIMIT),
-        };
-      } finally {
-        // 保证报告文件在节点结束前落盘（后续还会清理 runtimeDir）
-        await reportChain;
-        active.sessions.delete(session.id);
-        // 尝试结束后以 messages 表里的完整消息为准，实时快照不再需要
-        active.live.delete(nodeRun.id);
-        try {
-          await rm(runtimeDir, {
-            recursive: true,
-            force: true,
-            maxRetries: 4,
-            retryDelay: 120,
-          });
-        } catch {
-          // 清理失败不影响节点结果
-        }
-        try {
-          await rmdir(dirname(runtimeDir));
-        } catch {
-          // run 目录下还有其它节点时保留
-        }
+          round,
+        );
       }
+
+      const texts: string[] = [];
+      const deltas: string[] = [];
+      /** 运行时错误（超时 / 启动失败等）：非零退出码时要给用户具体原因 */
+      let runtimeError = "";
+      const result = await deps.service.run({
+        sessionId: chain.sessionId,
+        prompt,
+        cwd: active.workspacePath,
+        opts: chain.systemPrompt ? { systemPrompt: chain.systemPrompt } : {},
+        env: chain.prepared.env,
+        envRemove: chain.prepared.envRemove,
+        extraArgs: chain.prepared.extraArgs,
+        // 用户消息一落库就记下本轮起点：运行中查看详情时也能正确切分轮次
+        onUserMessage: (messageId) => {
+          db.updateWorkflowNodeAttemptMessages(attemptId, {
+            userMessageId: messageId,
+          });
+        },
+        onInvocation: (info) => {
+          reportState.invocation = info;
+          writeReport();
+        },
+        onEvent: (event) => {
+          // 实时链路：先在内存里留一份快照，再推给渲染层。
+          // seq 始终递增；快照超过上限后只停止保留前缀，
+          // 推送仍然连续，运行记录中途打开时按 seq 合并即可。
+          const live = active.live.get(nodeRun.id);
+          if (live && live.attempt === chain.attempt && live.round === round) {
+            live.seq += 1;
+            if (live.events.length < LIVE_EVENT_LIMIT) {
+              live.events.push(event);
+            }
+            deps.emitAgentEvent({
+              runId: active.id,
+              nodeRunId: nodeRun.id,
+              attempt: chain.attempt,
+              round,
+              seq: live.seq,
+              event,
+            });
+          }
+
+          if (event.type === "text") texts.push(event.content);
+          else if (event.type === "text_delta") deltas.push(event.delta);
+          else if (event.type === "error") runtimeError = event.message;
+        },
+      });
+
+      // 本轮消息边界：多轮共用会话时，运行详情靠它切分对话
+      db.updateWorkflowNodeAttemptMessages(attemptId, {
+        userMessageId: result.userMessageId ?? null,
+        assistantMessageId: result.assistantMessageId ?? null,
+      });
+
+      reportState.outcome =
+        result.exitCode !== 0
+          ? {
+              ...result,
+              ok: false,
+              error: runtimeError || result.error,
+            }
+          : result;
+      if (active.canceled) reportState.error = "运行已取消";
+      reportState.sessionRef =
+        db.getSession(chain.sessionId)?.agentSessionId ?? null;
+      writeReport();
+      await reportChain;
+
+      if (active.canceled) {
+        return failedAttempt(
+          "运行已取消",
+          true,
+          chain.sessionId,
+          attemptDir,
+          inputPath,
+          outputPath,
+          round,
+        );
+      }
+      if (result.aborted) {
+        return failedAttempt(
+          "运行被中断",
+          true,
+          chain.sessionId,
+          attemptDir,
+          inputPath,
+          outputPath,
+          round,
+        );
+      }
+      if (!result.ok) {
+        return failedAttempt(
+          result.error ?? "Agent 启动失败",
+          false,
+          chain.sessionId,
+          attemptDir,
+          inputPath,
+          outputPath,
+          round,
+        );
+      }
+      if (result.exitCode !== 0) {
+        return failedAttempt(
+          runtimeError || `Agent 退出码 ${result.exitCode}`,
+          false,
+          chain.sessionId,
+          attemptDir,
+          inputPath,
+          outputPath,
+          round,
+        );
+      }
+      if (result.resumeFailed) {
+        // 修改轮没有接上原会话：不能把「全新上下文跑出来的内容」当成修改结果
+        return failedAttempt(
+          "修改失败：CLI 已找不到上一轮的会话，无法在同一上下文中继续修改",
+          false,
+          chain.sessionId,
+          attemptDir,
+          inputPath,
+          outputPath,
+          round,
+        );
+      }
+
+      /*
+       * 结果优先取 agent-service 返回的本轮正文：
+       * 它来自权威 message_end 块，能精确归属到当前轮。
+       * 缺少时再退回累积的 text / delta，兼容不提供部分消息的版本。
+       */
+      const output =
+        result.assistantText?.trim() ||
+        texts.join("\n\n").trim() ||
+        deltas.join("").trim() ||
+        "（无文本输出）";
+      await writeText(outputPath, output);
+
+      return {
+        ok: true,
+        error: "",
+        round,
+        finishedAt: Date.now(),
+        sessionId: chain.sessionId,
+        attemptDir,
+        inputPath,
+        outputPath,
+        summary: truncate(output, UPSTREAM_SUMMARY_LIMIT),
+      };
     } catch (err) {
       // 异常（配置投影失败、落盘失败等）也要记到节点上，
       // 而不是冒泡成「运行失败 + 节点被标记取消」这种无法排查的状态。
       // 同时清掉实时快照：错误可能发生在内层 try 之前，不会走它的 finally。
-      if (sessionId) active.sessions.delete(sessionId);
       active.live.delete(nodeRun.id);
 
       const message = messageOf(err);
       reportState.error = message;
-      if (sessionId) {
-        reportState.sessionRef =
-          db.getSession(sessionId)?.agentSessionId ?? reportState.sessionRef;
-      }
+      reportState.sessionRef =
+        db.getSession(chain.sessionId)?.agentSessionId ??
+        reportState.sessionRef;
       writeReport();
       await reportChain;
 
       return failedAttempt(
         message,
         false,
-        sessionId,
+        chain.sessionId,
         attemptDir,
         inputPath,
         outputPath,
+        round,
       );
+    } finally {
+      // 保证报告文件在本轮结束前落盘
+      await reportChain;
+      active.live.delete(nodeRun.id);
     }
   }
 
   /**
-   * 从会话的持久化消息里提取 assistant 正文。
-   * 这是本次运行的权威结果（含 think / tool 之后的最终文本块）。
+   * 一次执行尝试的完整链路：初次执行 + 人工审核 + 要求修改。
+   *
+   * - 执行失败：直接返回，交给外层按失败策略处理（通常会开新 attempt）
+   * - 人工审核通过：返回成功
+   * - 要求修改：复用同一会话，round+1 再跑一轮
+   * - 驳回 / 修改轮数耗尽：标记 rejected，外层直接终止节点
    */
-  function assistantTextFromSession(sessionId: string): string {
-    const messages = db.readSessionMessages(sessionId) ?? [];
-    /*
-     * 取最后一条「非空」assistant 文本。
-     *
-     * 一次运行通常只落一条 assistant 消息，里面包含「我先读文件」「接下来修改」
-     * 这类过程叙述和最终结论。把全部文本拼起来会把过程当成节点产物传给
-     * 下游，既冗长又容易误导。
-     *
-     * 但收尾阶段可能还有只带工具调用、或空文本的 assistant 消息
-     * （例如最后一步是写文件），此时若只认「最后一条消息」会拿到空串，
-     * 从而退化成全程叙述拼接。因此按时间倒序找第一个有正文的文本块。
-     */
-    for (let i = messages.length - 1; i >= 0; i -= 1) {
-      const message = messages[i];
-      if (message.role !== "assistant") continue;
-      for (let j = message.content.length - 1; j >= 0; j -= 1) {
-        const event = message.content[j];
-        if (event.type !== "text") continue;
-        const text = event.content.trim();
-        if (text) return text;
+  async function runChain(
+    active: ActiveRun,
+    node: WorkflowNode,
+    employee: DigitalEmployee,
+    attempt: number,
+  ): Promise<AttemptOutcome> {
+    const nodeRun = nodeRunOf(active, node.id);
+    let chain: AttemptChain | null = null;
+    let lastOutcome: AttemptOutcome | null = null;
+    let lastFinishedAt = Date.now();
+
+    try {
+      try {
+        chain = await createAttemptChain(active, node, employee, attempt);
+      } catch (err) {
+        // 投影 / 会话创建失败：仍然按节点失败处理，让失败策略生效
+        const attemptDir = nodeArtifactDir(
+          active.runDir,
+          node,
+          active.order.findIndex((item) => item.id === node.id),
+          attempt,
+          1,
+        );
+        await ensureDir(attemptDir);
+        return failedAttempt(
+          messageOf(err),
+          false,
+          null,
+          attemptDir,
+          join(attemptDir, "execution.md"),
+          join(attemptDir, "result.md"),
+          1,
+        );
+      }
+
+      let round = 1;
+      let kind: WorkflowNodeAttemptKind = attempt > 1 ? "retry" : "initial";
+      let feedback = "";
+
+      while (true) {
+        const outcome = await runRound(
+          active,
+          node,
+          employee,
+          chain,
+          round,
+          kind,
+          feedback,
+        );
+        lastOutcome = outcome;
+        lastFinishedAt = outcome.finishedAt;
+
+        if (!outcome.ok) return outcome;
+        if (node.config.reviewMode !== "manual") return outcome;
+
+        const decision = await reviewNodeOutput(
+          active,
+          node,
+          employee,
+          nodeRun.id,
+          attempt,
+          round,
+          outcome,
+        );
+
+        if (decision.action === "approve") return outcome;
+
+        if (decision.action === "reject") {
+          const reason = decision.note
+            ? `人工审核驳回：${decision.note}`
+            : "人工审核驳回";
+          emitEvent(active.id, nodeRun.id, "log", {
+            level: "warning",
+            message: `${reason}，本次运行已终止`,
+            attempt,
+            round,
+          });
+          return {
+            ...outcome,
+            ok: false,
+            rejected: true,
+            error: reason,
+            finishedAt: lastFinishedAt,
+          };
+        }
+
+        // ---- 要求修改：复用同一会话与配置目录，开始下一轮 ----
+        const maxRevisions = effectiveMaxRevisions(node);
+        if (round - 1 >= maxRevisions) {
+          const reason = `已达到最大修改轮数（${maxRevisions}），本次运行已终止`;
+          // 与人工驳回一致：终止后不允许再通过「继续运行」绕过轮数限制
+          db.updateWorkflowNodeRun(nodeRun.id, {
+            decision: "rejected",
+            decisionNote: `已达到最大修改轮数（${maxRevisions}）`,
+            decidedAt: Date.now(),
+          });
+          emitEvent(active.id, nodeRun.id, "log", {
+            level: "warning",
+            message: reason,
+            attempt,
+            round,
+          });
+          return {
+            ...outcome,
+            ok: false,
+            rejected: true,
+            error: reason,
+            finishedAt: lastFinishedAt,
+          };
+        }
+
+        round += 1;
+        kind = "revise";
+        feedback = decision.note;
+        db.updateWorkflowNodeRun(nodeRun.id, {
+          attempt,
+          round,
+          error: null,
+          finishedAt: null,
+        });
+        updateStatus(nodeRun.id, "running", {
+          attempt,
+          round,
+          startedAt: Date.now(),
+          finishedAt: null,
+          error: null,
+        });
+        emitEvent(active.id, nodeRun.id, "node_status", {
+          nodeId: node.id,
+          nodeName: node.name,
+          status: "running",
+          attempt,
+          round,
+        });
+      }
+    } catch (err) {
+      if (err instanceof ApprovalTimeoutError) {
+        // 没人审核：按中断处理，保留产物，运行可续跑
+        if (lastOutcome) {
+          return {
+            ...lastOutcome,
+            ok: false,
+            interrupted: true,
+            error: err.message,
+            finishedAt: lastOutcome.finishedAt,
+          };
+        }
+        return failedAttempt(
+          err.message,
+          false,
+          null,
+          "",
+          "",
+          "",
+          1,
+          lastFinishedAt,
+        );
+      }
+      throw err;
+    } finally {
+      if (chain) {
+        active.sessions.delete(chain.sessionId);
+        await cleanupRuntimeDir(chain.runtimeDir);
       }
     }
-    return "";
   }
 
   async function failedAttempt(
@@ -1422,14 +1723,20 @@ export function createWorkflowRunner(deps: WorkflowRunnerDeps): WorkflowRunner {
     attemptDir: string,
     inputPath: string,
     outputPath: string,
+    round: number,
+    finishedAt = Date.now(),
   ): Promise<AttemptOutcome> {
     // 失败也留一份结果文件：用户点开产物目录能看到失败原因，
     // 而不是只有一个空目录或空文件
-    await writeText(outputPath, `执行失败：${error}`).catch(() => {});
+    if (outputPath) {
+      await writeText(outputPath, `执行失败：${error}`).catch(() => {});
+    }
     return {
       ok: false,
       canceled,
       error,
+      round,
+      finishedAt,
       sessionId,
       attemptDir,
       inputPath,
@@ -1443,11 +1750,15 @@ export function createWorkflowRunner(deps: WorkflowRunnerDeps): WorkflowRunner {
   // ==========================================================================
 
   /**
-   * 人工审核（执行后）：产物已经生成，等人工确认才允许节点通过。
+   * 人工审核（执行后）：产物已经生成，等人工确认。
    *
-   * 返回 null 表示通过；返回字符串表示驳回原因 —— 调用方据此把节点置为
-   * failed 并终止整条运行。驳回不重试、也不按 failureStrategy=skip 放行下游，
-   * 因为被驳回意味着产物本身不合格，重跑没有意义。
+   * 返回最终决定：
+   * - approve：节点可以完成
+   * - reject：产物不合格，终止整条运行
+   * - revise：带着评审意见在同一会话里再执行一轮
+   *
+   * 请求修改不写最终 decision，避免被当成「已审核」；
+   * 哪些轮次改过由 approval_decided 事件和 attempts 记录还原。
    */
   async function reviewNodeOutput(
     active: ActiveRun,
@@ -1455,13 +1766,15 @@ export function createWorkflowRunner(deps: WorkflowRunnerDeps): WorkflowRunner {
     employee: DigitalEmployee,
     nodeRunId: string,
     attempt: number,
+    round: number,
     outcome: AttemptOutcome,
-  ): Promise<string | null> {
+  ): Promise<ApprovalDecision> {
     // 产物先落库：审批界面要能直接读到结果，而不是只有一个任务描述。
     // 同时定格 finishedAt，避免把人工等待的时间算进节点耗时。
     updateStatus(nodeRunId, "awaiting_approval", {
       attempt,
-      finishedAt: Date.now(),
+      round,
+      finishedAt: outcome.finishedAt,
       sessionId: outcome.sessionId,
       artifactDir: outcome.attemptDir,
       inputPath: outcome.inputPath,
@@ -1469,12 +1782,17 @@ export function createWorkflowRunner(deps: WorkflowRunnerDeps): WorkflowRunner {
       outputSummary: outcome.summary,
     });
     db.updateWorkflowRun(active.id, { status: "awaiting_approval" });
+
+    const maxRevisions = effectiveMaxRevisions(node);
+    const remainingRevisions = Math.max(0, maxRevisions - (round - 1));
     emitEvent(active.id, nodeRunId, "approval_required", {
       nodeId: node.id,
       nodeName: node.name,
       employeeName: employee.name,
       taskDetail: node.config.taskDetail,
       attempt,
+      round,
+      remainingRevisions,
       outputPath: outcome.outputPath,
       summary: outcome.summary,
     });
@@ -1490,18 +1808,42 @@ export function createWorkflowRunner(deps: WorkflowRunnerDeps): WorkflowRunner {
       );
     }
 
+    emitEvent(active.id, nodeRunId, "approval_decided", {
+      nodeId: node.id,
+      decision: decision.action,
+      note: decision.note,
+      attempt,
+      round,
+    });
+
+    if (decision.action === "revise") {
+      // 修改不是最终决定：清空 decision 字段，节点回到 running 等下一轮
+      db.updateWorkflowNodeRun(nodeRunId, {
+        decision: null,
+        decisionNote: null,
+        decidedAt: null,
+      });
+      restoreRunStatusAfterDecision(active, nodeRunId);
+      return decision;
+    }
+
     db.updateWorkflowNodeRun(nodeRunId, {
       decision: decision.action === "approve" ? "approved" : "rejected",
       decisionNote: decision.note || null,
       decidedAt: Date.now(),
     });
-    emitEvent(active.id, nodeRunId, "approval_decided", {
-      nodeId: node.id,
-      decision: decision.action,
-      note: decision.note,
-    });
+    restoreRunStatusAfterDecision(active, nodeRunId);
+    return decision;
+  }
 
-    // 并行分支可能还有别的节点在等审核：run 状态不能简单切回 running
+  /**
+   * 并行分支可能还有别的节点在等审核：run 状态不能简单切回 running。
+   * 运行可能已被取消 / 终止，也不能被一次迟到的审批回翻。
+   */
+  function restoreRunStatusAfterDecision(
+    active: ActiveRun,
+    nodeRunId: string,
+  ): void {
     const stillAwaiting =
       active.approvals.size > 0 ||
       db
@@ -1511,24 +1853,12 @@ export function createWorkflowRunner(deps: WorkflowRunnerDeps): WorkflowRunner {
         );
     if (stillAwaiting) {
       db.updateWorkflowRun(active.id, { status: "awaiting_approval" });
-    } else {
-      // 运行可能已被取消 / 终止，不能被一次迟到的审批回翻成 running
-      const run = db.getWorkflowRun(active.id);
-      if (run?.status === "awaiting_approval") {
-        db.updateWorkflowRun(active.id, { status: "running" });
-      }
+      return;
     }
-
-    if (decision.action === "approve") return null;
-
-    const reason = decision.note
-      ? `人工审核驳回：${decision.note}`
-      : "人工审核驳回";
-    emitEvent(active.id, nodeRunId, "log", {
-      level: "warning",
-      message: `${reason}，本次运行已终止`,
-    });
-    return reason;
+    const run = db.getWorkflowRun(active.id);
+    if (run?.status === "awaiting_approval") {
+      db.updateWorkflowRun(active.id, { status: "running" });
+    }
   }
 
   function waitApproval(
@@ -1559,7 +1889,7 @@ export function createWorkflowRunner(deps: WorkflowRunnerDeps): WorkflowRunner {
   function approve(
     runId: string,
     nodeRunId: string,
-    action: "approve" | "reject",
+    action: "approve" | "reject" | "revise",
     note?: string,
   ): boolean {
     const active = activeRuns.get(runId);
@@ -1638,11 +1968,16 @@ export function createWorkflowRunner(deps: WorkflowRunnerDeps): WorkflowRunner {
   function liveTranscript(
     runId: string,
     nodeRunId: string,
-  ): { attempt: number; seq: number; events: AgentEvent[] } | null {
+  ): { attempt: number; round: number; seq: number; events: AgentEvent[] } | null {
     const entry = activeRuns.get(runId)?.live.get(nodeRunId);
     // 复制一份：调用方随后会 await 文件读取，期间事件还在追加
     return entry
-      ? { attempt: entry.attempt, seq: entry.seq, events: [...entry.events] }
+      ? {
+          attempt: entry.attempt,
+          round: entry.round,
+          seq: entry.seq,
+          events: [...entry.events],
+        }
       : null;
   }
 
@@ -1746,6 +2081,21 @@ export function createWorkflowRunner(deps: WorkflowRunnerDeps): WorkflowRunner {
     }
 
     return parts.join("\n\n---\n\n");
+  }
+
+  /**
+   * 人工要求修改时的输入。
+   *
+   * 复用同一个会话，因此不再重复上游产物与任务详情：Agent 上一轮已经看过。
+   * 只把评审意见交给它，并要求直接产出最终版本。
+   */
+  function buildRevisionPrompt(feedback: string): string {
+    const note = feedback.trim();
+    return [
+      "上一次输出未通过人工审核，请基于你上一次的产物直接修改，不要从头重做。",
+      note ? `审核意见：${note}` : "审核人未填写具体意见，请自行复核并改进。",
+      "修改完成后，只输出最终的完整版本。",
+    ].join("\n\n");
   }
 
   async function delay(active: ActiveRun, ms: number): Promise<void> {

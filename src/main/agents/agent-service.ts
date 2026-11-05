@@ -14,7 +14,7 @@ import { existsSync } from "fs";
 import { randomUUID } from "crypto";
 import type { AgentEvent, Message, Session, SessionOptions } from "../../shared/types";
 import { DEFAULT_SETTINGS } from "../../shared/types";
-import { appendEvent } from "../../shared/merge";
+import { appendEvent } from "../../shared/agent-events";
 import type { AgentInfo } from "../../shared/contracts/agent";
 import type { IpcPushChannel, IpcPushMap } from "../../shared/contracts/ipc";
 import { getProvider, listProviders } from "../agents/registry";
@@ -52,6 +52,11 @@ export interface RunParams {
   extraArgs?: string[];
   /** 宿主侧旁路监听：除推送到渲染层外，引擎也需要实时拿到事件 */
   onEvent?: (event: AgentEvent) => void;
+  /**
+   * 用户消息落库后回调消息 id。
+   * 工作流用它把「本轮起点」立即写进调用记录，运行中查看详情时才能正确切分轮次。
+   */
+  onUserMessage?: (messageId: string) => void;
   /** 子进程启动前拿到精确调用信息（运行产物审计用） */
   onInvocation?: (info: AgentInvocationInfo) => void;
 }
@@ -63,6 +68,20 @@ export interface RunOutcome {
   /** 被用户中断：不记为完成，也不推送 done */
   aborted: boolean;
   error?: string;
+  /** 本轮落库的用户消息 id；会话不存在等早期失败时为空 */
+  userMessageId?: string;
+  /** 本轮落库的 assistant 消息 id；没有可保存内容时为空 */
+  assistantMessageId?: string;
+  /**
+   * 本轮最终正文（来自权威 message_end 块）。
+   * 工作流用它把产物精确归属到当前轮，避免多轮共用会话时拿到上一轮结果。
+   */
+  assistantText?: string;
+  /**
+   * 本轮的 --resume 失效（CLI 找不到旧会话）。
+   * 工作流修改轮据此明确失败，而不是把「没接上上下文」当成一次成功修改。
+   */
+  resumeFailed?: boolean;
 }
 
 export interface AgentService {
@@ -85,6 +104,22 @@ export interface AgentService {
   releaseProject(projectId: string): Promise<void>;
   /** 应用退出：中断全部运行中的会话 */
   shutdown(): void;
+}
+
+/**
+ * 取事件流里最后一段非空正文。
+ *
+ * message_end 已在 appendEvent 里收敛成普通 text 块，因此这里直接倒序找 text。
+ * 工作流多轮共用同一个会话时，返回值只代表「本轮」的最终正文。
+ */
+function lastAssistantText(content: AgentEvent[]): string {
+  for (let i = content.length - 1; i >= 0; i -= 1) {
+    const event = content[i];
+    if (event.type !== "text") continue;
+    const text = event.content.trim();
+    if (text) return text;
+  }
+  return "";
 }
 
 export function createAgentService(emit: Emit): AgentService {
@@ -255,6 +290,8 @@ export function createAgentService(emit: Emit): AgentService {
         timestamp: Date.now(),
       };
       db.saveSessionMessage(sessionId, userMsg);
+      const userMessageId = userMsg.id;
+      params.onUserMessage?.(userMessageId);
 
       // 累积 assistant 消息的事件流（镜像渲染进程的 appendEvent 逻辑）
       let assistantContent: AgentEvent[] = [];
@@ -291,7 +328,10 @@ export function createAgentService(emit: Emit): AgentService {
         });
       } catch (err) {
         // provider 在拉起进程前失败（临时文件、配置投影等）
-        return failed(err instanceof Error ? err.message : String(err));
+        return {
+          ...failed(err instanceof Error ? err.message : String(err)),
+          userMessageId,
+        };
       }
       running.set(sessionId, runSession);
 
@@ -340,9 +380,11 @@ export function createAgentService(emit: Emit): AgentService {
         }
 
         // 持久化 assistant 消息：无论成功/失败/中断，已累积的事件流都落库
+        let assistantMessageId: string | null = null;
         if (assistantContent.length > 0) {
+          assistantMessageId = randomUUID();
           db.saveSessionMessage(sessionId, {
-            id: randomUUID(),
+            id: assistantMessageId,
             role: "assistant",
             content: assistantContent,
             timestamp: Date.now(),
@@ -368,6 +410,10 @@ export function createAgentService(emit: Emit): AgentService {
           exitCode: result.exitCode,
           duration: result.duration,
           aborted: runSession.aborted,
+          userMessageId,
+          assistantMessageId: assistantMessageId ?? undefined,
+          assistantText: lastAssistantText(assistantContent),
+          resumeFailed,
         };
       } finally {
         try {

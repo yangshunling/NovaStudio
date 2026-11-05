@@ -14,21 +14,19 @@ import {
   FolderOpen,
   Loader2,
   PauseCircle,
+  Pencil,
   RotateCw,
   Square,
   X,
 } from "lucide-react";
 import { ipc } from "../../lib/ipc";
+import { formatBytes } from "../../lib/utils";
 import { toast } from "../../stores/toast";
 import { confirmDialog } from "../../stores/confirm";
-import { appendEvent } from "@shared/merge";
-import { MessageGroup } from "../MessageList";
-import {
-  formatDateTime,
-  formatDuration,
-  formatSize,
-} from "../../lib/workflowFormat";
-import { MarkdownRenderer } from "../MarkdownRenderer";
+import { appendEvent } from "@shared/agent-events";
+import { MessageGroup } from "../chat/MessageList";
+import { formatDateTime, formatDuration } from "../../lib/workflow/format";
+import { MarkdownRenderer } from "../ui/MarkdownRenderer";
 import { Button } from "../ui/Button";
 import { Dialog } from "../ui/Dialog";
 import { EmptyState, LoadingState } from "../ui/EmptyState";
@@ -38,7 +36,7 @@ import {
   ACTIVE_RUN_STATUSES,
   NODE_STATUS,
   RUN_STATUS,
-} from "../../lib/workflowStatus";
+} from "../../lib/workflow/status";
 import type {
   AgentEvent,
   WorkflowNodeLiveTranscript,
@@ -62,6 +60,7 @@ interface LiveItem {
 
 interface LiveEntry {
   attempt: number;
+  round: number;
   seq: number;
   items: LiveItem[];
   folded: AgentEvent[];
@@ -80,13 +79,18 @@ function foldLiveItems(items: LiveItem[]): AgentEvent[] {
   return events;
 }
 
-function liveEntryFrom(attempt: number, items: LiveItem[]): LiveEntry {
+function liveEntryFrom(
+  attempt: number,
+  round: number,
+  items: LiveItem[],
+): LiveEntry {
   let sorted = [...items].sort((a, b) => a.seq - b.seq);
   if (sorted.length > MAX_LIVE_EVENTS) {
     sorted = sorted.slice(-MAX_LIVE_EVENTS);
   }
   return {
     attempt,
+    round,
     seq: sorted[sorted.length - 1]?.seq ?? 0,
     items: sorted,
     folded: foldLiveItems(sorted),
@@ -98,18 +102,19 @@ function mergeLiveItem(
   prev: LiveMap,
   nodeRunId: string,
   attempt: number,
+  round: number,
   item: LiveItem,
 ): LiveMap {
   const current = prev[nodeRunId];
-  if (!current || current.attempt !== attempt) {
-    return { ...prev, [nodeRunId]: liveEntryFrom(attempt, [item]) };
+  if (!current || current.attempt !== attempt || current.round !== round) {
+    return { ...prev, [nodeRunId]: liveEntryFrom(attempt, round, [item]) };
   }
   if (item.seq <= current.seq) return prev; // 重复或更旧的事件
   if (item.seq === current.seq + 1) {
     const items = [...current.items, item];
     if (items.length > MAX_LIVE_EVENTS) {
       // 超出上限：只保留最近一段，并保持 seq 与主进程一致
-      const entry = liveEntryFrom(attempt, items);
+      const entry = liveEntryFrom(attempt, round, items);
       entry.seq = item.seq;
       return { ...prev, [nodeRunId]: entry };
     }
@@ -117,6 +122,7 @@ function mergeLiveItem(
       ...prev,
       [nodeRunId]: {
         attempt,
+        round,
         seq: item.seq,
         items,
         folded: appendEvent(current.folded, item.event),
@@ -124,7 +130,7 @@ function mergeLiveItem(
     };
   }
   // 中间有缺口（快照还没到）：整体重排后重算
-  const entry = liveEntryFrom(attempt, [...current.items, item]);
+  const entry = liveEntryFrom(attempt, round, [...current.items, item]);
   entry.seq = Math.max(entry.seq, current.seq, item.seq);
   return { ...prev, [nodeRunId]: entry };
 }
@@ -140,8 +146,12 @@ function mergeLiveSnapshot(
     event,
   }));
   const current = prev[nodeRunId];
-  if (!current || current.attempt !== snapshot.attempt) {
-    const entry = liveEntryFrom(snapshot.attempt, incoming);
+  if (
+    !current ||
+    current.attempt !== snapshot.attempt ||
+    current.round !== snapshot.round
+  ) {
+    const entry = liveEntryFrom(snapshot.attempt, snapshot.round, incoming);
     // 主进程可能只保留前缀（seq 大于 events.length）：以快照 seq 为准，
     // 后续推送才能连续合并，否则每个事件都会因为“缺口”重新折叠整段历史。
     entry.seq = snapshot.seq;
@@ -154,7 +164,10 @@ function mergeLiveSnapshot(
       ? { ...prev, [nodeRunId]: { ...current, seq: snapshot.seq } }
       : prev;
   }
-  const entry = liveEntryFrom(snapshot.attempt, [...current.items, ...missing]);
+  const entry = liveEntryFrom(snapshot.attempt, snapshot.round, [
+    ...current.items,
+    ...missing,
+  ]);
   entry.seq = Math.max(current.seq, snapshot.seq, entry.seq);
   return { ...prev, [nodeRunId]: entry };
 }
@@ -264,7 +277,13 @@ export function WorkflowRunView({
       return null;
     }
     const entry = liveMap[selectedNode.id];
-    if (!entry || entry.attempt !== selectedNode.attempt) return null;
+    if (
+      !entry ||
+      entry.attempt !== selectedNode.attempt ||
+      entry.round !== selectedNode.round
+    ) {
+      return null;
+    }
     return entry.folded.length > 0 ? entry.folded : null;
   }, [liveMap, selectedNode]);
 
@@ -330,7 +349,7 @@ export function WorkflowRunView({
     const off = ipc.on.workflowRunAgentEvent((payload) => {
       if (payload.runId !== runId) return;
       setLiveMap((prev) =>
-        mergeLiveItem(prev, payload.nodeRunId, payload.attempt, {
+        mergeLiveItem(prev, payload.nodeRunId, payload.attempt, payload.round, {
           seq: payload.seq,
           event: payload.event,
         }),
@@ -357,7 +376,7 @@ export function WorkflowRunView({
 
   const decide = async (
     target: WorkflowNodeRun,
-    action: "approve" | "reject",
+    action: "approve" | "reject" | "revise",
   ) => {
     if (busy) return;
     setBusy(true);
@@ -444,6 +463,20 @@ export function WorkflowRunView({
   }
 
   const { run } = detail;
+
+  /** 「要求修改」剩余轮数：由运行图快照里的节点配置与当前 round 推导 */
+  const maxRevisionsFor = (target: WorkflowNodeRun): number => {
+    const config = run.graph.nodes.find(
+      (item) => item.id === target.nodeId,
+    )?.config;
+    return Math.min(
+      3,
+      Math.max(0, Math.round(Number(config?.maxRevisions ?? 1))),
+    );
+  };
+  const remainingRevisions = (target: WorkflowNodeRun): number =>
+    Math.max(0, maxRevisionsFor(target) - ((target.round ?? 1) - 1));
+
   const statusMeta = RUN_STATUS[run.status];
   const StatusIcon = statusMeta.icon;
   const active = ACTIVE_RUN_STATUSES.has(run.status);
@@ -612,6 +645,8 @@ export function WorkflowRunView({
                     </div>
                     <p className="mt-2 text-meta text-text-secondary">
                       节点已执行完成，请确认产物。通过则节点完成并继续下游；
+                      「要求修改」会在同一个会话里带着意见重做（当前还可修改{" "}
+                      {remainingRevisions(awaitingNode)} 轮）；
                       驳回会立即终止本次运行，且不能重试。
                     </p>
                     {awaitingNode.outputSummary && (
@@ -632,7 +667,7 @@ export function WorkflowRunView({
                         }))
                       }
                       rows={2}
-                      placeholder="审核备注（驳回时建议填写原因，会写入节点历史）"
+                      placeholder="审核备注（要求修改时必填，会作为下一轮的评审意见）"
                       className="ui-ring mt-3 w-full resize-none rounded-lg bg-surface/60 px-3 py-2 text-meta text-text placeholder-text-muted outline-none"
                     />
                     <div className="mt-3 flex items-center justify-end gap-2">
@@ -646,6 +681,23 @@ export function WorkflowRunView({
                       >
                         驳回
                       </Button>
+                      {remainingRevisions(awaitingNode) > 0 && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="rounded-full"
+                          icon={<Pencil className="h-4 w-4" />}
+                          onClick={() => void decide(awaitingNode, "revise")}
+                          disabled={busy || !note.trim()}
+                          title={
+                            note.trim()
+                              ? "在同一个会话里继续修改"
+                              : "请先填写修改意见"
+                          }
+                        >
+                          要求修改
+                        </Button>
+                      )}
                       <Button
                         variant="primary"
                         size="sm"
@@ -840,7 +892,7 @@ function NodeDetailPanel({
             Agent：{node.agentId ?? "—"}
           </span>
           <span className="text-meta text-text-secondary">
-            尝试：第 {node.attempt} 次
+            尝试：第 {node.attempt} 次 · 第 {node.round} 轮
           </span>
         </div>
 
@@ -903,12 +955,19 @@ function NodeDetailPanel({
           <div className="space-y-3">
             {attempts.map((attempt) => (
               <section
-                key={attempt.attempt}
+                key={`${attempt.attempt}-${attempt.round}`}
                 className="overflow-hidden rounded-xl border border-border bg-surface-2/40"
               >
                 <div className="flex items-center justify-between gap-2 border-b border-border px-3 py-2 text-meta">
                   <span className="font-medium text-text-secondary">
-                    第 {attempt.attempt} 次尝试
+                    第 {attempt.attempt} 次尝试 · 第 {attempt.round} 轮
+                    <span className="ml-2 rounded-full bg-surface/70 px-2 py-0.5 text-caption text-text-muted">
+                      {attempt.kind === "revise"
+                        ? "人工要求修改"
+                        : attempt.kind === "retry"
+                          ? "失败重试"
+                          : "初次执行"}
+                    </span>
                   </span>
                   <span className="truncate font-mono text-caption text-text-muted">
                     {attempt.sessionId
@@ -992,7 +1051,7 @@ function NodeDetailPanel({
                       {file.relativePath}
                     </p>
                     <p className="font-mono text-caption text-text-muted">
-                      {formatSize(file.size)}
+                      {formatBytes(file.size)}
                     </p>
                   </div>
                   <Button

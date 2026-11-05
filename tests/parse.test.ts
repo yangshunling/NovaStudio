@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
-import { appendEvent } from "../src/shared/merge.ts";
+import { appendEvent } from "../src/shared/agent-events.ts";
 import type { AgentEvent } from "../src/shared/types.ts";
 
 /**

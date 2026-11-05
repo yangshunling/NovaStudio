@@ -29,25 +29,43 @@ interface EmployeesState {
   remove: (id: string) => void;
 }
 
+/** 进行中的加载；重复调用复用同一个 Promise，force 请求排队补扫 */
+let inFlight: Promise<void> | null = null;
+let queuedForce = false;
+
 export const useEmployeesStore = create<EmployeesState>((set, get) => ({
   employees: [],
   loading: false,
   error: null,
   loaded: false,
 
-  load: async (force = false) => {
-    const { loaded, loading } = get();
-    if (loading) return;
-    if (loaded && !force) return;
-    set({ loading: true });
-    try {
-      const employees = await ipc.listEmployees();
-      set({ employees, loaded: true, error: null });
-    } catch (err) {
-      set({ error: toMessage(err) });
-    } finally {
-      set({ loading: false });
+  load: (force = false) => {
+    if (inFlight) {
+      if (force) queuedForce = true;
+      return inFlight;
     }
+    if (get().loaded && !force) return Promise.resolve();
+
+    const run = (async () => {
+      set({ loading: true });
+      try {
+        const employees = await ipc.listEmployees();
+        set({ employees, loaded: true, error: null });
+      } catch (err) {
+        set({ error: toMessage(err) });
+      } finally {
+        set({ loading: false });
+      }
+    })();
+
+    inFlight = run.finally(() => {
+      inFlight = null;
+      if (queuedForce) {
+        queuedForce = false;
+        void get().load(true);
+      }
+    });
+    return inFlight;
   },
 
   upsert: (employee) =>

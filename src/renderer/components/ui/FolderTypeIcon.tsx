@@ -8,12 +8,10 @@ import { VSCODE_FILE_ICONS } from "./vscodeFileIcons";
 export function FolderTypeIcon({
   open = false,
   size = 16,
-  toneClassName = "text-accent",
   className = "",
 }: {
   open?: boolean;
   size?: number;
-  toneClassName?: string;
   className?: string;
 }) {
   return (

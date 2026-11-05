@@ -11,7 +11,6 @@ import {
   Library,
   Plug,
   Plus,
-  Search,
   Sparkles,
   Users,
 } from "lucide-react";

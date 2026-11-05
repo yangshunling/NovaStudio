@@ -18,7 +18,7 @@
 
 import { useState, useRef, useEffect } from "react";
 import { Bot, ChevronDown, Check, Lock, AlertCircle } from "lucide-react";
-import { agentTone } from "../lib/utils";
+import { agentTone } from "../../lib/utils";
 import type { AgentInfo } from "@shared/contracts/agent";
 
 export function AgentSelector({

@@ -18,6 +18,9 @@ interface ManagedTerminal {
 
 const terminals = new Map<string, ManagedTerminal>();
 
+/** 同时存活的终端上限：防止渲染层异常时无限拉起 shell 进程 */
+const MAX_TERMINALS = 12;
+
 export function createTerminal(
   id: string,
   cwd?: string,
@@ -30,6 +33,10 @@ export function createTerminal(
       cwd: terminals.get(id)!.cwd,
       shell: terminals.get(id)!.shell,
     };
+  }
+
+  if (terminals.size >= MAX_TERMINALS) {
+    throw new Error(`同时打开的终端已达上限（${MAX_TERMINALS} 个）`);
   }
 
   // 不再静默回退到用户主目录：目录被移动或删除时必须让用户看到原因，

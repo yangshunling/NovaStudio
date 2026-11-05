@@ -2,7 +2,6 @@
  * Agent 相关 IPC：检测 / 发送 / 中断
  */
 
-import { shell } from "electron";
 import type { SendAgentResult } from "../../../shared/contracts/ipc";
 import { getProvider } from "../../agents/registry";
 import {
@@ -10,10 +9,11 @@ import {
   saveClaudeSettings,
 } from "../../agents/claude/settings";
 import { listClaudeModels } from "../../agents/claude/models";
-import type { AgentService } from "../../engine/agent-service";
+import type { AgentService } from "../../agents/agent-service";
 import * as db from "../../db/sqlite";
 import { flushEvents, push } from "../push";
 import { handle } from "../register";
+import { revealPath } from "../nativeUi";
 
 export function registerAgentHandlers(service: AgentService): void {
   handle("agent:detect", async () => {
@@ -45,10 +45,7 @@ export function registerAgentHandlers(service: AgentService): void {
     const config = provider?.configInfo?.();
     if (!config?.configPath) return false;
 
-    const error = await shell.openPath(config.configPath);
-    if (!error) return true;
-    shell.showItemInFolder(config.configPath);
-    return true;
+    return revealPath(config.configPath);
   });
 
   /**

@@ -214,6 +214,14 @@ export function validateGraph(
         );
       }
     }
+    if (node.config.reviewMode === "manual") {
+      const revisions = node.config.maxRevisions;
+      if (!Number.isFinite(revisions) || revisions < 0 || revisions > 3) {
+        warnings.push(
+          `节点「${node.name}」的最大修改轮数 ${revisions} 超出 0-3，运行时将按范围处理。`,
+        );
+      }
+    }
     if (!node.config.taskDetail.trim()) {
       warnings.push(`节点「${node.name}」未填写任务详情，运行时将使用默认指令。`);
     }

@@ -2,12 +2,12 @@
  * 原生对话框 IPC
  */
 
-import { dialog } from "electron";
 import { readdir, realpath, stat } from "node:fs/promises";
-import { isAbsolute, relative, resolve, sep } from "node:path";
-import { getMainWindow } from "../push";
+import { relative, resolve, sep } from "node:path";
 import { handle } from "../register";
 import * as db from "../../db/sqlite";
+import { resolveInsideReal } from "../../utils/paths";
+import { pickPaths } from "../nativeUi";
 import type { FileEntry } from "@shared/types";
 
 /** 忽略的目录名（常见构建产物 / 依赖 / VCS） */
@@ -41,15 +41,11 @@ const MAX_ENTRIES = 200;
 
 export function registerDialogHandlers(): void {
   handle("dialog:pickDirectory", async () => {
-    const window = getMainWindow();
-    if (!window) return null;
-
-    const result = await dialog.showOpenDialog(window, {
+    const picked = await pickPaths({
       properties: ["openDirectory"],
       title: "选择项目文件夹",
     });
-    if (result.canceled || result.filePaths.length === 0) return null;
-    return result.filePaths[0];
+    return picked?.[0] ?? null;
   });
 
   handle("project:listFiles", async ({ projectId, subPath }) => {
@@ -64,18 +60,8 @@ export function registerDialogHandlers(): void {
     }
 
     // subPath 只能指向项目内部：渲染层传参不作数，必须再校验一次
-    const requested = resolve(cwd, subPath ?? "");
-    const relToRoot = relative(cwd, requested);
-    if (relToRoot.startsWith("..") || isAbsolute(relToRoot)) return [];
-
-    let target: string;
-    try {
-      target = await realpath(requested);
-    } catch {
-      return [];
-    }
-    const realRel = relative(cwd, target);
-    if (realRel.startsWith("..") || isAbsolute(realRel)) return [];
+    const target = await resolveInsideReal(cwd, subPath ?? "");
+    if (!target) return [];
 
     let names: string[];
     try {

@@ -40,8 +40,6 @@ interface TerminalState {
   restart: (id: string) => void;
   /** 关闭某工作区下的所有终端（删除工作区时调用） */
   closeByWorkspace: (workspaceId: string) => void;
-  /** 同步工作区改名后的终端标题 */
-  renameByWorkspace: (workspaceId: string, name: string) => void;
   closeAll: () => void;
 }
 
@@ -111,14 +109,6 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
           : (terminals[0]?.id ?? null),
       };
     });
-  },
-
-  renameByWorkspace: (workspaceId, name) => {
-    set((state) => ({
-      terminals: state.terminals.map((item) =>
-        item.workspaceId === workspaceId ? { ...item, name } : item,
-      ),
-    }));
   },
 
   closeAll: () => set({ terminals: [], activeId: null }),

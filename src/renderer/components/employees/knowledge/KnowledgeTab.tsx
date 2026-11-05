@@ -11,7 +11,8 @@ import {
   useAssetCatalog,
   useKnowledgeBasesStore,
 } from "../../../stores/assets";
-import { BindAction, EmptyTab, Toggle } from "../ui";
+import { Toggle } from "../../ui/Toggle";
+import { BindAction, EmptyTab } from "../BindUi";
 import type { EmployeeKnowledge, KnowledgeBaseAsset } from "@shared/types";
 
 export function KnowledgeTab({

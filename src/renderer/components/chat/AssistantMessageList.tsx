@@ -6,7 +6,7 @@
  * 视觉样式全部走 Nova 的语义 token，因此昼夜皮肤自动兼容。
  */
 
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import {
   AssistantRuntimeProvider,
   MessagePrimitive,
@@ -32,11 +32,11 @@ import {
   AlertTriangle,
 } from "lucide-react";
 import type { AgentEvent, Message, ToolKind } from "@shared/types";
-import { selectEffectiveAgentId, useChatStore } from "../stores/chat";
-import { MarkdownRenderer } from "./MarkdownRenderer";
-import { AgentAvatar, NovaAvatar } from "./ui/MessageAvatar";
-import { UserBubble } from "./ui/UserBubble";
-import { truncateText } from "../lib/utils";
+import { selectEffectiveAgentId, useChatStore } from "../../stores/chat";
+import { MarkdownRenderer } from "../ui/MarkdownRenderer";
+import { AgentAvatar, NovaAvatar } from "../ui/MessageAvatar";
+import { UserBubble } from "../ui/UserBubble";
+import { truncateText } from "../../lib/utils";
 
 export function AssistantMessageList() {
   const messages = useChatStore((s) => s.messagesBySession[s.currentSessionId ?? ""] ?? []);

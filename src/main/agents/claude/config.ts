@@ -8,15 +8,10 @@
  * 本模块只提供路径与 JSON 读写，不保存任何 Nova 私有副本。
  */
 
-import {
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  renameSync,
-  writeFileSync,
-} from "fs";
+import { existsSync, mkdirSync, readFileSync } from "fs";
 import { homedir } from "os";
 import { dirname, join } from "path";
+import { writeFileAtomicSync } from "../../utils/fs";
 
 /** 是否是 Anthropic 官方端点（空值按官方处理，与 Claude CLI 默认行为一致） */
 export function isOfficialBaseUrl(baseUrl: string): boolean {
@@ -115,9 +110,7 @@ export function writeClaudeMcpServers(
   const config = current ?? {};
   config.mcpServers = next;
 
-  const temp = `${path}.nova-tmp`;
-  writeFileSync(temp, `${JSON.stringify(config, null, 2)}\n`, "utf8");
-  renameSync(temp, path);
+  writeFileAtomicSync(path, `${JSON.stringify(config, null, 2)}\n`);
 }
 
 /** 确保配置目录存在（用于写入前） */

@@ -41,7 +41,7 @@ import {
   Users,
 } from "lucide-react";
 import { ipc } from "../../lib/ipc";
-import { formatBytes, toMessage } from "../../lib/utils";
+import { formatBytes, isSameText, normalizeNewlines, toMessage } from "../../lib/utils";
 import {
   useAssetCatalog,
   useKnowledgeBasesStore,
@@ -49,8 +49,8 @@ import {
 import { toast } from "../../stores/toast";
 import { confirmDialog } from "../../stores/confirm";
 import { countUsage, useEmployeesStore } from "../../stores/employees";
-import { formatAssetTime } from "../assets/assetUi";
-import { MarkdownRenderer } from "../MarkdownRenderer";
+import { formatAssetTime } from "../asset/AssetUi";
+import { CodeTextarea, EditorBar } from "../asset/EditorUi";
 import { Field, TextArea, TextInput } from "../ui/Field";
 import { Page, PageBody, PageHeader, PageToolbar } from "../ui/Page";
 import { SearchInput } from "../ui/SearchInput";
@@ -71,7 +71,6 @@ import {
   DrawerHeader,
 } from "../ui/Drawer";
 import type {
-  DigitalEmployee,
   KnowledgeBaseAsset,
   KnowledgeDocument,
   KnowledgeSearchResult,
@@ -99,6 +98,7 @@ export function KnowledgeView() {
   const [subPath, setSubPath] = useState("");
   const [documents, setDocuments] = useState<KnowledgeDocument[]>([]);
   const [docsLoading, setDocsLoading] = useState(false);
+  const [docsError, setDocsError] = useState<string | null>(null);
   const [selectedPaths, setSelectedPaths] = useState<Set<string>>(new Set());
   const [version, setVersion] = useState(0);
 
@@ -151,6 +151,7 @@ export function KnowledgeView() {
 
     let cancelled = false;
     setDocsLoading(true);
+    setDocsError(null);
     ipc
       .listKnowledgeDocuments(selectedId, subPath || undefined)
       .then((list) => {
@@ -158,8 +159,8 @@ export function KnowledgeView() {
         setDocuments(list);
         setSelectedPaths(new Set());
       })
-      .catch(() => {
-        // 文档列表加载失败保持静默；主列表错误由 useLoad 独立管理
+      .catch((err) => {
+        if (!cancelled) setDocsError(toMessage(err));
       })
       .finally(() => {
         if (!cancelled) setDocsLoading(false);
@@ -543,6 +544,8 @@ export function KnowledgeView() {
                     <Loader2 className="h-4 w-4 animate-spin" />
                     正在加载文档
                   </div>
+                ) : docsError ? (
+                  <ErrorState message={docsError} onRetry={refresh} />
                 ) : documents.length === 0 ? (
                   <EmptyDocuments
                     onUpload={handleUpload}
@@ -607,9 +610,9 @@ export function KnowledgeView() {
                               if (document.isDirectory) {
                                 setSubPath(document.relativePath);
                                 setQuery("");
-                              } else {
+                              } else if (selectedId) {
                                 setPreview({
-                                  kbId: selectedId!,
+                                  kbId: selectedId,
                                   relativePath: document.relativePath,
                                 });
                               }
@@ -779,6 +782,7 @@ export function KnowledgeView() {
           kbId={preview.kbId}
           relativePath={preview.relativePath}
           onClose={() => setPreview(null)}
+          onSaved={refresh}
         />
       )}
     </Page>
@@ -911,17 +915,21 @@ function KnowledgePreview({
   kbId,
   relativePath,
   onClose,
+  onSaved,
 }: {
   kbId: string;
   relativePath: string;
   onClose: () => void;
+  onSaved?: () => void;
 }) {
-  const [content, setContent] = useState<string | null>(null);
   const [meta, setMeta] = useState<{ size: number; truncated: boolean } | null>(
     null,
   );
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [draft, setDraft] = useState("");
+  const [savedContent, setSavedContent] = useState("");
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -935,7 +943,11 @@ function KnowledgePreview({
           setError("文档不存在或不是 Markdown 文件");
           return;
         }
-        setContent(document.content);
+        // 先统一行尾：<textarea> 会把 CRLF 归一化成 LF，
+        // 否则用户改回原样后仍会被当成「有改动」
+        const normalized = normalizeNewlines(document.content);
+        setDraft(normalized);
+        setSavedContent(normalized);
         setMeta({ size: document.size, truncated: document.truncated });
       })
       .catch((err) => {
@@ -952,6 +964,31 @@ function KnowledgePreview({
   }, [kbId, relativePath]);
 
   const name = relativePath.split("/").pop() ?? relativePath;
+  const dirty = !isSameText(draft, savedContent);
+
+  const handleSave = async () => {
+    if (saving || !dirty || meta?.truncated) return;
+    setSaving(true);
+    try {
+      const result = await ipc.writeKnowledgeDocument(
+        kbId,
+        relativePath,
+        draft,
+      );
+      if (!result.ok) {
+        toast.error(result.error, 5000);
+        return;
+      }
+      setSavedContent(draft);
+      setMeta({ size: result.document.size, truncated: false });
+      toast.success(`${name} 已保存`);
+      onSaved?.();
+    } catch (err) {
+      toast.error(toMessage(err));
+    } finally {
+      setSaving(false);
+    }
+  };
 
   return (
     <Drawer onClose={onClose} ariaLabel={name} width="lg">
@@ -980,27 +1017,39 @@ function KnowledgePreview({
         <DrawerCloseButton onClose={onClose} />
       </DrawerHeader>
 
-        <DrawerBody>
-          {loading ? (
-            <div className="flex h-40 items-center justify-center gap-2 text-body text-text-muted">
-              <Loader2 className="h-4 w-4 animate-spin" />
-              正在读取文档
-            </div>
-          ) : error ? (
-            <div className="flex items-start gap-2 rounded-lg border border-error/40 bg-error-bg p-3 text-body text-error">
-              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-              {error}
-            </div>
-          ) : (
-            <>
-              {meta?.truncated && (
-                <div className="mb-3 rounded-lg border border-border bg-surface-2/60 p-3 text-meta text-text-muted">
-                  文档超过 2MB，预览只展示开头部分；完整内容请用系统程序打开。
-                </div>
-              )}
-              <MarkdownRenderer content={content ?? ""} />
-            </>
-          )}
+      <DrawerBody className="flex flex-col">
+        {loading ? (
+          <div className="flex h-40 items-center justify-center gap-2 text-body text-text-muted">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            正在读取文档
+          </div>
+        ) : error ? (
+          <div className="flex items-start gap-2 rounded-lg border border-error/40 bg-error-bg p-3 text-body text-error">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+            {error}
+          </div>
+        ) : (
+          <div className="flex min-h-0 flex-1 flex-col">
+            {meta?.truncated && (
+              <div className="mb-2 shrink-0 rounded-lg border border-border bg-surface-2/60 p-3 text-meta text-text-muted">
+                文档超过 2MB，这里只展示前 2MB 内容，已禁止在 Nova 内保存；
+                完整内容请用系统程序打开。
+              </div>
+            )}
+            <EditorBar
+              label="文档内容"
+              saving={saving}
+              disabled={!dirty || !!meta?.truncated}
+              onSave={handleSave}
+            />
+            <CodeTextarea
+              value={draft}
+              onChange={setDraft}
+              readOnly={meta?.truncated}
+              minHeightClass="min-h-[420px]"
+            />
+          </div>
+        )}
       </DrawerBody>
     </Drawer>
   );

@@ -10,7 +10,6 @@ import {
   ArrowLeft,
   ChevronRight,
   Circle,
-  Loader2,
   RefreshCw,
 } from "lucide-react";
 import { ipc } from "../../lib/ipc";
@@ -20,8 +19,8 @@ import { Button } from "../ui/Button";
 import { EmptyState, ErrorState, LoadingState } from "../ui/EmptyState";
 import { Page } from "../ui/Page";
 import { SegmentedTabs } from "../ui/SegmentedTabs";
-import { formatDateTime, formatDuration } from "../../lib/workflowFormat";
-import { ACTIVE_RUN_STATUSES, RUN_STATUS } from "../../lib/workflowStatus";
+import { formatDateTime, formatDuration } from "../../lib/workflow/format";
+import { ACTIVE_RUN_STATUSES, RUN_STATUS } from "../../lib/workflow/status";
 import type { WorkflowRun } from "@shared/types";
 
 export function WorkflowRunHistoryView({

@@ -21,12 +21,11 @@ import {
 import { toast } from "../../../stores/toast";
 import { splitArgs } from "@shared/mcp";
 import {
-  MCP_SOURCE_CLASS,
-  MCP_SOURCE_LABEL,
   MCP_TRANSPORT_CLASS,
   MCP_TRANSPORT_LABEL,
 } from "../../mcp/presentation";
-import { BindAction, EmptyTab, Toggle } from "../ui";
+import { Toggle } from "../../ui/Toggle";
+import { BindAction, EmptyTab } from "../BindUi";
 import type {
   EmployeeMcpServer,
   McpServerAsset,
@@ -158,11 +157,6 @@ export function McpTab({
                         <div className="flex min-w-0 items-center gap-1.5">
                           <span className="truncate text-body-lg font-medium text-text">
                             {asset.name}
-                          </span>
-                          <span
-                            className={`shrink-0 rounded-full px-2 py-0.5 text-meta ${MCP_SOURCE_CLASS[asset.source]}`}
-                          >
-                            {MCP_SOURCE_LABEL[asset.source]}
                           </span>
                           <span
                             className={`shrink-0 rounded-full px-2 py-0.5 text-meta ${MCP_TRANSPORT_CLASS[asset.transport]}`}

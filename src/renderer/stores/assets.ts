@@ -37,6 +37,8 @@ export interface AssetListState<T> {
 }
 
 function createAssetList<T>(fetcher: () => Promise<T[]>) {
+  /** 进行中的扫描；重复调用复用同一个 Promise */
+  let inFlight: Promise<void> | null = null;
   /** 扫描期间又收到 force 请求时，等本轮结束后补扫一次 */
   let queuedForce = false;
 
@@ -46,25 +48,33 @@ function createAssetList<T>(fetcher: () => Promise<T[]>) {
     error: null,
     loaded: false,
 
-    load: async (force = false) => {
-      if (get().loading) {
+    load: (force = false) => {
+      if (inFlight) {
         if (force) queuedForce = true;
-        return;
+        return inFlight;
       }
-      if (get().loaded && !force) return;
+      if (get().loaded && !force) return Promise.resolve();
 
       set({ loading: true, error: null });
-      try {
-        const items = await fetcher();
-        set({ items, loaded: true, loading: false, error: null });
-      } catch (err) {
-        set({ loading: false, error: toMessage(err) });
-      }
+      const run = (async () => {
+        try {
+          const items = await fetcher();
+          set({ items, loaded: true, error: null });
+        } catch (err) {
+          set({ error: toMessage(err) });
+        } finally {
+          set({ loading: false });
+        }
+      })();
 
-      if (queuedForce) {
-        queuedForce = false;
-        void get().load(true);
-      }
+      inFlight = run.finally(() => {
+        inFlight = null;
+        if (queuedForce) {
+          queuedForce = false;
+          void get().load(true);
+        }
+      });
+      return inFlight;
     },
 
     setItems: (next) =>

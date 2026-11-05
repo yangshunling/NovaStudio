@@ -67,8 +67,6 @@ export const ipc = {
   // === 项目 ===
   listProjects: () => call("project:list"),
   createProject: (name: string, cwd: string) => call("project:create", { name, cwd }),
-  renameProject: (id: string, name: string) =>
-    call("project:update", { id, name }),
   deleteProject: (id: string) => call("project:delete", { id }),
   revealProject: (id: string) => call("project:reveal", { id }),
   listFiles: (projectId: string, subPath?: string) =>
@@ -137,6 +135,8 @@ export const ipc = {
   createMcpServer: (draft: McpServerDraft) => call("mcp:create", { draft }),
   updateMcpServer: (id: string, draft: McpServerDraft) =>
     call("mcp:update", { id, draft }),
+  saveMcpDefinition: (id: string | null, name: string, definition: string) =>
+    call("mcp:saveDefinition", { id, name, definition }),
   deleteMcpServer: (id: string) => call("mcp:delete", { id }),
   importMcpServers: (json: string) => call("mcp:import", { json }),
   importMcpFile: () => call("mcp:importFile"),
@@ -146,9 +146,11 @@ export const ipc = {
   listSkills: () => call("skills:list"),
   importSkills: (kind: SkillImportKind) => call("skills:import", { kind }),
   deleteSkill: (id: string) => call("skills:delete", { id }),
-  getSkillDocument: (id: string) => call("skills:getDocument", { id }),
-  saveSkillDocument: (id: string, content: string) =>
-    call("skills:saveDocument", { id, content }),
+  listSkillFiles: (id: string) => call("skills:listFiles", { id }),
+  readSkillFile: (id: string, relativePath: string) =>
+    call("skills:readFile", { id, relativePath }),
+  writeSkillFile: (id: string, relativePath: string, content: string) =>
+    call("skills:writeFile", { id, relativePath, content }),
   revealSkill: (id: string) => call("skills:reveal", { id }),
 
   // === 知识库 ===
@@ -170,6 +172,8 @@ export const ipc = {
     call("knowledge:search", { query, kbId }),
   readKnowledgeDocument: (id: string, relativePath: string) =>
     call("knowledge:readDocument", { id, relativePath }),
+  writeKnowledgeDocument: (id: string, relativePath: string, content: string) =>
+    call("knowledge:writeDocument", { id, relativePath, content }),
   revealKnowledgeBase: (id: string) => call("knowledge:reveal", { id }),
   openKnowledgeDocument: (id: string, relativePath: string) =>
     call("knowledge:openDocument", { id, relativePath }),
@@ -200,7 +204,7 @@ export const ipc = {
   approveWorkflowNode: (
     runId: string,
     nodeRunId: string,
-    action: "approve" | "reject",
+    action: "approve" | "reject" | "revise",
     note?: string,
   ) => call("workflow:run:approve", { runId, nodeRunId, action, note }),
   openWorkflowArtifacts: (runId: string) =>

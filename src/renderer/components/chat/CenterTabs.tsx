@@ -3,8 +3,8 @@
  */
 
 import { MessageSquare, X } from "lucide-react";
-import { useFileViewerStore } from "../stores/fileViewer";
-import { FileTypeIcon } from "./ui/FileTypeIcon";
+import { useFileViewerStore } from "../../stores/fileViewer";
+import { FileTypeIcon } from "../ui/FileTypeIcon";
 
 export function CenterTabs() {
   const tabs = useFileViewerStore((s) => s.tabs);

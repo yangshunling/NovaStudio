@@ -35,6 +35,7 @@ import type {
   WorkflowDraft,
   WorkflowGraph,
   WorkflowNode,
+  WorkflowNodeAttemptKind,
   WorkflowNodeRun,
   WorkflowNodeRunStatus,
   WorkflowRun,
@@ -194,6 +195,7 @@ export function initDatabase(): void {
       agent_id TEXT,
       status TEXT NOT NULL,
       attempt INTEGER NOT NULL DEFAULT 1,
+      round INTEGER NOT NULL DEFAULT 1,
       max_retries INTEGER NOT NULL DEFAULT 0,
       session_id TEXT,
       artifact_dir TEXT,
@@ -222,8 +224,15 @@ export function initDatabase(): void {
       run_id TEXT NOT NULL,
       node_run_id TEXT NOT NULL,
       attempt INTEGER NOT NULL,
+      -- 同一 attempt 内人工要求修改会复用会话，用 round 区分每一轮调用
+      round INTEGER NOT NULL DEFAULT 1,
+      -- initial / retry / revise
+      kind TEXT NOT NULL DEFAULT 'initial',
       session_id TEXT,
       artifact_dir TEXT,
+      -- 本轮在 messages 表里的起止消息，运行详情据此切分对话
+      user_message_id TEXT,
+      assistant_message_id TEXT,
       created_at INTEGER NOT NULL
     );
 
@@ -285,6 +294,8 @@ export function initDatabase(): void {
   migrateLegacyInboxProject();
   migrateWorkflowWorkspace();
   migrateWorkflowNodeRunDecisionNote();
+  migrateWorkflowNodeRunRound();
+  migrateWorkflowNodeAttemptRound();
   migrateWorkflowRunSource();
   migrateWorkflowTriggerLastError();
   migrateEmployeeKnowledge();
@@ -560,6 +571,43 @@ function migrateWorkflowNodeRunDecisionNote(): void {
   }
 }
 
+/** 节点运行增加修正轮次列（旧库补齐；默认第 1 轮） */
+function migrateWorkflowNodeRunRound(): void {
+  const cols = db!
+    .prepare("PRAGMA table_info(workflow_node_runs)")
+    .all() as { name: string }[];
+  if (!cols.some((col) => col.name === "round")) {
+    db!.exec(
+      "ALTER TABLE workflow_node_runs ADD COLUMN round INTEGER NOT NULL DEFAULT 1",
+    );
+  }
+}
+
+/** 节点调用记录增加轮次 / 来源 / 消息边界（旧库补齐） */
+function migrateWorkflowNodeAttemptRound(): void {
+  const cols = db!
+    .prepare("PRAGMA table_info(workflow_node_attempts)")
+    .all() as { name: string }[];
+  if (!cols.some((col) => col.name === "round")) {
+    db!.exec(
+      "ALTER TABLE workflow_node_attempts ADD COLUMN round INTEGER NOT NULL DEFAULT 1",
+    );
+  }
+  if (!cols.some((col) => col.name === "kind")) {
+    db!.exec(
+      "ALTER TABLE workflow_node_attempts ADD COLUMN kind TEXT NOT NULL DEFAULT 'initial'",
+    );
+  }
+  if (!cols.some((col) => col.name === "user_message_id")) {
+    db!.exec("ALTER TABLE workflow_node_attempts ADD COLUMN user_message_id TEXT");
+  }
+  if (!cols.some((col) => col.name === "assistant_message_id")) {
+    db!.exec(
+      "ALTER TABLE workflow_node_attempts ADD COLUMN assistant_message_id TEXT",
+    );
+  }
+}
+
 /** 运行记录增加来源 / 触发器 id（旧库补齐） */
 function migrateWorkflowRunSource(): void {
   const cols = db!
@@ -639,16 +687,6 @@ export function createProject(name: string, cwd: string): Project {
     "INSERT INTO projects (id, name, cwd, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
   ).run(id, name, cwd, now, now);
   return { id, name, cwd, createdAt: now, updatedAt: now };
-}
-
-/** 重命名项目；不存在时返回 null。只改展示名，不动目录本身。 */
-export function updateProjectName(id: string, name: string): Project | null {
-  const now = Date.now();
-  const result = db!
-    .prepare("UPDATE projects SET name = ?, updated_at = ? WHERE id = ?")
-    .run(name, now, id);
-  if (result.changes === 0) return null;
-  return { ...getProject(id)!, updatedAt: now };
 }
 
 /**
@@ -1411,6 +1449,10 @@ function normalizeWorkflowNode(raw: any, index: number): WorkflowNode {
         typeof config.maxRetries === "number" && config.maxRetries > 0
           ? Math.min(5, Math.round(config.maxRetries))
           : 1,
+      maxRevisions:
+        typeof config.maxRevisions === "number"
+          ? Math.min(3, Math.max(0, Math.round(config.maxRevisions)))
+          : 1,
       reviewMode: config.reviewMode === "manual" ? "manual" : "auto",
     },
   };
@@ -1789,6 +1831,7 @@ function rowToWorkflowNodeRun(row: any): WorkflowNodeRun {
     agentId: row.agent_id ?? null,
     status: row.status as WorkflowNodeRunStatus,
     attempt: row.attempt ?? 1,
+    round: row.round ?? 1,
     maxRetries: row.max_retries ?? 0,
     sessionId: row.session_id ?? null,
     artifactDir: row.artifact_dir ?? null,
@@ -1949,48 +1992,85 @@ export function createWorkflowNodeRun(input: {
 }
 
 /**
- * 记录一次节点尝试的会话与产物目录。
- * workflow_node_runs.session_id 只保存最新一次，重试前的会话靠这张表保留引用，
- * 删除工作流时才能把历次会话全部清理掉。
+ * 记录一次节点调用（一轮执行 / 重试 / 修改）的会话与产物目录。
+ *
+ * workflow_node_runs.session_id 只保存最新一轮，历次调用的会话靠这张表保留引用：
+ * - 删除工作流时才能把全部会话清理掉；
+ * - 同一 attempt 的 revise 轮次共用 sessionId，靠 round / kind 区分。
  */
 export function createWorkflowNodeAttempt(input: {
   id: string;
   runId: string;
   nodeRunId: string;
   attempt: number;
+  round: number;
+  kind: WorkflowNodeAttemptKind;
   sessionId: string | null;
   artifactDir: string | null;
 }): void {
   db!.prepare(
     `INSERT INTO workflow_node_attempts (
-      id, run_id, node_run_id, attempt, session_id, artifact_dir, created_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      id, run_id, node_run_id, attempt, round, kind,
+      session_id, artifact_dir, created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     input.id,
     input.runId,
     input.nodeRunId,
     input.attempt,
+    input.round,
+    input.kind,
     input.sessionId,
     input.artifactDir,
     Date.now(),
   );
 }
 
-/** 某节点的全部尝试（按尝试序号升序）；运行详情用它还原完整对话 */
+/** 本轮运行结束后回填消息边界，运行详情据此切分每次调用产生的对话 */
+export function updateWorkflowNodeAttemptMessages(
+  id: string,
+  patch: { userMessageId?: string | null; assistantMessageId?: string | null },
+): void {
+  const sets: string[] = [];
+  const values: unknown[] = [];
+  if (patch.userMessageId !== undefined) {
+    sets.push("user_message_id = ?");
+    values.push(patch.userMessageId);
+  }
+  if (patch.assistantMessageId !== undefined) {
+    sets.push("assistant_message_id = ?");
+    values.push(patch.assistantMessageId);
+  }
+  if (sets.length === 0) return;
+  values.push(id);
+  db!.prepare(
+    `UPDATE workflow_node_attempts SET ${sets.join(", ")} WHERE id = ?`,
+  ).run(...values);
+}
+
+/** 某节点的全部调用（按尝试 / 轮次升序）；运行详情用它还原完整对话 */
 export function listWorkflowNodeAttempts(nodeRunId: string): Array<{
   attempt: number;
+  round: number;
+  kind: WorkflowNodeAttemptKind;
   sessionId: string | null;
   artifactDir: string | null;
+  userMessageId: string | null;
+  assistantMessageId: string | null;
 }> {
   const rows = db!
     .prepare(
-      "SELECT attempt, session_id, artifact_dir FROM workflow_node_attempts WHERE node_run_id = ? ORDER BY attempt ASC",
+      "SELECT attempt, round, kind, session_id, artifact_dir, user_message_id, assistant_message_id FROM workflow_node_attempts WHERE node_run_id = ? ORDER BY attempt ASC, round ASC, rowid ASC",
     )
     .all(nodeRunId) as any[];
   return rows.map((row) => ({
     attempt: row.attempt,
+    round: row.round ?? 1,
+    kind: (row.kind ?? "initial") as WorkflowNodeAttemptKind,
     sessionId: row.session_id ?? null,
     artifactDir: row.artifact_dir ?? null,
+    userMessageId: row.user_message_id ?? null,
+    assistantMessageId: row.assistant_message_id ?? null,
   }));
 }
 
@@ -2013,6 +2093,7 @@ export function listWorkflowNodeRuns(runId: string): WorkflowNodeRun[] {
 const NODE_RUN_COLUMNS: Record<string, string> = {
   status: "status",
   attempt: "attempt",
+  round: "round",
   sessionId: "session_id",
   artifactDir: "artifact_dir",
   inputPath: "input_path",
@@ -2033,6 +2114,7 @@ export function updateWorkflowNodeRun(
       WorkflowNodeRun,
       | "status"
       | "attempt"
+      | "round"
       | "sessionId"
       | "artifactDir"
       | "inputPath"
@@ -2103,11 +2185,17 @@ export function listWorkflowNodeNotices(nodeRunId: string): Array<{
       }，准备第 ${Number(payload.attempt ?? 0) + 1} 次尝试`;
       level = "warning";
     } else if (row.type === "approval_decided") {
-      message =
-        payload.decision === "approve"
-          ? `人工审核通过${payload.note ? `：${payload.note}` : ""}`
-          : `人工审核驳回${payload.note ? `：${payload.note}` : ""}`;
-      level = payload.decision === "approve" ? "info" : "warning";
+      const roundLabel = payload.round ? `第 ${payload.round} 轮` : "";
+      if (payload.decision === "revise") {
+        message = `人工审核要求修改${roundLabel ? `（${roundLabel}）` : ""}${payload.note ? `：${payload.note}` : ""}`;
+        level = "info";
+      } else if (payload.decision === "approve") {
+        message = `人工审核通过${payload.note ? `：${payload.note}` : ""}`;
+        level = "info";
+      } else {
+        message = `人工审核驳回${payload.note ? `：${payload.note}` : ""}`;
+        level = "warning";
+      }
     }
     if (message) {
       notices.push({

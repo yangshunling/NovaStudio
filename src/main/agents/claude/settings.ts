@@ -10,14 +10,9 @@
  * 写入时只改上述键，保留 settings.json 里的其它内容（hooks / plugins / statusLine 等）。
  */
 
-import {
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  renameSync,
-  writeFileSync,
-} from "fs";
+import { existsSync, mkdirSync, readFileSync } from "fs";
 import { dirname } from "path";
+import { writeFileAtomicSync } from "../../utils/fs";
 import {
   AGENT_MODEL_ALIASES,
   type AgentModelAlias,
@@ -134,9 +129,7 @@ function readSettings(): SettingsFile {
 function writeSettings(settings: Record<string, unknown>): void {
   const path = claudeSettingsPath();
   mkdirSync(dirname(path), { recursive: true });
-  const temp = `${path}.nova-tmp`;
-  writeFileSync(temp, `${JSON.stringify(settings, null, 2)}\n`, "utf8");
-  renameSync(temp, path);
+  writeFileAtomicSync(path, `${JSON.stringify(settings, null, 2)}\n`);
 }
 
 function readEnv(settings: Record<string, unknown>): Record<string, unknown> {

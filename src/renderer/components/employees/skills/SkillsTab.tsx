@@ -13,8 +13,8 @@ import {
   Trash2,
 } from "lucide-react";
 import { useAssetCatalog, useSkillsStore } from "../../../stores/assets";
-import { SKILL_ORIGIN_CLASS, SKILL_ORIGIN_LABEL } from "../../skills/presentation";
-import { BindAction, EmptyTab, Toggle } from "../ui";
+import { Toggle } from "../../ui/Toggle";
+import { BindAction, EmptyTab } from "../BindUi";
 import type { EmployeeSkill, SkillAsset } from "@shared/types";
 
 export function SkillsTab({
@@ -108,11 +108,6 @@ export function SkillsTab({
                           <span className="truncate text-body-lg font-medium text-text">
                             {asset.name}
                           </span>
-                          <span
-                            className={`shrink-0 rounded-full px-2 py-0.5 text-meta ${SKILL_ORIGIN_CLASS[asset.origin]}`}
-                          >
-                            {SKILL_ORIGIN_LABEL[asset.origin]}
-                          </span>
                           {problems.length > 0 && (
                             <span
                               title={problems.join("\n")}
@@ -180,13 +175,6 @@ export function SkillsTab({
                           <span className="truncate text-body-lg font-medium text-text">
                             {asset?.name || skill.name}
                           </span>
-                          {asset && (
-                            <span
-                              className={`shrink-0 rounded-full px-2 py-0.5 text-meta ${SKILL_ORIGIN_CLASS[asset.origin]}`}
-                            >
-                              {SKILL_ORIGIN_LABEL[asset.origin]}
-                            </span>
-                          )}
                           {legacy && (
                             <span className="shrink-0 rounded-full bg-agent-amber/10 px-2 py-0.5 text-meta text-agent-amber">
                               旧版路径

@@ -17,6 +17,7 @@ import type {
   KnowledgeBaseAsset,
   KnowledgeDocument,
   KnowledgeDocumentContent,
+  KnowledgeDocumentWriteResult,
   KnowledgeSearchResult,
   KnowledgeUploadResult,
   KnowledgeWriteResult,
@@ -30,7 +31,7 @@ import type {
   ReadFileResult,
   Session,
   SkillAsset,
-  SkillDocument,
+  SkillFileDocument,
   SkillImportKind,
   SkillImportResult,
   SkillWriteResult,
@@ -93,8 +94,6 @@ export interface IpcInvokeMap {
 
   "project:list": { args: []; result: Project[] };
   "project:create": { args: [{ name: string; cwd: string }]; result: Project };
-  /** 重命名工作区；项目不存在时返回 null */
-  "project:update": { args: [{ id: string; name: string }]; result: Project | null };
   "project:delete": { args: [{ id: string }]; result: boolean };
   /** 列出项目目录下的文件，供 @ 提及选择 */
   "project:listFiles": {
@@ -211,6 +210,11 @@ export interface IpcInvokeMap {
     args: [{ id: string; draft: McpServerDraft }];
     result: McpWriteResult;
   };
+  /** 按原始 JSON 保存服务定义（详情页直接编辑 mcpServers[name]） */
+  "mcp:saveDefinition": {
+    args: [{ id: string | null; name: string; definition: string }];
+    result: McpWriteResult;
+  };
   "mcp:delete": { args: [{ id: string }]; result: boolean };
   "mcp:import": { args: [{ json: string }]; result: McpImportResult };
   /** 从 JSON 文件导入（主进程弹选择框） */
@@ -224,9 +228,14 @@ export interface IpcInvokeMap {
     result: SkillImportResult;
   };
   "skills:delete": { args: [{ id: string }]; result: boolean };
-  "skills:getDocument": { args: [{ id: string }]; result: SkillDocument | null };
-  "skills:saveDocument": {
-    args: [{ id: string; content: string }];
+  /** 列出技能目录下的全部文件（目录树由渲染层拼装） */
+  "skills:listFiles": { args: [{ id: string }]; result: FileEntry[] | null };
+  "skills:readFile": {
+    args: [{ id: string; relativePath: string }];
+    result: SkillFileDocument | null;
+  };
+  "skills:writeFile": {
+    args: [{ id: string; relativePath: string; content: string }];
     result: SkillWriteResult;
   };
   "skills:reveal": { args: [{ id: string }]; result: boolean };
@@ -267,6 +276,11 @@ export interface IpcInvokeMap {
   "knowledge:readDocument": {
     args: [{ id: string; relativePath: string }];
     result: KnowledgeDocumentContent | null;
+  };
+  /** 保存 Markdown 文档内容，并同步全文索引 */
+  "knowledge:writeDocument": {
+    args: [{ id: string; relativePath: string; content: string }];
+    result: KnowledgeDocumentWriteResult;
   };
   "knowledge:reveal": { args: [{ id: string }]; result: boolean };
   "knowledge:openDocument": {
@@ -314,7 +328,7 @@ export interface IpcInvokeMap {
       {
         runId: string;
         nodeRunId: string;
-        action: "approve" | "reject";
+        action: "approve" | "reject" | "revise";
         note?: string;
       },
     ];
@@ -380,7 +394,9 @@ export interface IpcPushMap {
     runId: string;
     nodeRunId: string;
     attempt: number;
-    /** 该次尝试内的事件序号，从 1 开始 */
+    /** 该次尝试内的轮次，从 1 开始；人工要求修改后会递增 */
+    round: number;
+    /** 该轮内的事件序号，从 1 开始 */
     seq: number;
     event: AgentEvent;
   };

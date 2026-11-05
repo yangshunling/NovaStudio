@@ -4,8 +4,7 @@
  * Nova 不再维护自己的技能主库。技能以磁盘目录为唯一事实来源：
  * - `~/.claude/skills`：Claude Code 全局技能目录，Nova 的新增/导入写到这里。
  *
- * `managed_assets` 表记录哪些目录是 Nova 创建的：Claude 原有的技能只读，
- * Nova 创建的技能可编辑/删除。
+ * 目录下的技能都可以在 Nova 中编辑、删除，保存时直接写回 SKILL.md。
  *
  * 运行时投影（按员工选择复制子集）在 agents/claude/prepare.ts，不放在资产层。
  */
@@ -14,11 +13,16 @@ import { existsSync } from "fs";
 import { cp, mkdir, readFile, readdir, rename, rm, stat, writeFile } from "fs/promises";
 import { homedir } from "os";
 import { basename, dirname, extname, join } from "path";
-import * as db from "../db/sqlite";
-import { copyFilter } from "../utils/fs";
+import { isInsideReal, resolveInside } from "../utils/paths";
+import {
+  copyFilter,
+  readTextFileLimited,
+  writeTextFileLimited,
+} from "../utils/fs";
 import type {
+  FileEntry,
   SkillAsset,
-  SkillDocument,
+  SkillFileDocument,
   SkillImportKind,
   SkillImportResult,
   SkillOrigin,
@@ -36,6 +40,8 @@ const DOCUMENT_LIMIT = 1_000_000;
 /** 文件统计上限：技能目录通常很小，超过即停止，避免大仓库拖慢列表 */
 const FILE_SCAN_LIMIT = 200;
 const FILE_SCAN_DEPTH = 3;
+/** 文件树上限：比统计更宽松，但避免异常目录把渲染层拖垮 */
+const FILE_LIST_LIMIT = 500;
 const SCRIPT_EXTENSIONS = new Set([
   ".sh",
   ".bash",
@@ -188,7 +194,6 @@ async function scanContents(
 async function scanRoot(
   root: string,
   origin: SkillOrigin,
-  managedByNova: (slug: string) => boolean,
 ): Promise<SkillAsset[]> {
   let names: string[];
   try {
@@ -251,11 +256,6 @@ async function scanRoot(
     }
 
     const contents = await scanContents(dir);
-    const managed = managedByNova(name);
-    const readOnly = !managed;
-    const readOnlyReason = readOnly
-      ? "该技能位于 ~/.claude/skills，由 Claude Code 或其他工具创建。Nova 只读；如需修改请直接操作原目录。"
-      : null;
 
     result.push({
       id: `${origin}:${name}`,
@@ -264,9 +264,6 @@ async function scanRoot(
       description,
       origin,
       path: dir,
-      managedByNova: managed,
-      readOnly,
-      readOnlyReason,
       valid,
       problems,
       fileCount: contents.fileCount,
@@ -280,10 +277,7 @@ async function scanRoot(
 
 /** 扫描技能目录，按名称排序 */
 export async function listSkills(): Promise<SkillAsset[]> {
-  const managed = new Set(db.listManagedAssetKeys("skill"));
-  const skills = await scanRoot(claudeSkillsDir(), "claude-global", (slug) =>
-    managed.has(slug),
-  );
+  const skills = await scanRoot(claudeSkillsDir(), "claude-global");
   return skills.sort((a, b) => a.slug.localeCompare(b.slug));
 }
 
@@ -383,7 +377,6 @@ async function importDirectory(source: string): Promise<string> {
   if (copiedName !== "SKILL.md") {
     await rename(join(target, copiedName), join(target, "SKILL.md"));
   }
-  db.markManagedAsset("skill", slug);
   return target;
 }
 
@@ -398,7 +391,6 @@ async function importFile(source: string): Promise<string> {
 
   await mkdir(target, { recursive: true });
   await writeFile(join(target, "SKILL.md"), raw, "utf8");
-  db.markManagedAsset("skill", slug);
   return target;
 }
 
@@ -456,59 +448,123 @@ export async function importSkillsFromPath(
 
 export async function deleteSkill(id: string): Promise<boolean> {
   const asset = await getSkillAsset(id);
-  if (!asset || !asset.managedByNova) return false;
+  if (!asset) return false;
 
   await rm(asset.path, { recursive: true, force: true });
-  db.unmarkManagedAsset("skill", asset.slug);
   return true;
 }
 
-export async function getSkillDocument(id: string): Promise<SkillDocument | null> {
+/**
+ * 列出技能目录下的所有文件与子目录。
+ *
+ * 返回扁平列表（相对路径统一用 `/`），由渲染层拼成目录树；
+ * 跳过 `.git` / `node_modules` 等噪音目录，并设总量上限。
+ */
+export async function listSkillFiles(id: string): Promise<FileEntry[] | null> {
   const asset = await getSkillAsset(id);
   if (!asset) return null;
 
-  const filePath = join(asset.path, "SKILL.md");
-  try {
-    const buffer = await readFile(filePath);
-    const truncated = buffer.length > DOCUMENT_LIMIT;
-    const content = truncated
-      ? `${buffer.subarray(0, DOCUMENT_LIMIT).toString("utf8")}\n\n…（文件过大，已截断）`
-      : buffer.toString("utf8");
-    return {
-      content,
-      path: filePath,
-      readOnly: asset.readOnly,
-      truncated,
-    };
-  } catch {
-    return null;
-  }
+  const result: FileEntry[] = [];
+
+  const walk = async (
+    dir: string,
+    prefix: string,
+    depth = 0,
+  ): Promise<void> => {
+    // 深度上限用于兜住符号链接成环的情况
+    if (result.length >= FILE_LIST_LIMIT || depth > 12) return;
+
+    let entries;
+    try {
+      entries = await readdir(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+
+    for (const entry of entries) {
+      if (result.length >= FILE_LIST_LIMIT) return;
+      if (
+        entry.name === ".git" ||
+        entry.name === "node_modules" ||
+        entry.name === ".DS_Store"
+      ) {
+        continue;
+      }
+
+      const relativePath = prefix ? `${prefix}/${entry.name}` : entry.name;
+      const full = join(dir, entry.name);
+      let isDirectory = entry.isDirectory();
+
+      // 跟随符号链接 / junction，避免链接进来的目录显示成普通文件
+      if (entry.isSymbolicLink()) {
+        try {
+          isDirectory = (await stat(full)).isDirectory();
+        } catch {
+          continue;
+        }
+      }
+
+      result.push({ name: entry.name, relativePath, isDirectory });
+      if (isDirectory) await walk(full, relativePath, depth + 1);
+    }
+  };
+
+  await walk(asset.path, "");
+  return result.sort((a, b) => a.relativePath.localeCompare(b.relativePath));
 }
 
-export async function saveSkillDocument(
+/** 读取技能目录下的单个文件；二进制或文本都返回元信息 */
+export async function readSkillFile(
   id: string,
+  relativePath: string,
+): Promise<SkillFileDocument | null> {
+  const asset = await getSkillAsset(id);
+  if (!asset) return null;
+
+  const filePath = resolveInside(asset.path, relativePath);
+  if (!filePath || !(await isInsideReal(asset.path, filePath))) return null;
+
+  const snapshot = await readTextFileLimited(filePath, DOCUMENT_LIMIT);
+  if (!snapshot) return null;
+
+  return {
+    relativePath,
+    path: filePath,
+    content: snapshot.content,
+    truncated: snapshot.truncated,
+    binary: snapshot.binary,
+  };
+}
+
+/** 把编辑后的内容写回技能目录下的指定文件 */
+export async function writeSkillFile(
+  id: string,
+  relativePath: string,
   content: string,
 ): Promise<SkillWriteResult> {
   const asset = await getSkillAsset(id);
   if (!asset) return { ok: false, error: "技能不存在，可能已被删除" };
-  if (!asset.managedByNova) {
-    return {
-      ok: false,
-      error: asset.readOnlyReason ?? "该技能不是 Nova 创建的，不能从 Nova 编辑",
-    };
-  }
-  if (Buffer.byteLength(content, "utf8") > DOCUMENT_LIMIT) {
-    return { ok: false, error: "SKILL.md 超过 1MB，请精简后再保存" };
+
+  const filePath = resolveInside(asset.path, relativePath);
+  if (!filePath || !(await isInsideReal(asset.path, filePath))) {
+    return { ok: false, error: "文件路径不合法" };
   }
 
+  let info;
   try {
-    await writeFile(join(asset.path, "SKILL.md"), content, "utf8");
-  } catch (err) {
-    return {
-      ok: false,
-      error: err instanceof Error ? err.message : String(err),
-    };
+    info = await stat(filePath);
+  } catch {
+    return { ok: false, error: "文件不存在，可能已被删除" };
   }
+  if (!info.isFile()) return { ok: false, error: "目标路径不是文件" };
+
+  const written = await writeTextFileLimited(
+    filePath,
+    content,
+    DOCUMENT_LIMIT,
+    "文件超过 1MB，请精简后再保存",
+  );
+  if (!written.ok) return written;
 
   const updated = await getSkillAsset(id);
   return updated

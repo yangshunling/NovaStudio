@@ -5,7 +5,7 @@
  * 停止需要落到调度器上（它才知道任务是哪个进程、如何中断）。
  */
 
-import type { AgentService } from "../../engine/agent-service";
+import type { AgentService } from "../../agents/agent-service";
 import type { AutomationScheduler } from "../../automation/scheduler";
 import { getProvider } from "../../agents/registry";
 import * as db from "../../db/sqlite";

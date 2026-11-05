@@ -2,10 +2,10 @@
  * 中间内容区域：标签栏 + 对话 / 文件预览
  */
 
-import { useFileViewerStore } from "../stores/fileViewer";
+import { useFileViewerStore } from "../../stores/fileViewer";
 import { ChatArea } from "./ChatArea";
 import { CenterTabs } from "./CenterTabs";
-import { FilePreview } from "./FilePreview";
+import { FilePreview } from "../files/FilePreview";
 
 export function CenterPane() {
   const tabs = useFileViewerStore((s) => s.tabs);

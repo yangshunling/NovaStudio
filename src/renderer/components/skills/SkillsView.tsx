@@ -2,27 +2,25 @@
  * 技能资产页
  *
  * 只展示 Claude 全局技能（~/.claude/skills）：
- * - Nova 创建的技能可导入、编辑、删除；
- * - 其他工具创建的技能只读，可被员工引用。
- *
- * 只读不是缺陷，而是边界：这些技能由 Claude Code 或其他工具管理，
- * Nova 只做索引与运行时复制，避免两边同时写导致技能内容互相覆盖。
+ * - 技能可导入、编辑、删除；
+ * - 详情左侧列出技能目录下的全部文件，右侧编辑选中文件，
+ *   保存时直接写回该文件。
  */
 
 import {
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import {
   AlertTriangle,
+  ChevronRight,
   FileText,
+  Folder,
   FolderOpen,
   Loader2,
-  Lock,
   RefreshCw,
-  Save,
-  Search,
   ShieldAlert,
   Sparkles,
   Trash2,
@@ -30,7 +28,7 @@ import {
   Users,
 } from "lucide-react";
 import { ipc } from "../../lib/ipc";
-import { toMessage } from "../../lib/utils";
+import { isSameText, normalizeNewlines, toMessage } from "../../lib/utils";
 import { useAssetCatalog, useSkillsStore } from "../../stores/assets";
 import { toast } from "../../stores/toast";
 import { confirmDialog } from "../../stores/confirm";
@@ -58,19 +56,16 @@ import {
   CARD_SHELL,
   CARD_TITLE,
 } from "../ui/cardStyles";
-import {
-  formatAssetTime,
-  Meta,
-  SourceTag,
-  Tag,
-} from "../assets/assetUi";
-import { SKILL_ORIGIN_CLASS, SKILL_ORIGIN_LABEL } from "./presentation";
+import { formatAssetTime, Meta, Tag } from "../asset/AssetUi";
+import { CodeTextarea, EditorBar } from "../asset/EditorUi";
 import type {
   DigitalEmployee,
+  FileEntry,
   SkillAsset,
-  SkillDocument,
+  SkillFileDocument,
   SkillImportKind,
 } from "@shared/types";
+
 
 // ============================================================================
 // 页面
@@ -242,10 +237,6 @@ function SkillCard({
         </span>
         <div className="flex min-w-0 flex-1 items-start justify-between gap-2">
           <h3 className={CARD_TITLE}>{skill.name}</h3>
-          <SourceTag
-            label={SKILL_ORIGIN_LABEL[skill.origin]}
-            className={SKILL_ORIGIN_CLASS[skill.origin]}
-          />
         </div>
       </div>
 
@@ -294,31 +285,108 @@ function SkillDrawer({
   onChanged: () => Promise<void>;
   onDeleted: () => void;
 }) {
-  const [document, setDocument] = useState<SkillDocument | null>(null);
+  const [files, setFiles] = useState<FileEntry[] | null>(null);
+  const [filesError, setFilesError] = useState<string | null>(null);
+  const [filesReloadKey, setFilesReloadKey] = useState(0);
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [activePath, setActivePath] = useState<string | null>(null);
+  const [document, setDocument] = useState<SkillFileDocument | null>(null);
   const [content, setContent] = useState("");
-  const [loading, setLoading] = useState(true);
+  const [loadingFile, setLoadingFile] = useState(false);
   const [saving, setSaving] = useState(false);
+  /** 切换文件时保留未保存的编辑，避免一次误点丢掉内容 */
+  const draftsRef = useRef<Record<string, string>>({});
 
+  // 技能目录 → 文件列表；默认展开全部目录并选中 SKILL.md
   useEffect(() => {
     let cancelled = false;
-    setLoading(true);
+    setFiles(null);
+    setFilesError(null);
+    setExpanded(new Set());
+    setActivePath(null);
+    setDocument(null);
+    setContent("");
+    draftsRef.current = {};
+
     ipc
-      .getSkillDocument(skill.id)
+      .listSkillFiles(skill.id)
+      .then((entries) => {
+        if (cancelled) return;
+        if (!entries) {
+          setFiles([]);
+          setFilesError("技能不存在，可能已被移动或删除");
+          return;
+        }
+        const list = entries;
+        setFiles(list);
+        setExpanded(
+          new Set(
+            list
+              .filter((entry) => entry.isDirectory)
+              .map((entry) => entry.relativePath),
+          ),
+        );
+        const filesOnly = list.filter((entry) => !entry.isDirectory);
+        const preferred =
+          filesOnly.find((entry) => entry.relativePath === "SKILL.md") ??
+          filesOnly.find(
+            (entry) => entry.name.toLowerCase() === "skill.md",
+          ) ??
+          filesOnly[0];
+        setActivePath(preferred?.relativePath ?? null);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        console.error("[skills] listSkillFiles failed", err);
+        const message = toMessage(err);
+        setFiles([]);
+        setFilesError(
+          /no handler registered/i.test(message)
+            ? "主进程还在运行旧代码：请完全退出 Nova 后重新启动（只刷新页面不够）"
+            : message,
+        );
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [skill.id, filesReloadKey]);
+
+  // 选中文件 → 读取内容（优先恢复未保存的草稿）
+  useEffect(() => {
+    if (!activePath) {
+      setDocument(null);
+      setContent("");
+      setLoadingFile(false);
+      return;
+    }
+
+    let cancelled = false;
+    setLoadingFile(true);
+    setDocument(null);
+    ipc
+      .readSkillFile(skill.id, activePath)
       .then((doc) => {
         if (cancelled) return;
-        setDocument(doc);
-        setContent(doc?.content ?? "");
+        const normalized = doc
+          ? { ...doc, content: normalizeNewlines(doc.content) }
+          : null;
+        setDocument(normalized);
+        setContent(
+          draftsRef.current[activePath] ?? normalized?.content ?? "",
+        );
       })
       .catch(() => {
         if (!cancelled) setDocument(null);
       })
       .finally(() => {
-        if (!cancelled) setLoading(false);
+        if (!cancelled) setLoadingFile(false);
       });
+
     return () => {
       cancelled = true;
     };
-  }, [skill.id]);
+  }, [skill.id, activePath]);
 
   const usedBy = employees.filter((employee) =>
     employee.skills.some(
@@ -326,19 +394,30 @@ function SkillDrawer({
     ),
   );
 
-  const dirty = document !== null && content !== document.content;
+  const tree = useMemo(() => buildSkillTree(files ?? []), [files]);
+  const dirty = document !== null && !isSameText(content, document.content);
+  const canEdit = !!document && !document.binary && !document.truncated;
+
+  const handleContentChange = (value: string) => {
+    setContent(value);
+    if (activePath) draftsRef.current[activePath] = value;
+  };
 
   const handleSave = async () => {
-    if (saving || !document || document.readOnly || document.truncated) return;
+    if (saving || !document || !activePath || !canEdit) return;
     setSaving(true);
     try {
-      const result = await ipc.saveSkillDocument(skill.id, content);
+      const result = await ipc.writeSkillFile(
+        skill.id,
+        activePath,
+        content,
+      );
       if (!result.ok) {
         toast.error(result.error, 5000);
         return;
       }
       setDocument({ ...document, content });
-      toast.success("SKILL.md 已保存");
+      toast.success(`${activePath} 已保存`);
       await onChanged();
     } catch (err) {
       toast.error(toMessage(err));
@@ -348,7 +427,6 @@ function SkillDrawer({
   };
 
   const handleDelete = async () => {
-    if (skill.readOnly) return;
     const confirmed = await confirmDialog({
       title: `从 Claude 技能目录删除「${skill.name}」？`,
       message:
@@ -374,117 +452,162 @@ function SkillDrawer({
   };
 
   return (
-    <Drawer onClose={onClose} ariaLabel="技能详情" width="lg">
+    <Drawer
+      onClose={onClose}
+      ariaLabel="技能详情"
+      widthClass="w-[960px]"
+    >
       {/* 头部 */}
       <DrawerHeader>
         <Sparkles className="h-5 w-5 shrink-0 text-accent" />
-          <div className="min-w-0 flex-1">
-            <div className="flex min-w-0 items-center gap-2">
-              <span className="truncate text-title font-semibold text-text">
-                {skill.name}
-              </span>
-              <SourceTag
-                label={SKILL_ORIGIN_LABEL[skill.origin]}
-                className={SKILL_ORIGIN_CLASS[skill.origin]}
-              />
-            </div>
-            <div className="truncate text-meta text-text-muted">
-              {skill.slug}
-            </div>
+        <div className="min-w-0 flex-1">
+          <div className="flex min-w-0 items-center gap-2">
+            <span className="truncate text-title font-semibold text-text">
+              {skill.name}
+            </span>
           </div>
+          <div className="truncate text-meta text-text-muted">{skill.slug}</div>
+        </div>
         <DrawerCloseButton onClose={onClose} />
       </DrawerHeader>
 
       <DrawerBody className="flex flex-col">
-          <div className="flex min-h-0 flex-1 flex-col gap-4">
-            {/* 顶部信息固定高度：剩余空间全部留给 SKILL.md */}
-            <div className="shrink-0 space-y-4">
-            {/* 只读说明：告诉用户为什么不能编辑 / 删除，以及能做什么 */}
-            {skill.readOnly && skill.readOnlyReason && (
-              <div className="rounded-lg border border-border bg-surface-2/60 p-3">
-                <div className="flex items-start gap-2 text-body leading-relaxed text-text-secondary">
-                  <Lock className="mt-0.5 h-4 w-4 shrink-0 text-text-muted" />
-                  <div>
-                    <p>{skill.readOnlyReason}</p>
-                    <p className="mt-1 text-text-muted">
-                      你仍然可以在数字员工中绑定它；Nova
-                      会在每次运行时把技能复制到独立的 Agent
-                      配置目录，不会改动原目录。
-                    </p>
-                  </div>
-                </div>
+        {/* 顶部信息：目录 / 更新时间 / 文件数 / 使用情况 */}
+        <div className="shrink-0 space-y-4">
+          {skill.problems.length > 0 && (
+            <div
+              className={`rounded-lg border p-3 ${
+                skill.valid
+                  ? "border-border bg-surface-2/60"
+                  : "border-error/40 bg-error-bg"
+              }`}
+            >
+              <div className="flex items-start gap-2">
+                <AlertTriangle
+                  className={`mt-0.5 h-4 w-4 shrink-0 ${
+                    skill.valid ? "text-agent-amber" : "text-error"
+                  }`}
+                />
+                <ul className="space-y-0.5 text-body leading-relaxed text-text-secondary">
+                  {skill.problems.map((problem) => (
+                    <li key={problem}>{problem}</li>
+                  ))}
+                </ul>
               </div>
-            )}
+            </div>
+          )}
 
-            {/* 校验问题 */}
-            {skill.problems.length > 0 && (
-              <div
-                className={`rounded-lg border p-3 ${
-                  skill.valid
-                    ? "border-border bg-surface-2/60"
-                    : "border-error/40 bg-error-bg"
-                }`}
-              >
-                <div className="flex items-start gap-2">
-                  <AlertTriangle
-                    className={`mt-0.5 h-4 w-4 shrink-0 ${
-                      skill.valid ? "text-agent-amber" : "text-error"
-                    }`}
-                  />
-                  <ul className="space-y-0.5 text-body leading-relaxed text-text-secondary">
-                    {skill.problems.map((problem) => (
-                      <li key={problem}>{problem}</li>
-                    ))}
-                  </ul>
+          <div className="grid grid-cols-2 gap-3 text-body">
+            <Meta label="目录" value={skill.path} mono />
+            <Meta label="最近更新" value={formatAssetTime(skill.updatedAt)} />
+            <Meta label="文件数" value={`${skill.fileCount} 个文件`} />
+            <Meta
+              label="使用情况"
+              value={
+                usedBy.length > 0
+                  ? usedBy.map((employee) => employee.name).join("、")
+                  : "尚未被数字员工绑定"
+              }
+            />
+          </div>
+        </div>
+
+        {/* 下半部分：左文件树，右文档内容 */}
+        <div className="mt-4 flex min-h-0 flex-1 gap-3">
+          {/* 左：技能目录下的全部文件 */}
+          <aside className="flex w-60 shrink-0 flex-col overflow-hidden rounded-lg border border-border">
+            <div className="flex shrink-0 items-center justify-between border-b border-border px-3 py-2">
+              <span className="text-meta font-medium text-text-secondary">文件</span>
+              <span className="font-mono text-meta text-text-muted">
+                {files ? files.filter((entry) => !entry.isDirectory).length : "—"}
+              </span>
+            </div>
+
+            <div className="min-h-0 flex-1 overflow-y-auto p-1.5">
+              {files === null ? (
+                <div className="flex items-center gap-2 px-2 py-3 text-meta text-text-muted">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  正在读取目录
                 </div>
-              </div>
-            )}
+              ) : filesError ? (
+                <div className="px-2 py-3 text-meta leading-relaxed text-error">
+                  <p>读取目录失败：{filesError}</p>
+                  <button
+                    type="button"
+                    onClick={() => setFilesReloadKey((value) => value + 1)}
+                    className="mt-2 rounded-md border border-border px-2 py-1 text-text-secondary transition-colors hover:bg-surface-hover hover:text-text"
+                  >
+                    重试
+                  </button>
+                </div>
+              ) : files.length === 0 ? (
+                <div className="px-2 py-3 text-meta text-text-muted">
+                  技能目录为空
+                </div>
+              ) : (
+                <SkillFileTree
+                  nodes={tree}
+                  depth={0}
+                  expanded={expanded}
+                  activePath={activePath}
+                  onToggle={(path) =>
+                    setExpanded((current) => {
+                      const next = new Set(current);
+                      if (next.has(path)) next.delete(path);
+                      else next.add(path);
+                      return next;
+                    })
+                  }
+                  onSelect={setActivePath}
+                />
+              )}
+            </div>
+          </aside>
 
-            {/* 元信息 */}
-            <div className="grid grid-cols-2 gap-3 text-body">
-              <Meta label="目录" value={skill.path} mono />
-              <Meta label="最近更新" value={formatAssetTime(skill.updatedAt)} />
-              <Meta label="文件数" value={`${skill.fileCount} 个文件`} />
-              <Meta
-                label="使用情况"
-                value={
-                  usedBy.length > 0
-                    ? usedBy.map((employee) => employee.name).join("、")
-                    : "尚未被数字员工绑定"
+          {/* 右：当前文件内容 */}
+          <section className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-lg border border-border">
+            <div className="flex shrink-0 items-center gap-2 border-b border-border px-3 py-2">
+              <EditorBar
+                label={
+                  <>
+                    <FileText className="h-3.5 w-3.5 shrink-0" />
+                    <span
+                      className="min-w-0 flex-1 truncate font-mono"
+                      title={activePath ?? ""}
+                    >
+                      {activePath ?? "未选择文件"}
+                    </span>
+                  </>
                 }
+                saving={saving}
+                disabled={!dirty || !canEdit}
+                onSave={handleSave}
+                marginClass="mb-0"
               />
             </div>
-            </div>
 
-            {/* SKILL.md 预览 / 编辑：占满抽屉剩余高度，避免短内容下方留大片空白 */}
-            <div className="flex min-h-0 flex-1 flex-col">
-              <div className="mb-1.5 flex shrink-0 items-center justify-between gap-2">
-                <div className="flex items-center gap-1.5 text-meta font-medium text-text-secondary">
-                  <FileText className="h-3.5 w-3.5" />
-                  SKILL.md
-                  {dirty && (
-                    <span className="rounded-full bg-accent-soft px-2 py-0.5 text-caption text-accent">
-                      未保存
-                    </span>
-                  )}
-                </div>
-                {!skill.readOnly && (
-                  <Button
-                    variant="primary"
-                    loading={saving}
-                    icon={<Save className="h-4 w-4" />}
-                    onClick={handleSave}
-                    disabled={!dirty || !!document?.truncated}
-                  >
-                    保存
-                  </Button>
-                )}
-              </div>
-
-              {loading ? (
-                <div className="flex min-h-[240px] flex-1 items-center justify-center gap-2 rounded-lg border border-border bg-input-bg text-body text-text-muted">
+            <div className="flex min-h-0 flex-1 flex-col p-2">
+              {files === null ? (
+                <div className="flex flex-1 items-center justify-center gap-2 rounded-lg border border-border bg-input-bg text-body text-text-muted">
                   <Loader2 className="h-4 w-4 animate-spin" />
-                  正在读取 SKILL.md
+                  正在读取技能目录
+                </div>
+              ) : filesError ? (
+                <div className="flex flex-1 items-center justify-center rounded-lg border border-error/40 bg-error-bg p-4 text-body text-error">
+                  读取目录失败：{filesError}
+                </div>
+              ) : !activePath ? (
+                <div className="flex flex-1 items-center justify-center rounded-lg border border-border bg-surface-2/60 p-4 text-body text-text-muted">
+                  技能目录里还没有文件
+                </div>
+              ) : loadingFile ? (
+                <div className="flex flex-1 items-center justify-center gap-2 rounded-lg border border-border bg-input-bg text-body text-text-muted">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  正在读取 {activePath}
+                </div>
+              ) : document?.binary ? (
+                <div className="flex flex-1 items-center justify-center rounded-lg border border-border bg-surface-2/60 p-4 text-body text-text-muted">
+                  二进制文件，无法在 Nova 中编辑
                 </div>
               ) : document ? (
                 <>
@@ -494,46 +617,33 @@ function SkillDrawer({
                       请直接编辑原文件。
                     </p>
                   )}
-                  <textarea
+                  <CodeTextarea
                     value={content}
-                    onChange={(event) => setContent(event.target.value)}
-                    readOnly={skill.readOnly || document.truncated}
-                    spellCheck={false}
-                    className={`ui-ring min-h-[240px] w-full flex-1 resize-none rounded-lg border border-input-border bg-input-bg p-inset font-mono text-body-lg leading-relaxed text-text outline-none ${
-                      skill.readOnly || document.truncated
-                        ? "opacity-80"
-                        : "focus:border-input-border-focus"
-                    }`}
+                    onChange={handleContentChange}
+                    readOnly={document.truncated}
+                    minHeightClass="min-h-0"
                   />
                 </>
               ) : (
-                <div className="flex min-h-[240px] flex-1 items-center rounded-lg border border-border bg-surface-2/60 p-4 text-body text-text-muted">
-                  读取不到 SKILL.md。目录可能已被移动或删除，请返回列表重新扫描。
+                <div className="flex flex-1 items-center justify-center rounded-lg border border-border bg-surface-2/60 p-4 text-body text-text-muted">
+                  读取不到该文件。目录可能已被移动或删除，请返回列表重新扫描。
                 </div>
               )}
             </div>
-          </div>
+          </section>
+        </div>
       </DrawerBody>
 
       {/* 底部操作 */}
       <DrawerFooter>
-        <div>
-          {!skill.readOnly && (
-            <Button
-              size="sm"
-              variant="dangerLink"
-              onClick={handleDelete}
-              icon={<Trash2 className="h-4 w-4" />}
-            >
-              从技能库删除
-            </Button>
-          )}
-          {skill.readOnly && (
-            <span className="text-meta text-text-muted">
-              只读来源：删除请到原目录或对应工具中操作
-            </span>
-          )}
-        </div>
+        <Button
+          size="sm"
+          variant="dangerLink"
+          onClick={handleDelete}
+          icon={<Trash2 className="h-4 w-4" />}
+        >
+          从技能库删除
+        </Button>
         <Button
           size="sm"
           icon={<FolderOpen className="h-4 w-4" />}
@@ -546,6 +656,117 @@ function SkillDrawer({
         </Button>
       </DrawerFooter>
     </Drawer>
+  );
+}
+
+// ============================================================================
+// 文件树
+// ============================================================================
+
+interface SkillTreeNode extends FileEntry {
+  children: SkillTreeNode[];
+}
+
+/** 把扁平的文件列表拼成目录树；父目录先于子项出现 */
+function buildSkillTree(entries: FileEntry[]): SkillTreeNode[] {
+  const nodes = new Map<string, SkillTreeNode>();
+  const roots: SkillTreeNode[] = [];
+
+  for (const entry of entries) {
+    const node: SkillTreeNode = { ...entry, children: [] };
+    nodes.set(entry.relativePath, node);
+
+    const slash = entry.relativePath.lastIndexOf("/");
+    const parentPath = slash > 0 ? entry.relativePath.slice(0, slash) : "";
+    const parent = parentPath ? nodes.get(parentPath) : undefined;
+    if (parent) parent.children.push(node);
+    else roots.push(node);
+  }
+
+  const sort = (list: SkillTreeNode[]) => {
+    list.sort((a, b) =>
+      a.isDirectory === b.isDirectory
+        ? a.name.localeCompare(b.name)
+        : a.isDirectory
+          ? -1
+          : 1,
+    );
+    for (const node of list) sort(node.children);
+  };
+  sort(roots);
+  return roots;
+}
+
+function SkillFileTree({
+  nodes,
+  depth,
+  expanded,
+  activePath,
+  onToggle,
+  onSelect,
+}: {
+  nodes: SkillTreeNode[];
+  depth: number;
+  expanded: Set<string>;
+  activePath: string | null;
+  onToggle: (path: string) => void;
+  onSelect: (path: string) => void;
+}) {
+  return (
+    <div className="space-y-0.5">
+      {nodes.map((node) => {
+        const open = expanded.has(node.relativePath);
+        const active = activePath === node.relativePath;
+        return (
+          <div key={node.relativePath}>
+            <button
+              type="button"
+              title={node.relativePath}
+              onClick={() =>
+                node.isDirectory
+                  ? onToggle(node.relativePath)
+                  : onSelect(node.relativePath)
+              }
+              className={`flex min-h-7 w-full items-center gap-1 rounded-md pr-2 text-left text-body transition-colors ${
+                active
+                  ? "bg-surface-active text-text"
+                  : "text-text-secondary hover:bg-surface-hover hover:text-text"
+              }`}
+              style={{ paddingLeft: 6 + depth * 12 }}
+            >
+              {node.isDirectory ? (
+                <>
+                  <ChevronRight
+                    className={`h-3 w-3 shrink-0 text-text-muted transition-transform ${
+                      open ? "rotate-90" : ""
+                    }`}
+                  />
+                  {open ? (
+                    <FolderOpen className="h-3.5 w-3.5 shrink-0 text-accent" />
+                  ) : (
+                    <Folder className="h-3.5 w-3.5 shrink-0 text-accent" />
+                  )}
+                </>
+              ) : (
+                <FileText className="ml-[18px] h-3.5 w-3.5 shrink-0 text-text-muted" />
+              )}
+              <span className="min-w-0 flex-1 truncate">{node.name}</span>
+            </button>
+
+            {node.isDirectory && open && node.children.length > 0 && (
+              <SkillFileTree
+                nodes={node.children}
+                depth={depth + 1}
+                expanded={expanded}
+                activePath={activePath}
+                onToggle={onToggle}
+                onSelect={onSelect}
+              />
+            )}
+          </div>
+        );
+      })}
+    </div>
   );
 }
 

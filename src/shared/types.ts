@@ -285,7 +285,6 @@ export type McpTransport = "stdio" | "http" | "sse";
  * - claude-global   Claude Code 用户级配置（~/.claude.json 顶层 mcpServers）
  *
  * Nova 不再维护自己的 MCP 库；新增/修改直接写入 Claude 配置。
- * `managedByNova` 标记哪些条目是 Nova 创建的，用于决定是否允许编辑/删除。
  */
 export type McpSource = "claude-global";
 
@@ -316,10 +315,8 @@ export interface McpServerAsset {
   /** 定义文件路径（通常为 ~/.claude.json） */
   path: string;
   source: McpSource;
-  /** 是否由 Nova 创建。Claude 原有的条目只读，Nova 创建的条目可编辑/删除 */
-  managedByNova: boolean;
-  readOnly: boolean;
-  readOnlyReason: string | null;
+  /** 配置文件里 `mcpServers[name]` 的原始对象，详情页直接展示 / 编辑 */
+  definition: Record<string, unknown>;
   /** env / headers 中是否包含字面量密钥（非 ${...} 占位符） */
   hasSecrets: boolean;
   valid: boolean;
@@ -438,6 +435,11 @@ export interface KnowledgeDocumentContent {
   truncated: boolean;
 }
 
+/** 保存知识库 Markdown 文档的结果 */
+export type KnowledgeDocumentWriteResult =
+  | { ok: true; document: KnowledgeDocumentContent }
+  | { ok: false; error: string };
+
 // ============================================================================
 // 技能资产
 // ============================================================================
@@ -467,12 +469,6 @@ export interface SkillAsset {
   origin: SkillOrigin;
   /** 技能目录的绝对路径 */
   path: string;
-  /** 是否由 Nova 创建。Claude 原有的技能只读，Nova 创建的技能可编辑/删除 */
-  managedByNova: boolean;
-  /** 是否只读 */
-  readOnly: boolean;
-  /** 只读原因：UI 直接展示，说明为什么不能删除 / 编辑 */
-  readOnlyReason: string | null;
   /** 是否可被 Agent 正常加载（缺 SKILL.md 或 name 非法时为 false） */
   valid: boolean;
   /** 校验提示；空数组表示没有发现问题 */
@@ -485,14 +481,17 @@ export interface SkillAsset {
   updatedAt: number;
 }
 
-/** 技能文档：供技能页预览 / 编辑 */
-export interface SkillDocument {
-  content: string;
-  /** 实际文件路径（SKILL.md） */
+/** 技能目录下的文件内容：供技能页按文件预览 / 编辑 */
+export interface SkillFileDocument {
+  /** 相对技能目录的路径，统一使用 `/` 分隔 */
+  relativePath: string;
+  /** 实际文件路径 */
   path: string;
-  readOnly: boolean;
+  content: string;
   /** 文件超过读取上限被截断：此时禁止保存，避免用截断内容覆写原文 */
   truncated: boolean;
+  /** 二进制文件：不在 Nova 中展示内容，也不允许保存 */
+  binary: boolean;
 }
 
 export type SkillImportKind = "directory" | "file";
@@ -569,7 +568,9 @@ export type WorkflowFailureStrategy = "stop" | "skip" | "retry";
  * - manual 人工审核：节点执行完成后暂停，等人工确认产物
  *
  * 门禁作用于「执行后」：数字员工先跑完，产物落库并展示给审核人。
- * 通过则节点完成并继续下游；驳回立即终止整条运行且不能重试。
+ * 通过则节点完成并继续下游；
+ * 「要求修改」会在同一个会话里带着评审意见继续执行，受 maxRevisions 限制；
+ * 驳回立即终止整条运行且不能重试。
  * 等待超时（默认 30 分钟）按「中断」处理，保留产物，运行可续跑。
  */
 export type WorkflowReviewMode = "auto" | "manual";
@@ -582,6 +583,11 @@ export interface WorkflowNodeConfig {
   failureStrategy: WorkflowFailureStrategy;
   /** 自动重试次数（不含首次执行），仅在 retry 策略下生效，范围 1-5 */
   maxRetries: number;
+  /**
+   * 人工审核最多允许「要求修改」的轮数。
+   * 0 表示不允许修改；范围 0-3。仅 reviewMode=manual 时生效。
+   */
+  maxRevisions: number;
   reviewMode: WorkflowReviewMode;
 }
 
@@ -727,6 +733,8 @@ export interface WorkflowNodeRun {
   status: WorkflowNodeRunStatus;
   /** 当前（或最后一次）尝试序号，从 1 开始 */
   attempt: number;
+  /** 当前（或最后一次）尝试内的修正轮次，从 1 开始 */
+  round: number;
   maxRetries: number;
   sessionId: string | null;
   artifactDir: string | null;
@@ -779,10 +787,21 @@ export interface WorkflowArtifactFile {
   size: number;
 }
 
-/** 单次尝试的完整对话（user 指令 + assistant 的思考 / 工具调用 / 文本） */
+/** 一次节点调用的来源：初次执行 / 执行失败重试 / 人工要求修改 */
+export type WorkflowNodeAttemptKind = "initial" | "retry" | "revise";
+
+/**
+ * 单次尝试的完整对话（user 指令 + assistant 的思考 / 工具调用 / 文本）。
+ *
+ * 人工要求修改会复用同一个 Nova 会话，因此同一 attempt 下可能有多个 round；
+ * messages 只包含本轮产生的消息，避免把整条会话重复展示。
+ */
 export interface WorkflowNodeAttemptDetail {
-  /** 尝试序号，从 1 开始 */
+  /** 执行尝试序号，从 1 开始 */
   attempt: number;
+  /** 该尝试内的轮次，从 1 开始；round > 1 表示人工要求修改 */
+  round: number;
+  kind: WorkflowNodeAttemptKind;
   sessionId: string | null;
   messages: Message[];
 }
@@ -794,8 +813,10 @@ export interface WorkflowNodeAttemptDetail {
  * 后续事件通过 `workflow:run:agentEvent` 推送，按 seq 合并。
  */
 export interface WorkflowNodeLiveTranscript {
-  /** 尝试序号，从 1 开始 */
+  /** 执行尝试序号，从 1 开始 */
   attempt: number;
+  /** 该尝试内的轮次，从 1 开始 */
+  round: number;
   /** 已产生的事件数；events[seq - 1] 对应该序号 */
   seq: number;
   events: AgentEvent[];

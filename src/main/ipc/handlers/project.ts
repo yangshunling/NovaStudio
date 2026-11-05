@@ -2,14 +2,15 @@
  * 项目相关 IPC：列表 / 创建 / 删除
  */
 
-import { app, shell } from "electron";
+import { app } from "electron";
 import { existsSync, statSync } from "fs";
-import type { AgentService } from "../../engine/agent-service";
+import type { AgentService } from "../../agents/agent-service";
 import * as db from "../../db/sqlite";
 import { readGitStatus } from "../../git/status";
 import { deleteWorkspaceData } from "../../workflow/cleanup";
 import type { WorkflowRunner } from "../../workflow/runner";
 import { handle } from "../register";
+import { revealPath } from "../nativeUi";
 
 export function registerProjectHandlers(
   service: AgentService,
@@ -36,12 +37,6 @@ export function registerProjectHandlers(
     return db.createProject(trimmed, cwd);
   });
 
-  handle("project:update", ({ id, name }) => {
-    const trimmed = name.trim();
-    if (!trimmed) throw new Error("工作区名称不能为空");
-    return db.updateProjectName(id, trimmed);
-  });
-
   handle("project:delete", async ({ id }) => {
     if (runner.hasActiveRunInWorkspace(id)) {
       throw new Error("该工作区有运行中的工作流，请先终止运行");
@@ -58,11 +53,7 @@ export function registerProjectHandlers(
   handle("project:reveal", async ({ id }) => {
     const project = db.getProject(id);
     if (!project) return false;
-    // 目录存在时直接用系统文件管理器打开；失败则退回到「在文件夹中显示」
-    const error = await shell.openPath(project.cwd);
-    if (!error) return true;
-    shell.showItemInFolder(project.cwd);
-    return true;
+    return revealPath(project.cwd);
   });
 
   handle("project:gitStatus", ({ projectId }) => {

@@ -6,13 +6,13 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Info, SlidersHorizontal } from "lucide-react";
-import logoUrl from "../assets/logo.png";
-import { Modal, ModalHeader } from "./ui/Modal";
-import { Select } from "./ui/Select";
-import { useChatStore } from "../stores/chat";
-import { useTheme } from "../hooks/useTheme";
-import { ipc } from "../lib/ipc";
-import { confirmDialog } from "../stores/confirm";
+import logoUrl from "../../assets/logo.png";
+import { Modal, ModalHeader } from "../ui/Modal";
+import { Select } from "../ui/Select";
+import { useChatStore } from "../../stores/chat";
+import { useTheme } from "../../hooks/useTheme";
+import { ipc } from "../../lib/ipc";
+import { confirmDialog } from "../../stores/confirm";
 import {
   DEFAULT_SETTINGS,
   type AppInfo,

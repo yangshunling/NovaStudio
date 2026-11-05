@@ -5,11 +5,9 @@
  * `~/.claude.json` 的顶层 `mcpServers` 中：
  * - Nova 新增 / 修改 / 删除都直接读写这份配置；
  * - Claude Code 终端和 Nova 共用同一套 MCP；
- * - `~/.claude.json` 里已经存在的条目（不是 Nova 创建的）保持只读；
+ * - `~/.claude.json` 里已有的条目都可以在 Nova 中编辑，保存时直接写回该文件；
  * - 只扫描用户级顶层 `mcpServers`；项目级 local scope 与项目 `.mcp.json`
  *   属于具体工作区，不纳入 Nova 的 MCP 库。
- *
- * `managed_assets` 表只记录哪些条目是 Nova 创建的，用于区分可编辑/只读。
  */
 
 import { existsSync } from "fs";
@@ -182,12 +180,11 @@ function toAsset(
     id: string;
     slug: string;
     path: string;
-    managedByNova: boolean;
+    definition: Record<string, unknown>;
     updatedAt: number;
   },
 ): McpServerAsset {
   const problems = validate(parsed);
-  const readOnly = !input.managedByNova;
   return {
     id: input.id,
     slug: input.slug,
@@ -201,11 +198,7 @@ function toAsset(
     headers: parsed.headers,
     path: input.path,
     source: SOURCE,
-    managedByNova: input.managedByNova,
-    readOnly,
-    readOnlyReason: readOnly
-      ? "该服务由 Claude Code 全局配置直接提供，Nova 只读；如需修改请直接操作 ~/.claude.json。"
-      : null,
+    definition: input.definition,
     hasSecrets: hasLiteralSecrets(parsed.env, parsed.headers),
     valid: problems.length === 0,
     problems,
@@ -220,7 +213,6 @@ function serversFromConfig(
     idPrefix: string;
     path: string;
     updatedAt: number;
-    managedByNova: (name: string) => boolean;
   },
 ): McpServerAsset[] {
   const servers =
@@ -236,7 +228,10 @@ function serversFromConfig(
       id: `${input.idPrefix}:${name}`,
       slug: name,
       path: input.path,
-      managedByNova: input.managedByNova(name),
+      definition:
+        raw && typeof raw === "object" && !Array.isArray(raw)
+          ? (raw as Record<string, unknown>)
+          : {},
       updatedAt: input.updatedAt,
     }),
   );
@@ -262,12 +257,10 @@ async function scanClaudeConfigs(): Promise<McpServerAsset[]> {
     return [];
   }
 
-  const managedKeys = new Set(db.listManagedAssetKeys("mcp"));
   return serversFromConfig(data, {
     idPrefix: "claude-global",
     path: configPath,
     updatedAt: info.mtimeMs,
-    managedByNova: (name) => managedKeys.has(name),
   });
 }
 
@@ -317,11 +310,59 @@ function toClaudeServer(parsed: ParsedServer): Record<string, unknown> {
   };
 }
 
+/** 保存后重建资产对象：id / path 等固定字段只写一份 */
+function savedAsset(
+  name: string,
+  parsed: ParsedServer,
+  definition: Record<string, unknown>,
+): McpServerAsset {
+  return toAsset(parsed, {
+    id: `${SOURCE}:${name}`,
+    slug: name,
+    path: claudeUserConfigPath(),
+    definition,
+    updatedAt: Date.now(),
+  });
+}
+
+/**
+ * 把单个条目写回 `~/.claude.json`。
+ *
+ * `oldName` 为 null 表示新建；改名时同步迁移数字员工的引用。
+ * 新建与编辑共用同一套重名判断 / 写入逻辑，避免两处实现漂移。
+ */
+function commitMcpServer(
+  oldName: string | null,
+  newName: string,
+  value: Record<string, unknown>,
+): { ok: true } | { ok: false; error: string } {
+  const servers = readClaudeMcpServers();
+  const renamed = oldName !== null && oldName !== newName;
+
+  if (oldName !== newName && Object.prototype.hasOwnProperty.call(servers, newName)) {
+    return { ok: false, error: `已存在同名 MCP 服务：${newName}` };
+  }
+
+  try {
+    if (renamed) delete servers[oldName];
+    servers[newName] = value;
+    writeClaudeMcpServers(servers);
+  } catch (err) {
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
+
+  if (renamed) remapEmployeeMcpRefs(oldName, newName);
+  return { ok: true };
+}
+
 /**
  * 用已知的目录快照完成一次保存。
  *
  * 导入多个服务时复用同一份 `all`，避免每条都全量扫描。
- * 所有写入都落到 `~/.claude.json` 顶层 mcpServers，并记录 Nova 管理标记。
+ * 所有写入都落到 `~/.claude.json` 顶层 mcpServers。
  */
 async function saveWithCatalog(
   id: string | null,
@@ -334,58 +375,21 @@ async function saveWithCatalog(
     return { ok: false, error: problems.join("；") };
   }
 
-  const servers = readClaudeMcpServers();
   let oldName: string | null = null;
 
   if (id) {
     const existing = all.find((server) => server.id === id);
     if (!existing) return { ok: false, error: "MCP 服务不存在，可能已被删除" };
-    if (!existing.managedByNova) {
-      return {
-        ok: false,
-        error: existing.readOnlyReason ?? "该服务为只读来源，不能从 Nova 修改",
-      };
-    }
     oldName = existing.slug;
-    if (
-      oldName !== parsed.name &&
-      Object.prototype.hasOwnProperty.call(servers, parsed.name)
-    ) {
-      return { ok: false, error: `已存在同名 MCP 服务：${parsed.name}` };
-    }
-  } else if (Object.prototype.hasOwnProperty.call(servers, parsed.name)) {
-    return { ok: false, error: `已存在同名 MCP 服务：${parsed.name}` };
   }
 
-  try {
-    if (oldName && oldName !== parsed.name) {
-      delete servers[oldName];
-    }
-    servers[parsed.name] = toClaudeServer(parsed);
-    writeClaudeMcpServers(servers);
-  } catch (err) {
-    return {
-      ok: false,
-      error: err instanceof Error ? err.message : String(err),
-    };
-  }
-
-  db.markManagedAsset("mcp", parsed.name);
-  if (oldName && oldName !== parsed.name) {
-    db.unmarkManagedAsset("mcp", oldName);
-    // 重命名后同步更新员工引用，避免绑定失效
-    remapEmployeeMcpRefs(oldName, parsed.name);
-  }
+  const definition = toClaudeServer(parsed);
+  const written = commitMcpServer(oldName, parsed.name, definition);
+  if (!written.ok) return written;
 
   return {
     ok: true,
-    asset: toAsset(parsed, {
-      id: `claude-global:${parsed.name}`,
-      slug: parsed.name,
-      path: claudeUserConfigPath(),
-      managedByNova: true,
-      updatedAt: Date.now(),
-    }),
+    asset: savedAsset(parsed.name, parsed, definition),
   };
 }
 
@@ -399,7 +403,7 @@ function remapEmployeeMcpRefs(oldName: string, newName: string): void {
         : ref.assetId || ref.name;
       if (key !== oldName) return ref;
       changed = true;
-      return { ...ref, assetId: `claude-global:${newName}`, name: newName };
+      return { ...ref, assetId: `${SOURCE}:${newName}`, name: newName };
     });
     if (!changed) continue;
     db.updateEmployeeBindings(
@@ -415,6 +419,60 @@ export async function saveMcpServer(
   draft: McpServerDraft,
 ): Promise<McpWriteResult> {
   return saveWithCatalog(id, draft, await listMcpServers());
+}
+
+/**
+ * 按原始 JSON 保存单个服务定义。
+ *
+ * 详情页直接编辑 `mcpServers[name]` 的值，不做字段拆解：
+ * 用户写什么，配置里就存什么。服务名（即 mcpServers 的 key）单独传入，
+ * 改名时同步迁移员工引用。
+ */
+export async function saveMcpDefinition(
+  id: string | null,
+  name: string,
+  definition: string,
+): Promise<McpWriteResult> {
+  const trimmedName = name.trim();
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(trimmedName)) {
+    return { ok: false, error: "服务名只能包含字母、数字、点、下划线和连字符" };
+  }
+
+  let raw: unknown;
+  try {
+    raw = JSON.parse(definition);
+  } catch (err) {
+    return {
+      ok: false,
+      error: `JSON 解析失败：${err instanceof Error ? err.message : String(err)}`,
+    };
+  }
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    return { ok: false, error: "服务定义必须是一个 JSON 对象" };
+  }
+
+  const parsed = parseServerObject(raw, trimmedName);
+  const problems = validate(parsed);
+  if (problems.length > 0) {
+    return { ok: false, error: problems.join("；") };
+  }
+
+  let oldName: string | null = null;
+
+  if (id) {
+    const existing = await getMcpServer(id);
+    if (!existing) return { ok: false, error: "MCP 服务不存在，可能已被删除" };
+    oldName = existing.slug;
+  }
+
+  const value = raw as Record<string, unknown>;
+  const written = commitMcpServer(oldName, trimmedName, value);
+  if (!written.ok) return written;
+
+  return {
+    ok: true,
+    asset: savedAsset(trimmedName, parsed, value),
+  };
 }
 
 /** MCP 服务被删除后，把员工里对它的引用一并移除，避免留下失效绑定 */
@@ -437,7 +495,7 @@ function dropEmployeeMcpRefs(name: string): void {
 
 export async function deleteMcpServer(id: string): Promise<boolean> {
   const asset = await getMcpServer(id);
-  if (!asset || !asset.managedByNova) return false;
+  if (!asset) return false;
 
   try {
     const servers = readClaudeMcpServers();
@@ -447,7 +505,6 @@ export async function deleteMcpServer(id: string): Promise<boolean> {
     return false;
   }
 
-  db.unmarkManagedAsset("mcp", asset.slug);
   dropEmployeeMcpRefs(asset.slug);
   return true;
 }

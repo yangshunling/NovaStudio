@@ -6,27 +6,28 @@
  */
 
 import { app, shell } from "electron";
-import { readFile, readdir, stat } from "fs/promises";
-import { join, resolve, sep } from "path";
+import { readdir, stat } from "fs/promises";
+import { join } from "path";
 import * as db from "../../db/sqlite";
-import type { WorkflowArtifactFile } from "../../../shared/types";
-import type { AgentService } from "../../engine/agent-service";
+import type { Message, WorkflowArtifactFile } from "../../../shared/types";
+import type { AgentService } from "../../agents/agent-service";
 import type { WorkflowRunner } from "../../workflow/runner";
 import { deleteRunData } from "../../workflow/cleanup";
+import { readTextFileLimited } from "../../utils/fs";
+import { resolveInsideReal } from "../../utils/paths";
 import { handle } from "../register";
+import { revealPath } from "../nativeUi";
 
 /** 单文件读取上限：防止把超大日志整段塞进渲染层 */
 const TEXT_LIMIT = 200_000;
 
 async function readTextFile(path: string | null): Promise<string> {
   if (!path) return "";
-  try {
-    const buffer = await readFile(path);
-    if (buffer.length <= TEXT_LIMIT) return buffer.toString("utf8");
-    return `${buffer.subarray(0, TEXT_LIMIT).toString("utf8")}\n\n…（文件过大，已截断）`;
-  } catch {
-    return "";
-  }
+  const snapshot = await readTextFileLimited(path, TEXT_LIMIT);
+  if (!snapshot || snapshot.binary) return "";
+  return snapshot.truncated
+    ? `${snapshot.content}\n\n…（文件过大，已截断）`
+    : snapshot.content;
 }
 
 /** 列出节点产物目录（一层子目录），跳过含环境变量的 mcp.json */
@@ -111,8 +112,7 @@ export function registerWorkflowRunHandlers(
   handle("workflow:run:openArtifacts", async ({ runId }) => {
     const run = db.getWorkflowRun(runId);
     if (!run) return false;
-    const error = await shell.openPath(run.artifactDir);
-    return !error;
+    return revealPath(run.artifactDir);
   });
 
   handle("workflow:run:nodeDetail", async ({ runId, nodeRunId }) => {
@@ -121,14 +121,55 @@ export function registerWorkflowRunHandlers(
 
     const dir = nodeRun.artifactDir;
 
-    // 每次尝试都是一个独立会话；旧数据没有 attempt 行时回退到节点自身
+    // 每次调用（执行 / 重试 / 修改）一条记录；旧数据没有 attempt 行时回退到节点自身
     const attempts = db.listWorkflowNodeAttempts(nodeRun.id);
-    const sources =
+    const sources: Array<{
+      attempt: number;
+      round: number;
+      kind: "initial" | "retry" | "revise";
+      sessionId: string | null;
+      userMessageId: string | null;
+      assistantMessageId: string | null;
+    }> =
       attempts.length > 0
         ? attempts
         : nodeRun.sessionId
-          ? [{ attempt: nodeRun.attempt, sessionId: nodeRun.sessionId }]
+          ? [
+              {
+                attempt: nodeRun.attempt,
+                round: nodeRun.round,
+                kind: nodeRun.attempt > 1 ? "retry" : "initial",
+                sessionId: nodeRun.sessionId,
+                userMessageId: null,
+                assistantMessageId: null,
+              },
+            ]
           : [];
+
+    // 人工要求修改复用同一个会话：整条消息只读一次，再按轮次的消息边界切分。
+    const messageCache = new Map<string, Message[]>();
+    const loadMessages = (sessionId: string): Message[] => {
+      const cached = messageCache.get(sessionId);
+      if (cached) return cached;
+      const list = db.readSessionMessages(sessionId) ?? [];
+      messageCache.set(sessionId, list);
+      return list;
+    };
+    const roundMessages = (source: (typeof sources)[number]): Message[] => {
+      if (!source.sessionId) return [];
+      const all = loadMessages(source.sessionId);
+      // 旧数据没有消息边界：只能回放整条会话
+      if (!source.userMessageId) return all;
+      const start = all.findIndex((item) => item.id === source.userMessageId);
+      if (start < 0) return [];
+      if (!source.assistantMessageId) return all.slice(start, start + 1);
+      const end = all.findIndex(
+        (item) => item.id === source.assistantMessageId,
+      );
+      return end >= start
+        ? all.slice(start, end + 1)
+        : all.slice(start, start + 1);
+    };
 
     // 先取快照再做文件读取：读取期间事件还在追加，快照保持一致性
     const live = runner.liveTranscript(runId, nodeRun.id);
@@ -138,11 +179,13 @@ export function registerWorkflowRunHandlers(
       result: await readTextFile(nodeRun.outputPath),
       notices: db.listWorkflowNodeNotices(nodeRun.id),
       files: dir ? await listArtifactFiles(dir) : [],
-      attempts: sources.map(({ attempt, sessionId }) => ({
-        attempt,
-        sessionId,
+      attempts: sources.map((source) => ({
+        attempt: source.attempt,
+        round: source.round,
+        kind: source.kind,
+        sessionId: source.sessionId,
         // 工作流会话的完整事件流在 messages 表里（含思考 / 工具调用 / 工具结果）
-        messages: sessionId ? (db.readSessionMessages(sessionId) ?? []) : [],
+        messages: roundMessages(source),
       })),
       // 节点仍在执行时，数据库里只有用户消息；已产生的对话从运行器内存取
       live,
@@ -152,8 +195,7 @@ export function registerWorkflowRunHandlers(
   handle("workflow:run:openNodeArtifacts", async ({ runId, nodeRunId }) => {
     const nodeRun = db.getWorkflowNodeRun(nodeRunId);
     if (!nodeRun || nodeRun.runId !== runId || !nodeRun.artifactDir) return false;
-    const error = await shell.openPath(nodeRun.artifactDir);
-    return !error;
+    return revealPath(nodeRun.artifactDir);
   });
 
   /** 在应用内读取产物文件（限定在节点产物目录内） */
@@ -164,9 +206,8 @@ export function registerWorkflowRunHandlers(
       if (!nodeRun || nodeRun.runId !== runId || !nodeRun.artifactDir) {
         return null;
       }
-      const root = resolve(nodeRun.artifactDir);
-      const target = resolve(root, relativePath);
-      if (target !== root && !target.startsWith(`${root}${sep}`)) return null;
+      const target = await resolveInsideReal(nodeRun.artifactDir, relativePath);
+      if (!target) return null;
       const text = await readTextFile(target);
       return text || null;
     },
@@ -180,9 +221,8 @@ export function registerWorkflowRunHandlers(
       if (!nodeRun || nodeRun.runId !== runId || !nodeRun.artifactDir) {
         return false;
       }
-      const root = resolve(nodeRun.artifactDir);
-      const target = resolve(root, relativePath);
-      if (target !== root && !target.startsWith(`${root}${sep}`)) return false;
+      const target = await resolveInsideReal(nodeRun.artifactDir, relativePath);
+      if (!target) return false;
       const error = await shell.openPath(target);
       return !error;
     },

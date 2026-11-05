@@ -28,10 +28,10 @@ import {
   Search,
   type LucideIcon,
 } from "lucide-react";
-import { MarkdownRenderer } from "./MarkdownRenderer";
-import { StreamingIndicator } from "./ui/StreamingIndicator";
-import { UserBubble } from "./ui/UserBubble";
-import { truncateText, isToolResultError, firstText } from "../lib/utils";
+import { MarkdownRenderer } from "../ui/MarkdownRenderer";
+import { StreamingIndicator } from "../ui/StreamingIndicator";
+import { UserBubble } from "../ui/UserBubble";
+import { truncateText, isToolResultError, firstText } from "../../lib/utils";
 import type { AgentEvent, ToolKind } from "@shared/types";
 
 // ============================================================================

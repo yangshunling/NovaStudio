@@ -9,7 +9,7 @@
  * 「未归属」是历史数据的兜底分组：旧工作流没有 workspace_id 时展示在这里。
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { MENU_WIDTH, MenuItem, MenuPanel, MenuSeparator } from "../ui/Menu";
 import {
   Copy,
@@ -20,7 +20,6 @@ import {
   PenLine,
   Play,
   Plus,
-  Search,
   SquarePen,
   Trash2,
   Workflow as WorkflowIcon,
@@ -58,10 +57,9 @@ import { WorkflowEditor } from "./WorkflowEditor";
 import { WorkflowRunView } from "./WorkflowRunView";
 import { WorkflowRunHistoryView } from "./WorkflowRunHistoryView";
 import { defaultNodeConfig } from "./defaults";
-import { RUN_STATUS } from "../../lib/workflowStatus";
+import { RUN_STATUS } from "../../lib/workflow/status";
 import { describeTriggerSchedule } from "@shared/trigger-schedule";
 import type {
-  DigitalEmployee,
   Project,
   Workflow,
   WorkflowGraph,

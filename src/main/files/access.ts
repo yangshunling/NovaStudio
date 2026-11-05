@@ -6,14 +6,7 @@
  */
 
 import { open, readFile, realpath, stat } from "node:fs/promises";
-import {
-  basename,
-  dirname,
-  extname,
-  isAbsolute,
-  relative,
-  resolve,
-} from "node:path";
+import { basename, dirname, extname, resolve } from "node:path";
 import type {
   FilePreview,
   FilePreviewKind,
@@ -21,6 +14,7 @@ import type {
   ReadFileResult,
 } from "../../shared/types";
 import * as db from "../db/sqlite";
+import { isInside } from "../utils/paths";
 
 const MAX_TEXT_BYTES = 2 * 1024 * 1024;
 const MAX_EMBED_BYTES = 25 * 1024 * 1024;
@@ -286,11 +280,6 @@ async function resolveInside(root: string, candidate: string): Promise<string> {
   const fullPath = await realpath(candidate);
   if (!isInside(root, fullPath)) throw new Error("文件路径超出项目目录");
   return fullPath;
-}
-
-function isInside(root: string, target: string): boolean {
-  const rel = relative(root, target);
-  return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
 }
 
 async function readPrefix(filePath: string, maxBytes: number): Promise<Buffer> {

@@ -16,7 +16,7 @@
 import { create } from "zustand";
 import { ipc } from "../lib/ipc";
 import { newId } from "../lib/utils";
-import { appendEvent } from "@shared/merge";
+import { appendEvent } from "@shared/agent-events";
 import type { AgentInfo } from "@shared/contracts/agent";
 import type { AgentEvent, Message, Project, Session } from "@shared/types";
 
@@ -64,7 +64,6 @@ interface ChatState {
   // 项目（工作目录）
   loadProjects: () => Promise<void>;
   createProject: (name: string, cwd: string) => Promise<Project | null>;
-  renameProject: (id: string, name: string) => Promise<void>;
   deleteProject: (id: string) => Promise<void>;
   /** 把当前会话（或新会话草稿）绑定到指定项目；null 表示解绑 */
   bindProject: (projectId: string | null) => Promise<void>;
@@ -128,14 +127,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
     const project = await ipc.createProject(name, cwd);
     set((s) => ({ projects: [project, ...s.projects] }));
     return project;
-  },
-
-  renameProject: async (id, name) => {
-    const updated = await ipc.renameProject(id, name);
-    if (!updated) throw new Error("工作区不存在");
-    set((s) => ({
-      projects: s.projects.map((p) => (p.id === id ? updated : p)),
-    }));
   },
 
   deleteProject: async (id) => {
@@ -240,18 +231,34 @@ export const useChatStore = create<ChatState>((set, get) => ({
     set({ loadingHistoryFor: id });
     try {
       const session = await ipc.getSession(id);
-      set((s) => ({
-        messagesBySession: { ...s.messagesBySession, [id]: session?.messages ?? [] },
-        // 历史回放返回最新的绑定态（会话可能在别处被改过）
-        currentProjectId:
-          s.currentSessionId === id
-            ? (session?.projectId ?? null)
-            : s.currentProjectId,
+      set((s) => {
+        const history = session?.messages ?? [];
+        const existing = s.messagesBySession[id];
+        // 回放期间用户可能已经发出了消息：保留这些新消息，避免被历史覆盖
+        const merged = existing
+          ? [
+              ...history,
+              ...existing.filter(
+                (message) => !history.some((item) => item.id === message.id),
+              ),
+            ]
+          : history;
+        return {
+          messagesBySession: { ...s.messagesBySession, [id]: merged },
+          // 历史回放返回最新的绑定态（会话可能在别处被改过）
+          currentProjectId:
+            s.currentSessionId === id
+              ? (session?.projectId ?? null)
+              : s.currentProjectId,
         // 注意：不回写 selectedAgentId。selectedAgentId 现在唯一的语义是
         // 「新会话默认用谁」，只应由输入框旁的 Agent 选择器显式修改 ——
         // 浏览历史会话不应该悄悄改掉它（这正是旧侧栏选择器令人困惑的根源）。
-        // 已开会话实际用哪个 Agent 由 selectEffectiveAgentId 从会话本身推导。
-      }));
+          // 已开会话实际用哪个 Agent 由 selectEffectiveAgentId 从会话本身推导。
+        };
+      });
+    } catch (err) {
+      // 回放失败不写入空桶，下一次点击会话仍可重试
+      console.error("[chat] 历史回放失败", err);
     } finally {
       // 只清除本次回放的标记（期间用户可能已切到别的会话）
       if (get().loadingHistoryFor === id) set({ loadingHistoryFor: null });
@@ -333,7 +340,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
       const picked =
         state.selectedAgentId ||
         state.agents.find((a) => a.status.installed)?.id;
-      if (!picked) return; // 没有可用 Agent
+      // 抛给调用方：此时还没有会话，无法把错误写进消息流
+      if (!picked) throw new Error("未检测到可用的 Agent，请先完成安装或在 Agent 配置中选择");
       agentId = picked;
 
       // 项目可空：未绑定时主进程会回退到默认目录

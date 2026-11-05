@@ -18,16 +18,16 @@ import {
 import type {
   FilePreview as FilePreviewData,
 } from "@shared/types";
-import { ipc } from "../lib/ipc";
-import { useSkin } from "../hooks/useTheme";
-import { getHighlighter, highlightCodeSync } from "../lib/shiki";
-import { formatBytes, stripPreTag } from "../lib/utils";
-import { MarkdownRenderer } from "./MarkdownRenderer";
-import { Button } from "./ui/Button";
-import { FileTypeIcon } from "./ui/FileTypeIcon";
-import { PageHeader } from "./ui/Page";
-import { SegmentedTabs } from "./ui/SegmentedTabs";
-import type { FileTab } from "../stores/fileViewer";
+import { ipc } from "../../lib/ipc";
+import { useSkin } from "../../hooks/useTheme";
+import { getHighlighter, highlightCodeSync } from "../../lib/shiki";
+import { formatBytes, stripPreTag } from "../../lib/utils";
+import { MarkdownRenderer } from "../ui/MarkdownRenderer";
+import { Button } from "../ui/Button";
+import { FileTypeIcon } from "../ui/FileTypeIcon";
+import { PageHeader } from "../ui/Page";
+import { SegmentedTabs } from "../ui/SegmentedTabs";
+import type { FileTab } from "../../stores/fileViewer";
 
 export function FilePreview({
   tab,

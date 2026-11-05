@@ -6,7 +6,7 @@
  */
 
 import { app } from "electron";
-import type { AgentService } from "../../engine/agent-service";
+import type { AgentService } from "../../agents/agent-service";
 import * as db from "../../db/sqlite";
 import { deleteWorkflowData } from "../../workflow/cleanup";
 import type { WorkflowRunner } from "../../workflow/runner";

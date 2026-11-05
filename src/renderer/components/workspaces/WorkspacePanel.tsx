@@ -12,12 +12,12 @@ import {
   Loader2,
   RefreshCw,
 } from "lucide-react";
-import { ipc } from "../lib/ipc";
-import { useChatStore } from "../stores/chat";
-import { useFileViewerStore } from "../stores/fileViewer";
-import { FileTypeIcon } from "./ui/FileTypeIcon";
-import { FolderTypeIcon } from "./ui/FolderTypeIcon";
-import { PageHeader, PageToolbar } from "./ui/Page";
+import { ipc } from "../../lib/ipc";
+import { useChatStore } from "../../stores/chat";
+import { useFileViewerStore } from "../../stores/fileViewer";
+import { FileTypeIcon } from "../ui/FileTypeIcon";
+import { FolderTypeIcon } from "../ui/FolderTypeIcon";
+import { PageHeader, PageToolbar } from "../ui/Page";
 import type {
   FileEntry,
   GitStatusKind,
@@ -624,10 +624,7 @@ function TreeNode({
               expanded ? "rotate-90" : ""
             }`}
           />
-          <FolderTypeIcon
-            open={expanded}
-            toneClassName={directoryStatusMeta?.textClass ?? "text-accent"}
-          />
+          <FolderTypeIcon open={expanded} />
           <span className="min-w-0 flex-1 truncate">{entry.name}</span>
           {directoryStatus && directoryStatusMeta && (
             <span

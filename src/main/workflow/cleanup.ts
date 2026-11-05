@@ -13,7 +13,7 @@
 import { existsSync } from "fs";
 import { readdir, rm } from "fs/promises";
 import { join } from "path";
-import type { AgentService } from "../engine/agent-service";
+import type { AgentService } from "../agents/agent-service";
 import * as db from "../db/sqlite";
 import type { Workflow } from "../../shared/types";
 

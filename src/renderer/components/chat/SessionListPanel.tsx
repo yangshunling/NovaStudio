@@ -15,8 +15,8 @@ import {
   MenuItem,
   MenuPanel,
   MenuSeparator,
-} from "./ui/Menu";
-import { INLINE_INPUT_CLASS } from "./ui/Field";
+} from "../ui/Menu";
+import { INLINE_INPUT_CLASS } from "../ui/Field";
 import {
   Check,
   Loader2,
@@ -24,10 +24,10 @@ import {
   PenLine,
   Trash2,
 } from "lucide-react";
-import { useChatStore } from "../stores/chat";
-import { confirmDialog } from "../stores/confirm";
-import { EmptyState } from "./ui/EmptyState";
-import { ListPane } from "./ui/ListPane";
+import { useChatStore } from "../../stores/chat";
+import { confirmDialog } from "../../stores/confirm";
+import { EmptyState } from "../ui/EmptyState";
+import { ListPane } from "../ui/ListPane";
 import type { Session } from "@shared/types";
 
 /** 右键菜单尺寸：用于贴近视口边缘时收拢位置 */

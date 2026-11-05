@@ -6,10 +6,10 @@
  */
 
 import { useEffect, useMemo, useState } from "react";
-import { Check, FileText, FolderOpen, Square, X } from "lucide-react";
+import { Check, FileText, FolderOpen, Pencil, Square, X } from "lucide-react";
 import type { WorkflowRunDetail } from "@shared/types";
-import { formatDuration } from "../../lib/workflowFormat";
-import { ACTIVE_RUN_STATUSES, RUN_STATUS } from "../../lib/workflowStatus";
+import { formatDuration } from "../../lib/workflow/format";
+import { ACTIVE_RUN_STATUSES, RUN_STATUS } from "../../lib/workflow/status";
 import { Button } from "../ui/Button";
 
 export function WorkflowDebugPanel({
@@ -25,7 +25,7 @@ export function WorkflowDebugPanel({
   busy: boolean;
   onApprove: (
     nodeRunId: string,
-    action: "approve" | "reject",
+    action: "approve" | "reject" | "revise",
     note: string,
   ) => void;
   onCancel: () => void;
@@ -58,10 +58,22 @@ export function WorkflowDebugPanel({
   const awaiting =
     awaitingNodes.find((node) => node.id === awaitingId) ?? awaitingNodes[0];
 
-  // 切换到新的待审核节点时清空上一轮备注
+  // 「要求修改」的剩余轮数：由运行图快照里的节点配置与当前 round 推导
+  const awaitingNodeConfig = awaiting
+    ? run.graph.nodes.find((item) => item.id === awaiting.nodeId)
+    : null;
+  const maxRevisions = Math.min(
+    3,
+    Math.max(0, Math.round(Number(awaitingNodeConfig?.config.maxRevisions ?? 1))),
+  );
+  const remainingRevisions = awaiting
+    ? Math.max(0, maxRevisions - ((awaiting.round ?? 1) - 1))
+    : 0;
+
+  // 切换到新的待审核节点 / 新的一轮时清空上一轮备注
   useEffect(() => {
     setNote("");
-  }, [awaiting?.id]);
+  }, [awaiting?.id, awaiting?.round]);
 
   const done = nodes.filter(
     (node) => node.status === "succeeded" || node.status === "skipped",
@@ -134,6 +146,23 @@ export function WorkflowDebugPanel({
             >
               驳回
             </Button>
+            {remainingRevisions > 0 && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="shrink-0 rounded-full"
+                icon={<Pencil className="h-3.5 w-3.5" />}
+                onClick={() => onApprove(awaiting.id, "revise", note.trim())}
+                disabled={busy || !note.trim()}
+                title={
+                  note.trim()
+                    ? `在同一个会话里继续修改（本轮最多还可修改 ${remainingRevisions} 次）`
+                    : "请先填写修改意见"
+                }
+              >
+                要求修改
+              </Button>
+            )}
             <Button
               variant="primary"
               size="sm"
@@ -219,13 +248,14 @@ export function WorkflowDebugPanel({
             {awaiting.outputSummary || "（节点已完成，产物见运行详情）"}
           </pre>
           <p className="mt-1.5 text-caption text-text-muted">
-            通过后节点完成并继续下游；驳回会立即终止本次运行，不能重试。
+            通过后节点完成并继续下游；「要求修改」会在同一个会话里带着意见重做
+            （最多 {maxRevisions} 轮）；驳回会立即终止本次运行，不能重试。
           </p>
           <textarea
             value={note}
             onChange={(event) => setNote(event.target.value)}
             rows={2}
-            placeholder="审核备注（驳回时建议填写原因，会写入节点历史）"
+            placeholder="审核备注（要求修改时必填，会作为下一轮的评审意见）"
             className="ui-ring mt-2 w-full resize-none rounded-lg bg-surface/70 px-2.5 py-2 text-meta text-text placeholder-text-muted outline-none"
           />
         </div>

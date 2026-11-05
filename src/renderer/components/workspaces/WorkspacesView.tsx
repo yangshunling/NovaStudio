@@ -10,14 +10,12 @@
 
 import { useEffect, useMemo, useState } from "react";
 import {
-  Check,
   Folder,
   FolderKanban,
+  FolderOpen,
   FolderPlus,
   Loader2,
   MessageSquare,
-  Pencil,
-  Search,
   Trash2,
   Workflow as WorkflowIcon,
 } from "lucide-react";
@@ -44,8 +42,7 @@ import {
   CARD_TITLE,
 } from "../ui/cardStyles";
 import { SearchInput } from "../ui/SearchInput";
-import { INLINE_INPUT_CLASS } from "../ui/Field";
-import type { Project, Workflow } from "@shared/types";
+import type { Project } from "@shared/types";
 
 /** 路径比较：Windows 下大小写与分隔符都不敏感，其他平台大小写敏感 */
 function samePath(a: string, b: string): boolean {
@@ -64,14 +61,10 @@ export function WorkspacesView() {
   const loadProjects = useChatStore((s) => s.loadProjects);
   const loadSessions = useChatStore((s) => s.loadSessions);
   const createProject = useChatStore((s) => s.createProject);
-  const renameProject = useChatStore((s) => s.renameProject);
   const deleteProject = useChatStore((s) => s.deleteProject);
   const pickDirectory = useChatStore((s) => s.pickDirectory);
   const closeWorkspaceTerminals = useTerminalStore(
     (s) => s.closeByWorkspace,
-  );
-  const renameWorkspaceTerminals = useTerminalStore(
-    (s) => s.renameByWorkspace,
   );
 
   // 工作流用于统计每个工作区下的数量；项目/会话由各自的 store 提供
@@ -188,13 +181,11 @@ export function WorkspacesView() {
     }
   };
 
-  /** 重命名工作区，并同步更新已打开终端标签的标题 */
-  const renameWorkspace = async (project: Project, nextName: string) => {
-    const name = nextName.trim();
-    if (!name || name === project.name) return;
+  /** 打开工作区：用系统文件管理器定位到工作区根目录 */
+  const openWorkspace = async (project: Project) => {
     try {
-      await renameProject(project.id, name);
-      renameWorkspaceTerminals(project.id, name);
+      const opened = await ipc.revealProject(project.id);
+      if (!opened) throw new Error("工作区目录不存在");
     } catch (err) {
       toast.error(toMessage(err), 5000);
     }
@@ -257,7 +248,7 @@ export function WorkspacesView() {
                   sessionCount={sessionCounts.get(project.id) ?? 0}
                   workflowCount={workflowCounts.get(project.id) ?? 0}
                   deleting={deletingId === project.id}
-                  onRename={(name) => void renameWorkspace(project, name)}
+                  onOpen={() => void openWorkspace(project)}
                   onDelete={() => void removeWorkspace(project)}
                 />
               ))}
@@ -277,28 +268,16 @@ function WorkspaceCard({
   sessionCount,
   workflowCount,
   deleting,
-  onRename,
+  onOpen,
   onDelete,
 }: {
   project: Project;
   sessionCount: number;
   workflowCount: number;
   deleting: boolean;
-  onRename: (name: string) => void;
+  onOpen: () => void;
   onDelete: () => void;
 }) {
-  const [renaming, setRenaming] = useState(false);
-  const [draft, setDraft] = useState(project.name);
-
-  const startRename = () => {
-    setDraft(project.name);
-    setRenaming(true);
-  };
-  const submitRename = () => {
-    setRenaming(false);
-    onRename(draft);
-  };
-
   return (
     <div className={CARD_SHELL}>
       <div className="flex items-start gap-3">
@@ -306,33 +285,9 @@ function WorkspaceCard({
           <Folder className="h-5 w-5" />
         </span>
         <div className="min-w-0 flex-1">
-          {renaming ? (
-            <div className="flex items-center gap-1.5">
-              <input
-                autoFocus
-                value={draft}
-                onChange={(event) => setDraft(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter") submitRename();
-                  if (event.key === "Escape") setRenaming(false);
-                }}
-                className={`${INLINE_INPUT_CLASS} text-title font-semibold`}
-              />
-              <button
-                type="button"
-                onClick={submitRename}
-                title="确认重命名"
-                aria-label="确认重命名"
-                className="ui-ring shrink-0 rounded-md p-1.5 text-text-muted transition-colors hover:bg-surface-hover hover:text-success"
-              >
-                <Check className="h-3.5 w-3.5" />
-              </button>
-            </div>
-          ) : (
-            <h3 className={CARD_TITLE} title={project.name}>
-              {project.name}
-            </h3>
-          )}
+          <h3 className={CARD_TITLE} title={project.name}>
+            {project.name}
+          </h3>
           <p
             className="mt-1 break-all font-mono text-caption leading-relaxed text-text-muted"
             title={project.cwd}
@@ -363,11 +318,12 @@ function WorkspaceCard({
         <div className="flex shrink-0 items-center gap-1">
           <Button
             size="xs"
-            icon={<Pencil className="h-3.5 w-3.5" />}
-            onClick={startRename}
+            icon={<FolderOpen className="h-3.5 w-3.5" />}
+            onClick={onOpen}
             disabled={deleting}
+            title="在文件管理器中打开工作区目录"
           >
-            重命名
+            打开
           </Button>
           <Button
             size="xs"

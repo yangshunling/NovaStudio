@@ -9,8 +9,9 @@
  */
 
 import { homedir } from "os";
-import { join } from "path";
+import { isAbsolute, join, relative, resolve } from "path";
 import { mkdirSync, existsSync, renameSync } from "fs";
+import { realpath } from "fs/promises";
 
 /** 数据根目录：~/.novastudio/ */
 export const DATA_DIR = join(homedir(), ".novastudio");
@@ -35,4 +36,47 @@ export function ensureDataDirs(): void {
   if (!existsSync(DATA_DIR)) {
     mkdirSync(DATA_DIR, { recursive: true });
   }
+}
+
+// ============================================================================
+// 路径包含校验
+// ============================================================================
+
+/** target 是否位于 root 内（仅字符串层面，不解析符号链接） */
+export function isInside(root: string, target: string): boolean {
+  const rel = relative(root, target);
+  return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
+}
+
+/** 相对路径 → 绝对路径；越界（`../` 或盘符外）返回 null */
+export function resolveInside(
+  root: string,
+  relativePath: string,
+): string | null {
+  const target = resolve(root, relativePath);
+  return isInside(root, target) ? target : null;
+}
+
+/** 解析真实路径后仍位于 root 内：防止符号链接 / junction 把操作带出根目录 */
+export async function isInsideReal(
+  root: string,
+  target: string,
+): Promise<boolean> {
+  try {
+    const realRoot = await realpath(root);
+    const realTarget = await realpath(target);
+    return isInside(realRoot, realTarget);
+  } catch {
+    return false;
+  }
+}
+
+/** 词法 + 真实路径双重校验，直接返回可安全使用的绝对路径 */
+export async function resolveInsideReal(
+  root: string,
+  relativePath: string,
+): Promise<string | null> {
+  const target = resolveInside(root, relativePath);
+  if (!target) return null;
+  return (await isInsideReal(root, target)) ? target : null;
 }

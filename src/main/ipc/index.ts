@@ -7,7 +7,7 @@
 
 import { app, BrowserWindow } from "electron";
 import * as db from "../db/sqlite";
-import { createAgentService, type AgentService } from "../engine/agent-service";
+import { createAgentService, type AgentService } from "../agents/agent-service";
 import {
   createWorkflowRunner,
   type WorkflowRunner,

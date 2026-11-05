@@ -75,7 +75,7 @@ export function TaskCard({
       <div className="mt-2.5 flex items-center gap-2 text-caption">
         {project && (
           <Pill
-            icon={<FolderTypeIcon size={12} toneClassName="text-text-muted" />}
+            icon={<FolderTypeIcon size={12} />}
             variant="neutral"
           >
             {project.name}

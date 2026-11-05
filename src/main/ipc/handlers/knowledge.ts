@@ -5,7 +5,7 @@
  * 打开目录，以及把薄操作接到契约上。
  */
 
-import { dialog, shell } from "electron";
+import { shell } from "electron";
 import {
   createKnowledgeBase,
   createKnowledgeFolder,
@@ -19,10 +19,11 @@ import {
   resolveDocumentPath,
   searchKnowledge,
   updateKnowledgeBase,
+  writeKnowledgeDocument,
 } from "../../knowledge/catalog";
 import * as db from "../../db/sqlite";
-import { getMainWindow } from "../push";
 import { handle } from "../register";
+import { pickPaths, revealPath } from "../nativeUi";
 
 export function registerKnowledgeHandlers(): void {
   handle("knowledge:list", () => listKnowledgeBases());
@@ -72,26 +73,14 @@ export function registerKnowledgeHandlers(): void {
   );
 
   handle("knowledge:upload", async ({ id, parentPath }) => {
-    const window = getMainWindow();
-    if (!window) {
-      return {
-        ok: false,
-        uploaded: [],
-        warnings: [],
-        error: "窗口未就绪",
-      };
-    }
-
-    const picked = await dialog.showOpenDialog(window, {
+    const picked = await pickPaths({
       title: "选择 Markdown 文档（可多选）",
       properties: ["openFile", "multiSelections"],
       filters: [{ name: "Markdown", extensions: ["md", "markdown"] }],
     });
-    if (picked.canceled || picked.filePaths.length === 0) {
-      return { ok: true, uploaded: [], warnings: [] };
-    }
+    if (!picked) return { ok: true, uploaded: [], warnings: [] };
 
-    return importKnowledgeFiles(id, parentPath, picked.filePaths);
+    return importKnowledgeFiles(id, parentPath, picked);
   });
 
   handle("knowledge:deleteDocuments", ({ id, paths }) =>
@@ -106,10 +95,14 @@ export function registerKnowledgeHandlers(): void {
     readKnowledgeDocument(id, relativePath),
   );
 
+  handle("knowledge:writeDocument", ({ id, relativePath, content }) =>
+    writeKnowledgeDocument(id, relativePath, content),
+  );
+
   handle("knowledge:reveal", async ({ id }) => {
     const asset = await getKnowledgeBase(id);
     if (!asset) return false;
-    return !(await shell.openPath(asset.path));
+    return revealPath(asset.path);
   });
 
   handle("knowledge:openDocument", async ({ id, relativePath }) => {

@@ -18,7 +18,10 @@ function baseInput(overrides: Partial<ExecutionReportInput> = {}): ExecutionRepo
     employeeName: "需求工程师",
     employeeRole: "需求开发",
     attempt: 1,
+    round: 1,
+    kind: "initial",
     maxRetries: 0,
+    maxRevisions: 1,
     failureStrategy: "stop",
     reviewMode: "auto",
     startedAt: Date.UTC(2026, 10, 3, 2, 32, 24),
@@ -78,6 +81,8 @@ test("执行报告包含配置、注入清单、命令行与结果", () => {
   assert.match(report, /运行 ID \| 964973d4/);
   assert.match(report, /默认模型 \| deepseek-flash\[1M\]/);
   assert.match(report, /权限模式 \| acceptEdits/);
+  assert.match(report, /调用来源 \| 初次执行/);
+  assert.match(report, /修正轮次 \| 第 1 轮 \/ 最多 1 轮/);
   assert.match(report, /MCP 服务（1 个）/);
   assert.match(report, /filesystem/);
   assert.match(report, /技能（1 个）/);

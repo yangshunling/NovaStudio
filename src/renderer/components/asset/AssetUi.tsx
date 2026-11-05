@@ -1,7 +1,7 @@
 /**
  * 资产页共用小件
  *
- * Skill / MCP 两个资产页的标签、元信息、来源徽标与时间格式都收敛在这里，
+ * Skill / MCP 两个资产页的标签、元信息与时间格式都收敛在这里，
  * 避免配色和字号在页面之间漂移。
  */
 
@@ -33,22 +33,6 @@ export function Tag({
     >
       {Icon && <Icon className="h-3 w-3" />}
       {children}
-    </span>
-  );
-}
-
-export function SourceTag({
-  label,
-  className,
-}: {
-  label: string;
-  className: string;
-}) {
-  return (
-    <span
-      className={`shrink-0 rounded-full px-2 py-0.5 text-meta font-medium ${className}`}
-    >
-      {label}
     </span>
   );
 }

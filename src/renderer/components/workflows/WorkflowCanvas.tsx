@@ -27,7 +27,7 @@ import type {
   WorkflowNode,
   WorkflowNodeRunStatus,
 } from "@shared/types";
-import { NODE_STATUS } from "../../lib/workflowStatus";
+import { NODE_STATUS } from "../../lib/workflow/status";
 import { EmployeeAvatar } from "../employees/EmployeeAvatar";
 
 export const WF_NODE_W = 240;

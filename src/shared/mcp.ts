@@ -5,8 +5,6 @@
  * 避免「UI 预览」和「运行时注入」对同一份 args/env 得出不同结果。
  */
 
-import type { McpServerAsset, McpServerDraft } from "./types";
-
 /** 参数拆分：支持单双引号，其余按空白切分 */
 export function splitArgs(raw: string): string[] {
   const result: string[] = [];
@@ -36,18 +34,4 @@ export function formatKeyValue(record: Record<string, string>): string {
   return Object.entries(record)
     .map(([key, value]) => `${key}=${value}`)
     .join("\n");
-}
-
-/** 资产 → 可编辑草稿（多值字段转为文本） */
-export function assetToDraft(asset: McpServerAsset): McpServerDraft {
-  return {
-    name: asset.name,
-    description: asset.description,
-    transport: asset.transport,
-    command: asset.command,
-    args: asset.args.join("\n"),
-    env: formatKeyValue(asset.env),
-    url: asset.url,
-    headers: formatKeyValue(asset.headers),
-  };
 }

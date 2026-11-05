@@ -17,7 +17,7 @@
  */
 
 import type { AutomationTask } from "../../shared/types";
-import type { AgentService } from "../engine/agent-service";
+import type { AgentService } from "../agents/agent-service";
 import * as db from "../db/sqlite";
 import { flushEvents, push } from "../ipc/push";
 

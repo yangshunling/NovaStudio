@@ -3,7 +3,7 @@
  */
 
 import { homedir } from "os";
-import type { AgentService } from "../../engine/agent-service";
+import type { AgentService } from "../../agents/agent-service";
 import { getProvider } from "../../agents/registry";
 import * as db from "../../db/sqlite";
 import { handle } from "../register";

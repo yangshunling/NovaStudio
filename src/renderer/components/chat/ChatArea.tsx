@@ -14,7 +14,7 @@ import {
   useChatStore,
   selectCurrentStreaming,
   selectEffectiveAgentId,
-} from "../stores/chat";
+} from "../../stores/chat";
 import {
   Send,
   Square,
@@ -27,8 +27,10 @@ import { AgentSelector } from "./AgentSelector";
 import { ProjectSelector } from "./ProjectSelector";
 import { useFileMention, FileMentionPopup } from "./FileMention";
 import { AssistantMessageList } from "./AssistantMessageList";
-import { FileTypeIcon } from "./ui/FileTypeIcon";
-import { PageHeader } from "./ui/Page";
+import { FileTypeIcon } from "../ui/FileTypeIcon";
+import { PageHeader } from "../ui/Page";
+import { toast } from "../../stores/toast";
+import { toMessage } from "../../lib/utils";
 
 // ============================================================================
 // 对话主区域
@@ -81,7 +83,11 @@ export function ChatArea({ embedded = false }: { embedded?: boolean } = {}) {
     const prompt = [trimmed, referenceText].filter(Boolean).join(" ");
     setInput("");
     fileMention.clearReferences();
-    sendMessage(prompt);
+    // 会话创建 / Agent 缺失等前置失败不会进入消息流：把输入还给用户并提示
+    void sendMessage(prompt).catch((err) => {
+      setInput(trimmed);
+      toast.error(toMessage(err), 5000);
+    });
   };
 
   return (

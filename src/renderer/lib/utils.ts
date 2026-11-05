@@ -6,10 +6,18 @@
 
 import type { AgentEvent } from "@shared/types";
 import type { AgentInfo, AgentTone } from "@shared/contracts/agent";
+import { normalizeNewlines } from "@shared/text";
 
 /** 生成随机 ID（crypto.randomUUID 包装） */
 export function newId(): string {
   return crypto.randomUUID();
+}
+
+export { normalizeNewlines } from "@shared/text";
+
+/** 忽略行尾差异后，两段文本是否相同（判断编辑器是否有改动） */
+export function isSameText(a: string, b: string): boolean {
+  return normalizeNewlines(a) === normalizeNewlines(b);
 }
 
 /** 字节数 → 人类可读大小（B / KB / MB / GB） */

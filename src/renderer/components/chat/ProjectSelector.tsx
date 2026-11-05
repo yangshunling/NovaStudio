@@ -20,10 +20,10 @@ import {
   FolderMinus,
   SquareTerminal,
 } from "lucide-react";
-import { useChatStore } from "../stores/chat";
-import { useTerminalStore } from "../stores/terminal";
-import { toast } from "../stores/toast";
-import { confirmDialog } from "../stores/confirm";
+import { useChatStore } from "../../stores/chat";
+import { useTerminalStore } from "../../stores/terminal";
+import { toast } from "../../stores/toast";
+import { confirmDialog } from "../../stores/confirm";
 
 const MENU_WIDTH = 288;
 

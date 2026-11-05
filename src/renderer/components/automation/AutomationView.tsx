@@ -21,12 +21,12 @@
 
 import { useState } from "react";
 import { Clock, Check, ListChecks, Loader2 } from "lucide-react";
-import { useAutomationStore } from "../stores/automation";
-import { useChatStore } from "../stores/chat";
-import { Page, PageHeader } from "./ui/Page";
-import { BoardColumn } from "./automation/BoardColumn";
-import { TaskCreateModal } from "./automation/TaskCreateModal";
-import { TaskDetailDrawer } from "./automation/TaskDetailDrawer";
+import { useAutomationStore } from "../../stores/automation";
+import { useChatStore } from "../../stores/chat";
+import { Page, PageHeader } from "../ui/Page";
+import { BoardColumn } from "./BoardColumn";
+import { TaskCreateModal } from "./TaskCreateModal";
+import { TaskDetailDrawer } from "./TaskDetailDrawer";
 import type { AutomationTask } from "@shared/types";
 
 // ============================================================================

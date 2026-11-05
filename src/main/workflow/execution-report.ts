@@ -32,7 +32,12 @@ export interface ExecutionReportInput {
   employeeName: string;
   employeeRole: string;
   attempt: number;
+  /** 该尝试内的修正轮次，从 1 开始 */
+  round: number;
+  /** initial / retry / revise */
+  kind: string;
   maxRetries: number;
+  maxRevisions: number;
   failureStrategy: string;
   reviewMode: string;
   startedAt: number;
@@ -152,6 +157,8 @@ export function buildExecutionReport(input: ExecutionReportInput): string {
     `| 数字员工 | ${cell(`${input.employeeName}（${input.employeeId}）`)} |`,
     `| 员工职位 | ${cell(input.employeeRole || "—")} |`,
     `| 尝试次数 | 第 ${input.attempt} 次（最多重试 ${input.maxRetries} 次） |`,
+    `| 调用来源 | ${cell(input.kind === "revise" ? "人工审核要求修改" : input.kind === "retry" ? "执行失败重试" : "初次执行")} |`,
+    `| 修正轮次 | 第 ${input.round} 轮 / 最多 ${input.maxRevisions} 轮 |`,
     `| 失败策略 | ${cell(input.failureStrategy)} |`,
     `| 审核门禁 | ${cell(input.reviewMode)} |`,
     `| 会话 ID | ${cell(input.sessionId ?? "尚未创建")} |`,

@@ -1,7 +1,7 @@
 /**
  * MCP 资产页
  *
- * MCP 定义统一存放在 Claude 配置中：Nova 创建的条目可编辑，Claude 原有条目只读。
+ * MCP 定义统一存放在 Claude 配置中，所有条目都可以编辑并直接写回文件。
  * 差异在于 MCP 编辑的是服务定义（命令 / 参数 / env / URL / headers），
  * 运行时由 Nova 渲染成目标 Agent 的配置，而不是复制目录。
  */
@@ -16,11 +16,8 @@ import {
   FileJson,
   FolderOpen,
   KeyRound,
-  Lock,
   Plus,
   RefreshCw,
-  Save,
-  Search,
   Server,
   Trash2,
   Upload,
@@ -32,8 +29,8 @@ import { useAssetCatalog, useMcpServersStore } from "../../stores/assets";
 import { toast } from "../../stores/toast";
 import { confirmDialog } from "../../stores/confirm";
 import { countUsage, useEmployeesStore } from "../../stores/employees";
-import { assetToDraft } from "@shared/mcp";
-import { formatAssetTime, Meta, SourceTag, Tag } from "../assets/assetUi";
+import { formatAssetTime, Meta, Tag } from "../asset/AssetUi";
+import { CodeTextarea, EditorBar } from "../asset/EditorUi";
 import { Field, TextArea, FORM_INPUT_CLASS as INPUT_CLASS } from "../ui/Field";
 import { Dialog, DialogActions } from "../ui/Dialog";
 import { Button } from "../ui/Button";
@@ -43,9 +40,8 @@ import {
   FilterEmpty,
   LoadingState,
 } from "../ui/EmptyState";
-import { Page, PageBody, PageHeader, PageToolbar } from "../ui/Page";
+import { Page, PageBody, PageHeader } from "../ui/Page";
 import { SearchInput } from "../ui/SearchInput";
-import { OptionChips } from "../ui/OptionChips";
 import {
   CARD_DESCRIPTION,
   CARD_ICON_TILE,
@@ -60,54 +56,29 @@ import {
   DrawerFooter,
   DrawerHeader,
 } from "../ui/Drawer";
-import { Select } from "../ui/Select";
 import {
-  MCP_SOURCE_CLASS,
-  MCP_SOURCE_LABEL,
   MCP_TRANSPORT_CLASS,
   MCP_TRANSPORT_LABEL,
 } from "./presentation";
 import type {
   DigitalEmployee,
   McpServerAsset,
-  McpServerDraft,
-  McpSource,
-  McpTransport,
 } from "@shared/types";
 
 // ============================================================================
 // 常量
 // ============================================================================
 
-const FILTERS: ReadonlyArray<{ id: "all" | McpSource; label: string }> = [
-  { id: "all", label: "全部" },
-  { id: "claude-global", label: "Claude 配置" },
-];
-
-function emptyDraft(): McpServerDraft {
-  return {
-    name: "",
-    description: "",
-    transport: "stdio",
-    command: "",
-    args: "",
-    env: "",
-    url: "",
-    headers: "",
-  };
-}
-
-function assetToJson(asset: McpServerAsset): string {
-  const base = {
-    name: asset.name,
-    description: asset.description,
-    transport: asset.transport,
-    ...(asset.transport === "stdio"
-      ? { command: asset.command, args: asset.args, env: asset.env }
-      : { url: asset.url, headers: asset.headers }),
-  };
-  return JSON.stringify(base, null, 2);
-}
+/** 新建时的定义模板：直接书写 mcpServers[name] 的值 */
+const DEFAULT_DEFINITION = JSON.stringify(
+  {
+    command: "npx",
+    args: ["-y", "@modelcontextprotocol/server-filesystem", "."],
+    env: {},
+  },
+  null,
+  2,
+);
 
 // ============================================================================
 // 页面
@@ -120,7 +91,6 @@ export function McpView() {
   const { items: servers, loading, error, reload } =
     useAssetCatalog(useMcpServersStore);
   const [query, setQuery] = useState("");
-  const [filter, setFilter] = useState<"all" | McpSource>("all");
   const [drawer, setDrawer] = useState<
     { mode: "create" } | { mode: "view"; id: string } | null
   >(null);
@@ -137,14 +107,13 @@ export function McpView() {
 
   const filtered = useMemo(() => {
     const keyword = query.trim().toLowerCase();
-    return servers.filter((server) => {
-      if (filter !== "all" && server.source !== filter) return false;
-      if (!keyword) return true;
-      return [server.name, server.slug, server.description].some((value) =>
+    if (!keyword) return servers;
+    return servers.filter((server) =>
+      [server.name, server.slug, server.description].some((value) =>
         value.toLowerCase().includes(keyword),
-      );
-    });
-  }, [servers, filter, query]);
+      ),
+    );
+  }, [servers, query]);
 
   const active =
     drawer?.mode === "view"
@@ -195,24 +164,6 @@ export function McpView() {
         }
       />
 
-      {/* 来源过滤 */}
-      <PageToolbar>
-        <OptionChips
-          mode="single"
-          items={FILTERS.map((item) => ({
-            id: item.id,
-            label: item.label,
-            count:
-              item.id === "all"
-                ? servers.length
-                : servers.filter((server) => server.source === item.id).length,
-          }))}
-          selected={filter}
-          onSelect={(id) => setFilter(id as "all" | McpSource)}
-          trailing="Nova 只渲染配置给 Agent，不改动 Claude 的原始配置"
-        />
-      </PageToolbar>
-
       {/* 列表 */}
       <PageBody>
           {loading && servers.length === 0 ? (
@@ -223,12 +174,8 @@ export function McpView() {
             <EmptyMcp onCreate={() => setDrawer({ mode: "create" })} onImport={() => setImportOpen(true)} />
           ) : filtered.length === 0 ? (
             <FilterEmpty
-              title={
-                query
-                  ? `没有匹配「${query}」的 MCP 服务`
-                  : "该来源下还没有 MCP 服务"
-              }
-              onClear={query ? () => setQuery("") : undefined}
+              title={`没有匹配「${query}」的 MCP 服务`}
+              onClear={() => setQuery("")}
             />
           ) : (
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
@@ -295,10 +242,6 @@ function McpCard({
         </span>
         <div className="flex min-w-0 flex-1 items-start justify-between gap-2">
           <h3 className={CARD_TITLE}>{server.name}</h3>
-          <SourceTag
-            label={MCP_SOURCE_LABEL[server.source]}
-            className={MCP_SOURCE_CLASS[server.source]}
-          />
         </div>
       </div>
 
@@ -350,10 +293,12 @@ function McpDrawer({
   onClose: () => void;
   onSaved: () => Promise<void>;
 }) {
-  const readOnly = !!server?.readOnly;
-  const [draft, setDraft] = useState<McpServerDraft>(() =>
-    server ? assetToDraft(server) : emptyDraft(),
-  );
+  const initialName = server?.slug ?? "";
+  const initialDefinition = server
+    ? JSON.stringify(server.definition, null, 2)
+    : DEFAULT_DEFINITION;
+  const [name, setName] = useState(initialName);
+  const [definition, setDefinition] = useState(initialDefinition);
   const [saving, setSaving] = useState(false);
 
   const usedBy = server
@@ -364,21 +309,38 @@ function McpDrawer({
       )
     : [];
 
-  const update = (fields: Partial<McpServerDraft>) =>
-    setDraft((current) => ({ ...current, ...fields }));
+  /** 前端只做 JSON 语法提示，字段合法性由主进程保存时校验 */
+  const definitionError = useMemo(() => {
+    if (!definition.trim()) return "服务定义不能为空";
+    try {
+      const parsed = JSON.parse(definition);
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+        return "服务定义必须是一个 JSON 对象";
+      }
+      return null;
+    } catch (err) {
+      return err instanceof Error ? err.message : "JSON 解析失败";
+    }
+  }, [definition]);
+
+  // 与技能页一致：没有改动时保存按钮保持禁用
+  const dirty = name !== initialName || definition !== initialDefinition;
+  const canSave = dirty && Boolean(name.trim()) && !definitionError;
 
   const handleSave = async () => {
-    if (saving || readOnly) return;
+    if (saving || !canSave) return;
     setSaving(true);
     try {
-      const result = server
-        ? await ipc.updateMcpServer(server.id, draft)
-        : await ipc.createMcpServer(draft);
+      const result = await ipc.saveMcpDefinition(
+        creating ? null : server?.id ?? null,
+        name,
+        definition,
+      );
       if (!result.ok) {
         toast.error(result.error, 5000);
         return;
       }
-      toast.success(server ? "MCP 服务已保存" : "MCP 服务已创建");
+      toast.success(creating ? "MCP 服务已创建" : "MCP 服务已保存");
       await onSaved();
     } catch (err) {
       toast.error(toMessage(err));
@@ -388,7 +350,7 @@ function McpDrawer({
   };
 
   const handleDelete = async () => {
-    if (!server || readOnly) return;
+    if (!server) return;
     const confirmed = await confirmDialog({
       title: `删除 MCP 服务「${server.name}」？`,
       message:
@@ -425,12 +387,6 @@ function McpDrawer({
           <div className="flex min-w-0 items-center gap-2">
             <span className="truncate text-title font-semibold text-text">{title}</span>
             {server && (
-              <SourceTag
-                label={MCP_SOURCE_LABEL[server.source]}
-                className={MCP_SOURCE_CLASS[server.source]}
-              />
-            )}
-            {server && (
               <span
                 className={`shrink-0 rounded-full px-2 py-0.5 text-caption ${MCP_TRANSPORT_CLASS[server.transport]}`}
               >
@@ -444,21 +400,6 @@ function McpDrawer({
       </DrawerHeader>
 
         <DrawerBody className="flex flex-col gap-4">
-          {readOnly && server && (
-            <div className="shrink-0 rounded-lg border border-border bg-surface-2/60 p-3">
-              <div className="flex items-start gap-2 text-body leading-relaxed text-text-secondary">
-                <Lock className="mt-0.5 h-4 w-4 shrink-0 text-text-muted" />
-                <div>
-                  <p>{server.readOnlyReason}</p>
-                  <p className="mt-1 text-text-muted">
-                    你仍然可以在数字员工中绑定它；Nova 会在运行时把定义渲染到独立的
-                    Agent 配置中，不会改动原配置。
-                  </p>
-                </div>
-              </div>
-            </div>
-          )}
-
           {server && server.problems.length > 0 && (
             <div
               className={`shrink-0 rounded-lg border p-3 ${
@@ -493,129 +434,48 @@ function McpDrawer({
             </div>
           )}
 
-          {readOnly && server ? (
-            <div className="flex min-h-0 flex-1 flex-col">
-              <div className="mb-1.5 flex shrink-0 items-center gap-1.5 text-meta font-medium text-text-secondary">
-                <FileJson className="h-4 w-4" />
-                配置内容
-              </div>
-              <pre className="ui-ring min-h-[240px] flex-1 overflow-auto rounded-lg border border-input-border bg-input-bg p-inset font-mono text-body leading-relaxed text-text">
-                {assetToJson(server)}
-              </pre>
-            </div>
-          ) : (
-            <div className="flex min-h-0 flex-1 flex-col">
-              <div className="mb-3 flex shrink-0 items-center justify-between gap-2">
-                <span className="text-meta font-medium text-text-secondary">服务定义</span>
-                <Button
-                  variant="primary"
-                  loading={saving}
-                  icon={<Save className="h-4 w-4" />}
-                  onClick={handleSave}
-                >
-                  {creating ? "创建" : "保存"}
-                </Button>
-              </div>
+          <div className="flex min-h-0 flex-1 flex-col">
+            <EditorBar
+              label="服务定义"
+              saving={saving}
+              disabled={!canSave}
+              onSave={handleSave}
+              error={definitionError}
+              saveLabel={creating ? "创建" : "保存"}
+            />
 
-              <div className="space-y-3">
-                <Field label="服务名" hint="决定 Agent 侧的工具命名空间，只允许字母、数字、点、下划线和连字符">
-                  <input
-                    value={draft.name}
-                    onChange={(event) => update({ name: event.target.value })}
-                    placeholder="如 filesystem"
-                    className={INPUT_CLASS}
-                  />
-                </Field>
+            <div className="flex min-h-0 flex-1 flex-col gap-3">
+              <Field
+                label="服务名"
+                hint="即 mcpServers 的 key，只允许字母、数字、点、下划线和连字符"
+              >
+                <input
+                  value={name}
+                  onChange={(event) => setName(event.target.value)}
+                  placeholder="如 filesystem"
+                  className={INPUT_CLASS}
+                />
+              </Field>
 
-                <Field label="描述">
-                  <input
-                    value={draft.description}
-                    onChange={(event) => update({ description: event.target.value })}
-                    placeholder="一句话说明这个服务提供什么能力"
-                    className={INPUT_CLASS}
-                  />
-                </Field>
-
-                <Field label="传输方式">
-                  <Select
-                    value={draft.transport}
-                    onChange={(transport) =>
-                      update({ transport: transport as McpTransport })
-                    }
-                    className={INPUT_CLASS}
-                    options={[
-                      { value: "stdio", label: "stdio（本地进程）" },
-                      { value: "http", label: "HTTP（远程）" },
-                      { value: "sse", label: "SSE（远程）" },
-                    ]}
-                  />
-                </Field>
-
-                {draft.transport === "stdio" ? (
-                  <>
-                    <Field label="启动命令">
-                      <input
-                        value={draft.command}
-                        onChange={(event) => update({ command: event.target.value })}
-                        placeholder="如 npx / uvx / node"
-                        className={`${INPUT_CLASS} font-mono`}
-                      />
-                    </Field>
-                    <Field label="参数" hint="每行一个参数；含空格的参数直接整行写，不需要额外引号">
-                      <textarea
-                        value={draft.args}
-                        onChange={(event) => update({ args: event.target.value })}
-                        rows={3}
-                        placeholder={"-y\n@modelcontextprotocol/server-filesystem\nE:\\\\Project"}
-                        className={`${INPUT_CLASS} resize-y font-mono`}
-                      />
-                    </Field>
-                    <Field label="环境变量" hint="每行 KEY=VALUE；值支持 ${VAR} 占位符，例如 TOKEN=${MCP_TOKEN}">
-                      <textarea
-                        value={draft.env}
-                        onChange={(event) => update({ env: event.target.value })}
-                        rows={3}
-                        placeholder={"TOKEN=${MCP_TOKEN}\nLOG_LEVEL=info"}
-                        className={`${INPUT_CLASS} resize-y font-mono`}
-                      />
-                    </Field>
-                  </>
-                ) : (
-                  <>
-                    <Field label="服务 URL">
-                      <input
-                        value={draft.url}
-                        onChange={(event) => update({ url: event.target.value })}
-                        placeholder="https://example.com/mcp"
-                        className={`${INPUT_CLASS} font-mono`}
-                      />
-                    </Field>
-                    <Field label="请求头" hint="每行 KEY=VALUE；值支持 ${VAR} 占位符">
-                      <textarea
-                        value={draft.headers}
-                        onChange={(event) => update({ headers: event.target.value })}
-                        rows={3}
-                        placeholder={"Authorization=Bearer ${MCP_TOKEN}"}
-                        className={`${INPUT_CLASS} resize-y font-mono`}
-                      />
-                    </Field>
-                  </>
-                )}
-
-                <p className="rounded-lg border border-border bg-surface-2/40 p-3 text-meta leading-relaxed text-text-muted">
-                  密钥建议使用 <code className="font-mono text-text-secondary">${"{VAR}"}</code>{" "}
-                  占位符，由运行环境注入；直接填写字面量会明文保存在本地 JSON 文件中，
-                  Nova 只会在列表中标出「含密钥」。
-                </p>
+              <div className="flex min-h-0 flex-1 flex-col">
+                <div className="mb-1.5 flex shrink-0 items-center gap-1.5 text-meta font-medium text-text-secondary">
+                  <FileJson className="h-4 w-4" />
+                  mcpServers[&quot;{name.trim() || "name"}&quot;]
+                </div>
+                <CodeTextarea
+                  value={definition}
+                  onChange={setDefinition}
+                  placeholder={'{\n  "command": "npx",\n  "args": ["-y", "@modelcontextprotocol/server-filesystem", "."]\n}'}
+                />
               </div>
             </div>
-          )}
+          </div>
         </DrawerBody>
 
       {/* 底部 */}
       <DrawerFooter>
         <div>
-          {server && !readOnly && (
+          {server && (
             <Button
               size="sm"
               variant="dangerLink"
@@ -624,11 +484,6 @@ function McpDrawer({
             >
               从 MCP 库删除
             </Button>
-          )}
-          {readOnly && (
-            <span className="text-meta text-text-muted">
-              只读来源：修改请直接编辑对应配置文件
-            </span>
           )}
         </div>
         {server && (

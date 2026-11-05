@@ -13,6 +13,7 @@ export function defaultNodeConfig(): WorkflowNodeConfig {
     taskDetail: "",
     failureStrategy: "stop",
     maxRetries: 1,
+    maxRevisions: 1,
     reviewMode: "auto",
   };
 }

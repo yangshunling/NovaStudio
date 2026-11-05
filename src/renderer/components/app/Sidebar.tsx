@@ -6,9 +6,9 @@
  */
 
 import { useEffect, useRef, useState } from "react";
-import { useChatStore } from "../stores/chat";
-import { ipc } from "../lib/ipc";
-import { toast } from "../stores/toast";
+import { useChatStore } from "../../stores/chat";
+import { ipc } from "../../lib/ipc";
+import { toast } from "../../stores/toast";
 import type { WorkflowRun } from "@shared/types";
 import {
   AlarmClock,
@@ -25,7 +25,7 @@ import {
   Waypoints,
   Workflow,
 } from "lucide-react";
-import logoUrl from "../assets/logo.png";
+import logoUrl from "../../assets/logo.png";
 import { ThemeToggle } from "./ThemeToggle";
 
 /** 导航项字号 */
@@ -210,7 +210,7 @@ export function Sidebar() {
           className={itemClass(viewMode === "skills")}
         >
           <Sparkles className="h-4 w-4 shrink-0" />
-          Skill
+          SKILL
         </button>
         <button
           type="button"

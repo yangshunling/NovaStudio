@@ -8,7 +8,7 @@
  * 4. 加载渲染进程页面
  */
 
-import { app, BrowserWindow, dialog } from "electron";
+import { app, BrowserWindow, dialog, shell } from "electron";
 import { join } from "path";
 import { existsSync } from "fs";
 import {
@@ -80,6 +80,27 @@ function createWindow(): BrowserWindow {
 
   win.on("ready-to-show", () => {
     win.show();
+  });
+
+  /*
+   * 渲染进程销毁后它持有的终端 id 也一起丢失，PTY 会变成无人认领的后台进程。
+   * 窗口关闭 / 渲染进程崩溃时统一回收，避免 powershell.exe 越积越多。
+   */
+  win.on("closed", () => stopTerminals());
+  win.webContents.on("render-process-gone", () => stopTerminals());
+
+  /*
+   * 导航守卫：窗口挂了 preload，远程页面一旦在此窗口打开就能拿到全部 IPC。
+   * 只允许留在应用自己的页面，外部链接交给系统浏览器。
+   */
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    if (/^https?:\/\//i.test(url)) void shell.openExternal(url);
+    return { action: "deny" };
+  });
+  win.webContents.on("will-navigate", (event, url) => {
+    if (url === win.webContents.getURL()) return;
+    event.preventDefault();
+    if (/^https?:\/\//i.test(url)) void shell.openExternal(url);
   });
 
   // 开发模式加载 dev server，生产模式加载打包文件

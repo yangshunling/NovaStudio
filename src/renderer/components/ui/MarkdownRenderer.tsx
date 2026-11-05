@@ -13,10 +13,10 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeRaw from "rehype-raw";
 import rehypeSanitize, { defaultSchema } from "rehype-sanitize";
-import { getHighlighter, highlightCodeSync } from "../lib/shiki";
-import { stripPreTag } from "../lib/utils";
-import { useSkin } from "../hooks/useTheme";
-import { ipc } from "../lib/ipc";
+import { getHighlighter, highlightCodeSync } from "../../lib/shiki";
+import { stripPreTag } from "../../lib/utils";
+import { useSkin } from "../../hooks/useTheme";
+import { ipc } from "../../lib/ipc";
 
 /**
  * 内嵌图片的解析上下文。
@@ -204,7 +204,7 @@ function MarkdownRendererImpl({
         rehypePlugins={rehypePlugins}
         components={{
           // 代码块 vs 内联代码
-          code({ className, children, ...props }) {
+          code({ className, children }) {
             const match = /language-(\w+)/.exec(className || "");
             const isBlock = !!match || String(children).includes("\n");
 
