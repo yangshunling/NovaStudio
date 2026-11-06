@@ -31,6 +31,7 @@ import { startLineRun } from "../line-run";
 import { probeVersion } from "../probe";
 import { manifest } from "./manifest";
 import { createDecoder, extractSessionId } from "./parse";
+import { createLineStartsResolver } from "./file-lines";
 import { prepareClaudeWorkflowRun } from "./prepare";
 import { getClaudeSettingsView } from "./settings";
 import type { AgentModelEntry } from "../../../shared/contracts/agent";
@@ -187,7 +188,9 @@ export const provider: AgentProvider = {
         // 让随后到达的 tool_result 能补上工具名。
         // 所有工具（含 Bash 等命令类）都进入事件流，聊天、任务中心与
         // 工作流运行记录看到的是同一条完整执行链路。
-        decode: createDecoder(),
+        // 行号定位需要 cwd：Edit / MultiEdit 的 old_string 要在磁盘上的
+        // 改动前文件里找位置，供聊天里的 diff 展示真实行号
+        decode: createDecoder({ resolveLineStarts: createLineStartsResolver(opts.cwd) }),
       },
       opts,
     );

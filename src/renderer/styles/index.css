@@ -92,6 +92,10 @@
   --color-error: var(--c-error);
   --color-error-bg: var(--c-error-bg);
   --color-success: var(--c-success);
+  --color-diff-add: var(--c-diff-add);
+  --color-diff-add-bg: var(--c-diff-add-bg);
+  --color-diff-del: var(--c-diff-del);
+  --color-diff-del-bg: var(--c-diff-del-bg);
 
   /* Agent 标识色：manifest.tone 选槽位，组件用 text-agent-x 与半透明底 bg-agent-x/15 */
   --color-agent-amber: var(--c-agent-amber);
@@ -574,6 +578,33 @@ body {
   }
   100% {
     background-position: -200% 0;
+  }
+}
+
+/* ============================================================================
+ * 待办统计：最近 7 天柱状图
+ *
+ * 进入时从底部生长一次（每根柱子由内联 animation-delay 错开）；
+ * 系统开启 reduced-motion 时直接呈现最终高度。
+ * ============================================================================ */
+.todo-bar {
+  transform-origin: bottom;
+  animation: todo-bar-grow calc(var(--c-motion-base) * 2) var(--c-ease-standard)
+    both;
+}
+
+@keyframes todo-bar-grow {
+  from {
+    transform: scaleY(0);
+  }
+  to {
+    transform: scaleY(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .todo-bar {
+    animation: none;
   }
 }
 

@@ -23,6 +23,9 @@ import type {
   Project,
   Session,
   Message,
+  TodoDraft,
+  TodoItem,
+  TodoPriority,
   AutomationTask,
   AutomationStatus,
   DigitalEmployee,
@@ -122,6 +125,26 @@ export function initDatabase(): void {
       completed_at INTEGER,
       error TEXT
     );
+
+    -- 个人待办：与应用内其它实体完全独立，只服务「记录 → 完成」这一条链路。
+    -- tags_json 存字符串数组；sort_order 为手动排序值，新条目取当前最小值 - 1，
+    -- 因此默认排在最前面。
+    CREATE TABLE IF NOT EXISTS todos (
+      id TEXT PRIMARY KEY,
+      title TEXT NOT NULL,
+      note TEXT NOT NULL DEFAULT '',
+      priority TEXT NOT NULL DEFAULT 'normal',
+      due_at INTEGER,
+      tags_json TEXT NOT NULL DEFAULT '[]',
+      done INTEGER NOT NULL DEFAULT 0,
+      completed_at INTEGER,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_todos_done_completed
+      ON todos (done, completed_at DESC);
 
     CREATE TABLE IF NOT EXISTS workflows (
       id TEXT PRIMARY KEY,
@@ -230,9 +253,6 @@ export function initDatabase(): void {
       ON workflow_node_runs (run_id);
     CREATE INDEX IF NOT EXISTS idx_workflow_node_attempts_run
       ON workflow_node_attempts (run_id);
-    -- 运行详情按节点查尝试列表，run_id 索引无法覆盖
-    CREATE INDEX IF NOT EXISTS idx_workflow_node_attempts_node
-      ON workflow_node_attempts (node_run_id, attempt, round);
     CREATE INDEX IF NOT EXISTS idx_workflow_run_events_run
       ON workflow_run_events (run_id, seq);
     -- 节点详情 / 告警列表按 node_run_id 过滤并按 seq 排序
@@ -315,6 +335,13 @@ export function initDatabase(): void {
       ON sessions (updated_at DESC) WHERE source <> 'workflow';
     CREATE INDEX IF NOT EXISTS idx_sessions_project
       ON sessions (project_id);
+  `);
+
+  // 按节点查尝试列表的索引依赖 round 列（旧库由 migrateWorkflowNodeAttemptRound 补齐），
+  // 必须放在迁移之后，否则老库会在 CREATE INDEX 阶段报 "no such column: round"
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_workflow_node_attempts_node
+      ON workflow_node_attempts (node_run_id, attempt, round);
   `);
 }
 
@@ -2327,6 +2354,130 @@ function rowToAutomationTask(row: any): AutomationTask {
     completedAt: row.completed_at,
     error: row.error,
   };
+}
+
+// ============================================================================
+// 待办事项
+// ============================================================================
+
+function rowToTodo(row: any): TodoItem {
+  let tags: string[] = [];
+  try {
+    const parsed: unknown = JSON.parse(row.tags_json);
+    if (Array.isArray(parsed)) {
+      tags = parsed.filter((tag): tag is string => typeof tag === "string");
+    }
+  } catch {
+    // 损坏的标签按空数组处理，不影响条目本身
+  }
+  const priority: TodoPriority =
+    row.priority === "high" || row.priority === "low" ? row.priority : "normal";
+  return {
+    id: row.id,
+    title: row.title,
+    note: row.note ?? "",
+    priority,
+    dueAt: row.due_at ?? null,
+    tags,
+    done: row.done === 1,
+    completedAt: row.completed_at ?? null,
+    sortOrder: row.sort_order ?? 0,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+export function listTodos(): TodoItem[] {
+  const rows = db!
+    .prepare("SELECT * FROM todos ORDER BY sort_order ASC, created_at DESC")
+    .all() as any[];
+  return rows.map(rowToTodo);
+}
+
+export function getTodo(id: string): TodoItem | null {
+  const row = db!.prepare("SELECT * FROM todos WHERE id = ?").get(id) as any;
+  return row ? rowToTodo(row) : null;
+}
+
+export function createTodo(draft: TodoDraft): TodoItem {
+  const id = randomUUID();
+  const now = Date.now();
+  // 新条目排在最前面：取全局最小 sort_order 再减一。
+  // 分组展示时，各组的相对顺序仍由各自的 sort_order 决定。
+  const min = db!.prepare("SELECT MIN(sort_order) AS value FROM todos").get() as {
+    value: number | null;
+  };
+  const sortOrder = (min.value ?? 0) - 1;
+
+  db!.prepare(
+    "INSERT INTO todos (id, title, note, priority, due_at, tags_json, done, completed_at, sort_order, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, 0, NULL, ?, ?, ?)",
+  ).run(
+    id,
+    draft.title,
+    draft.note,
+    draft.priority,
+    draft.dueAt,
+    JSON.stringify(draft.tags),
+    sortOrder,
+    now,
+    now,
+  );
+  return getTodo(id)!;
+}
+
+export function updateTodo(id: string, draft: TodoDraft): TodoItem | null {
+  const info = db!
+    .prepare(
+      "UPDATE todos SET title = ?, note = ?, priority = ?, due_at = ?, tags_json = ?, updated_at = ? WHERE id = ?",
+    )
+    .run(
+      draft.title,
+      draft.note,
+      draft.priority,
+      draft.dueAt,
+      JSON.stringify(draft.tags),
+      Date.now(),
+      id,
+    );
+  return info.changes > 0 ? getTodo(id) : null;
+}
+
+/** 只切换完成状态，不要求前端回传整份草稿 */
+export function setTodoDone(id: string, done: boolean): TodoItem | null {
+  const info = db!
+    .prepare(
+      "UPDATE todos SET done = ?, completed_at = ?, updated_at = ? WHERE id = ?",
+    )
+    .run(done ? 1 : 0, done ? Date.now() : null, Date.now(), id);
+  return info.changes > 0 ? getTodo(id) : null;
+}
+
+export function deleteTodo(id: string): boolean {
+  return db!.prepare("DELETE FROM todos WHERE id = ?").run(id).changes > 0;
+}
+
+export function clearCompletedTodos(): number {
+  return db!.prepare("DELETE FROM todos WHERE done = 1").run().changes;
+}
+
+/**
+ * 按传入顺序重写 sort_order。
+ * 调用方只传同一分组内的 id，组与组之间的排序值互不影响。
+ */
+export function reorderTodos(ids: string[]): boolean {
+  const now = Date.now();
+  const stmt = db!.prepare("UPDATE todos SET sort_order = ?, updated_at = ? WHERE id = ?");
+  db!.transaction(() => {
+    ids.forEach((id, index) => stmt.run(index, now, id));
+  })();
+  return true;
+}
+
+export function countPendingTodos(): number {
+  const row = db!
+    .prepare("SELECT COUNT(*) AS value FROM todos WHERE done = 0")
+    .get() as { value: number };
+  return row.value;
 }
 
 /** 关闭数据库 */

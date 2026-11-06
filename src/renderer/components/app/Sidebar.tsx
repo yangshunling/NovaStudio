@@ -1,5 +1,5 @@
 /**
- * 左侧导航栏 — 品牌 / 功能入口 / 设置
+ * 左侧导航栏 — 品牌 / 分组入口（个人、工程、资产、运行时）/ 设置
  *
  * 项目与会话列表已迁到「会话管理」页面（SessionListPanel），
  * 这里只保留全局功能入口；新建会话在会话列表右上角。
@@ -16,6 +16,7 @@ import {
   ChevronRight,
   Library,
   FolderKanban,
+  ListTodo,
   MessageSquare,
   Plug,
   Settings,
@@ -93,6 +94,26 @@ export function Sidebar() {
     };
   }, []);
 
+  /* 待办未完成数量：进入应用时拉一次，之后由主进程推送更新 */
+  const [pendingTodos, setPendingTodos] = useState(0);
+
+  useEffect(() => {
+    let alive = true;
+    ipc
+      .listTodos()
+      .then((items) => {
+        if (alive) setPendingTodos(items.filter((item) => !item.done).length);
+      })
+      .catch(() => {
+        // 角标失败不影响导航
+      });
+    const off = ipc.on.todosChanged(({ pending }) => setPendingTodos(pending));
+    return () => {
+      alive = false;
+      off();
+    };
+  }, []);
+
   const awaitingCount = activeRuns.filter(
     (run) => run.status === "awaiting_approval",
   ).length;
@@ -128,9 +149,11 @@ export function Sidebar() {
         <ThemeToggle />
       </div>
 
-      {/* 功能分组 */}
-      <div className="px-3 pt-3 pb-1">
-        <span className="px-1 text-meta font-semibold tracking-wide text-text-muted">功能</span>
+      {/* 导航区：窗口较矮时可滚动，保证底部设置入口始终可见 */}
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        {/* 个人分组 */}
+        <div className="px-3 pt-3 pb-1">
+        <span className="px-1 text-meta font-semibold tracking-wide text-text-muted">个人</span>
       </div>
       <div className="space-y-1 px-2.5 pb-2">
         <button
@@ -151,12 +174,27 @@ export function Sidebar() {
         </button>
         <button
           type="button"
-          onClick={() => setViewMode("automation")}
-          className={itemClass(viewMode === "automation")}
+          onClick={() => setViewMode("todos")}
+          className={itemClass(viewMode === "todos")}
         >
-          <Workflow className="h-4 w-4 shrink-0" />
-          任务中心
+          <ListTodo className="h-4 w-4 shrink-0" />
+          待办事项
+          {pendingTodos > 0 && (
+            <span
+              title={`${pendingTodos} 件待办未完成`}
+              className="ml-auto shrink-0 rounded-full bg-accent-soft px-2 py-0.5 text-meta font-medium text-accent"
+            >
+              {pendingTodos}
+            </span>
+          )}
         </button>
+      </div>
+
+      {/* 工程分组 */}
+      <div className="px-3 pt-4 pb-1">
+        <span className="px-1 text-meta font-semibold tracking-wide text-text-muted">工程</span>
+      </div>
+      <div className="space-y-1 px-2.5 pb-2">
         <button
           type="button"
           onClick={() => setViewMode("workflow")}
@@ -188,6 +226,14 @@ export function Sidebar() {
         >
           <AlarmClock className="h-4 w-4 shrink-0" />
           触发器
+        </button>
+        <button
+          type="button"
+          onClick={() => setViewMode("automation")}
+          className={itemClass(viewMode === "automation")}
+        >
+          <Workflow className="h-4 w-4 shrink-0" />
+          任务中心
         </button>
         <button
           type="button"
@@ -255,8 +301,10 @@ export function Sidebar() {
         </button>
       </div>
 
+      </div>
+
       {/* 底部：设置入口 */}
-      <div className="relative mt-auto border-t border-border p-2.5">
+      <div className="relative shrink-0 border-t border-border p-2.5">
         <button
           type="button"
           onClick={() => setShowSettings(true)}

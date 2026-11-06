@@ -74,9 +74,10 @@ export function registerKnowledgeHandlers(): void {
 
   handle("knowledge:upload", async ({ id, parentPath }) => {
     const picked = await pickPaths({
-      title: "选择 Markdown 文档（可多选）",
+      title: "选择要上传的文件（可多选）",
       properties: ["openFile", "multiSelections"],
-      filters: [{ name: "Markdown", extensions: ["md", "markdown"] }],
+      // 不加扩展名过滤：知识库接受任意格式，文本类文件会被索引，其余仅存储
+      filters: [{ name: "所有文件", extensions: ["*"] }],
     });
     if (!picked) return { ok: true, uploaded: [], warnings: [] };
 

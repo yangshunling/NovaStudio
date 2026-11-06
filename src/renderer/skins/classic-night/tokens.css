@@ -48,6 +48,11 @@
   --c-error: #f85149;
   --c-error-bg: rgba(248, 81, 73, 0.1);
   --c-success: #3fb950;
+  /* 代码 diff：暗色下需要更高的明度，否则整块看起来发灰 */
+  --c-diff-add: #6ee787;
+  --c-diff-add-bg: rgba(46, 160, 67, 0.42);
+  --c-diff-del: #ff8b84;
+  --c-diff-del-bg: rgba(248, 81, 73, 0.42);
 
   /* === 用户消息气泡 === */
   --c-bubble-user: #2f81f7;

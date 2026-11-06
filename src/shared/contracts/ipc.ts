@@ -31,6 +31,8 @@ import type {
   ReadFileResult,
   Session,
   SkillAsset,
+  TodoDraft,
+  TodoItem,
   SkillFileDocument,
   SkillImportKind,
   SkillImportResult,
@@ -286,7 +288,7 @@ export interface IpcInvokeMap {
     args: [{ id: string; relativePath: string }];
     result: KnowledgeDocumentContent | null;
   };
-  /** 保存 Markdown 文档内容，并同步全文索引 */
+  /** 保存文本类文件内容，并同步全文索引 */
   "knowledge:writeDocument": {
     args: [{ id: string; relativePath: string; content: string }];
     result: KnowledgeDocumentWriteResult;
@@ -385,6 +387,23 @@ export interface IpcInvokeMap {
     args: [{ workflowId: string; triggerIds: string[] }];
     result: boolean;
   };
+
+  /** 个人待办：独立于工作区与项目 */
+  "todos:list": { args: []; result: TodoItem[] };
+  "todos:create": { args: [{ draft: TodoDraft }]; result: TodoItem };
+  "todos:update": {
+    args: [{ id: string; draft: TodoDraft }];
+    result: TodoItem | null;
+  };
+  /** 勾选 / 取消勾选；完成时由主进程写入 completedAt */
+  "todos:toggle": {
+    args: [{ id: string; done: boolean }];
+    result: TodoItem | null;
+  };
+  "todos:delete": { args: [{ id: string }]; result: boolean };
+  "todos:clearCompleted": { args: []; result: number };
+  /** 按传入顺序重写 sort_order（同一分组内拖动） */
+  "todos:reorder": { args: [{ ids: string[] }]; result: boolean };
 }
 
 /** 主进程 → 渲染进程（push）通道表。事件均带 sessionId，供多会话并发路由。 */
@@ -411,6 +430,8 @@ export interface IpcPushMap {
   };
   /** 触发器状态变更（调度器触发 / 重算下次时间） */
   "triggers:updated": WorkflowTrigger;
+  /** 待办增删改后推送未完成数量，供侧栏角标实时更新 */
+  "todos:changed": { pending: number };
   /** 更新状态变更（检查结果 / 下载进度 / 下载完成 / 错误） */
   "updater:changed": UpdaterState;
 }

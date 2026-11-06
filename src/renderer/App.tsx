@@ -29,6 +29,7 @@ import { WorkspacesView } from "./components/workspaces/WorkspacesView";
 import { WorkflowsView } from "./components/workflows/WorkflowsView";
 import { TriggersView } from "./components/triggers/TriggersView";
 import { TerminalsView } from "./components/terminal/TerminalsView";
+import { TodosView } from "./components/todos/TodosView";
 import { SettingsModal } from "./components/app/SettingsModal";
 import { WorkspacePanel } from "./components/workspaces/WorkspacePanel";
 import { ErrorBoundary } from "./components/ui/ErrorBoundary";
@@ -73,7 +74,9 @@ export default function App() {
     <ErrorBoundary>
       <div className="flex h-screen w-screen overflow-hidden bg-bg text-text">
         <Sidebar />
-        {viewMode === "terminals" ? null : viewMode === "automation" ? (
+        {viewMode === "terminals" ? null : viewMode === "todos" ? (
+          <TodosView />
+        ) : viewMode === "automation" ? (
           <AutomationView />
         ) : viewMode === "employees" ? (
           <EmployeesView />

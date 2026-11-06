@@ -36,7 +36,7 @@ function buildPromptSection(bases: ResolvedKnowledgeBase[]): string {
   const lines: string[] = [
     "## 知识库",
     "",
-    "以下是本员工可用的 Markdown 资料。任务涉及相关知识时，请先读取对应文件，",
+    "以下是本员工可用的知识库资料文件。任务涉及相关知识时，请先读取对应文件，",
     "引用时注明来源文件名；不要修改知识库中的文件。",
     "",
   ];
@@ -86,7 +86,7 @@ export async function resolveEmployeeKnowledge(
 
     const files = await listKnowledgeFilesForAsset(asset);
     if (files.length === 0) {
-      warnings.push(`知识库「${asset.name}」没有 Markdown 文档，已跳过`);
+      warnings.push(`知识库「${asset.name}」没有任何文件，已跳过`);
       continue;
     }
 

@@ -6,7 +6,7 @@
  * 视觉样式全部走 Nova 的语义 token，因此昼夜皮肤自动兼容。
  */
 
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import {
   AssistantRuntimeProvider,
   MessagePrimitive,
@@ -36,6 +36,8 @@ import { MarkdownRenderer } from "../ui/MarkdownRenderer";
 import { AgentAvatar, NovaAvatar } from "../ui/MessageAvatar";
 import { UserBubble } from "../ui/UserBubble";
 import { truncateText } from "../../lib/utils";
+import { extractFileChanges } from "../../lib/tool-diff";
+import { ToolDiffView } from "./ToolDiffView";
 import { markdownInterval, useThrottledValue } from "../../hooks/useThrottledValue";
 
 export function AssistantMessageList() {
@@ -242,7 +244,6 @@ const TOOL_ICONS: Record<ToolKind, typeof FileText> = {
 };
 
 function ToolPart(props: ToolCallMessagePartProps) {
-  const [collapsed, setCollapsed] = useState(true);
   const meta = readNovaToolMetadata(props.providerMetadata);
   const kind = meta?.kind ?? "other";
   const target = meta?.target || readToolTarget(props.args);
@@ -263,6 +264,19 @@ function ToolPart(props: ToolCallMessagePartProps) {
       : "未完成";
   const Icon = TOOL_ICONS[kind];
   const output = stringifyToolResult(props.result);
+  /*
+   * 改动类工具（Edit / Write / MultiEdit…）把 input 里的新旧文本转成 diff。
+   * 只在参数对象变化时重算：历史消息按消息缓存转换结果，不会反复执行。
+   */
+  const changes = useMemo(
+    () => extractFileChanges(props.toolName, props.args, kind, meta?.lineStarts),
+    [props.toolName, props.args, kind, meta?.lineStarts],
+  );
+  /*
+   * 改动类工具默认展开：diff 本身就是这类调用最值得看的内容，
+   * 再收起来等于让用户多点一次。其余工具保持折叠。
+   */
+  const [collapsed, setCollapsed] = useState(() => changes.length === 0);
 
   return (
     <div className="w-full">
@@ -274,8 +288,10 @@ function ToolPart(props: ToolCallMessagePartProps) {
         <Icon className="mt-0.5 h-3.5 w-3.5 shrink-0 text-tool" />
         <span className="shrink-0 font-mono">{props.toolName}</span>
         {target && (
+          /* 单行展示：换行（如 bash 多行命令）折叠成空格，超宽由 CSS 省略号截断，
+             完整内容仍在 title / 展开明细里 */
           <span
-            className="min-w-0 flex-1 whitespace-pre-wrap break-all font-mono text-text-muted"
+            className="min-w-0 flex-1 truncate font-mono text-text-muted"
             title={target}
           >
             {target}
@@ -305,19 +321,25 @@ function ToolPart(props: ToolCallMessagePartProps) {
       </button>
 
       {!collapsed && (
-        <div className="mt-1 w-full space-y-1 border-l-2 border-tool pl-3">
-          <div>
-            <div className="text-micro uppercase tracking-wide text-text-muted">
-              input
+        <div className="mt-1 w-full space-y-1">
+          {changes.length > 0 ? (
+            <ToolDiffView changes={changes} />
+          ) : (
+            <div>
+              <div className="text-micro uppercase tracking-wide text-text-muted">
+                input
+              </div>
+              <pre className="ui-glass max-h-40 overflow-auto rounded-md px-2 py-1 text-meta text-text-secondary">
+                {truncateText(
+                  props.argsText || JSON.stringify(props.args ?? {}, null, 2),
+                  500,
+                )}
+              </pre>
             </div>
-            <pre className="ui-glass max-h-40 overflow-auto rounded-md px-2 py-1 text-meta text-text-secondary">
-              {truncateText(
-                props.argsText || JSON.stringify(props.args ?? {}, null, 2),
-                500,
-              )}
-            </pre>
-          </div>
-          {done && output && (
+          )}
+          {/* 有 diff 且成功时回执没有信息量（Edit 只回一句“已更新”），不再展示；
+              失败时错误信息必须保留 */}
+          {done && output && (changes.length === 0 || hasError) && (
             <div>
               <div className="text-micro uppercase tracking-wide text-text-muted">
                 {hasError ? "error" : "output"}
@@ -413,7 +435,11 @@ function assistantParts(
           args: asJSONObject(event.input),
           argsText: JSON.stringify(event.input ?? {}, null, 2),
           providerMetadata: {
-            nova: { kind: event.kind, target: event.target },
+            nova: {
+              kind: event.kind,
+              target: event.target,
+              lineStarts: event.lineStarts,
+            },
           },
         });
         break;
@@ -503,14 +529,15 @@ function asJSONObject(input: unknown): Record<string, unknown> {
 
 function readNovaToolMetadata(
   metadata: ToolCallMessagePartProps["providerMetadata"],
-): { kind: ToolKind; target: string } | null {
+): { kind: ToolKind; target: string; lineStarts?: number[] } | null {
   const nova = metadata?.nova as
-    | { kind?: ToolKind; target?: string }
+    | { kind?: ToolKind; target?: string; lineStarts?: number[] }
     | undefined;
   if (!nova) return null;
   return {
     kind: nova.kind ?? "other",
     target: nova.target ?? "",
+    lineStarts: nova.lineStarts,
   };
 }
 

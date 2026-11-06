@@ -173,6 +173,47 @@ export function createAgentService(emit: Emit): AgentService {
     return messages;
   }
 
+  /**
+   * 给本地已落库的旧消息补齐 diff 行号。
+   *
+   * lineStarts 是后加的字段：在此之前落库的 tool_call 没有行号，而历史展示
+   * 优先读数据库，于是老会话的 diff 永远拿不到行号。provider 回放能算出这些
+   * 行号（Claude 会话文件里有 originalFile / structuredPatch），这里按 callId
+   * 合并回去 —— 只补缺失，不覆盖已有值。
+   *
+   * 没有「写文件类调用缺行号」时直接返回，避免为每一次打开会话都回放。
+   */
+  function backfillLineStarts(session: Session, messages: Message[]): Message[] {
+    const missing = messages.some((message) =>
+      message.content.some(
+        (event) => event.type === "tool_call" && event.kind === "write" && !event.lineStarts,
+      ),
+    );
+    if (!missing) return messages;
+
+    const replayed = readHistoryCached(session);
+    if (replayed.length === 0) return messages;
+
+    const byCall = new Map<string, number[]>();
+    for (const message of replayed) {
+      for (const event of message.content) {
+        if (event.type === "tool_call" && event.callId && event.lineStarts) {
+          byCall.set(event.callId, event.lineStarts);
+        }
+      }
+    }
+    if (byCall.size === 0) return messages;
+
+    for (const message of messages) {
+      for (const event of message.content) {
+        if (event.type !== "tool_call" || event.lineStarts || !event.callId) continue;
+        const starts = byCall.get(event.callId);
+        if (starts) event.lineStarts = starts;
+      }
+    }
+    return messages;
+  }
+
   /** 释放单个会话的 CLI 侧数据；是否清理由 provider 的能力声明决定 */
   function dropSessionArtifacts(sessionId: string): void {
     const session = db.getSession(sessionId);
@@ -444,7 +485,7 @@ export function createAgentService(emit: Emit): AgentService {
       // 回退到 provider 从 CLI 侧回放（仅文本，不含工具调用细节）。
       const persisted = db.readSessionMessages(sessionId);
       if (persisted) {
-        return { ...session, messages: persisted };
+        return { ...session, messages: backfillLineStarts(session, persisted) };
       }
       return { ...session, messages: readHistoryCached(session) };
     },

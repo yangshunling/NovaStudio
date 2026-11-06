@@ -22,6 +22,7 @@ import { dirname, join } from "path";
 import { homedir } from "os";
 import type { AgentEvent, Message } from "../../../shared/types";
 import { mapAssistantBlocks, mapToolResultBlocks, type CallNames } from "./parse";
+import { lineOfText } from "./file-lines";
 
 /**
  * 会话根目录。
@@ -92,6 +93,23 @@ export function fileVersion(
  */
 const SESSION_ID_PATTERN = /^[A-Za-z0-9_-]+$/;
 
+/** structuredPatch 的一个 hunk（行号 + 带 +/-/空格前缀的行） */
+interface ClaudePatchHunk {
+  oldStart?: number;
+  newStart?: number;
+  lines?: unknown;
+}
+
+/**
+ * 工具回执附带的结构化结果。会话文件把它写在同一条 user 记录上，
+ * 这里只取定位行号需要的字段。
+ */
+interface ClaudeToolUseResult {
+  oldString?: string;
+  originalFile?: string;
+  structuredPatch?: ClaudePatchHunk[];
+}
+
 /** 会话 JSONL 的单条记录（只声明我们关心的字段） */
 interface ClaudeSessionEntry {
   type?: string;
@@ -100,6 +118,7 @@ interface ClaudeSessionEntry {
   /** 子代理（Task 工具）产生的对话，不属于主对话 */
   isSidechain?: boolean;
   message?: { role?: string; content?: unknown };
+  toolUseResult?: ClaudeToolUseResult;
 }
 
 /**
@@ -151,8 +170,11 @@ export function readHistory(
         });
         lastAssistant = null;
       } else if (lastAssistant) {
-        // 数组内容 = 工具回执
+        // 数组内容 = 工具回执；顺带把结构化结果里的真实行号补到对应调用上
         lastAssistant.content.push(...mapToolResultBlocks(content, names));
+        // 并行工具调用的回执可能晚于后续 assistant 记录到达，所以按 callId
+        // 在整个已回放的消息里找，而不是只在最后一条消息里找
+        attachLineStarts(messages, content, entry.toolUseResult);
       }
     } else if (entry.type === "assistant") {
       const blocks: AgentEvent[] = mapAssistantBlocks(content, names);
@@ -171,6 +193,101 @@ export function readHistory(
     // attachment / queue-operation / atis-latch 等系统记录跳过
   }
   return messages;
+}
+
+/**
+ * 把「改动在文件中的起始行号」补到已渲染的 tool_call 事件上。
+ *
+ * 会话文件在同一条 user 记录里同时保存了 tool_result 与 toolUseResult：
+ * - Edit：originalFile（改动前的整份文件）+ oldString，可直接定位，最精确
+ * - Write：整文件写入，恒从第 1 行开始
+ * - 兜底：structuredPatch 的 hunk 行号（跳过 hunk 头部上下文行）
+ */
+function attachLineStarts(
+  messages: Message[],
+  content: unknown,
+  result: ClaudeToolUseResult | undefined,
+): void {
+  if (!result) return;
+  const callId = toolResultCallId(content);
+  if (!callId) return;
+
+  const target = findToolCall(messages, callId);
+  if (!target) return;
+
+  const name = target.name.toLowerCase();
+  if (name === "write" || name === "notebookedit") {
+    target.lineStarts = [1];
+    return;
+  }
+  if (name !== "edit" && name !== "multiedit") return;
+
+  const starts = resolveLineStarts(result);
+  if (starts) target.lineStarts = starts;
+}
+
+/** 按 callId 在所有已回放消息里找对应的 tool_call */
+function findToolCall(
+  messages: Message[],
+  callId: string,
+): Extract<AgentEvent, { type: "tool_call" }> | null {
+  for (let m = messages.length - 1; m >= 0; m -= 1) {
+    const events = messages[m].content;
+    for (let i = events.length - 1; i >= 0; i -= 1) {
+      const event = events[i];
+      if (event.type === "tool_call" && event.callId === callId) return event;
+    }
+  }
+  return null;
+}
+
+/** user 记录里第一个 tool_result 的 id */
+function toolResultCallId(content: unknown): string | null {
+  if (!Array.isArray(content)) return null;
+  for (const block of content) {
+    if (!block || typeof block !== "object") continue;
+    const record = block as { type?: unknown; tool_use_id?: unknown };
+    if (record.type === "tool_result" && typeof record.tool_use_id === "string") {
+      return record.tool_use_id;
+    }
+  }
+  return null;
+}
+
+function resolveLineStarts(result: ClaudeToolUseResult): number[] | undefined {
+  if (typeof result.oldString === "string" && typeof result.originalFile === "string") {
+    const start = lineOfText(result.originalFile, result.oldString);
+    if (start !== null) return [start];
+  }
+  return patchLineStarts(result.structuredPatch);
+}
+
+/** structuredPatch → 每个 hunk 中第一处变更的行号 */
+function patchLineStarts(patch: ClaudePatchHunk[] | undefined): number[] | undefined {
+  if (!Array.isArray(patch) || patch.length === 0) return undefined;
+  const starts: number[] = [];
+  for (const hunk of patch) {
+    const start = hunkStartLine(hunk);
+    if (start === null) return undefined;
+    starts.push(start);
+  }
+  return starts;
+}
+
+function hunkStartLine(hunk: ClaudePatchHunk | null | undefined): number | null {
+  if (!hunk || typeof hunk !== "object") return null;
+  const lines = Array.isArray(hunk.lines) ? hunk.lines : [];
+  // hunk 头部可能带着改动前/后的上下文行，要跳过去才能得到第一处变更
+  const changed = lines.findIndex(
+    (line) => typeof line === "string" && (line.startsWith("-") || line.startsWith("+")),
+  );
+  if (changed < 0) return null;
+
+  const first = lines[changed] as string;
+  // 纯新增用新文件行号，删除 / 替换用旧文件行号
+  const base = first.startsWith("+") ? hunk.newStart : hunk.oldStart;
+  const start = Number(base);
+  return Number.isFinite(start) ? Math.max(1, start + changed) : null;
 }
 
 /**

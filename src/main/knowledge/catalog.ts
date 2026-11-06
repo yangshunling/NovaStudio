@@ -3,7 +3,7 @@
  *
  * 与 Skill / MCP 同构：磁盘目录是唯一事实来源。
  * - 每个知识库 = ~/.novastudio/knowledge/<slug>/，元信息存目录内 .kb.json
- * - 只收 Markdown（.md / .markdown），其他格式在上传时直接拒绝
+ * - 接受任意格式文件；只有文本类文件进入全文索引并被解析为正文
  * - 全文索引落在 SQLite FTS5（trigram），磁盘删除 / 外部修改会在检索前自动同步
  *
  * 本模块只负责扫描、文件 CRUD 与索引同步；运行时如何注入给数字员工
@@ -13,6 +13,7 @@
 import { existsSync } from "fs";
 import { copyFile, mkdir, readFile, readdir, rm, stat } from "fs/promises";
 import { basename, extname, join, relative, resolve, sep } from "path";
+import { isTextFile } from "../../shared/file-kinds";
 import {
   deleteKnowledgeDocument,
   deleteKnowledgeDocumentsByKb,
@@ -56,8 +57,6 @@ const MAX_SCAN_FILES = 5000;
 const MAX_SCAN_DEPTH = 12;
 const SEARCH_LIMIT = 50;
 
-const MARKDOWN_EXTENSIONS = new Set([".md", ".markdown"]);
-
 interface KnowledgeMeta {
   name: string;
   description: string;
@@ -70,10 +69,6 @@ interface ScanResult {
   documentCount: number;
   totalBytes: number;
   latestUpdatedAt: number;
-}
-
-function isMarkdown(fileName: string): boolean {
-  return MARKDOWN_EXTENSIONS.has(extname(fileName).toLowerCase());
 }
 
 function toPosix(path: string): string {
@@ -137,7 +132,7 @@ async function readMeta(
   }
 }
 
-/** 递归收集 Markdown 文档；跳过隐藏项、符号链接与非 Markdown 文件 */
+/** 递归收集知识库内的全部文件；跳过隐藏项与符号链接 */
 async function scanDocuments(root: string): Promise<ScanResult> {
   const documents: KnowledgeDocument[] = [];
   let totalBytes = 0;
@@ -163,7 +158,7 @@ async function scanDocuments(root: string): Promise<ScanResult> {
         await walk(full, depth + 1);
         continue;
       }
-      if (!entry.isFile() || !isMarkdown(entry.name)) continue;
+      if (!entry.isFile()) continue;
 
       try {
         const info = await stat(full);
@@ -173,7 +168,8 @@ async function scanDocuments(root: string): Promise<ScanResult> {
           isDirectory: false,
           size: info.size,
           updatedAt: info.mtimeMs,
-          indexed: info.size <= INDEX_MAX_BYTES,
+          // 二进制文件不进入 FTS：内容不是 UTF-8 文本，索引出来只会是乱码
+          indexed: isTextFile(entry.name) && info.size <= INDEX_MAX_BYTES,
         });
         totalBytes += info.size;
         latestUpdatedAt = Math.max(latestUpdatedAt, info.mtimeMs);
@@ -275,7 +271,7 @@ export async function getKnowledgeBase(
   return (await listKnowledgeBases()).find((asset) => asset.id === id) ?? null;
 }
 
-/** 运行时使用：递归列出某个知识库的全部 Markdown 相对路径 */
+/** 运行时使用：递归列出某个知识库的全部文件相对路径 */
 export async function listKnowledgeFilesForAsset(
   asset: KnowledgeBaseAsset,
 ): Promise<string[]> {
@@ -325,7 +321,7 @@ export async function listKnowledgeDocuments(
       continue;
     }
 
-    if (!entry.isFile() || !isMarkdown(entry.name)) continue;
+    if (!entry.isFile()) continue;
 
     try {
       const info = await stat(full);
@@ -335,7 +331,7 @@ export async function listKnowledgeDocuments(
         isDirectory: false,
         size: info.size,
         updatedAt: info.mtimeMs,
-        indexed: info.size <= INDEX_MAX_BYTES,
+        indexed: isTextFile(entry.name) && info.size <= INDEX_MAX_BYTES,
       });
     } catch {
       // 忽略读不到的文件
@@ -582,7 +578,8 @@ async function indexDocument(
 
 /**
  * 把若干外部文件复制进知识库的当前文件夹。
- * 只接受 Markdown；同名自动改名；部分失败时通过 warnings 返回。
+ * 接受任意格式；同名自动改名；部分失败时通过 warnings 返回。
+ * 二进制文件照常保存，但不建立全文索引（结果里会给出一次汇总提示）。
  */
 export async function importKnowledgeFiles(
   id: string,
@@ -609,14 +606,10 @@ export async function importKnowledgeFiles(
 
   const uploaded: KnowledgeDocument[] = [];
   const warnings: string[] = [];
+  let unindexed = 0;
 
   for (const source of filePaths) {
     const sourceName = basename(source);
-
-    if (!isMarkdown(sourceName)) {
-      warnings.push(`${sourceName}：只支持 Markdown（.md / .markdown）`);
-      continue;
-    }
 
     try {
       const info = await stat(source);
@@ -644,9 +637,10 @@ export async function importKnowledgeFiles(
         isDirectory: false,
         size: copied.size,
         updatedAt: copied.mtimeMs,
-        indexed: copied.size <= INDEX_MAX_BYTES,
+        indexed: isTextFile(targetName) && copied.size <= INDEX_MAX_BYTES,
       };
       uploaded.push(document);
+      if (!isTextFile(targetName)) unindexed += 1;
       await indexDocument(asset, document);
     } catch (err) {
       warnings.push(
@@ -655,12 +649,18 @@ export async function importKnowledgeFiles(
     }
   }
 
+  if (unindexed > 0) {
+    warnings.push(
+      `${unindexed} 个文件已保存，但不是文本格式，未建立全文检索（仍可打开与供 Agent 读取）`,
+    );
+  }
+
   if (uploaded.length === 0) {
     return {
       ok: false,
       uploaded,
       warnings,
-      error: warnings.join("；") || "没有可上传的 Markdown 文件",
+      error: warnings.join("；") || "没有可上传的文件",
     };
   }
 
@@ -739,7 +739,8 @@ export async function readKnowledgeDocument(
   const target = resolveRelative(asset.path, relativePath);
   if (!target || !(await isInsideReal(asset.path, target))) return null;
 
-  if (!isMarkdown(target)) return null;
+  // 二进制文件没有可读的 UTF-8 正文，预览走「用系统程序打开」
+  if (!isTextFile(target)) return null;
 
   const snapshot = await readTextFileLimited(target, PREVIEW_MAX_BYTES);
   if (!snapshot) return null;
@@ -753,9 +754,9 @@ export async function readKnowledgeDocument(
 }
 
 /**
- * 保存知识库里的 Markdown 文档。
+ * 保存知识库里的文本文件。
  *
- * 只允许覆盖已存在的 .md / .markdown 文件：路径必须在知识库内，
+ * 只允许覆盖已存在的文本类文件：路径必须在知识库内，
  * 写入后同步更新全文索引与知识库统计缓存。
  */
 export async function writeKnowledgeDocument(
@@ -777,8 +778,8 @@ export async function writeKnowledgeDocument(
   } catch {
     return { ok: false, error: "文档不存在，可能已被删除" };
   }
-  if (!info.isFile() || !isMarkdown(target)) {
-    return { ok: false, error: "只能编辑 Markdown 文档" };
+  if (!info.isFile() || !isTextFile(target)) {
+    return { ok: false, error: "只能编辑文本类文件" };
   }
 
   const written = await writeTextFileLimited(
@@ -833,7 +834,7 @@ export async function resolveDocumentPath(
 /**
  * 把磁盘状态同步到索引。
  *
- * 只读取 mtime / size 发生变化的文件；外部新增、修改、删除 Markdown
+ * 只读取 mtime / size 发生变化的文本文件；外部新增、修改、删除文件
  * 都会在下一次检索时被吸收。超过 INDEX_MAX_BYTES 的文件不建索引。
  */
 export async function syncKnowledgeIndex(kbId?: string): Promise<void> {

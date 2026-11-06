@@ -19,6 +19,7 @@ import type {
   DigitalEmployeeDraft,
   McpServerDraft,
   SkillImportKind,
+  TodoDraft,
   WorkflowDraft,
   WorkflowTriggerDraft,
 } from "@shared/types";
@@ -241,6 +242,17 @@ export const ipc = {
   setWorkflowTriggers: (workflowId: string, triggerIds: string[]) =>
     call("triggers:setForWorkflow", { workflowId, triggerIds }),
 
+  // === 待办事项 ===
+  listTodos: () => call("todos:list"),
+  createTodo: (draft: TodoDraft) => call("todos:create", { draft }),
+  updateTodo: (id: string, draft: TodoDraft) =>
+    call("todos:update", { id, draft }),
+  toggleTodo: (id: string, done: boolean) =>
+    call("todos:toggle", { id, done }),
+  deleteTodo: (id: string) => call("todos:delete", { id }),
+  clearCompletedTodos: () => call("todos:clearCompleted"),
+  reorderTodos: (ids: string[]) => call("todos:reorder", { ids }),
+
   // === 主进程推送订阅（返回取消订阅函数） ===
   on: {
     agentEvent: (cb: (payload: IpcPushMap["agent:event"]) => void) =>
@@ -262,6 +274,8 @@ export const ipc = {
     ) => on("workflow:run:agentEvent", cb),
     triggersUpdated: (cb: (payload: IpcPushMap["triggers:updated"]) => void) =>
       on("triggers:updated", cb),
+    todosChanged: (cb: (payload: IpcPushMap["todos:changed"]) => void) =>
+      on("todos:changed", cb),
     updaterChanged: (cb: (payload: IpcPushMap["updater:changed"]) => void) =>
       on("updater:changed", cb),
   },

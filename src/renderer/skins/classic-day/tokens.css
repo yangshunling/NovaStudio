@@ -53,6 +53,11 @@
   --c-error: #cf222e;
   --c-error-bg: rgba(248, 230, 230, 0.85);
   --c-success: #1a7f37;
+  /* 代码 diff：比状态色更鲜明，正文用高饱和色 + 浅色底，一眼能分辨增删 */
+  --c-diff-add: #0a7a38;
+  --c-diff-add-bg: #bdf3cd;
+  --c-diff-del: #c81e28;
+  --c-diff-del-bg: #ffc9c6;
 
   /* === 用户消息气泡（实心蓝，靠投影离开纸面） === */
   --c-bubble-user: #0969da;

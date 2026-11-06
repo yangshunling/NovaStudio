@@ -11,11 +11,11 @@
  *          ├─ StandaloneResultBlock（未配对的独立 tool_result）
  *          └─ EventBlock（text / thinking / error）
  *
- * 工具调用只消费事件里的 kind / target —— 工具名与参数形状的知识在 provider 侧，
- * 本文件不认识任何具体工具。
+ * 工具调用只消费事件里的 kind / target / lineStarts —— 工具名与参数形状的知识
+ * 在 provider 侧，本文件不认识任何具体工具。
  */
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Brain,
   Wrench,
@@ -32,6 +32,8 @@ import { MarkdownRenderer } from "../ui/MarkdownRenderer";
 import { StreamingIndicator } from "../ui/StreamingIndicator";
 import { UserBubble } from "../ui/UserBubble";
 import { truncateText, isToolResultError, firstText } from "../../lib/utils";
+import { extractFileChanges } from "../../lib/tool-diff";
+import { ToolDiffView } from "./ToolDiffView";
 import type { AgentEvent, ToolKind } from "@shared/types";
 
 // ============================================================================
@@ -107,7 +109,6 @@ function toolTarget(call: Extract<AgentEvent, { type: "tool_call" }>): string {
 // ============================================================================
 
 function ToolGroupBlock({ group }: { group: ToolGroup }) {
-  const [collapsed, setCollapsed] = useState(true);
   const { call, result } = group;
   const hasError = !!result && isToolResultError(result);
   const status = result ? (hasError ? "failed" : "ok") : "running";
@@ -119,6 +120,12 @@ function ToolGroupBlock({ group }: { group: ToolGroup }) {
   const target = toolTarget(call);
   const fullTarget = call.target || target;
   const Icon = TOOL_ICONS[call.kind];
+  const changes = useMemo(
+    () => extractFileChanges(call.name, call.input, call.kind, call.lineStarts),
+    [call.name, call.input, call.kind, call.lineStarts],
+  );
+  // 改动类工具默认展开，其余保持折叠
+  const [collapsed, setCollapsed] = useState(() => changes.length === 0);
 
   return (
     <div className="mb-1.5 w-full">
@@ -129,8 +136,9 @@ function ToolGroupBlock({ group }: { group: ToolGroup }) {
         <Icon className="mt-0.5 h-3.5 w-3.5 shrink-0 text-tool" />
         <span className="shrink-0 font-mono">{call.name}</span>
         {target && (
+          /* 单行展示：换行折叠成空格，超宽用省略号；完整命令见 title / 展开明细 */
           <span
-            className="min-w-0 flex-1 whitespace-pre-wrap break-all font-mono text-text-muted"
+            className="min-w-0 flex-1 truncate font-mono text-text-muted"
             title={fullTarget}
           >
             {target}
@@ -145,14 +153,19 @@ function ToolGroupBlock({ group }: { group: ToolGroup }) {
         </span>
       </button>
       {!collapsed && (
-        <div className="mt-1 w-full space-y-1 border-l-2 border-tool pl-3">
-          <div>
-            <div className="text-micro uppercase tracking-wide text-text-muted">input</div>
-            <pre className="ui-glass max-h-40 overflow-auto rounded-md px-2 py-1 text-meta text-text-secondary">
-              {truncateText(JSON.stringify(call.input, null, 2), 500)}
-            </pre>
-          </div>
-          {result && result.output && (
+        <div className="mt-1 w-full space-y-1">
+          {changes.length > 0 ? (
+            <ToolDiffView changes={changes} />
+          ) : (
+            <div>
+              <div className="text-micro uppercase tracking-wide text-text-muted">input</div>
+              <pre className="ui-glass max-h-40 overflow-auto rounded-md px-2 py-1 text-meta text-text-secondary">
+                {truncateText(JSON.stringify(call.input, null, 2), 500)}
+              </pre>
+            </div>
+          )}
+          {/* 有 diff 且成功时回执没有信息量，不再展示；失败时保留错误信息 */}
+          {result && result.output && (changes.length === 0 || hasError) && (
             <div>
               <div className="text-micro uppercase tracking-wide text-text-muted">
                 {hasError ? "error" : "output"}

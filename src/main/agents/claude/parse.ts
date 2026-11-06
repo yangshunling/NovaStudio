@@ -83,12 +83,20 @@ function resultText(content: unknown): string {
 }
 
 /**
+ * 定位一次工具改动在文件中的起始行号（1-based）。
+ * 解析层本身不碰文件系统：provider 在运行时有 cwd，注入这个回调即可。
+ * 返回与 input 多段替换一一对应的数组；定位不到返回 undefined。
+ */
+export type LineStartsResolver = (name: string, input: unknown) => number[] | undefined;
+
+/**
  * assistant 消息的 content → 事件块。
  * 同时记录 tool_use 的 id → 工具名，供随后到达的 tool_result 使用。
  */
 export function mapAssistantBlocks(
   content: unknown,
   names: CallNames,
+  resolveLineStarts?: LineStartsResolver,
 ): AgentEvent[] {
   if (!Array.isArray(content)) return [];
   const out: AgentEvent[] = [];
@@ -110,6 +118,7 @@ export function mapAssistantBlocks(
         input: block.input ?? {},
         kind: display.kind,
         target: display.target,
+        lineStarts: resolveLineStarts?.(block.name, block.input),
       });
     }
     // redacted_thinking / image 等其它块忽略
@@ -157,10 +166,12 @@ export interface MessageBuffer {
  * 已累积了哪些块」记在闭包里。前者让 tool_result 能补上工具名（协议只给 id），
  * 后者让按块到达的 assistant 事件能拼成完整消息再发权威块。
  */
-export function createDecoder(): (line: string) => AgentEvent | AgentEvent[] | null {
+export function createDecoder(options?: {
+  resolveLineStarts?: LineStartsResolver;
+}): (line: string) => AgentEvent | AgentEvent[] | null {
   const names: CallNames = new Map();
   const buffer: MessageBuffer = { id: null, blocks: [] };
-  return (line) => decode(line, names, buffer);
+  return (line) => decode(line, names, buffer, options?.resolveLineStarts);
 }
 
 /** 把一行 JSON 解码为事件 */
@@ -168,6 +179,7 @@ export function decode(
   line: string,
   names: CallNames,
   buffer: MessageBuffer,
+  resolveLineStarts?: LineStartsResolver,
 ): AgentEvent | AgentEvent[] | null {
   if (!line.trim()) return null;
 
@@ -214,7 +226,7 @@ export function decode(
     // 兜底：万一没收到 message_start，靠 message.id 变化识别新消息
     if (messageId && buffer.id && messageId !== buffer.id) buffer.blocks = [];
     if (messageId) buffer.id = messageId;
-    const blocks = mapAssistantBlocks(message?.content, names);
+    const blocks = mapAssistantBlocks(message?.content, names, resolveLineStarts);
     // 没有可展示的块（例如纯 image 块）：不发事件
     if (blocks.length === 0) return null;
     buffer.blocks.push(...blocks);

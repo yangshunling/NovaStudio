@@ -33,6 +33,7 @@ import { registerKnowledgeHandlers } from "./handlers/knowledge";
 import { registerWorkflowHandlers } from "./handlers/workflow";
 import { registerWorkflowRunHandlers } from "./handlers/workflow-run";
 import { registerTriggerHandlers } from "./handlers/trigger";
+import { registerTodoHandlers } from "./handlers/todo";
 import { registerUpdaterHandlers } from "./handlers/updater";
 import { registerAppHandlers } from "./handlers/app";
 
@@ -105,6 +106,7 @@ export function initIpcHandlers(window: BrowserWindow): void {
   registerWorkflowHandlers(service, runner);
   registerWorkflowRunHandlers(service, runner);
   registerTriggerHandlers();
+  registerTodoHandlers();
   registerUpdaterHandlers();
   registerAppHandlers();
 

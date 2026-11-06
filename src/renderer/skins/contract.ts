@@ -47,6 +47,11 @@ export const REQUIRED_TOKENS: readonly string[] = [
   "--c-error",
   "--c-error-bg",
   "--c-success",
+  // 代码 diff：与 success / error 分开，允许更鲜明的高亮（正文采用对比更强的色）
+  "--c-diff-add",
+  "--c-diff-add-bg",
+  "--c-diff-del",
+  "--c-diff-del-bg",
   // Agent 标识色槽位（色值默认在 _base.css，皮肤可覆盖）
   "--c-agent-amber",
   "--c-agent-violet",

@@ -50,6 +50,12 @@ export type AgentEvent =
       kind: ToolKind;
       /** 操作对象原文（路径 / 命令 / 模式串）。是否缩短由展示层决定 */
       target: string;
+      /**
+       * 变更在文件中的起始行号（1-based），与 input 里的多段替换一一对应。
+       * provider 能定位时给出；拿不到则缺省 —— 展示层据此决定是否显示行号，
+       * 而不是从 1 开始假装知道位置。
+       */
+      lineStarts?: number[];
     }
   | {
       type: "tool_result";
@@ -354,10 +360,10 @@ export type McpWriteResult =
 // ============================================================================
 
 /**
- * 知识库 = ~/.novastudio/knowledge/<slug>/ 下的一个 Markdown 文档目录。
+ * 知识库 = ~/.novastudio/knowledge/<slug>/ 下的一个资料目录。
  *
  * 与 Skill / MCP 相同，磁盘目录是唯一事实来源；元信息存目录内的 .kb.json。
- * 只收 Markdown：其他格式无法进入索引，也不会被运行时注入。
+ * 接受任意格式文件：文本类文件进入全文索引，二进制文件仅存储并供 Agent 读取。
  */
 export interface KnowledgeBaseAsset {
   /** 稳定引用 id，格式 knowledge:<slug> */
@@ -369,14 +375,14 @@ export interface KnowledgeBaseAsset {
   description: string;
   /** 知识库根目录的绝对路径 */
   path: string;
-  /** Markdown 文档总数（递归统计） */
+  /** 文件总数（递归统计，含非文本格式） */
   documentCount: number;
-  /** Markdown 文档总字节数 */
+  /** 文件总字节数 */
   totalBytes: number;
   updatedAt: number;
 }
 
-/** 知识库里的一个条目：Markdown 文档或子文件夹 */
+/** 知识库里的一个条目：文件或子文件夹 */
 export interface KnowledgeDocument {
   name: string;
   /** 相对知识库根目录的 POSIX 路径 */
@@ -384,7 +390,7 @@ export interface KnowledgeDocument {
   isDirectory: boolean;
   size: number;
   updatedAt: number;
-  /** 是否已进入全文索引；超过索引上限的文件为 false */
+  /** 是否已进入全文索引；非文本格式或超过索引上限的文件为 false */
   indexed: boolean;
 }
 
@@ -404,7 +410,7 @@ export type KnowledgeWriteResult =
 export interface KnowledgeUploadResult {
   ok: boolean;
   uploaded: KnowledgeDocument[];
-  /** 部分文件被跳过时的提示（非 Markdown / 超大 / 同名改名等） */
+  /** 部分文件被跳过或未索引时的提示（超大 / 同名改名 / 非文本格式等） */
   warnings: string[];
   error?: string;
 }
@@ -435,7 +441,7 @@ export interface KnowledgeDocumentContent {
   truncated: boolean;
 }
 
-/** 保存知识库 Markdown 文档的结果 */
+/** 保存知识库文本文件的结果 */
 export type KnowledgeDocumentWriteResult =
   | { ok: true; document: KnowledgeDocumentContent }
   | { ok: false; error: string };
@@ -923,6 +929,41 @@ export interface UpdaterState {
    * 开发模式（未打包）下 electron-updater 不可用，为 false。
    */
   supported: boolean;
+}
+
+// ============================================================================
+// 待办事项
+// ============================================================================
+
+/** 优先级：只做三档，避免把个人清单做成任务系统 */
+export type TodoPriority = "low" | "normal" | "high";
+
+/** 一条个人待办 */
+export interface TodoItem {
+  id: string;
+  title: string;
+  /** 备注，可为空；列表里只展示一行摘要 */
+  note: string;
+  priority: TodoPriority;
+  /** 截止日期（本地时间当天 0 点）；无截止日期为 null */
+  dueAt: number | null;
+  /** 自定义标签，去重后保存 */
+  tags: string[];
+  done: boolean;
+  completedAt: number | null;
+  /** 手动排序值；越小越靠前 */
+  sortOrder: number;
+  createdAt: number;
+  updatedAt: number;
+}
+
+/** 可编辑字段；新建与更新共用 */
+export interface TodoDraft {
+  title: string;
+  note: string;
+  priority: TodoPriority;
+  dueAt: number | null;
+  tags: string[];
 }
 
 /** 应用与运行环境信息，供「关于」页展示 */

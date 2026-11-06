@@ -3,7 +3,8 @@
  *
  * 两栏结构（与工作流一致）：
  * - 左：知识库列表，新建 / 重命名 / 删除
- * - 右：当前知识库的 Markdown 文档与子文件夹，上传、建文件夹、全文检索
+ * - 右：当前知识库的文件与子文件夹，上传、建文件夹、全文检索
+ *   文本类文件可在 Nova 内预览编辑并进入索引，其余格式仅存储 / 系统程序打开
  *
  * 知识库目录是唯一事实来源；页面只做索引与文件操作。
  * 数字员工在「知识库」标签页里勾选引用，工作流运行时注入给 Agent。
@@ -70,6 +71,7 @@ import {
   DrawerCloseButton,
   DrawerHeader,
 } from "../ui/Drawer";
+import { isTextFile } from "@shared/file-kinds";
 import type {
   KnowledgeBaseAsset,
   KnowledgeDocument,
@@ -269,7 +271,7 @@ export function KnowledgeView() {
     try {
       const result = await ipc.uploadKnowledgeDocuments(selected.id, subPath);
       if (result.uploaded.length > 0) {
-        toast.success(`已上传 ${result.uploaded.length} 个文档`);
+        toast.success(`已上传 ${result.uploaded.length} 个文件`);
       }
       if (!result.ok && result.error) {
         toast.error(result.error, 5000);
@@ -315,7 +317,7 @@ export function KnowledgeView() {
     const confirmed = await confirmDialog({
       title: `删除知识库「${asset.name}」？`,
       message: [
-        `将删除其中全部 ${asset.documentCount} 个 Markdown 文档（${formatBytes(asset.totalBytes)}）。`,
+        `将删除其中全部 ${asset.documentCount} 个文件（${formatBytes(asset.totalBytes)}）。`,
         users > 0
           ? `有 ${users} 位数字员工正在引用它，删除后这些引用会显示为「已失效」。`
           : "",
@@ -413,7 +415,7 @@ export function KnowledgeView() {
                   selected ? (
                     <>
                       <span className="shrink-0 rounded-full bg-surface-hover px-2 py-0.5 font-mono text-meta text-text-muted">
-                        {selected.documentCount} 篇 ·{" "}
+                        {selected.documentCount} 个 ·{" "}
                         {formatBytes(selected.totalBytes)}
                       </span>
                       {(usageCount.get(selected.id) ?? 0) > 0 && (
@@ -449,7 +451,7 @@ export function KnowledgeView() {
                         )
                       }
                     >
-                      上传 Markdown
+                      上传文件
                     </Button>
                   </>
                 }
@@ -632,7 +634,11 @@ export function KnowledgeView() {
                             )}
                             {!document.isDirectory && !document.indexed && (
                               <span
-                                title="超过 8MB，未建立全文索引"
+                                title={
+                                  isTextFile(document.name)
+                                    ? "超过 8MB，未建立全文索引"
+                                    : "非文本格式，不建立全文索引"
+                                }
                                 className="shrink-0 rounded-full bg-agent-amber/10 px-1.5 py-0.5 text-micro text-agent-amber"
                               >
                                 未索引
@@ -821,7 +827,7 @@ function SearchResults({
         size="compact"
         icon={<Search />}
         title={`没有找到匹配「${query.trim()}」的内容`}
-        description="只检索 Markdown 正文；超过 8MB 的文档未建立全文索引。"
+        description="只检索文本类文件的正文；二进制格式（PDF、Office、图片等）不建立全文索引。"
       />
     );
   }
@@ -931,7 +937,16 @@ function KnowledgePreview({
   const [savedContent, setSavedContent] = useState("");
   const [saving, setSaving] = useState(false);
 
+  const name = relativePath.split("/").pop() ?? relativePath;
+  // 二进制文件没有可读正文：不请求内容，只提示用系统程序打开
+  const textual = isTextFile(name);
+
   useEffect(() => {
+    if (!textual) {
+      setLoading(false);
+      setError(null);
+      return;
+    }
     let cancelled = false;
     setLoading(true);
     setError(null);
@@ -940,7 +955,7 @@ function KnowledgePreview({
       .then((document) => {
         if (cancelled) return;
         if (!document) {
-          setError("文档不存在或不是 Markdown 文件");
+          setError("文档不存在或不是文本文件");
           return;
         }
         // 先统一行尾：<textarea> 会把 CRLF 归一化成 LF，
@@ -961,9 +976,8 @@ function KnowledgePreview({
     return () => {
       cancelled = true;
     };
-  }, [kbId, relativePath]);
+  }, [kbId, relativePath, textual]);
 
-  const name = relativePath.split("/").pop() ?? relativePath;
   const dirty = !isSameText(draft, savedContent);
 
   const handleSave = async () => {
@@ -1027,6 +1041,14 @@ function KnowledgePreview({
           <div className="flex items-start gap-2 rounded-lg border border-error/40 bg-error-bg p-3 text-body text-error">
             <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
             {error}
+          </div>
+        ) : !textual ? (
+          <div className="flex items-start gap-2 rounded-lg border border-border bg-surface-2/60 p-3 text-body text-text-secondary">
+            <FileText className="mt-0.5 h-4 w-4 shrink-0 text-text-muted" />
+            <div>
+              这是非文本格式，无法在 Nova 内预览或编辑。请使用右上角「用系统程序打开」查看，
+              Agent 运行时仍可直接读取该文件。
+            </div>
           </div>
         ) : (
           <div className="flex min-h-0 flex-1 flex-col">
@@ -1119,8 +1141,8 @@ function KnowledgeFormModal({
       description={
         <>
           知识库会创建在{" "}
-          <code className="font-mono">~/.novastudio/knowledge</code> 下，只接受
-          Markdown 文档。
+          <code className="font-mono">~/.novastudio/knowledge</code>{" "}
+          下，可上传任意格式文件；文本类文件支持全文检索。
         </>
       }
     >
@@ -1266,7 +1288,7 @@ function EmptyKnowledge({ onCreate }: { onCreate: () => void }) {
     <EmptyState
       icon={<Library />}
       title="建立第一个知识库"
-      description="创建一个知识库，上传 Markdown 文档，然后在数字员工里勾选引用。工作流执行节点时，Agent 会把这些资料当作自己的能力。"
+      description="创建一个知识库，上传资料文件，然后在数字员工里勾选引用。工作流执行节点时，Agent 会把这些资料当作自己的能力。"
       action={
         <Button
           variant="primary"
@@ -1290,8 +1312,8 @@ function EmptyDocuments({
   return (
     <EmptyBlock
       icon={<FileText />}
-      title="这个文件夹还没有 Markdown 文档"
-      description="只支持 .md / .markdown，单文件最大 100MB；同名文件会自动加序号。"
+      title="这个文件夹还没有文件"
+      description="支持任意格式，单文件最大 100MB；文本类文件会建立全文索引，同名文件会自动加序号。"
       action={
         <Button
           variant="primary"
@@ -1300,7 +1322,7 @@ function EmptyDocuments({
           icon={<Upload className="h-4 w-4" />}
           onClick={onUpload}
         >
-          上传 Markdown
+          上传文件
         </Button>
       }
     />
