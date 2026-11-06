@@ -1,10 +1,10 @@
 /**
  * 待办事项页
  *
- * 版面是「工作台账」而不是卡片列表：
- * - 顶部是当天的日期与一句话摘要，右侧一条极细的完成进度
- * - 中间用左侧窄栏承载截止时间分组，竖线把「分组」与「条目」分开
- * - 添加行就是台账的第一行，像在纸上写一行字
+ * 版面是「工作台」而不是表格：
+ * - 顶部一张概览卡：日期主视觉 + 一句话摘要 + 一条完成进度
+ * - 中部按截止时间分组，每组是一张带表头的卡片，条目之间用细线分隔
+ * - 右侧日历与统计各自独立成卡，与主列表形成主次关系
  *
  * 交互规则保持不变：
  * - 未完成按截止日期分组；已完成单独一栏，按完成时间倒序
@@ -12,7 +12,8 @@
  */
 
 import { useMemo, useState } from "react";
-import { ListTodo, Plus } from "lucide-react";
+import type { ReactNode } from "react";
+import { ArrowUpDown, Inbox, ListTodo, Plus, Tag, Trash2 } from "lucide-react";
 import type { TodoDraft, TodoItem } from "@shared/types";
 import { ipc } from "../../lib/ipc";
 import { toMessage } from "../../lib/utils";
@@ -23,7 +24,8 @@ import { Page, PageBody, PageHeader } from "../ui/Page";
 import { Button } from "../ui/Button";
 import { SearchInput } from "../ui/SearchInput";
 import { Select } from "../ui/Select";
-import { ErrorState, LoadingState } from "../ui/EmptyState";
+import { SegmentedTabs } from "../ui/SegmentedTabs";
+import { EmptyState, ErrorState, LoadingState } from "../ui/EmptyState";
 import { TodoComposer } from "./TodoComposer";
 import { TodoCalendar } from "./TodoCalendar";
 import { TodoEditorDialog } from "./TodoEditorDialog";
@@ -39,6 +41,7 @@ import {
   sortTodos,
   startOfDay,
   weekdayShort,
+  type DueBucket,
   type TodoFilter,
   type TodoSort,
 } from "./todoUtils";
@@ -48,6 +51,15 @@ const VIEW_TABS: { id: TodoFilter; label: string }[] = [
   { id: "all", label: "全部" },
   { id: "done", label: "已完成" },
 ];
+
+/** 分组表头左侧的状态点：逾期红、今天蓝，其余随文本层级递减 */
+const GROUP_TONE: Record<DueBucket, string> = {
+  overdue: "bg-error",
+  today: "bg-accent",
+  week: "bg-text-secondary",
+  later: "bg-text-muted/60",
+  none: "bg-text-muted/30",
+};
 
 export function TodosView() {
   const {
@@ -394,27 +406,34 @@ export function TodosView() {
           ? "这一天还没有任务"
           : "清单是空的";
   const emptyHint =
-    filter === "done"
-      ? selectedDate !== null
-        ? "完成这一天的一条待办后，它会出现在这里。"
-        : "完成一条待办后，它会出现在这里。"
-      : selectedDate !== null
-        ? "在下面记一件事，回车即可加到这一天。"
-        : "在上面写下一件要做的事，回车即可保存。";
+    query.trim() || activeTags.length > 0
+      ? "换个关键词，或清除筛选后再试。"
+      : filter === "done"
+        ? selectedDate !== null
+          ? "完成这一天的一条待办后，它会出现在这里。"
+          : "完成一条待办后，它会出现在这里。"
+        : selectedDate !== null
+          ? "在下面记一件事，回车即可加到这一天。"
+          : "在上面写下一件要做的事，回车即可保存。";
 
   return (
     <Page>
       <PageHeader
         title="待办事项"
         icon={<ListTodo className="h-4 w-4" />}
+        count={pendingCount}
+        countSuffix=" 件待办"
         actions={
           <>
             <SearchInput
               value={query}
               onChange={setQuery}
               placeholder="搜索待办"
+              widthClass="w-48"
             />
             <Button
+              variant="primary"
+              size="sm"
               icon={<Plus className="h-4 w-4" />}
               onClick={() => setEditing("new")}
             >
@@ -426,261 +445,251 @@ export function TodosView() {
 
       <PageBody>
         <div className="mx-auto w-full max-w-[1120px]">
-          <div className="grid grid-cols-1 gap-10 min-[1080px]:grid-cols-[minmax(0,1fr)_300px]">
+          <div className="grid grid-cols-1 gap-6 min-[1080px]:grid-cols-[minmax(0,1fr)_300px]">
             <div className="min-w-0">
-          {/* 视图切换：下划线页签，而不是填充胶囊 */}
-          <div className="flex items-end justify-between gap-4 border-b border-border">
-            <div className="flex items-center gap-6">
-              {VIEW_TABS.map((tab) => {
-                const active = filter === tab.id;
-                return (
-                  <button
-                    key={tab.id}
-                    type="button"
-                    onClick={() => setFilter(tab.id)}
-                    className={`relative pb-2.5 text-meta transition-colors ${
-                      active
-                        ? "font-medium text-text"
-                        : "text-text-muted hover:text-text"
-                    }`}
-                  >
-                    {tab.label}
-                    <span
-                      className={`ml-2 text-caption tabular-nums ${
-                        active ? "text-text-secondary" : "text-text-muted"
-                      }`}
-                    >
-                      {tabCount(tab.id)}
-                    </span>
-                    {active && (
-                      <span className="absolute inset-x-0 bottom-0 h-[2px] rounded-full bg-accent" />
-                    )}
-                  </button>
-                );
-              })}
-            </div>
-
-            <div className="pb-2">
-              {filter === "done" ? (
-                doneCount > 0 && (
-                  <button
-                    type="button"
-                    onClick={() => void clearCompleted()}
-                    className="text-meta text-text-muted transition-colors hover:text-error"
-                  >
-                    清除已完成
-                  </button>
-                )
-              ) : (
-                <Select
-                  value={sort}
-                  onChange={(value) => setSort(value as TodoSort)}
-                  options={SORT_OPTIONS}
-                  className="text-meta text-text-muted transition-colors hover:text-text"
-                  minMenuWidth={150}
-                  aria-label="排序方式"
+              {/* 概览：日期主视觉 + 摘要 + 进度 */}
+              <section className="relative overflow-hidden rounded-2xl border border-border/70 bg-surface-2/40 p-5">
+                {/* 强调色渐变：整卡一层斜向洗色，右上角主光、左下角补光，
+                    顶部再加一道细高光，避免大块表面显得平 */}
+                <span
+                  aria-hidden
+                  className="pointer-events-none absolute inset-0 bg-gradient-to-br from-accent/20 via-accent/[0.05] to-transparent"
                 />
-              )}
-            </div>
-          </div>
-
-          {loading ? (
-            <LoadingState text="正在加载待办" />
-          ) : error ? (
-            <ErrorState message={error} onRetry={reload} />
-          ) : (
-            <>
-              {/* 当天信息：日期 + 一句话摘要 + 进度 */}
-              <div className="flex items-end justify-between gap-8 pt-6">
-                <div className="min-w-0">
-                  <div className="flex items-baseline gap-3">
-                    <h2 className="text-heading font-semibold tracking-tight text-text">
-                      {dateLabel}
-                    </h2>
-                    <span className="text-meta text-text-muted">
-                      {weekdayLabel}
-                    </span>
-                    {selectedDate !== null && (
-                      <button
-                        type="button"
-                        onClick={() => setSelectedDate(null)}
-                        className="text-caption text-accent transition-colors hover:underline"
-                      >
-                        回到全部
-                      </button>
-                    )}
-                  </div>
-                  <p className="mt-1.5 text-meta leading-relaxed text-text-muted">
-                    {summary}
-                  </p>
-                </div>
-
-                {meterTotal > 0 && (
-                  <div className="hidden w-48 shrink-0 pb-0.5 sm:block">
-                    <div className="flex items-center justify-between text-caption text-text-muted">
-                      <span>{meterLabel}</span>
-                      <span className="tabular-nums">
-                        {meterDone} / {meterTotal}
+                <span
+                  aria-hidden
+                  className="pointer-events-none absolute -right-24 -top-28 h-72 w-72 rounded-full bg-accent/25 blur-3xl"
+                />
+                <span
+                  aria-hidden
+                  className="pointer-events-none absolute -bottom-24 left-1/4 h-56 w-56 rounded-full bg-accent/10 blur-3xl"
+                />
+                <span
+                  aria-hidden
+                  className="pointer-events-none absolute inset-x-10 top-0 h-px bg-gradient-to-r from-transparent via-accent/60 to-transparent"
+                />
+                <div className="relative flex flex-wrap items-end justify-between gap-x-8 gap-y-4">
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-baseline gap-x-2.5 gap-y-1">
+                      <h2 className="text-hero font-semibold tracking-tight text-text">
+                        {dateLabel}
+                      </h2>
+                      <span className="rounded-full bg-surface-hover px-2 py-0.5 text-caption font-medium text-text-secondary">
+                        {weekdayLabel}
                       </span>
+                      {selectedDate !== null && (
+                        <button
+                          type="button"
+                          onClick={() => setSelectedDate(null)}
+                          className="text-caption text-accent transition-colors hover:text-accent-hover"
+                        >
+                          回到全部
+                        </button>
+                      )}
                     </div>
-                    <div className="mt-2 h-[3px] overflow-hidden rounded-full bg-surface-hover">
-                      <div
-                        className="h-full rounded-full bg-[var(--c-progress-fill)] transition-[width] duration-500 motion-reduce:transition-none"
-                        style={{ width: `${progress}%` }}
-                      />
-                    </div>
+                    <p className="mt-2 max-w-md text-body leading-relaxed text-text-secondary">
+                      {summary}
+                    </p>
                   </div>
-                )}
-              </div>
 
-              {/* 标签筛选：安静的文字过滤条 */}
-              {allTags.length > 0 && (
-                <div className="mt-5 flex flex-wrap items-center gap-x-3 gap-y-1.5">
-                  <span className="text-meta text-text-muted">标签</span>
-                  {allTags.map((tag) => {
-                    const active = activeTags.includes(tag);
-                    return (
-                      <button
-                        key={tag}
-                        type="button"
-                        onClick={() => toggleTagFilter(tag)}
-                        className={`text-meta transition-colors ${
-                          active
-                            ? "font-medium text-accent"
-                            : "text-text-muted hover:text-text"
-                        }`}
-                      >
-                        #{tag}
-                      </button>
-                    );
-                  })}
-                  {activeTags.length > 0 && (
-                    <button
-                      type="button"
-                      onClick={() => setActiveTags([])}
-                      className="text-caption text-text-muted underline underline-offset-2 transition-colors hover:text-text"
-                    >
-                      清除
-                    </button>
+                  {meterTotal > 0 && (
+                    <div className="hidden w-44 shrink-0 sm:block">
+                      <div className="flex items-baseline justify-between">
+                        <span className="text-caption text-text-muted">
+                          {meterLabel}
+                        </span>
+                        <span className="text-meta font-semibold tabular-nums text-text">
+                          {progress}%
+                        </span>
+                      </div>
+                      <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-surface-hover">
+                        <div
+                          className="h-full rounded-full bg-[var(--c-progress-fill)] transition-[width] duration-500 ease-out motion-reduce:transition-none"
+                          style={{ width: `${progress}%` }}
+                        />
+                      </div>
+                      <div className="mt-1.5 text-caption tabular-nums text-text-muted">
+                        {meterDone} / {meterTotal} 件已完成
+                      </div>
+                    </div>
                   )}
                 </div>
-              )}
+              </section>
 
-              <div className="mt-5">
-                {/* 添加行：占台账的第一行 */}
-                {filter !== "done" && (
-                  <div className="grid grid-cols-[96px_1fr] border-t border-border/70">
-                    <div />
-                    <div className="min-w-0 pl-6">
+              {/* 视图切换与排序 */}
+              <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+                <SegmentedTabs
+                  options={VIEW_TABS.map((tab) => ({
+                    id: tab.id,
+                    label: tab.label,
+                    count: tabCount(tab.id),
+                  }))}
+                  value={filter}
+                  onChange={setFilter}
+                />
+
+                <div className="flex items-center gap-2">
+                  {filter === "done" ? (
+                    doneCount > 0 && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        icon={<Trash2 className="h-3.5 w-3.5" />}
+                        onClick={() => void clearCompleted()}
+                      >
+                        清除已完成
+                      </Button>
+                    )
+                  ) : (
+                    <div className="ui-ring flex h-8 items-center gap-1.5 rounded-full bg-input-bg px-3">
+                      <ArrowUpDown className="h-3.5 w-3.5 shrink-0 text-text-muted" />
+                      <Select
+                        value={sort}
+                        onChange={(value) => setSort(value as TodoSort)}
+                        options={SORT_OPTIONS}
+                        className="text-meta text-text-secondary"
+                        minMenuWidth={160}
+                        aria-label="排序方式"
+                      />
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {loading ? (
+                <LoadingState text="正在加载待办" />
+              ) : error ? (
+                <ErrorState message={error} onRetry={reload} />
+              ) : (
+                <>
+                  {/* 添加行 */}
+                  {filter !== "done" && (
+                    <div className="mt-4">
                       <TodoComposer
                         suggestions={allTags}
                         defaultDueAt={selectedDate}
                         onCreate={createFromComposer}
                       />
                     </div>
-                  </div>
-                )}
+                  )}
 
-                {visible.length === 0 ? (
-                  <div className="border-t border-border/70 py-16 text-center">
-                    <p className="text-body text-text-secondary">
-                      {emptyTitle}
-                    </p>
-                    <p className="mt-1 text-meta text-text-muted">
-                      {emptyHint}
-                    </p>
-                    {(query.trim() ||
-                      activeTags.length > 0 ||
-                      selectedDate !== null) && (
-                      <div className="mt-3 flex items-center justify-center gap-4">
-                        {(query.trim() || activeTags.length > 0) && (
+                  {/* 标签筛选 */}
+                  {allTags.length > 0 && (
+                    <div className="mt-3 flex flex-wrap items-center gap-1.5">
+                      <span className="mr-1 inline-flex items-center gap-1 text-caption text-text-muted">
+                        <Tag className="h-3 w-3" />
+                        标签
+                      </span>
+                      {allTags.map((tag) => {
+                        const active = activeTags.includes(tag);
+                        return (
                           <button
+                            key={tag}
                             type="button"
-                            onClick={() => {
-                              setQuery("");
-                              setActiveTags([]);
-                            }}
-                            className="text-meta text-accent hover:underline"
+                            onClick={() => toggleTagFilter(tag)}
+                            className={`rounded-full border px-2.5 py-0.5 text-caption transition-colors ${
+                              active
+                                ? "border-accent/30 bg-accent-soft font-medium text-accent"
+                                : "border-border/60 bg-surface-2/40 text-text-muted hover:border-border hover:text-text"
+                            }`}
                           >
-                            清除筛选
+                            #{tag}
                           </button>
-                        )}
-                        {selectedDate !== null && (
-                          <button
-                            type="button"
-                            onClick={() => setSelectedDate(null)}
-                            className="text-meta text-accent hover:underline"
-                          >
-                            回到全部
-                          </button>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                ) : selectedDate !== null ? (
-                  <div className="grid grid-cols-[96px_1fr] border-t border-border/70">
-                    <div className="border-r border-border/70 py-3 pr-4 text-right">
-                      <div className="text-meta font-medium text-text-secondary">
-                        {selectedDate === todayStart ? "今天" : weekdayLabel}
-                      </div>
-                      <div className="mt-0.5 text-caption tabular-nums text-text-muted">
-                        {dayList.length}
-                      </div>
-                    </div>
-                    <ul className="min-w-0">
-                      {dayList.map((todo) =>
-                        renderRow(todo, sort === "manual"),
-                      )}
-                    </ul>
-                  </div>
-                ) : filter === "done" ? (
-                  <div className="grid grid-cols-[96px_1fr] border-t border-border/70">
-                    <div className="border-r border-border/70 py-3 pr-4 text-right">
-                      <div className="text-meta font-medium text-text-secondary">
-                        已完成
-                      </div>
-                      <div className="mt-0.5 text-caption tabular-nums text-text-muted">
-                        {doneCount}
-                      </div>
-                    </div>
-                    <ul className="min-w-0">
-                      {doneList.map((todo) => renderRow(todo, false))}
-                    </ul>
-                  </div>
-                ) : (
-                  pendingGroups.map((group) => (
-                    <div
-                      key={group.bucket}
-                      className="grid grid-cols-[96px_1fr] border-t border-border/70"
-                    >
-                      <div className="border-r border-border/70 py-3 pr-4 text-right">
-                        <div
-                          className={`text-meta font-medium ${
-                            group.bucket === "overdue"
-                              ? "text-error"
-                              : "text-text-secondary"
-                          }`}
+                        );
+                      })}
+                      {activeTags.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => setActiveTags([])}
+                          className="ml-1 text-caption text-text-muted underline underline-offset-2 transition-colors hover:text-text"
                         >
-                          {group.label}
-                        </div>
-                        <div className="mt-0.5 text-caption tabular-nums text-text-muted">
-                          {group.items.length}
-                        </div>
-                      </div>
-                      <ul className="min-w-0">
-                        {group.items.map((todo) =>
+                          清除
+                        </button>
+                      )}
+                    </div>
+                  )}
+
+                  {visible.length === 0 ? (
+                    <div className="mt-4 rounded-xl border border-dashed border-border bg-surface-2/30">
+                      <EmptyState
+                        icon={<Inbox />}
+                        title={emptyTitle}
+                        description={emptyHint}
+                        action={
+                          (query.trim() ||
+                            activeTags.length > 0 ||
+                            selectedDate !== null) && (
+                            <div className="flex items-center justify-center gap-4">
+                              {(query.trim() || activeTags.length > 0) && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setQuery("");
+                                    setActiveTags([]);
+                                  }}
+                                  className="text-meta text-accent hover:underline"
+                                >
+                                  清除筛选
+                                </button>
+                              )}
+                              {selectedDate !== null && (
+                                <button
+                                  type="button"
+                                  onClick={() => setSelectedDate(null)}
+                                  className="text-meta text-accent hover:underline"
+                                >
+                                  回到全部
+                                </button>
+                              )}
+                            </div>
+                          )
+                        }
+                      />
+                    </div>
+                  ) : selectedDate !== null ? (
+                    <div className="mt-4">
+                      <TodoGroupCard
+                        label={
+                          selectedDate === todayStart ? "今天" : weekdayLabel
+                        }
+                        tone="today"
+                        count={dayList.length}
+                      >
+                        {dayList.map((todo) =>
                           renderRow(todo, sort === "manual"),
                         )}
-                      </ul>
+                      </TodoGroupCard>
                     </div>
-                  ))
-                )}
-              </div>
-            </>
-          )}
+                  ) : filter === "done" ? (
+                    <div className="mt-4">
+                      <TodoGroupCard
+                        label="已完成"
+                        tone="done"
+                        count={doneCount}
+                      >
+                        {doneList.map((todo) => renderRow(todo, false))}
+                      </TodoGroupCard>
+                    </div>
+                  ) : (
+                    <div className="mt-4 space-y-3">
+                      {pendingGroups.map((group) => (
+                        <TodoGroupCard
+                          key={group.bucket}
+                          label={group.label}
+                          tone={group.bucket}
+                          count={group.items.length}
+                        >
+                          {group.items.map((todo) =>
+                            renderRow(todo, sort === "manual"),
+                          )}
+                        </TodoGroupCard>
+                      ))}
+                    </div>
+                  )}
+                </>
+              )}
             </div>
 
-            <aside className="min-w-0 border-t border-border pt-8 min-[1080px]:border-t-0 min-[1080px]:border-l min-[1080px]:pl-8 min-[1080px]:pt-0">
+            <aside className="min-w-0 space-y-4">
               {!loading && !error && (
                 <>
                   <TodoCalendar
@@ -688,9 +697,7 @@ export function TodosView() {
                     selectedDate={selectedDate}
                     onSelectDate={setSelectedDate}
                   />
-                  <div className="mt-5 border-t border-border pt-5">
-                    <TodoStats todos={todos} />
-                  </div>
+                  <TodoStats todos={todos} />
                 </>
               )}
             </aside>
@@ -707,5 +714,43 @@ export function TodosView() {
         onSubmit={submitEditing}
       />
     </Page>
+  );
+}
+
+/**
+ * 分组卡片：表头（状态点 / 名称 / 计数）+ 条目列表。
+ * 条目之间由 ul 的 divide 画细线，最后一条不再多一条边。
+ */
+function TodoGroupCard({
+  label,
+  tone,
+  count,
+  children,
+}: {
+  label: string;
+  tone: DueBucket | "done";
+  count: number;
+  children: ReactNode;
+}) {
+  const dot =
+    tone === "done" ? "bg-success" : GROUP_TONE[tone as DueBucket];
+  const labelTone =
+    tone === "overdue"
+      ? "text-error"
+      : tone === "done"
+        ? "text-success"
+        : "text-text-secondary";
+
+  return (
+    <section className="overflow-hidden rounded-xl border border-border/70 bg-surface-2/40 shadow-[var(--c-shadow-sm)]">
+      <header className="flex items-center gap-2 border-b border-border/60 bg-surface-hover/35 px-4 py-2.5">
+        <span aria-hidden className={`h-1.5 w-1.5 rounded-full ${dot}`} />
+        <h3 className={`text-meta font-semibold ${labelTone}`}>{label}</h3>
+        <span className="rounded-full bg-surface-hover px-1.5 text-caption tabular-nums text-text-muted">
+          {count}
+        </span>
+      </header>
+      <ul className="divide-y divide-border/50">{children}</ul>
+    </section>
   );
 }

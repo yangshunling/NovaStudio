@@ -1,7 +1,7 @@
 /**
  * 万年历
  *
- * 点选任意日期后，左侧台账切换到「那一天」：日期主视觉、页签计数与
+ * 点选任意日期后，左侧列表切换到「那一天」：日期主视觉、页签计数与
  * 新待办的默认截止日期都会跟着走。再次点击已选日期或点「回到全部」清除。
  *
  * 日期下方的小圆点表示当天有截止任务：
@@ -96,9 +96,9 @@ export function TodoCalendar({
   };
 
   return (
-    <section>
+    <section className="rounded-2xl border border-border/70 bg-surface-2/40 p-4 shadow-[var(--c-shadow-sm)]">
       <div className="flex items-center justify-between gap-2">
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-0.5">
           <button
             type="button"
             onClick={() => shiftMonth(-1)}
@@ -107,7 +107,7 @@ export function TodoCalendar({
           >
             <ChevronLeft className="h-4 w-4" />
           </button>
-          <span className="min-w-[92px] text-center text-body font-medium text-text">
+          <span className="min-w-[92px] text-center text-body font-semibold text-text">
             {monthLabel}
           </span>
           <button
@@ -122,13 +122,13 @@ export function TodoCalendar({
         <button
           type="button"
           onClick={goToday}
-          className="shrink-0 text-meta text-text-muted transition-colors hover:text-text"
+          className="shrink-0 rounded-full bg-surface-hover px-2.5 py-1 text-caption text-text-secondary transition-colors hover:text-accent"
         >
           今天
         </button>
       </div>
 
-      <div className="mt-4 grid grid-cols-7 text-center">
+      <div className="mt-3 grid grid-cols-7 text-center">
         {WEEKDAYS.map((day) => (
           <span key={day} className="pb-1 text-caption text-text-muted">
             {day}
@@ -152,16 +152,13 @@ export function TodoCalendar({
                 ? "bg-accent"
                 : "bg-text-muted/40"
             : null;
-          const dotClass = isToday ? "bg-accent-foreground/75" : dot;
+          // 选中日是蓝底，圆点改用前景色，否则会与底色糊在一起
+          const dotClass = isSelected ? "bg-accent-foreground/80" : dot;
 
-          const stateClass = isToday
-            ? `bg-accent font-medium text-accent-foreground ${
-                isSelected
-                  ? "ring-2 ring-accent/30 ring-offset-2 ring-offset-bg"
-                  : ""
-              }`
-            : isSelected
-              ? "ring-1 ring-accent text-accent"
+          const stateClass = isSelected
+            ? "bg-accent font-semibold text-accent-foreground shadow-[var(--c-shadow-sm)]"
+            : isToday
+              ? "bg-accent-soft font-semibold text-accent ring-1 ring-accent/30"
               : inMonth
                 ? "text-text-secondary hover:bg-surface-hover hover:text-text"
                 : "text-text-muted/40 hover:bg-surface-hover/60";
@@ -186,7 +183,7 @@ export function TodoCalendar({
               {dot && (
                 <span
                   aria-hidden
-                  className={`absolute bottom-0.5 h-1 w-1 rounded-full ${dotClass}`}
+                  className={`absolute bottom-[3px] h-1 w-1 rounded-full ${dotClass}`}
                 />
               )}
             </button>
@@ -194,7 +191,7 @@ export function TodoCalendar({
         })}
       </div>
 
-      <p className="mt-3 text-caption leading-relaxed text-text-muted">
+      <p className="mt-3 border-t border-border/50 pt-2.5 text-caption leading-relaxed text-text-muted">
         圆点表示当天有截止任务；点日期可只看当天。
       </p>
     </section>

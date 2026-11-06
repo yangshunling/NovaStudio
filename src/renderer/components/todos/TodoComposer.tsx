@@ -1,7 +1,7 @@
 /**
  * 快速添加待办
  *
- * 视觉上是台账的第一行：一个加号 + 一行可输入的文字，而不是一个表单框。
+ * 视觉上是一条抬起的输入条：左侧圆形加号，右侧「详细」入口。
  * 默认回车即保存；需要备注 / 优先级 / 截止日期 / 标签时展开「详细」，
  * 展开后的字段收在同一块浅色面板里，不破坏整页的留白节奏。
  */
@@ -78,11 +78,24 @@ export function TodoComposer({
     }
   };
 
+  const filled = title.trim().length > 0;
+
   return (
-    <div className="group/composer">
-      {/* 左侧留出与行内拖拽手柄同宽的缩进，让加号与勾选框对齐 */}
-      <div className="flex items-center gap-2.5 py-3.5 pl-4">
-        <Plus className="h-4 w-4 shrink-0 text-text-muted transition-colors group-focus-within/composer:text-accent" />
+    <div
+      className={`overflow-hidden rounded-xl border bg-surface-2/40 shadow-[var(--c-shadow-sm)] transition-[border-color,box-shadow] focus-within:border-accent/50 focus-within:shadow-[0_0_0_3px_var(--c-accent-soft)] ${
+        expanded ? "border-accent/40" : "border-border/70"
+      }`}
+    >
+      <div className="flex items-center gap-2.5 px-3.5 py-2.5">
+        <span
+          className={`grid h-7 w-7 shrink-0 place-items-center rounded-full transition-colors ${
+            filled
+              ? "bg-accent text-accent-foreground"
+              : "bg-surface-hover text-text-muted"
+          }`}
+        >
+          <Plus className="h-4 w-4" />
+        </span>
         <input
           ref={inputRef}
           value={title}
@@ -105,7 +118,7 @@ export function TodoComposer({
           className="min-w-0 flex-1 bg-transparent text-body-lg text-text outline-none placeholder-text-muted"
         />
         {!expanded && defaultDueAt !== null && (
-          <span className="shrink-0 text-caption text-text-muted">
+          <span className="shrink-0 rounded-full bg-surface-hover px-2 py-0.5 text-caption text-text-muted">
             截止 {formatDateLabel(defaultDueAt)}
           </span>
         )}
@@ -117,7 +130,9 @@ export function TodoComposer({
               ? "收起详细信息"
               : "填写备注 / 优先级 / 截止日期 / 标签"
           }
-          className="flex shrink-0 items-center gap-1 text-meta text-text-muted transition-colors hover:text-text"
+          className={`flex h-7 shrink-0 items-center gap-1 rounded-full px-2.5 text-meta transition-colors hover:bg-surface-hover hover:text-text ${
+            expanded ? "text-text" : "text-text-muted"
+          }`}
         >
           {expanded ? "收起" : "详细"}
           <ChevronDown
@@ -129,7 +144,7 @@ export function TodoComposer({
       </div>
 
       {expanded && (
-        <div className="mb-4 ml-7 space-y-3 rounded-lg border border-border/70 bg-surface-2/40 p-3">
+        <div className="space-y-3 border-t border-border/60 bg-surface/50 p-3.5">
           <TextArea
             value={note}
             onChange={(event) => setNote(event.target.value)}
@@ -162,7 +177,7 @@ export function TodoComposer({
               variant="primary"
               size="sm"
               loading={busy}
-              disabled={!title.trim()}
+              disabled={!filled}
               onClick={() => void submit()}
               className="ml-auto"
             >

@@ -1,13 +1,13 @@
 /**
- * 待办列表行 — 台账式排版
+ * 待办列表行 — 卡片内的条目
  *
- * 一行只有三层信息：标题（带优先级色点）、备注摘要、标签 / 完成时间。
- * 截止日期右对齐在标题行，用颜色表达紧迫程度；不再使用填充胶囊。
+ * 三层层级：标题（带优先级色点）、备注摘要、标签 / 完成时间。
+ * 截止日期收成右侧的小胶囊，用软色底表达紧迫程度；
  * 静止时几乎没有装饰，hover 才出现拖拽手柄与操作按钮。
  */
 
 import { useState } from "react";
-import { Check, GripVertical, Pencil } from "lucide-react";
+import { Check, Clock, GripVertical, Pencil } from "lucide-react";
 import type { TodoItem, TodoPriority } from "@shared/types";
 import { ConfirmDeleteButton } from "../ui/ConfirmDeleteButton";
 import {
@@ -41,9 +41,9 @@ interface TodoRowProps {
 }
 
 const PRIORITY_DOT: Record<TodoPriority, string> = {
-  high: "bg-error",
+  high: "bg-error shadow-[0_0_0_3px_var(--c-error-bg)]",
   normal: "bg-accent/70",
-  low: "bg-text-muted/40",
+  low: "bg-text-muted/35",
 };
 
 export function TodoRow({
@@ -67,17 +67,17 @@ export function TodoRow({
 
   const overdue = isOverdue(todo);
   const bucket = dueBucket(todo.dueAt);
-  const dueClass = overdue
-    ? "text-error"
+  const dueChip = overdue
+    ? "bg-error-bg text-error"
     : bucket === "today"
-      ? "text-accent"
-      : "text-text-muted";
+      ? "bg-accent-soft text-accent"
+      : "bg-surface-hover text-text-muted";
 
   const dropLine = (position: DragPosition) =>
     dropPosition === position ? (
       <span
         aria-hidden
-        className={`pointer-events-none absolute inset-x-2 h-px bg-accent ${
+        className={`pointer-events-none absolute inset-x-3 h-px rounded-full bg-accent ${
           position === "before" ? "top-0" : "bottom-0"
         }`}
       />
@@ -115,14 +115,14 @@ export function TodoRow({
         );
         setArmed(false);
       }}
-      className={`group relative flex items-start gap-2 py-3 pl-6 pr-2 transition-colors hover:bg-surface-hover/30 ${
-        dragging ? "opacity-40" : ""
+      className={`group relative flex items-start gap-2 px-3.5 py-3 transition-colors ${
+        dragging ? "bg-surface-hover/30 opacity-40" : "hover:bg-surface-hover/60"
       }`}
     >
       {dropLine("before")}
 
       {/* 拖拽手柄槽位固定占位，避免 hover 时整行内容跳动 */}
-      <span className="mt-0.5 flex w-4 shrink-0 justify-center">
+      <span className="mt-[3px] flex w-3.5 shrink-0 justify-center">
         {manualSort && !todo.done && (
           <button
             type="button"
@@ -141,24 +141,26 @@ export function TodoRow({
         type="button"
         role="checkbox"
         aria-checked={todo.done}
-        aria-label={todo.done ? `取消完成：${todo.title}` : `标记完成：${todo.title}`}
+        aria-label={
+          todo.done ? `取消完成：${todo.title}` : `标记完成：${todo.title}`
+        }
         onClick={() => onToggle(todo)}
-        className={`mt-[3px] grid h-[18px] w-[18px] shrink-0 place-items-center rounded-full border transition-colors ${
+        className={`mt-[2px] grid h-[19px] w-[19px] shrink-0 place-items-center rounded-[6px] border transition-all active:scale-90 ${
           todo.done
-            ? "border-accent bg-accent text-accent-foreground"
-            : "border-text-muted/40 text-transparent hover:border-accent hover:text-accent/50"
+            ? "border-accent bg-accent text-accent-foreground shadow-[var(--c-shadow-sm)]"
+            : "border-text-muted/45 text-transparent hover:border-accent hover:bg-accent-soft hover:text-accent/50"
         }`}
       >
-        <Check className="h-3 w-3" strokeWidth={3} />
+        <Check className="h-3 w-3" strokeWidth={3.2} />
       </button>
 
       <div className="min-w-0 flex-1">
-        <div className="flex items-start gap-3">
+        <div className="flex items-start gap-2.5">
           <div className="flex min-w-0 flex-1 items-start gap-2">
             {!todo.done && (
               <span
                 title={`优先级：${PRIORITY_LABEL[todo.priority]}`}
-                className={`mt-[9px] h-1.5 w-1.5 shrink-0 rounded-full ${PRIORITY_DOT[todo.priority]}`}
+                className={`mt-[8px] h-1.5 w-1.5 shrink-0 rounded-full ${PRIORITY_DOT[todo.priority]}`}
               />
             )}
             <span
@@ -174,40 +176,42 @@ export function TodoRow({
 
           {!todo.done && !hideDue && todo.dueAt !== null && (
             <span
-              className={`mt-px shrink-0 text-caption leading-6 ${dueClass}`}
+              className={`inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-caption leading-4 ${dueChip}`}
               title={
                 overdue
                   ? `已逾期，原定 ${formatDueLabel(todo.dueAt)}`
                   : `截止：${formatDueLabel(todo.dueAt)}`
               }
             >
+              <Clock className="h-3 w-3" />
               {formatDueLabel(todo.dueAt)}
             </span>
           )}
         </div>
 
         {todo.note && (
-          <p className="mt-0.5 line-clamp-1 text-meta leading-relaxed text-text-muted">
+          <p className="mt-1 line-clamp-1 text-meta leading-relaxed text-text-muted">
             {todo.note}
           </p>
         )}
 
         {(todo.tags.length > 0 || todo.done) && (
-          <div className="mt-1 flex flex-wrap items-center gap-x-2.5 gap-y-1">
+          <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
             {todo.tags.map((tag) => (
               <button
                 key={tag}
                 type="button"
                 onClick={() => onTagClick?.(tag)}
                 title={`按标签 #${tag} 筛选`}
-                className="text-caption text-text-muted transition-colors hover:text-accent"
+                className="rounded-full bg-surface-hover/80 px-2 py-0.5 text-caption text-text-muted transition-colors hover:bg-accent-soft hover:text-accent"
               >
                 #{tag}
               </button>
             ))}
             {todo.done && todo.completedAt !== null && (
-              <span className="text-caption text-text-muted">
-                完成于 {formatCompletedAt(todo.completedAt)}
+              <span className="inline-flex items-center gap-1 rounded-full bg-surface-hover/80 px-2 py-0.5 text-caption text-text-muted">
+                <Check className="h-3 w-3" />
+                {formatCompletedAt(todo.completedAt)}
               </span>
             )}
           </div>
@@ -215,17 +219,17 @@ export function TodoRow({
       </div>
 
       {/* 操作区固定占位，hover 时淡入，不挤动正文 */}
-      <div className="pointer-events-none -mt-1 flex w-[68px] shrink-0 items-center justify-end gap-0.5 opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 focus-within:pointer-events-auto focus-within:opacity-100">
+      <div className="pointer-events-none -my-1.5 flex w-[72px] shrink-0 items-center justify-end gap-0.5 opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 focus-within:pointer-events-auto focus-within:opacity-100">
         <button
           type="button"
           onClick={() => onEdit(todo)}
           title="编辑"
           aria-label="编辑"
-          className="flex h-7 w-7 items-center justify-center rounded-md text-text-muted transition-colors hover:bg-surface-hover hover:text-text"
+          className="flex h-9 w-9 items-center justify-center rounded-full text-text-muted transition-colors hover:bg-surface-hover hover:text-text"
         >
           <Pencil className="h-3.5 w-3.5" />
         </button>
-        <ConfirmDeleteButton onConfirm={() => onDelete(todo)} />
+        <ConfirmDeleteButton onConfirm={() => onDelete(todo)} iconSize={15} />
       </div>
 
       {dropLine("after")}
