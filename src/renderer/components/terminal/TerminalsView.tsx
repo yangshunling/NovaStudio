@@ -43,6 +43,12 @@ export function TerminalsView() {
   const activeId = useTerminalStore((s) => s.activeId);
   const openTerminal = useTerminalStore((s) => s.open);
   const closeTerminal = useTerminalStore((s) => s.close);
+  const requestedWorkspaceId = useTerminalStore(
+    (s) => s.requestedWorkspaceId,
+  );
+  const clearRequestedWorkspace = useTerminalStore(
+    (s) => s.clearRequestedWorkspace,
+  );
   /** 右侧文件面板里点开的文件：终端上方内嵌预览，关闭后回到终端 */
   const [preview, setPreview] = useState<FileTab | null>(null);
   /** 右侧工作区文件面板是否展开；默认收起，由顶栏按钮手动打开 */
@@ -90,6 +96,16 @@ export function TerminalsView() {
   useEffect(() => {
     setPreview(null);
   }, [selectedWorkspace?.id]);
+
+  /**
+   * 其他页面（工作区卡片 / 详情）打开终端时，可能不是当前选中的工作区。
+   * 这里消费一次性请求，切换到对应工作区；关闭终端不会触发这个逻辑。
+   */
+  useEffect(() => {
+    if (!requestedWorkspaceId) return;
+    setSelectedWorkspaceId(requestedWorkspaceId);
+    clearRequestedWorkspace();
+  }, [requestedWorkspaceId, clearRequestedWorkspace]);
 
   // 右键菜单：外部点击 / Esc / 滚动 / 窗口缩放时关闭
   useEffect(() => {

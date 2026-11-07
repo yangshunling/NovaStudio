@@ -48,53 +48,58 @@ export function registerDialogHandlers(): void {
     return picked?.[0] ?? null;
   });
 
-  handle("project:listFiles", async ({ projectId, subPath }) => {
-    const project = db.getProject(projectId);
-    if (!project?.cwd) return [];
+  handle(
+    "project:listFiles",
+    async ({ projectId, subPath }) => {
+      const project = db.getProject(projectId);
+      if (!project?.cwd) return [];
 
-    let cwd: string;
-    try {
-      cwd = await realpath(project.cwd);
-    } catch {
-      return [];
-    }
-
-    // subPath 只能指向项目内部：渲染层传参不作数，必须再校验一次
-    const target = await resolveInsideReal(cwd, subPath ?? "");
-    if (!target) return [];
-
-    let names: string[];
-    try {
-      names = await readdir(target);
-    } catch {
-      return [];
-    }
-
-    const entries: FileEntry[] = [];
-    for (const name of names) {
-      if (IGNORE_DIRS.has(name)) continue;
-      if (IGNORE_FILE_PREFIXES.some((p) => name.startsWith(p))) continue;
-
-      const fullPath = resolve(target, name);
+      let cwd: string;
       try {
-        const s = await stat(fullPath);
-        const rel = relative(cwd, fullPath).split(sep).join("/");
-        entries.push({
-          name,
-          relativePath: rel,
-          isDirectory: s.isDirectory(),
-        });
+        cwd = await realpath(project.cwd);
       } catch {
-        // 软链接 / 权限问题等：跳过
+        return [];
       }
-      if (entries.length >= MAX_ENTRIES) break;
-    }
 
-    entries.sort((a, b) => {
-      if (a.isDirectory !== b.isDirectory) return a.isDirectory ? -1 : 1;
-      return a.name.localeCompare(b.name);
-    });
+      // subPath 只能指向项目内部：渲染层传参不作数，必须再校验一次
+      const target = await resolveInsideReal(cwd, subPath ?? "");
+      if (!target) return [];
 
-    return entries;
-  });
+      let names: string[];
+      try {
+        names = await readdir(target);
+      } catch {
+        return [];
+      }
+
+      const entries: FileEntry[] = [];
+      for (const name of names) {
+        // .git 永远不展示；依赖 / 构建目录也不进入文件树
+        if (name === ".git") continue;
+        if (IGNORE_DIRS.has(name)) continue;
+        if (IGNORE_FILE_PREFIXES.some((p) => name.startsWith(p))) continue;
+
+        const fullPath = resolve(target, name);
+        try {
+          const s = await stat(fullPath);
+          const rel = relative(cwd, fullPath).split(sep).join("/");
+          entries.push({
+            name,
+            relativePath: rel,
+            isDirectory: s.isDirectory(),
+          });
+        } catch {
+          // 软链接 / 权限问题等：跳过
+        }
+        if (entries.length >= MAX_ENTRIES) break;
+      }
+
+      entries.sort((a, b) => {
+        if (a.isDirectory !== b.isDirectory) return a.isDirectory ? -1 : 1;
+        return a.name.localeCompare(b.name);
+      });
+
+      return entries;
+    },
+  );
 }

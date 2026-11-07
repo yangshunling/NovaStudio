@@ -58,6 +58,13 @@ import type {
   AgentSettingsDraft,
   AgentSettingsView,
 } from "./agent";
+import type {
+  GitBranchInfo,
+  GitCommitSummary,
+  GitDiffResult,
+  GitOperationResult,
+  GitStatusDetail,
+} from "../git";
 
 /** agent:send 的返回：显式区分成功与业务失败 */
 export type SendAgentResult =
@@ -106,7 +113,7 @@ export interface IpcInvokeMap {
   "project:list": { args: []; result: Project[] };
   "project:create": { args: [{ name: string; cwd: string }]; result: Project };
   "project:delete": { args: [{ id: string }]; result: boolean };
-  /** 列出项目目录下的文件，供 @ 提及选择 */
+  /** 列出项目目录下的文件（忽略 node_modules / dist 等依赖与构建目录） */
   "project:listFiles": {
     args: [{ projectId: string; subPath?: string }];
     result: FileEntry[];
@@ -118,6 +125,38 @@ export interface IpcInvokeMap {
     args: [{ projectId: string }];
     result: GitStatusSummary;
   };
+  /** Git：完整状态 / 分支 / 历史 / diff / 暂存 / 提交 / 切换分支 */
+  "git:statusDetail": { args: [{ projectId: string }]; result: GitStatusDetail };
+  "git:branches": { args: [{ projectId: string }]; result: GitBranchInfo[] };
+  "git:log": {
+    args: [{ projectId: string; limit?: number }];
+    result: GitCommitSummary[];
+  };
+  "git:diff": {
+    args: [{ projectId: string; relativePath: string; staged: boolean }];
+    result: GitDiffResult;
+  };
+  "git:stage": {
+    args: [{ projectId: string; paths: string[] }];
+    result: GitOperationResult;
+  };
+  "git:unstage": {
+    args: [{ projectId: string; paths: string[] }];
+    result: GitOperationResult;
+  };
+  "git:commit": {
+    args: [{ projectId: string; message: string }];
+    result: GitOperationResult;
+  };
+  "git:checkoutBranch": {
+    args: [{ projectId: string; branch: string }];
+    result: GitOperationResult;
+  };
+  "git:createBranch": {
+    args: [{ projectId: string; name: string }];
+    result: GitOperationResult;
+  };
+  "git:init": { args: [{ projectId: string }]; result: GitOperationResult };
   /** 读取项目内文件，供中间区域只读预览 */
   "file:read": {
     args: [{ projectId: string; relativePath: string }];

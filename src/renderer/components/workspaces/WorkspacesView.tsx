@@ -1,127 +1,82 @@
 /**
- * 工作区管理页
+ * 工作区工作台
  *
- * 工作区 = 一个本地根目录（复用项目实体）。这里是工作区唯一的「新增 / 删除」
- * 入口：工作流、会话绑定等页面只读取这份列表，不再各自创建。
- *
- * 删除工作区会级联清理它下面的会话、工作流、运行记录与 .novastudio 产物，
- * 但目录本身始终保留（主进程 deleteWorkspaceData 负责）。
+ * 左侧工作区列表 + 右侧控制台（文件 / Git）。
+ * 不做内容统计概览：页面只回答「这个目录里有哪些文件」和「Git 现在什么状态」。
  */
 
-import { useEffect, useMemo, useState } from "react";
-import {
-  Folder,
-  FolderKanban,
-  FolderOpen,
-  FolderPlus,
-  Loader2,
-  MessageSquare,
-  Trash2,
-  Workflow as WorkflowIcon,
-} from "lucide-react";
+import { useEffect, useState } from "react";
+import { Folder, FolderKanban, FolderPlus, Loader2 } from "lucide-react";
+import type { Project } from "@shared/types";
 import { ipc } from "../../lib/ipc";
-import { dirName, toMessage } from "../../lib/utils";
-import { useLoad } from "../../hooks/useLoad";
+import { toMessage } from "../../lib/utils";
 import { useChatStore } from "../../stores/chat";
 import { useTerminalStore } from "../../stores/terminal";
 import { toast } from "../../stores/toast";
 import { confirmDialog } from "../../stores/confirm";
-import {
-  EmptyState,
-  ErrorState,
-  FilterEmpty,
-  LoadingState,
-} from "../ui/EmptyState";
-import { Page, PageBody, PageHeader } from "../ui/Page";
+import { EmptyState, LoadingState } from "../ui/EmptyState";
+import { Page } from "../ui/Page";
 import { Button } from "../ui/Button";
-import {
-  CARD_FOOTER,
-  CARD_FOOTER_META,
-  CARD_SHELL,
-  CARD_TITLE,
-  cardIconTile,
-} from "../ui/cardStyles";
-import { SearchInput } from "../ui/SearchInput";
-import type { Project } from "@shared/types";
+import { ListItem } from "../ui/ListPane";
+import { WorkspaceConsole, type WorkspaceTab } from "./WorkspaceConsole";
 
-/** 路径末两级，用于卡片上的简短标识（完整路径在 title 里） */
-function shortPath(cwd: string): string {
-  const parts = cwd.split(/[\\/]+/).filter(Boolean);
-  return parts.slice(-2).join(" / ") || cwd;
-}
-
-/** 路径比较：Windows 下大小写与分隔符都不敏感，其他平台大小写敏感 */
+/**
+ * 路径比较：只用于「这个目录是不是已经登记过」的友好提示。
+ *
+ * 渲染进程没有 Node 的 `process`（contextIsolation），这里不能读 platform；
+ * 统一按大小写不敏感比较即可 —— 主进程才是重复校验的最终来源，
+ * 它的 normalize 同样是全平台小写。
+ */
 function samePath(a: string, b: string): boolean {
-  const normalize = (value: string) => {
-    const unified = value.replace(/\\/g, "/").replace(/\/+$/, "");
-    // Linux / macOS 的 /home/a 与 /home/A 是两个不同目录，不能折叠大小写
-    return process.platform === "win32" ? unified.toLowerCase() : unified;
-  };
+  const normalize = (value: string) =>
+    value.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
   return normalize(a) === normalize(b);
 }
 
 export function WorkspacesView() {
-  // 工作区列表以 chat store 为唯一来源：其他页面绑定的项目也读同一份
   const projects = useChatStore((s) => s.projects);
-  const sessions = useChatStore((s) => s.sessions);
+  const projectsLoaded = useChatStore((s) => s.projectsLoaded);
   const loadProjects = useChatStore((s) => s.loadProjects);
-  const loadSessions = useChatStore((s) => s.loadSessions);
   const createProject = useChatStore((s) => s.createProject);
   const deleteProject = useChatStore((s) => s.deleteProject);
   const pickDirectory = useChatStore((s) => s.pickDirectory);
-  const closeWorkspaceTerminals = useTerminalStore(
-    (s) => s.closeByWorkspace,
-  );
+  const closeWorkspaceTerminals = useTerminalStore((s) => s.closeByWorkspace);
 
-  // 工作流用于统计每个工作区下的数量；项目/会话由各自的 store 提供
-  const { data: workflows, error, reload, setData: setWorkflows } =
-    useLoad(() => ipc.listWorkflows(), []);
-  /** 首次进入：等项目/会话/工作流都就绪再结束骨架，避免列表先空后跳 */
-  const [booting, setBooting] = useState(true);
-  const [query, setQuery] = useState("");
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [tabByProject, setTabByProject] = useState<
+    Record<string, WorkspaceTab>
+  >({});
   const [creating, setCreating] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
-  // 项目/会话由 store 提供（首次进入拉取）；工作流由 useLoad 挂载即拉
   useEffect(() => {
-    void Promise.all([loadProjects(), loadSessions()])
-      .catch(() => {
-        // 各自失败由 store 内部处理
-      })
-      .finally(() => setBooting(false));
-  }, [loadProjects, loadSessions]);
+    if (projectsLoaded) return;
+    void loadProjects().catch((err) => toast.error(toMessage(err), 5000));
+  }, [projectsLoaded, loadProjects]);
 
-  const sessionCounts = useMemo(() => {
-    const map = new Map<string, number>();
-    for (const session of sessions) {
-      if (!session.projectId) continue;
-      map.set(session.projectId, (map.get(session.projectId) ?? 0) + 1);
+  // 选中的工作区被删除 / 首次进入时，自动落到第一个
+  useEffect(() => {
+    if (!projectsLoaded) return;
+    if (selectedId && projects.some((project) => project.id === selectedId)) {
+      return;
     }
-    return map;
-  }, [sessions]);
+    setSelectedId(projects[0]?.id ?? null);
+  }, [projects, projectsLoaded, selectedId]);
 
-  const workflowCounts = useMemo(() => {
-    const map = new Map<string, number>();
-    for (const workflow of workflows) {
-      map.set(
-        workflow.workspaceId,
-        (map.get(workflow.workspaceId) ?? 0) + 1,
-      );
-    }
-    return map;
-  }, [workflows]);
+  /**
+   * 列表不再为每个工作区预读 Git 状态。
+   *
+   * 之前会在进入页面时为全部工作区各跑一次 `git status`，大仓库
+   * （几万个未跟踪文件）下会明显卡顿；现在只有选中工作区的控制台
+   * 读取一次，列表项只展示名称与路径。
+   */
+  const selectedProject =
+    projects.find((project) => project.id === selectedId) ?? null;
 
-  const filtered = useMemo(() => {
-    const keyword = query.trim().toLowerCase();
-    if (!keyword) return projects;
-    return projects.filter((project) =>
-      [project.name, project.cwd].some((value) =>
-        value.toLowerCase().includes(keyword),
-      ),
-    );
-  }, [projects, query]);
+  // ==========================================================================
+  // 动作
+  // ==========================================================================
 
-  /** 新增工作区：选一个目录登记为项目；已登记的目录直接提示，不重复创建 */
   const createWorkspace = async () => {
     if (creating) return;
     setCreating(true);
@@ -132,11 +87,13 @@ export function WorkspacesView() {
       const existing = projects.find((project) => samePath(project.cwd, cwd));
       if (existing) {
         toast.success(`该目录已是工作区「${existing.name}」`);
+        setSelectedId(existing.id);
         return;
       }
 
-      const project = await createProject(dirName(cwd), cwd);
+      const project = await createProject(dirNameOf(cwd), cwd);
       if (!project) throw new Error("创建工作区失败");
+      setSelectedId(project.id);
       toast.success(`工作区「${project.name}」已创建`);
     } catch (err) {
       toast.error(toMessage(err), 5000);
@@ -145,22 +102,16 @@ export function WorkspacesView() {
     }
   };
 
-  /**
-   * 删除工作区：主进程会级联清理工作流、运行记录、节点会话与 .novastudio
-   * 产物；目录本身不动。
-   */
   const removeWorkspace = async (project: Project) => {
     if (deletingId) return;
-    const sessionCount = sessionCounts.get(project.id) ?? 0;
-    const workflowCount = workflowCounts.get(project.id) ?? 0;
 
     const confirmed = await confirmDialog({
       title: `删除工作区「${project.name}」？`,
       message: [
-        "将同时删除：",
-        `· ${sessionCount} 个会话`,
-        `· ${workflowCount} 个工作流及其运行记录`,
-        "· 工作区下的 .novastudio 产物",
+        "将同时清理该工作区下的：",
+        "· 会话",
+        "· 工作流及其运行记录",
+        "· .novastudio 产物",
         "",
         "工作区目录本身不会被删除。此操作不可恢复。",
       ].join("\n"),
@@ -172,23 +123,17 @@ export function WorkspacesView() {
     setDeletingId(project.id);
     try {
       await deleteProject(project.id);
-      // 工作区没了，它下面的终端也不再可用，一并关闭（渲染层会 kill PTY）
       closeWorkspaceTerminals(project.id);
-      setWorkflows((current) =>
-        current.filter((workflow) => workflow.workspaceId !== project.id),
-      );
+      setTabByProject((current) => removeKey(current, project.id));
       toast.success(`工作区「${project.name}」已删除`);
     } catch (err) {
       toast.error(toMessage(err), 5000);
-      // 删除可能部分完成（例如运行中的工作流阻止），重新拉取真实状态
-      reload();
     } finally {
       setDeletingId(null);
     }
   };
 
-  /** 打开工作区：用系统文件管理器定位到工作区根目录 */
-  const openWorkspace = async (project: Project) => {
+  const openFolder = async (project: Project) => {
     try {
       const opened = await ipc.revealProject(project.id);
       if (!opened) throw new Error("工作区目录不存在");
@@ -197,164 +142,175 @@ export function WorkspacesView() {
     }
   };
 
+  const openTerminal = (project: Project) => {
+    useTerminalStore.getState().open({
+      workspaceId: project.id,
+      cwd: project.cwd,
+      name: project.name,
+    });
+    useChatStore.getState().setViewMode("terminals");
+  };
+
+  const copyPath = async (project: Project) => {
+    try {
+      await navigator.clipboard.writeText(project.cwd);
+      toast.success("路径已复制");
+    } catch (err) {
+      toast.error(toMessage(err), 5000);
+    }
+  };
+
+  const browseFilesInChat = async (project: Project) => {
+    try {
+      const state = useChatStore.getState();
+      const current = state.sessions.find(
+        (session) => session.id === state.currentSessionId,
+      );
+      if (current?.projectId === project.id) {
+        state.setShowWorkspace(true);
+        state.setViewMode("chat");
+      } else {
+        state.newSession();
+        await state.bindProject(project.id);
+        state.setShowWorkspace(true);
+        state.setViewMode("chat");
+      }
+    } catch (err) {
+      toast.error(toMessage(err), 5000);
+    }
+  };
+
+  // ==========================================================================
+  // 渲染
+  // ==========================================================================
+
+  if (!projectsLoaded) {
+    return (
+      <Page>
+        <LoadingState text="正在加载工作区" className="h-full" />
+      </Page>
+    );
+  }
+
+  if (projects.length === 0) {
+    return (
+      <Page>
+        <EmptyWorkspaces
+          creating={creating}
+          onCreate={() => void createWorkspace()}
+        />
+      </Page>
+    );
+  }
+
   return (
     <Page>
-      <PageHeader
-        title="工作区"
-        count={projects.length}
-        countSuffix=" 个"
-        icon={<FolderKanban className="h-4 w-4" />}
-        actions={
-          <>
-            <SearchInput
-              value={query}
-              onChange={setQuery}
-              placeholder="搜索名称 / 路径"
-            />
-
-            <Button
-              variant="primary"
+      <div className="flex min-h-0 flex-1">
+        {/* 左：工作区列表 */}
+        <aside className="flex w-[var(--c-layout-session-list)] shrink-0 flex-col border-r border-border bg-[var(--c-panel-bg)] shadow-[var(--c-shadow-sm)]">
+          <div className="flex h-[var(--c-layout-header)] shrink-0 items-center justify-between gap-2 border-b border-border px-4">
+            <div className="flex min-w-0 items-center gap-2">
+              <p className="truncate text-meta font-semibold tracking-wide text-text-muted">
+                工作区
+              </p>
+              <span className="shrink-0 rounded-full bg-surface-hover px-2 py-0.5 font-mono text-meta leading-none text-text-muted">
+                {projects.length}
+              </span>
+            </div>
+            <button
+              type="button"
               onClick={() => void createWorkspace()}
               disabled={creating}
-              icon={
-                creating ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <FolderPlus className="h-4 w-4" />
-                )
-              }
+              title="新建工作区"
+              aria-label="新建工作区"
+              className="ui-btn-round ui-icon-action flex h-9 w-9 items-center justify-center rounded-full text-text-muted transition-colors active:scale-95 disabled:cursor-not-allowed disabled:opacity-40"
             >
-              新建工作区
-            </Button>
-          </>
-        }
-      />
+              {creating ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <FolderPlus className="h-4 w-4" />
+              )}
+            </button>
+          </div>
 
-      <PageBody>
-          {booting ? (
-            <LoadingState text="正在加载工作区" className="h-full" />
-          ) : error ? (
-            <ErrorState message={error} onRetry={reload} />
-          ) : projects.length === 0 ? (
-            <EmptyWorkspaces
-              creating={creating}
-              onCreate={() => void createWorkspace()}
-            />
-          ) : filtered.length === 0 ? (
-            <FilterEmpty
-              title={`没有匹配「${query}」的工作区`}
-              onClear={() => setQuery("")}
+          <div className="min-h-0 flex-1 space-y-1 overflow-y-auto px-2.5 pb-4 pt-3">
+            {projects.map((project) => (
+              <WorkspaceRailItem
+                key={project.id}
+                project={project}
+                active={project.id === selectedId}
+                onClick={() => setSelectedId(project.id)}
+              />
+            ))}
+          </div>
+
+          <div className="shrink-0 border-t border-border px-3 py-2 text-caption text-text-muted">
+            {projects.length} 个工作区
+          </div>
+        </aside>
+
+        {/* 右：当前工作区控制台 */}
+        <div className="flex min-w-0 flex-1 flex-col">
+          {selectedProject ? (
+            <WorkspaceConsole
+              key={selectedProject.id}
+              project={selectedProject}
+              tab={tabByProject[selectedProject.id] ?? "files"}
+              onTabChange={(tab) =>
+                setTabByProject((current) => ({
+                  ...current,
+                  [selectedProject.id]: tab,
+                }))
+              }
+              onOpenFolder={() => void openFolder(selectedProject)}
+              onOpenTerminal={() => openTerminal(selectedProject)}
+              onCopyPath={() => void copyPath(selectedProject)}
+              onDelete={() => void removeWorkspace(selectedProject)}
+              onBrowseFilesInChat={() =>
+                void browseFilesInChat(selectedProject)
+              }
             />
           ) : (
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
-              {filtered.map((project) => (
-                <WorkspaceCard
-                  key={project.id}
-                  project={project}
-                  sessionCount={sessionCounts.get(project.id) ?? 0}
-                  workflowCount={workflowCounts.get(project.id) ?? 0}
-                  deleting={deletingId === project.id}
-                  onOpen={() => void openWorkspace(project)}
-                  onDelete={() => void removeWorkspace(project)}
-                />
-              ))}
-            </div>
+            <EmptyState
+              title="选择一个工作区"
+              description="从左侧选择工作区，浏览文件并管理 Git 变更。"
+            />
           )}
-      </PageBody>
+        </div>
+      </div>
     </Page>
   );
 }
 
 // ============================================================================
-// 工作区卡片
+// 左侧列表项
 // ============================================================================
 
-function WorkspaceCard({
+function WorkspaceRailItem({
   project,
-  sessionCount,
-  workflowCount,
-  deleting,
-  onOpen,
-  onDelete,
+  active,
+  onClick,
 }: {
   project: Project;
-  sessionCount: number;
-  workflowCount: number;
-  deleting: boolean;
-  onOpen: () => void;
-  onDelete: () => void;
+  active: boolean;
+  onClick: () => void;
 }) {
   return (
-    <div className={CARD_SHELL}>
-      <div className="flex min-w-0 items-start gap-3">
-        <span className={cardIconTile("amber")}>
-          <Folder className="h-5 w-5" />
-        </span>
-        <div className="min-w-0 flex-1 overflow-hidden">
-          <h3 className={CARD_TITLE} title={project.name}>
-            {project.name}
-          </h3>
-          {/* 路径只保留最后两级：完整路径太长，末两级足够辨认 */}
-          <p
-            className="mt-0.5 truncate font-mono text-caption text-text-muted"
-            title={project.cwd}
-          >
-            {shortPath(project.cwd)}
-          </p>
-        </div>
-      </div>
-
-      {/* 会话 / 工作流数量在左，操作按钮在右，与触发器/工作流卡片一致 */}
-      <div className={CARD_FOOTER}>
-        {/* 数量为 0 的计数降级为中性灰：空工作区不该显得“很热闹” */}
-        <div className={CARD_FOOTER_META}>
-          <span
-            title={`${sessionCount} 个会话`}
-            className={`flex items-center gap-1 rounded-full px-2 py-0.5 ${
-              sessionCount > 0
-                ? "bg-agent-teal/10 text-agent-teal"
-                : "bg-surface-hover/70 text-text-muted"
-            }`}
-          >
-            <MessageSquare className="h-3 w-3" />
-            {sessionCount} 个会话
-          </span>
-          <span
-            title={`${workflowCount} 个工作流`}
-            className={`flex items-center gap-1 rounded-full px-2 py-0.5 ${
-              workflowCount > 0
-                ? "bg-agent-amber/10 text-agent-amber"
-                : "bg-surface-hover/70 text-text-muted"
-            }`}
-          >
-            <WorkflowIcon className="h-3 w-3" />
-            {workflowCount} 个工作流
-          </span>
-        </div>
-        <div className="flex shrink-0 items-center gap-1">
-          <Button
-            size="xs"
-            icon={<FolderOpen className="h-3.5 w-3.5" />}
-            onClick={onOpen}
-            disabled={deleting}
-            title="在文件管理器中打开工作区目录"
-          >
-            打开
-          </Button>
-          <Button
-            size="xs"
-            variant="dangerLink"
-            icon={<Trash2 className="h-3.5 w-3.5" />}
-            onClick={onDelete}
-            disabled={deleting}
-          >
-            删除
-          </Button>
-        </div>
-      </div>
-    </div>
+    <ListItem
+      active={active}
+      icon={<Folder className="h-4 w-4 text-agent-amber" />}
+      title={project.name}
+      subtitle={project.cwd}
+      monoSubtitle
+      titleAttr={project.cwd}
+      onClick={onClick}
+    />
   );
 }
+
+// ============================================================================
+// 空态 / 工具
+// ============================================================================
 
 function EmptyWorkspaces({
   creating,
@@ -367,7 +323,8 @@ function EmptyWorkspaces({
     <EmptyState
       icon={<FolderKanban />}
       title="先登记一个工作区"
-      description="工作区是一个本地根目录。会话、工作流与运行产物都会落在里面；在这里登记一次，其他页面直接选用即可。"
+      description="工作区是一个本地根目录，可以是代码仓库、Excel 资料库或知识库目录。登记后可以浏览全部文件、预览内容，并进行 Git 操作。"
+      className="h-full"
       action={
         <Button
           variant="primary"
@@ -381,4 +338,16 @@ function EmptyWorkspaces({
       }
     />
   );
+}
+
+function dirNameOf(path: string): string {
+  const parts = path.replace(/\\/g, "/").split("/").filter(Boolean);
+  return parts[parts.length - 1] || "新工作区";
+}
+
+function removeKey<T>(record: Record<string, T>, key: string): Record<string, T> {
+  if (!(key in record)) return record;
+  const next = { ...record };
+  delete next[key];
+  return next;
 }

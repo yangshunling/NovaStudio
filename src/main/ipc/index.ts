@@ -34,6 +34,7 @@ import { registerWorkflowHandlers } from "./handlers/workflow";
 import { registerWorkflowRunHandlers } from "./handlers/workflow-run";
 import { registerTriggerHandlers } from "./handlers/trigger";
 import { registerTodoHandlers } from "./handlers/todo";
+import { registerGitHandlers } from "./handlers/git";
 import { registerUpdaterHandlers } from "./handlers/updater";
 import { registerAppHandlers } from "./handlers/app";
 
@@ -107,6 +108,7 @@ export function initIpcHandlers(window: BrowserWindow): void {
   registerWorkflowRunHandlers(service, runner);
   registerTriggerHandlers();
   registerTodoHandlers();
+  registerGitHandlers();
   registerUpdaterHandlers();
   registerAppHandlers();
 

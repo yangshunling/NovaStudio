@@ -27,6 +27,11 @@ export interface TerminalSession {
 interface TerminalState {
   terminals: TerminalSession[];
   activeId: string | null;
+  /**
+   * 其他页面（工作区卡片 / 详情）调用 open 时请求终端页切换到的工作区。
+   * TerminalsView 消费后清空，避免关闭终端时选中项被意外带跑。
+   */
+  requestedWorkspaceId: string | null;
 
   /** 打开终端；同一工作区已存在时直接激活并返回其 id */
   open: (input: {
@@ -36,6 +41,8 @@ interface TerminalState {
   }) => string;
   activate: (id: string) => void;
   close: (id: string) => void;
+  /** TerminalsView 消费完外部切换请求后调用 */
+  clearRequestedWorkspace: () => void;
   /** 在同一个标签里重新拉起 shell（PTY 退出后使用） */
   restart: (id: string) => void;
   /** 关闭某工作区下的所有终端（删除工作区时调用） */
@@ -46,13 +53,14 @@ interface TerminalState {
 export const useTerminalStore = create<TerminalState>((set, get) => ({
   terminals: [],
   activeId: null,
+  requestedWorkspaceId: null,
 
   open: ({ workspaceId = null, cwd, name = "终端" }) => {
     const existing = workspaceId
       ? get().terminals.find((item) => item.workspaceId === workspaceId)
       : undefined;
     if (existing) {
-      set({ activeId: existing.id });
+      set({ activeId: existing.id, requestedWorkspaceId: workspaceId });
       return existing.id;
     }
 
@@ -63,9 +71,12 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
         { id, workspaceId, cwd, name, generation: 0 },
       ],
       activeId: id,
+      requestedWorkspaceId: workspaceId,
     }));
     return id;
   },
+
+  clearRequestedWorkspace: () => set({ requestedWorkspaceId: null }),
 
   activate: (id) => set({ activeId: id }),
 

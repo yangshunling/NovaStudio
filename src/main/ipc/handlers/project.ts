@@ -63,4 +63,5 @@ export function registerProjectHandlers(
     }
     return readGitStatus(project.cwd);
   });
+
 }

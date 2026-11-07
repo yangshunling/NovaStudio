@@ -44,6 +44,12 @@ export function dirName(path: string): string {
   return parts[parts.length - 1] || path;
 }
 
+/** 路径末两级，用于卡片上的简短标识（完整路径放在 title 里） */
+export function shortPath(path: string): string {
+  const parts = path.split(/[\\/]+/).filter(Boolean);
+  return parts.slice(-2).join(" / ") || path;
+}
+
 /** 相对时间：刚刚 / N分钟前 / N小时前 / N天前 */
 export function timeAgo(ts: number): string {
   const diff = Date.now() - ts;

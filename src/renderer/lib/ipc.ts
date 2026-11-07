@@ -75,6 +75,25 @@ export const ipc = {
   listFiles: (projectId: string, subPath?: string) =>
     call("project:listFiles", { projectId, subPath }),
   getGitStatus: (projectId: string) => call("project:gitStatus", { projectId }),
+  getGitStatusDetail: (projectId: string) =>
+    call("git:statusDetail", { projectId }),
+  listGitBranches: (projectId: string) => call("git:branches", { projectId }),
+  listGitLog: (projectId: string, limit?: number) =>
+    call("git:log", { projectId, limit }),
+  getGitDiff: (projectId: string, relativePath: string, staged: boolean) =>
+    call("git:diff", { projectId, relativePath, staged }),
+  stageGitPaths: (projectId: string, paths: string[]) =>
+    call("git:stage", { projectId, paths }),
+  unstageGitPaths: (projectId: string, paths: string[]) =>
+    call("git:unstage", { projectId, paths }),
+  commitGit: (projectId: string, message: string) =>
+    call("git:commit", { projectId, message }),
+  checkoutGitBranch: (projectId: string, branch: string) =>
+    call("git:checkoutBranch", { projectId, branch }),
+  createGitBranch: (projectId: string, name: string) =>
+    call("git:createBranch", { projectId, name }),
+  initGitRepository: (projectId: string) =>
+    call("git:init", { projectId }),
   readFile: (projectId: string, relativePath: string) =>
     call("file:read", { projectId, relativePath }),
   readEmbeddedImage: (projectId: string, markdownPath: string, src: string) =>

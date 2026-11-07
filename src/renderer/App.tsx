@@ -11,7 +11,7 @@
  * 自行从 useTheme / useSkin 取值。
  */
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useChatStore } from "./stores/chat";
 import { useAutomationStore } from "./stores/automation";
 import { preloadAssets } from "./stores/assets";
@@ -48,6 +48,13 @@ export default function App() {
   const showWorkspace = useChatStore((s) => s.showWorkspace);
   const loadTasks = useAutomationStore((s) => s.loadTasks);
 
+  /**
+   * 工作区页首次进入才挂载，之后常驻（切走只隐藏）。
+   * 避免应用启动时就去扫描所有工作区目录，又能在切到终端 / 会话后
+   * 保留文件预览标签和 Git 提交草稿。
+   */
+  const [workspacesMounted, setWorkspacesMounted] = useState(false);
+
   useEffect(() => {
     // 开发期检查皮肤 token 完整性，避免新增皮肤时漏定义导致静默失效
     if (import.meta.env.DEV) validateSkins();
@@ -70,6 +77,10 @@ export default function App() {
     preloadAssets();
   }, [detectAgents, loadProjects, loadSessions, loadTasks]);
 
+  useEffect(() => {
+    if (viewMode === "workspaces") setWorkspacesMounted(true);
+  }, [viewMode]);
+
   return (
     <ErrorBoundary>
       <div className="flex h-screen w-screen overflow-hidden bg-bg text-text">
@@ -86,8 +97,6 @@ export default function App() {
           <McpView />
         ) : viewMode === "knowledge" ? (
           <KnowledgeView />
-        ) : viewMode === "workspaces" ? (
-          <WorkspacesView />
         ) : viewMode === "triggers" ? (
           <TriggersView />
         ) : viewMode === "agents" ? (
@@ -116,6 +125,16 @@ export default function App() {
         <div className={viewMode === "workflow" ? "contents" : "hidden"}>
           <WorkflowsView />
         </div>
+
+        {/*
+          工作区页常驻挂载：文件预览标签、Git 提交草稿、选中的工作区
+          都是组件内部状态。切到终端 / 会话再回来不应该被清空。
+        */}
+        {workspacesMounted && (
+          <div className={viewMode === "workspaces" ? "contents" : "hidden"}>
+            <WorkspacesView />
+          </div>
+        )}
 
         {showSettings && <SettingsModal />}
         {/* 全局确认框：替代 window.confirm，避免原生对话框抢走键盘焦点 */}

@@ -6,6 +6,7 @@
  */
 
 import { execFile } from "node:child_process";
+import { realpath } from "node:fs/promises";
 import { relative } from "node:path";
 import { promisify } from "node:util";
 import type {
@@ -33,7 +34,19 @@ export async function readGitStatus(cwd: string): Promise<GitStatusSummary> {
     const repoRoot = String(rootOutput).trim();
     if (!repoRoot) return EMPTY_STATUS;
 
-    const projectPrefix = relative(repoRoot, cwd).replace(/\\/g, "/");
+    // Windows 8.3 短路径与 git 返回的长路径需要先统一，再算相对前缀
+    let realRoot = repoRoot;
+    let realCwd = cwd;
+    try {
+      [realRoot, realCwd] = await Promise.all([
+        realpath(repoRoot),
+        realpath(cwd),
+      ]);
+    } catch {
+      // 无法解析时保留原值
+    }
+
+    const projectPrefix = relative(realRoot, realCwd).replace(/\\/g, "/");
     if (projectPrefix === ".." || projectPrefix.startsWith("../")) {
       return EMPTY_STATUS;
     }
