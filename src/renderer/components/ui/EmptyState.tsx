@@ -39,45 +39,70 @@ export function EmptyState({
 }: EmptyStateProps) {
   const compact = size === "compact";
 
+  // 紧凑态：卡片内 / 侧栏里的局部空态，保持安静
+  if (compact) {
+    return (
+      <div
+        className={`flex flex-col items-center justify-center gap-1.5 px-6 py-10 text-center ${className}`.trim()}
+      >
+        {icon && (
+          <div className="text-text-muted opacity-50 [&>svg]:h-6 [&>svg]:w-6">
+            {icon}
+          </div>
+        )}
+        <h2 className="text-body text-text-secondary">{title}</h2>
+        {description && (
+          <p className="max-w-md text-meta leading-relaxed text-text-muted">
+            {description}
+          </p>
+        )}
+        {action && <div className="mt-1">{action}</div>}
+      </div>
+    );
+  }
+
+  /*
+   * 整页空态：一张带渐变洗色的欢迎卡。
+   * 与待办 / 会话 / 触发器页一致，让「第一次进来」也有明确的起点。
+   */
   return (
     <div
-      className={`flex flex-col items-center justify-center text-center ${
-        compact ? "gap-1.5 px-6 py-10" : "gap-3 py-20"
-      } ${className}`.trim()}
+      className={`flex min-h-[60vh] items-center justify-center ${className}`.trim()}
     >
-      {icon && (
-        <div
-          className={
-            compact
-              ? "text-text-muted opacity-50 [&>svg]:h-6 [&>svg]:w-6"
-              : "ui-btn-round flex h-16 w-16 items-center justify-center rounded-2xl text-text-muted [&>svg]:h-6 [&>svg]:w-6"
-          }
-        >
-          {icon}
+      <div className="relative w-full max-w-[640px] overflow-hidden rounded-2xl border border-border/70 bg-surface-2/40 p-8 text-center shadow-[var(--c-shadow-sm)]">
+        <span
+          aria-hidden
+          className="pointer-events-none absolute inset-0 bg-gradient-to-br from-accent/16 via-accent/[0.04] to-transparent"
+        />
+        <span
+          aria-hidden
+          className="pointer-events-none absolute -right-20 -top-24 h-56 w-56 rounded-full bg-accent/20 blur-3xl"
+        />
+        <span
+          aria-hidden
+          className="pointer-events-none absolute inset-x-10 top-0 h-px bg-gradient-to-r from-transparent via-accent/50 to-transparent"
+        />
+
+        <div className="relative flex flex-col items-center">
+          {icon && (
+            <div className="grid h-14 w-14 place-items-center rounded-2xl bg-accent text-accent-foreground shadow-[0_10px_30px_var(--c-accent-soft)] [&>svg]:h-6 [&>svg]:w-6">
+              {icon}
+            </div>
+          )}
+
+          <h2 className="mt-5 text-heading font-semibold tracking-tight text-text">
+            {title}
+          </h2>
+
+          {description && (
+            <p className="mt-2 max-w-md text-body leading-relaxed text-text-secondary">
+              {description}
+            </p>
+          )}
+
+          {action && <div className="mt-6">{action}</div>}
         </div>
-      )}
-
-      <h2
-        className={
-          compact
-            ? "text-body text-text-secondary"
-            : "ui-serif text-heading font-semibold text-text-secondary"
-        }
-      >
-        {title}
-      </h2>
-
-      {description && (
-        <p
-          className={`max-w-md leading-relaxed text-text-muted ${
-            compact ? "text-meta" : "text-body"
-          }`}
-        >
-          {description}
-        </p>
-      )}
-
-      {action && <div className={compact ? "mt-1" : "mt-2"}>{action}</div>}
+      </div>
     </div>
   );
 }
@@ -91,10 +116,13 @@ export function FilterEmpty({
   title,
   onClear,
   icon,
+  clearLabel = "清除搜索",
 }: {
   title: string;
   onClear?: () => void;
   icon?: ReactNode;
+  /** 操作按钮文案；按状态筛选时可用「查看全部」这类更贴切的措辞 */
+  clearLabel?: string;
 }) {
   return (
     <EmptyState
@@ -108,7 +136,7 @@ export function FilterEmpty({
             onClick={onClear}
             className="text-meta text-accent hover:underline"
           >
-            清除搜索
+            {clearLabel}
           </button>
         ) : undefined
       }

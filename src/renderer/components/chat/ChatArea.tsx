@@ -127,13 +127,19 @@ export function ChatArea({ embedded = false }: { embedded?: boolean } = {}) {
 
         {/* 消息区由 assistant-ui 运行时渲染，视觉仍由 Nova token 控制 */}
         <div className="relative z-10 min-h-0 flex-1 overflow-hidden">
-          <AssistantMessageList />
+          <AssistantMessageList
+            onSuggestion={(text) => {
+              // 示例只填入输入框，发不发送由用户决定
+              setInput(text);
+              requestAnimationFrame(() => textareaRef.current?.focus());
+            }}
+          />
         </div>
 
         {/* 输入区：玻璃拟态 + 大圆角描边卡片 */}
         <div className="ui-glass ui-chat-gutter relative z-10 border-t border-border py-inset">
           <div className="mx-auto max-w-[var(--c-layout-content)]">
-            <div className="ui-ring rounded-[var(--c-radius-input)] bg-input-bg p-2 shadow-[var(--c-shadow-sm)] focus-within:shadow-[0_0_0_2px_var(--c-accent-soft)]">
+            <div className="ui-ring rounded-[var(--c-radius-input)] bg-input-bg p-2 shadow-[var(--c-shadow-sm)] transition-[border-color,box-shadow] focus-within:border-accent/40 focus-within:shadow-[0_0_0_3px_var(--c-accent-soft)]">
               {fileMention.references.length > 0 && (
                 <div className="mb-2 flex flex-wrap gap-1.5 px-1">
                   {fileMention.references.map((entry) => (

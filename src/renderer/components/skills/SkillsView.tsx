@@ -51,10 +51,10 @@ import { Page, PageBody, PageHeader } from "../ui/Page";
 import { SearchInput } from "../ui/SearchInput";
 import {
   CARD_DESCRIPTION,
-  CARD_ICON_TILE,
   CARD_META,
   CARD_SHELL,
   CARD_TITLE,
+  cardIconTile,
 } from "../ui/cardStyles";
 import { formatAssetTime, Meta, Tag } from "../asset/AssetUi";
 import { CodeTextarea, EditorBar } from "../asset/EditorUi";
@@ -226,23 +226,34 @@ function SkillCard({
   onOpen: () => void;
 }) {
   return (
-    <button
-      type="button"
-      onClick={onOpen}
-      className={CARD_SHELL}
-    >
-      <div className="flex items-start gap-3">
-        <span className={CARD_ICON_TILE}>
+    <button type="button" onClick={onOpen} className={CARD_SHELL}>
+      <div className="flex min-w-0 items-start gap-3">
+        <span className={cardIconTile("violet")}>
           <Sparkles className="h-5 w-5" />
         </span>
-        <div className="flex min-w-0 flex-1 items-start justify-between gap-2">
+        <div className="min-w-0 flex-1 overflow-hidden">
+          {/* 标题 + 目录名：slug 是唯一标识，放开目录里对得上 */}
           <h3 className={CARD_TITLE}>{skill.name}</h3>
+          <p className="mt-0.5 truncate font-mono text-caption text-text-muted">
+            {skill.slug}
+          </p>
         </div>
+        <ChevronRight className="mt-1 h-4 w-4 shrink-0 text-text-muted opacity-0 transition-opacity group-hover:opacity-100" />
       </div>
 
-      <p className={`mt-2 ${CARD_DESCRIPTION}`}>
+      <p className={`mt-2.5 ${CARD_DESCRIPTION}`}>
         {skill.description || "暂无描述"}
       </p>
+
+      {/* 校验问题只放在 tooltip 里等于没提示：把第一条直接写在卡片上 */}
+      {!skill.valid && skill.problems.length > 0 && (
+        <p
+          className="mt-1.5 line-clamp-1 rounded-md bg-error-bg/60 px-2 py-1 text-caption text-error"
+          title={skill.problems.join("\n")}
+        >
+          {skill.problems[0]}
+        </p>
+      )}
 
       <div className={CARD_META}>
         {skill.hasScripts && (
@@ -260,8 +271,8 @@ function SkillCard({
             {usage} 位员工
           </Tag>
         )}
-        <span className="ml-auto text-meta text-text-muted">
-          {formatAssetTime(skill.updatedAt)}
+        <span className="ml-auto shrink-0 text-caption tabular-nums text-text-muted">
+          {skill.fileCount} 个文件 · {formatAssetTime(skill.updatedAt)}
         </span>
       </div>
     </button>

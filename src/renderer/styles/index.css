@@ -508,9 +508,9 @@ body {
   color: var(--board-tone);
 }
 
-/* 列体极淡染色，让三列读为三个色域，不与卡片争前景 */
+/* 列体保持中性：颜色只出现在顶部色条与列头，避免整列大面积染色显旧 */
 .board-col-body {
-  background: color-mix(in srgb, var(--board-tone) 3%, transparent);
+  background: transparent;
 }
 
 /* ============================================================================

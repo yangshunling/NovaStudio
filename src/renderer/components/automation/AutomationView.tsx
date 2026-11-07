@@ -20,10 +20,18 @@
  */
 
 import { useState } from "react";
-import { Clock, Check, ListChecks, Loader2 } from "lucide-react";
+import {
+  Check,
+  CircleDashed,
+  Clock,
+  ListChecks,
+  Loader2,
+  Plus,
+} from "lucide-react";
 import { useAutomationStore } from "../../stores/automation";
 import { useChatStore } from "../../stores/chat";
 import { Page, PageHeader } from "../ui/Page";
+import { Button } from "../ui/Button";
 import { BoardColumn } from "./BoardColumn";
 import { TaskCreateModal } from "./TaskCreateModal";
 import { TaskDetailDrawer } from "./TaskDetailDrawer";
@@ -59,10 +67,20 @@ export function AutomationView() {
           count={tasks.length}
           countSuffix=" 个任务"
           icon={<ListChecks className="h-4 w-4" />}
+          actions={
+            <Button
+              variant="primary"
+              size="sm"
+              icon={<Plus className="h-4 w-4" />}
+              onClick={() => setShowCreate(true)}
+            >
+              新建任务
+            </Button>
+          }
         />
 
-        {/* 三列看板 */}
-        <div className="relative z-10 flex flex-1 overflow-hidden">
+        {/* 三列看板：列是独立圆角卡片，窄窗口横向滚动 */}
+        <div className="relative z-10 flex min-h-0 flex-1 gap-3 overflow-x-auto p-4">
           <BoardColumn
             title="待执行"
             count={pending.length}
@@ -78,10 +96,17 @@ export function AutomationView() {
             onAdd={() => setShowCreate(true)}
             emptyHint="暂无待执行任务"
           />
+          {/* 没有任务在跑时不用静止的转圈图标：那看起来像卡住的加载态 */}
           <BoardColumn
             title="执行中"
             count={running.length}
-            icon={<Loader2 className={`h-4 w-4 ${hasRunning ? "animate-spin" : ""}`} />}
+            icon={
+              hasRunning ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <CircleDashed className="h-3.5 w-3.5" />
+              )
+            }
             tone="running"
             tasks={running}
             projects={projects}
@@ -108,6 +133,7 @@ export function AutomationView() {
           />
         </div>
       </Page>
+
 
       {/* 创建弹框 */}
       {showCreate && <TaskCreateModal onClose={() => setShowCreate(false)} />}

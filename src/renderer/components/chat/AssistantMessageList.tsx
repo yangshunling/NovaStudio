@@ -23,11 +23,10 @@ import {
   Bug,
   ChevronRight,
   FileText,
+  FolderTree,
+  ListChecks,
   Loader2,
-  PenLine,
-  Search,
-  Terminal,
-  Wrench,
+  Sparkles,
   AlertTriangle,
 } from "lucide-react";
 import type { AgentEvent, Message, ToolKind } from "@shared/types";
@@ -35,12 +34,39 @@ import { selectEffectiveAgentId, useChatStore } from "../../stores/chat";
 import { MarkdownRenderer } from "../ui/MarkdownRenderer";
 import { AgentAvatar, NovaAvatar } from "../ui/MessageAvatar";
 import { UserBubble } from "../ui/UserBubble";
-import { truncateText } from "../../lib/utils";
 import { extractFileChanges } from "../../lib/tool-diff";
-import { ToolDiffView } from "./ToolDiffView";
 import { markdownInterval, useThrottledValue } from "../../hooks/useThrottledValue";
+import { ToolCallCard } from "./ToolCallCard";
 
-export function AssistantMessageList() {
+/** 欢迎卡上的示例：点击后填入输入框，由用户决定是否发送 */
+const SUGGESTIONS = [
+  {
+    icon: FolderTree,
+    label: "了解当前工作区",
+    prompt: "先浏览一下当前工作区，介绍一下项目结构和主要模块。",
+  },
+  {
+    icon: ListChecks,
+    label: "拆解一个需求",
+    prompt: "我有个需求，帮我拆解成可执行的开发任务。",
+  },
+  {
+    icon: FileText,
+    label: "写一份周报",
+    prompt: "根据我最近的工作，帮我写一份本周周报。",
+  },
+  {
+    icon: Bug,
+    label: "排查一个问题",
+    prompt: "帮我排查一个问题，先问我几个关键信息。",
+  },
+];
+
+export function AssistantMessageList({
+  onSuggestion,
+}: {
+  onSuggestion?: (text: string) => void;
+} = {}) {
   const messages = useChatStore((s) => s.messagesBySession[s.currentSessionId ?? ""] ?? []);
   const streaming = useChatStore(
     (s) => !!s.streamingBySession[s.currentSessionId ?? ""],
@@ -73,7 +99,7 @@ export function AssistantMessageList() {
       <ThreadPrimitive.Root className="relative h-full">
         <ThreadPrimitive.Viewport className="ui-chat-scale ui-chat-gutter h-full overflow-y-auto py-4">
           <ThreadPrimitive.Empty>
-            <ThreadEmpty />
+            <ThreadEmpty onSuggestion={onSuggestion} />
           </ThreadPrimitive.Empty>
           <ThreadPrimitive.Messages
             components={{
@@ -87,7 +113,11 @@ export function AssistantMessageList() {
   );
 }
 
-function ThreadEmpty() {
+function ThreadEmpty({
+  onSuggestion,
+}: {
+  onSuggestion?: (text: string) => void;
+}) {
   const projects = useChatStore((s) => s.projects);
   const currentProjectId = useChatStore((s) => s.currentProjectId);
   const loadingHistory = useChatStore(
@@ -111,18 +141,57 @@ function ThreadEmpty() {
   }
 
   return (
-    <div className="mx-auto flex min-h-[50vh] max-w-[var(--c-layout-content)] flex-col items-center justify-center gap-3 text-text-muted">
-      <div className="ui-btn-round flex h-14 w-14 items-center justify-center rounded-full">
-        <Brain className="h-5 w-5" />
+    <div className="flex min-h-full flex-col items-center justify-center px-4 py-8">
+      <div className="relative w-full max-w-[680px] overflow-hidden rounded-2xl border border-border/70 bg-surface-2/40 p-8 shadow-[var(--c-shadow-sm)]">
+        {/* 与待办页同一套渐变语言：主光在右上，左上斜向洗色 */}
+        <span
+          aria-hidden
+          className="pointer-events-none absolute inset-0 bg-gradient-to-br from-accent/16 via-accent/[0.04] to-transparent"
+        />
+        <span
+          aria-hidden
+          className="pointer-events-none absolute -right-20 -top-24 h-56 w-56 rounded-full bg-accent/20 blur-3xl"
+        />
+        <span
+          aria-hidden
+          className="pointer-events-none absolute inset-x-10 top-0 h-px bg-gradient-to-r from-transparent via-accent/50 to-transparent"
+        />
+
+        <div className="relative flex flex-col items-center text-center">
+          <div className="grid h-14 w-14 place-items-center rounded-2xl bg-accent text-accent-foreground shadow-[0_10px_30px_var(--c-accent-soft)]">
+            <Sparkles className="h-6 w-6" />
+          </div>
+
+          <h1 className="mt-5 text-heading font-semibold tracking-tight text-text">
+            {project ? `在「${project.name}」中开始对话` : "有什么可以帮你？"}
+          </h1>
+          <p className="mt-2 max-w-md text-body leading-relaxed text-text-secondary">
+            {project
+              ? "描述任务，或从下面的示例开始。Nova 会在当前工作目录中读取和改动文件。"
+              : "描述你的任务，或从下面的示例开始。需要读写本地文件时，在输入框旁指定工作区。"}
+          </p>
+
+          {onSuggestion && (
+            <div className="mt-6 flex flex-wrap justify-center gap-2">
+              {SUGGESTIONS.map(({ icon: Icon, label, prompt }) => (
+                <button
+                  key={label}
+                  type="button"
+                  onClick={() => onSuggestion(prompt)}
+                  className="flex items-center gap-1.5 rounded-full border border-border/60 bg-surface/80 px-3 py-1.5 text-meta text-text-secondary shadow-[var(--c-shadow-sm)] transition-colors hover:border-accent/40 hover:bg-accent-soft hover:text-accent"
+                >
+                  <Icon className="h-3.5 w-3.5" />
+                  {label}
+                </button>
+              ))}
+            </div>
+          )}
+
+          <p className="mt-6 text-caption text-text-muted">
+            Enter 发送 · Shift + Enter 换行
+          </p>
+        </div>
       </div>
-      <h1 className="ui-serif text-hero font-semibold tracking-wide text-text-secondary">
-        {project ? "开始对话" : "新对话"}
-      </h1>
-      <p className="max-w-md text-center text-body-lg leading-relaxed">
-        {project
-          ? `在「${project.name}」工作目录中与智能体对话`
-          : "直接描述你的任务。需要读写本地文件时，在输入框旁指定工作区。"}
-      </p>
     </div>
   );
 }
@@ -193,7 +262,7 @@ function AnswerPart() {
   const text = useThrottledValue(part.text, markdownInterval(part.text.length));
 
   return (
-    <div className="ui-bubble w-fit max-w-full bg-surface-2 px-4 py-3 text-text">
+    <div className="ui-bubble w-fit max-w-full bg-surface-2/60 px-4 py-3.5 text-text">
       <MarkdownRenderer content={text} streaming={running} />
       {running && (
         <span className="ml-0.5 inline-block h-3.5 w-1 animate-pulse rounded-full bg-accent align-middle" />
@@ -210,38 +279,30 @@ function ReasoningPart() {
   const text = useThrottledValue(part.text, markdownInterval(part.text.length, 120));
 
   return (
-    <div className="group max-w-full">
+    <div className="max-w-full overflow-hidden rounded-xl border border-border/60 bg-surface-2/30">
       <button
         type="button"
         onClick={() => setCollapsed((value) => !value)}
-        className="ui-glass flex items-center gap-2 rounded-md px-2.5 py-1.5 text-meta text-thinking hover:text-text-secondary"
+        className="flex w-full items-center gap-2 px-3 py-2 text-left text-meta text-thinking transition-colors hover:bg-surface-hover/40 hover:text-text-secondary"
       >
         <Brain className="h-3.5 w-3.5 shrink-0" />
-        <span className="ui-serif">思考过程</span>
-        {running && <Loader2 className="h-3 w-3 animate-spin" />}
+        <span>思考过程</span>
+        {running && <Loader2 className="h-3 w-3 animate-spin text-text-muted" />}
         <ChevronRight
-          className={`h-3 w-3 text-text-muted transition-transform ${
+          className={`ml-auto h-3 w-3 text-text-muted transition-transform ${
             collapsed ? "" : "rotate-90"
           }`}
         />
       </button>
 
       {!collapsed && (
-        <div className="mt-2 max-h-60 overflow-auto rounded-md border-l-4 border-thinking bg-thinking-bg px-4 py-3 text-meta text-text-secondary backdrop-blur-md">
+        <div className="max-h-60 overflow-auto border-t border-border/50 bg-thinking-bg/60 px-3.5 py-2.5 text-meta text-text-secondary">
           <MarkdownRenderer content={text} streaming={running} />
         </div>
       )}
     </div>
   );
 }
-
-const TOOL_ICONS: Record<ToolKind, typeof FileText> = {
-  read: FileText,
-  write: PenLine,
-  exec: Terminal,
-  search: Search,
-  other: Wrench,
-};
 
 function ToolPart(props: ToolCallMessagePartProps) {
   const meta = readNovaToolMetadata(props.providerMetadata);
@@ -255,15 +316,6 @@ function ToolPart(props: ToolCallMessagePartProps) {
    * result；此时消息本身已经结束，不能再把它显示成“一直进行中”。
    */
   const running = props.status?.type === "running";
-  const statusText = done
-    ? hasError
-      ? "失败"
-      : "完成"
-    : running
-      ? "进行中"
-      : "未完成";
-  const Icon = TOOL_ICONS[kind];
-  const output = stringifyToolResult(props.result);
   /*
    * 改动类工具（Edit / Write / MultiEdit…）把 input 里的新旧文本转成 diff。
    * 只在参数对象变化时重算：历史消息按消息缓存转换结果，不会反复执行。
@@ -272,107 +324,36 @@ function ToolPart(props: ToolCallMessagePartProps) {
     () => extractFileChanges(props.toolName, props.args, kind, meta?.lineStarts),
     [props.toolName, props.args, kind, meta?.lineStarts],
   );
-  /*
-   * 改动类工具默认展开：diff 本身就是这类调用最值得看的内容，
-   * 再收起来等于让用户多点一次。其余工具保持折叠。
-   */
-  const [collapsed, setCollapsed] = useState(() => changes.length === 0);
 
   return (
-    <div className="w-full">
-      <button
-        type="button"
-        onClick={() => setCollapsed((value) => !value)}
-        className="ui-glass flex w-full items-start gap-2 rounded-md px-2.5 py-1.5 text-left text-meta text-text-secondary hover:text-text"
-      >
-        <Icon className="mt-0.5 h-3.5 w-3.5 shrink-0 text-tool" />
-        <span className="shrink-0 font-mono">{props.toolName}</span>
-        {target && (
-          /* 单行展示：换行（如 bash 多行命令）折叠成空格，超宽由 CSS 省略号截断，
-             完整内容仍在 title / 展开明细里 */
-          <span
-            className="min-w-0 flex-1 truncate font-mono text-text-muted"
-            title={target}
-          >
-            {target}
-          </span>
-        )}
-        <span className="ml-auto flex shrink-0 items-center gap-1">
-          <span
-            className={`inline-block h-1.5 w-1.5 shrink-0 rounded-full ${
-              hasError
-                ? "bg-error"
-                : done
-                  ? "bg-success"
-                  : running
-                    ? "animate-pulse bg-accent"
-                    : "bg-text-muted"
-            }`}
-          />
-          <span className={hasError ? "text-error" : "text-text-muted"}>
-            {statusText}
-          </span>
-          <ChevronRight
-            className={`h-3 w-3 shrink-0 text-text-muted transition-transform ${
-              collapsed ? "" : "rotate-90"
-            }`}
-          />
-        </span>
-      </button>
-
-      {!collapsed && (
-        <div className="mt-1 w-full space-y-1">
-          {changes.length > 0 ? (
-            <ToolDiffView changes={changes} />
-          ) : (
-            <div>
-              <div className="text-micro uppercase tracking-wide text-text-muted">
-                input
-              </div>
-              <pre className="ui-glass max-h-40 overflow-auto rounded-md px-2 py-1 text-meta text-text-secondary">
-                {truncateText(
-                  props.argsText || JSON.stringify(props.args ?? {}, null, 2),
-                  500,
-                )}
-              </pre>
-            </div>
-          )}
-          {/* 有 diff 且成功时回执没有信息量（Edit 只回一句“已更新”），不再展示；
-              失败时错误信息必须保留 */}
-          {done && output && (changes.length === 0 || hasError) && (
-            <div>
-              <div className="text-micro uppercase tracking-wide text-text-muted">
-                {hasError ? "error" : "output"}
-              </div>
-              <pre
-                className={`ui-glass max-h-48 overflow-auto rounded-md px-2 py-1 text-meta ${
-                  hasError ? "text-error" : "text-text-muted"
-                }`}
-              >
-                {truncateText(output, 500)}
-              </pre>
-            </div>
-          )}
-        </div>
-      )}
-    </div>
+    <ToolCallCard
+      toolName={props.toolName}
+      target={target}
+      kind={kind}
+      args={props.args}
+      argsText={props.argsText}
+      result={done ? stringifyToolResult(props.result) : undefined}
+      isError={hasError}
+      running={running}
+      changes={changes}
+    />
   );
 }
 
 function ErrorPart(props: DataMessagePartProps<{ message: string }>) {
   return (
-    <div className="flex items-start gap-2 rounded-md border border-error bg-error-bg px-3 py-2 text-body-lg text-error">
+    <div className="flex items-start gap-2.5 rounded-xl border border-error/30 bg-error-bg/70 px-3.5 py-2.5 text-body text-error">
       <Bug className="mt-0.5 h-4 w-4 shrink-0" />
-      {props.data.message}
+      <span className="min-w-0">{props.data.message}</span>
     </div>
   );
 }
 
 function WarningPart(props: DataMessagePartProps<{ message: string }>) {
   return (
-    <div className="flex items-start gap-2 rounded-md border border-border-strong bg-surface-2 px-3 py-2 text-body-lg text-text-secondary">
+    <div className="flex items-start gap-2.5 rounded-xl border border-border/60 bg-surface-2/40 px-3.5 py-2.5 text-body text-text-secondary">
       <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-text-muted" />
-      {props.data.message}
+      <span className="min-w-0">{props.data.message}</span>
     </div>
   );
 }

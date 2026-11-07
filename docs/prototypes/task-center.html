@@ -1,0 +1,1160 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>任务中心 · 原型</title>
+<style>
+  /* ============================================================
+     设计变量：与 Nova 的皮肤 token 对齐，原型单独跑也能自洽
+     ============================================================ */
+  :root {
+    --rail: 224px;
+    --bg: #f6f7f9;
+    --panel: #ffffff;
+    --col: #f3f5f7;
+    --card: #ffffff;
+    --border: #e4e7ec;
+    --border-strong: #d0d5dd;
+    --text: #101828;
+    --text-2: #475467;
+    --muted: #98a2b3;
+    --accent: #0969da;
+    --accent-hover: #0860ca;
+    --accent-soft: rgba(9, 105, 218, 0.08);
+    --success: #1a7f37;
+    --success-soft: rgba(26, 127, 55, 0.1);
+    --error: #cf222e;
+    --error-soft: rgba(207, 34, 46, 0.08);
+    --warn: #b26a10;
+    --warn-soft: rgba(178, 106, 16, 0.1);
+    --shadow-sm: 0 1px 2px rgba(16, 24, 40, 0.05);
+    --shadow-md: 0 8px 24px rgba(16, 24, 40, 0.1);
+    --shadow-lg: 0 20px 48px rgba(16, 24, 40, 0.14);
+    --radius: 12px;
+  }
+
+  [data-theme="dark"] {
+    --bg: #0a0b0d;
+    --panel: #101215;
+    --col: #15181c;
+    --card: #1b1f25;
+    --border: #262b32;
+    --border-strong: #363d47;
+    --text: #f2f4f7;
+    --text-2: #a7b0bd;
+    --muted: #6b7480;
+    --accent: #3b8ef7;
+    --accent-hover: #5aa0f9;
+    --accent-soft: rgba(59, 142, 247, 0.14);
+    --success: #3fb950;
+    --success-soft: rgba(63, 185, 80, 0.12);
+    --error: #f85149;
+    --error-soft: rgba(248, 81, 73, 0.12);
+    --warn: #d29922;
+    --warn-soft: rgba(210, 153, 34, 0.12);
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+    --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.5);
+    --shadow-lg: 0 24px 60px rgba(0, 0, 0, 0.6);
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body { height: 100%; }
+
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+      "Microsoft YaHei", "Inter", sans-serif;
+    font-size: 13px;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  button { font: inherit; color: inherit; }
+
+  /* ============================================================
+     应用外壳
+     ============================================================ */
+  .app {
+    display: grid;
+    grid-template-columns: var(--rail) minmax(0, 1fr);
+    height: 100%;
+  }
+
+  .rail {
+    background: var(--panel);
+    border-right: 1px solid var(--border);
+    padding: 14px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+  }
+
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    padding: 2px 6px 10px;
+    font-weight: 650;
+    letter-spacing: -0.01em;
+  }
+
+  .brand-mark {
+    width: 24px;
+    height: 24px;
+    border-radius: 7px;
+    background: linear-gradient(135deg, var(--accent), #6aa9ff);
+    box-shadow: 0 4px 12px var(--accent-soft);
+  }
+
+  .nav-group { display: flex; flex-direction: column; gap: 2px; }
+
+  .nav-label {
+    padding: 4px 8px 6px;
+    font-size: 11px;
+    color: var(--muted);
+    font-weight: 600;
+  }
+
+  .nav-item {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    padding: 7px 9px;
+    border-radius: 8px;
+    color: var(--text-2);
+    cursor: default;
+    user-select: none;
+  }
+
+  .nav-item svg { width: 15px; height: 15px; opacity: 0.85; }
+  .nav-item.active {
+    background: var(--accent-soft);
+    color: var(--accent);
+    font-weight: 600;
+  }
+  .nav-item .badge {
+    margin-left: auto;
+    font-size: 11px;
+    padding: 1px 6px;
+    border-radius: 999px;
+    background: var(--accent);
+    color: #fff;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* ============================================================
+     主区域
+     ============================================================ */
+  .main { display: flex; flex-direction: column; min-width: 0; }
+
+  .topbar {
+    height: 56px;
+    flex: none;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 0 20px;
+    background: var(--panel);
+    border-bottom: 1px solid var(--border);
+  }
+
+  .topbar h1 {
+    margin: 0;
+    font-size: 15px;
+    font-weight: 650;
+    letter-spacing: -0.01em;
+  }
+
+  .count-chip {
+    font-size: 11px;
+    color: var(--text-2);
+    background: var(--col);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 2px 8px;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .topbar-spacer { flex: 1; }
+
+  .icon-btn {
+    width: 32px;
+    height: 32px;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    background: var(--panel);
+    color: var(--text-2);
+    display: grid;
+    place-items: center;
+    cursor: pointer;
+    transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
+  }
+  .icon-btn:hover { color: var(--text); border-color: var(--border-strong); }
+
+  .search {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    height: 32px;
+    width: 200px;
+    padding: 0 11px;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    background: var(--panel);
+    color: var(--muted);
+  }
+  .search input {
+    border: 0;
+    outline: 0;
+    background: transparent;
+    color: var(--text);
+    width: 100%;
+    font-size: 12px;
+  }
+  .search input::placeholder { color: var(--muted); }
+
+  .primary-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: 32px;
+    padding: 0 14px;
+    border-radius: 999px;
+    border: 1px solid transparent;
+    background: var(--accent);
+    color: #fff;
+    font-size: 12px;
+    font-weight: 550;
+    cursor: pointer;
+    box-shadow: var(--shadow-sm);
+    transition: transform 120ms ease, filter 120ms ease;
+  }
+  .primary-btn:hover { filter: brightness(1.06); transform: translateY(-1px); }
+  .primary-btn:active { transform: translateY(0); }
+
+  /* ============================================================
+     看板
+     ============================================================ */
+  .board {
+    flex: 1;
+    min-height: 0;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(280px, 1fr));
+    align-items: start;
+    gap: 14px;
+    padding: 16px 20px 20px;
+    overflow: auto;
+  }
+
+  /* 列高度跟随内容：任务少时不是一大片空框，整块板子更轻 */
+  .column {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    max-height: 100%;
+    background: var(--col);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+  }
+
+  .column-head {
+    flex: none;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    height: 44px;
+    padding: 0 12px 0 14px;
+  }
+
+  .status-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 999px;
+    flex: none;
+    background: var(--muted);
+  }
+  .status-dot.accent { background: var(--accent); }
+  .status-dot.success { background: var(--success); }
+
+  .column-title {
+    font-size: 12.5px;
+    font-weight: 600;
+    color: var(--text-2);
+    letter-spacing: 0.01em;
+  }
+
+  .column-count {
+    min-width: 18px;
+    height: 18px;
+    padding: 0 5px;
+    border-radius: 999px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    color: var(--muted);
+    font-size: 11px;
+    display: grid;
+    place-items: center;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .column-head .spacer { flex: 1; }
+
+  .ghost-btn {
+    width: 26px;
+    height: 26px;
+    border-radius: 8px;
+    border: 1px solid transparent;
+    background: transparent;
+    color: var(--muted);
+    display: grid;
+    place-items: center;
+    cursor: pointer;
+    transition: background 120ms ease, color 120ms ease;
+  }
+  .ghost-btn:hover { background: var(--panel); color: var(--text); }
+
+  .column-body {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 2px 10px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 9px;
+  }
+
+  .column-body::-webkit-scrollbar { width: 8px; }
+  .column-body::-webkit-scrollbar-thumb {
+    background: var(--border-strong);
+    border-radius: 999px;
+  }
+
+  /* ---------- 任务卡片 ---------- */
+  .task {
+    position: relative;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 12px 13px 11px;
+    box-shadow: var(--shadow-sm);
+    cursor: pointer;
+    transition: transform 140ms ease, box-shadow 140ms ease, border-color 140ms ease;
+  }
+  .task:hover {
+    transform: translateY(-1px);
+    border-color: var(--border-strong);
+    box-shadow: var(--shadow-md);
+  }
+  .task:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+
+  /* 执行中：卡片顶部一条不确定进度 */
+  .task.running::before {
+    content: "";
+    position: absolute;
+    inset: 0 0 auto;
+    height: 2px;
+    border-radius: 10px 10px 0 0;
+    background: linear-gradient(90deg, transparent, var(--accent), transparent);
+    background-size: 45% 100%;
+    background-repeat: no-repeat;
+    animation: sweep 1.8s ease-in-out infinite;
+  }
+  @keyframes sweep {
+    0% { background-position: -45% 0; }
+    100% { background-position: 145% 0; }
+  }
+
+  .task-top {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 6px;
+  }
+
+  .pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    height: 19px;
+    padding: 0 7px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 550;
+    color: var(--text-2);
+    background: var(--col);
+    border: 1px solid transparent;
+    white-space: nowrap;
+  }
+  .pill svg { width: 11px; height: 11px; }
+  .pill.accent { color: var(--accent); background: var(--accent-soft); }
+  .pill.success { color: var(--success); background: var(--success-soft); }
+  .pill.error { color: var(--error); background: var(--error-soft); }
+  .pill.warn { color: var(--warn); background: var(--warn-soft); }
+
+  .task-time {
+    margin-left: auto;
+    font-size: 11px;
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .task-title {
+    margin: 0;
+    font-size: 13px;
+    line-height: 1.55;
+    font-weight: 550;
+    color: var(--text);
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+
+  .task-title.done {
+    font-weight: 500;
+    color: var(--text-2);
+  }
+
+  .task-meta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    margin-top: 9px;
+  }
+
+  .task-error {
+    display: flex;
+    align-items: flex-start;
+    gap: 6px;
+    margin-top: 9px;
+    padding: 7px 8px;
+    border-radius: 7px;
+    background: var(--error-soft);
+    color: var(--error);
+    font-size: 11.5px;
+    line-height: 1.45;
+  }
+  .task-error svg { width: 13px; height: 13px; flex: none; margin-top: 1px; }
+
+  /* hover 时浮出的操作：不改变卡片高度 */
+  .task-actions {
+    position: absolute;
+    right: 8px;
+    bottom: 8px;
+    display: flex;
+    gap: 4px;
+    opacity: 0;
+    transform: translateY(2px);
+    transition: opacity 140ms ease, transform 140ms ease;
+  }
+  .task:hover .task-actions,
+  .task:focus-within .task-actions {
+    opacity: 1;
+    transform: translateY(0);
+  }
+
+  .mini-btn {
+    height: 24px;
+    padding: 0 8px;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    border-radius: 7px;
+    border: 1px solid var(--border);
+    background: var(--card);
+    color: var(--text-2);
+    font-size: 11px;
+    cursor: pointer;
+    box-shadow: var(--shadow-sm);
+    white-space: nowrap;
+  }
+  .mini-btn:hover { color: var(--text); border-color: var(--border-strong); }
+  .mini-btn svg { width: 12px; height: 12px; }
+  .mini-btn.danger { color: var(--error); }
+  .mini-btn.danger:hover { background: var(--error-soft); border-color: transparent; }
+
+  /* 空列：一块可点的虚线区，而不是一大片空白 */
+  .empty-slot {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    min-height: 128px;
+    border: 1px dashed var(--border-strong);
+    border-radius: 10px;
+    background: transparent;
+    color: var(--muted);
+    font-size: 12px;
+    cursor: pointer;
+    transition: border-color 140ms ease, color 140ms ease, background 140ms ease;
+  }
+  .empty-slot:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+    background: var(--accent-soft);
+  }
+  .empty-slot svg { width: 16px; height: 16px; }
+
+  /* ============================================================
+     详情抽屉
+     ============================================================ */
+  .backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(16, 24, 40, 0.28);
+    backdrop-filter: blur(2px);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 180ms ease;
+    z-index: 40;
+  }
+  .backdrop.open { opacity: 1; pointer-events: auto; }
+
+  .drawer {
+    position: fixed;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: 420px;
+    max-width: 92vw;
+    background: var(--panel);
+    border-left: 1px solid var(--border);
+    box-shadow: var(--shadow-lg);
+    transform: translateX(16px);
+    opacity: 0;
+    pointer-events: none;
+    transition: transform 200ms ease, opacity 200ms ease;
+    display: flex;
+    flex-direction: column;
+    z-index: 50;
+  }
+  .drawer.open { transform: translateX(0); opacity: 1; pointer-events: auto; }
+
+  .drawer-head {
+    flex: none;
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 16px 18px;
+    border-bottom: 1px solid var(--border);
+  }
+  .drawer-head h2 {
+    margin: 0;
+    font-size: 14px;
+    font-weight: 600;
+    line-height: 1.5;
+  }
+  .drawer-head .sub { margin-top: 4px; font-size: 11.5px; color: var(--muted); }
+
+  .drawer-body {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px 18px 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  .field-label {
+    font-size: 11px;
+    color: var(--muted);
+    font-weight: 600;
+    margin-bottom: 6px;
+  }
+
+  .meta-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+  }
+  .meta-cell {
+    border: 1px solid var(--border);
+    border-radius: 9px;
+    padding: 9px 10px;
+    background: var(--col);
+  }
+  .meta-cell .k { font-size: 11px; color: var(--muted); }
+  .meta-cell .v {
+    margin-top: 2px;
+    font-size: 12px;
+    font-weight: 550;
+    color: var(--text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .quote {
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 11px 12px;
+    background: var(--col);
+    font-size: 12.5px;
+    line-height: 1.65;
+    color: var(--text);
+    white-space: pre-wrap;
+  }
+
+  .log {
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: #0d1117;
+    color: #c9d1d9;
+    padding: 11px 12px;
+    font-family: "JetBrains Mono", "Cascadia Code", Consolas, monospace;
+    font-size: 11.5px;
+    line-height: 1.7;
+    overflow-x: auto;
+    white-space: pre-wrap;
+  }
+  [data-theme="dark"] .log { border-color: #23272e; }
+
+  .drawer-foot {
+    flex: none;
+    display: flex;
+    gap: 8px;
+    padding: 12px 18px;
+    border-top: 1px solid var(--border);
+  }
+
+  .secondary-btn {
+    height: 32px;
+    padding: 0 13px;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    background: var(--panel);
+    color: var(--text-2);
+    font-size: 12px;
+    cursor: pointer;
+  }
+  .secondary-btn:hover { color: var(--text); border-color: var(--border-strong); }
+
+  /* ============================================================
+     新建任务弹框
+     ============================================================ */
+  .modal {
+    position: fixed;
+    left: 50%;
+    top: 12vh;
+    width: 520px;
+    max-width: 92vw;
+    transform: translate(-50%, 8px) scale(0.99);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 160ms ease, transform 160ms ease;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    box-shadow: var(--shadow-lg);
+    z-index: 60;
+  }
+  .modal.open {
+    opacity: 1;
+    transform: translate(-50%, 0) scale(1);
+    pointer-events: auto;
+  }
+
+  .modal-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--border);
+  }
+  .modal-head h2 { margin: 0; font-size: 13.5px; font-weight: 600; }
+
+  .modal-body { padding: 14px 16px; display: flex; flex-direction: column; gap: 12px; }
+
+  .textarea {
+    width: 100%;
+    min-height: 92px;
+    resize: vertical;
+    padding: 10px 12px;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    background: var(--col);
+    color: var(--text);
+    font: inherit;
+    font-size: 13px;
+    line-height: 1.6;
+    outline: none;
+    transition: border-color 120ms ease, box-shadow 120ms ease;
+  }
+  .textarea:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-soft);
+  }
+  .textarea::placeholder { color: var(--muted); }
+
+  .select-row { display: flex; gap: 8px; flex-wrap: wrap; }
+
+  .select-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    height: 32px;
+    padding: 0 12px;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    background: var(--panel);
+    color: var(--text-2);
+    font-size: 12px;
+    cursor: pointer;
+  }
+  .select-chip:hover { border-color: var(--border-strong); color: var(--text); }
+  .select-chip .dot {
+    width: 14px;
+    height: 14px;
+    border-radius: 4px;
+    background: var(--col);
+    display: grid;
+    place-items: center;
+    font-size: 9px;
+  }
+
+  .modal-foot {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    padding: 12px 16px;
+    border-top: 1px solid var(--border);
+  }
+
+  .hint { font-size: 11.5px; color: var(--muted); }
+
+  svg { display: block; }
+</style>
+</head>
+<body>
+<div class="app">
+  <!-- 简化侧栏：只是为了给页面一个真实上下文 -->
+  <aside class="rail">
+    <div class="brand"><span class="brand-mark"></span>Nova Studio</div>
+
+    <div class="nav-group">
+      <div class="nav-label">个人</div>
+      <div class="nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>会话管理</div>
+      <div class="nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="m7 9 3 3-3 3"/></svg>终端管理</div>
+      <div class="nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m3 6 3-2h4l2 2h9v12H3z"/></svg>待办事项<span class="badge">10</span></div>
+    </div>
+
+    <div class="nav-group">
+      <div class="nav-label">工程</div>
+      <div class="nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="6" cy="6" r="2.5"/><circle cx="18" cy="18" r="2.5"/><path d="M8.5 6H14a4 4 0 0 1 0 8H9a4 4 0 0 0 0 8h6.5"/></svg>工作流</div>
+      <div class="nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>触发器</div>
+      <div class="nav-item active"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="6" height="16" rx="1.5"/><rect x="15" y="4" width="6" height="10" rx="1.5"/></svg>任务中心</div>
+      <div class="nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="9" cy="8" r="3"/><path d="M3 20a6 6 0 0 1 12 0"/><circle cx="17.5" cy="9.5" r="2.5"/><path d="M14 20a5 5 0 0 1 7.5-4.3"/></svg>数字员工</div>
+    </div>
+  </aside>
+
+  <main class="main">
+    <header class="topbar">
+      <h1>任务中心</h1>
+      <span class="count-chip" id="totalCount">8 个任务</span>
+      <span class="topbar-spacer"></span>
+
+      <label class="search">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+        <input placeholder="搜索任务" />
+      </label>
+
+      <button class="icon-btn" id="themeToggle" title="切换主题" aria-label="切换主题">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 12.8A8.5 8.5 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
+      </button>
+
+      <button class="primary-btn" id="newTaskBtn">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 5v14M5 12h14"/></svg>
+        新建任务
+      </button>
+    </header>
+
+    <div class="board">
+      <!-- 待执行 -->
+      <section class="column">
+        <div class="column-head">
+          <span class="status-dot"></span>
+          <span class="column-title">待执行</span>
+          <span class="column-count">3</span>
+          <span class="spacer"></span>
+          <button class="ghost-btn" title="新建任务" onclick="openModal()">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 5v14M5 12h14"/></svg>
+          </button>
+        </div>
+        <div class="column-body">
+          <article class="task" tabindex="0" onclick="openDrawer('review')">
+            <div class="task-top">
+              <span class="pill">排队中</span>
+              <span class="task-time">12 分钟前</span>
+            </div>
+            <p class="task-title">把这次需求变更整理成验收清单，标注每条对应的接口和页面</p>
+            <div class="task-meta">
+              <span class="pill">NovaStudio</span>
+              <span class="pill accent">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/></svg>
+                Claude Code
+              </span>
+            </div>
+            <div class="task-actions">
+              <button class="mini-btn" onclick="event.stopPropagation()">立即执行</button>
+              <button class="mini-btn danger" onclick="event.stopPropagation()">删除</button>
+            </div>
+          </article>
+
+          <article class="task" tabindex="0" onclick="openDrawer('weekly')">
+            <div class="task-top">
+              <span class="pill">排队中</span>
+              <span class="task-time">35 分钟前</span>
+            </div>
+            <p class="task-title">汇总本周的周报数据，按项目分组，附上完成率对比</p>
+            <div class="task-meta">
+              <span class="pill">NovaStudio</span>
+            </div>
+            <div class="task-actions">
+              <button class="mini-btn" onclick="event.stopPropagation()">立即执行</button>
+              <button class="mini-btn danger" onclick="event.stopPropagation()">删除</button>
+            </div>
+          </article>
+
+          <article class="task" tabindex="0" onclick="openDrawer('docs')">
+            <div class="task-top">
+              <span class="pill">排队中</span>
+              <span class="task-time">1 小时前</span>
+            </div>
+            <p class="task-title">检查知识库里所有 Markdown 的失效链接</p>
+            <div class="task-meta">
+              <span class="pill">demo</span>
+            </div>
+            <div class="task-actions">
+              <button class="mini-btn" onclick="event.stopPropagation()">立即执行</button>
+              <button class="mini-btn danger" onclick="event.stopPropagation()">删除</button>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <!-- 执行中 -->
+      <section class="column">
+        <div class="column-head">
+          <span class="status-dot accent"></span>
+          <span class="column-title">执行中</span>
+          <span class="column-count">2</span>
+        </div>
+        <div class="column-body">
+          <article class="task running" tabindex="0" onclick="openDrawer('refactor')">
+            <div class="task-top">
+              <span class="pill accent">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+                执行中
+              </span>
+              <span class="task-time">03:12</span>
+            </div>
+            <p class="task-title">重构知识库的文档扫描逻辑，支持任意文件类型并保留索引状态</p>
+            <div class="task-meta">
+              <span class="pill">NovaStudio</span>
+              <span class="pill accent">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/></svg>
+                Claude Code
+              </span>
+            </div>
+            <div class="task-actions">
+              <button class="mini-btn" onclick="event.stopPropagation()">查看运行</button>
+              <button class="mini-btn danger" onclick="event.stopPropagation()">停止</button>
+            </div>
+          </article>
+
+          <article class="task" tabindex="0" onclick="openDrawer('failed')">
+            <div class="task-top">
+              <span class="pill error">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 8v5M12 16.5v.5"/><circle cx="12" cy="12" r="9"/></svg>
+                失败
+              </span>
+              <span class="task-time">昨天 18:04</span>
+            </div>
+            <p class="task-title">生成接口文档的变更说明</p>
+            <div class="task-error">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 8v5M12 16.5v.5"/><circle cx="12" cy="12" r="9"/></svg>
+              <span>工作目录不存在：E:\Project\Personal\NovaStudio\docs\api，请先确认路径后重试</span>
+            </div>
+            <div class="task-meta">
+              <span class="pill">NovaStudio</span>
+            </div>
+            <div class="task-actions">
+              <button class="mini-btn" onclick="event.stopPropagation()">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/></svg>
+                重试
+              </button>
+              <button class="mini-btn danger" onclick="event.stopPropagation()">删除</button>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <!-- 已完成 -->
+      <section class="column">
+        <div class="column-head">
+          <span class="status-dot success"></span>
+          <span class="column-title">已完成</span>
+          <span class="column-count">3</span>
+        </div>
+        <div class="column-body">
+          <article class="task" tabindex="0" onclick="openDrawer('menus')">
+            <div class="task-top">
+              <span class="pill success">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="m4 12 5 5L20 6"/></svg>
+                已完成
+              </span>
+              <span class="task-time">用时 4 分 12 秒</span>
+            </div>
+            <p class="task-title done">这里面有几个菜单</p>
+            <div class="task-meta">
+              <span class="pill">NovaBox</span>
+              <span class="pill accent">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/></svg>
+                Claude Code
+              </span>
+            </div>
+            <div class="task-actions">
+              <button class="mini-btn" onclick="event.stopPropagation()">查看详情</button>
+              <button class="mini-btn danger" onclick="event.stopPropagation()">删除</button>
+            </div>
+          </article>
+
+          <article class="task" tabindex="0" onclick="openDrawer('weekly2')">
+            <div class="task-top">
+              <span class="pill success">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="m4 12 5 5L20 6"/></svg>
+                已完成
+              </span>
+              <span class="task-time">昨天 10:20</span>
+            </div>
+            <p class="task-title done">把近一周的提交记录整理成发布说明</p>
+            <div class="task-meta">
+              <span class="pill">NovaStudio</span>
+            </div>
+            <div class="task-actions">
+              <button class="mini-btn" onclick="event.stopPropagation()">查看详情</button>
+              <button class="mini-btn danger" onclick="event.stopPropagation()">删除</button>
+            </div>
+          </article>
+
+          <button class="empty-slot" style="min-height:74px" onclick="openModal()">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
+            新建任务
+          </button>
+        </div>
+      </section>
+    </div>
+  </main>
+</div>
+
+<!-- 详情抽屉 -->
+<div class="backdrop" id="backdrop" onclick="closeAll()"></div>
+<aside class="drawer" id="drawer" aria-label="任务详情">
+  <div class="drawer-head">
+    <div style="flex:1;min-width:0">
+      <h2 id="drawerTitle">任务详情</h2>
+      <div class="sub" id="drawerSub">NovaStudio · Claude Code</div>
+    </div>
+    <button class="icon-btn" onclick="closeAll()" aria-label="关闭">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 6l12 12M18 6 6 18"/></svg>
+    </button>
+  </div>
+  <div class="drawer-body">
+    <div>
+      <div class="field-label">任务描述</div>
+      <div class="quote" id="drawerPrompt"></div>
+    </div>
+
+    <div>
+      <div class="field-label">状态</div>
+      <div class="meta-grid">
+        <div class="meta-cell"><div class="k">状态</div><div class="v" id="drawerStatus">—</div></div>
+        <div class="meta-cell"><div class="k">耗时</div><div class="v" id="drawerDuration">—</div></div>
+        <div class="meta-cell"><div class="k">创建时间</div><div class="v" id="drawerCreated">—</div></div>
+        <div class="meta-cell"><div class="k">结束时间</div><div class="v" id="drawerFinished">—</div></div>
+      </div>
+    </div>
+
+    <div>
+      <div class="field-label">运行输出</div>
+      <div class="log" id="drawerLog"></div>
+    </div>
+  </div>
+  <div class="drawer-foot">
+    <button class="secondary-btn" onclick="closeAll()">关闭</button>
+    <span style="flex:1"></span>
+    <button class="primary-btn" onclick="closeAll()">在会话中查看</button>
+  </div>
+</aside>
+
+<!-- 新建任务 -->
+<div class="modal" id="modal" aria-label="新建任务">
+  <div class="modal-head">
+    <h2>新建任务</h2>
+    <button class="icon-btn" onclick="closeAll()" aria-label="关闭">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 6l12 12M18 6 6 18"/></svg>
+    </button>
+  </div>
+  <div class="modal-body">
+    <textarea class="textarea" placeholder="描述要交给智能体的任务，越具体越好。例如：把本次需求变更整理成验收清单。"></textarea>
+    <div class="select-row">
+      <button class="select-chip">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><path d="m3 7 3-2.5h4L12 7h9v12H3z"/></svg>
+        NovaStudio
+      </button>
+      <button class="select-chip">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><rect x="4" y="7" width="16" height="12" rx="3"/><path d="M12 3v4M9 12h.01M15 12h.01"/></svg>
+        Claude Code
+      </button>
+    </div>
+    <div class="hint">任务创建后会进入「待执行」，由后台轮询自动拾取。</div>
+  </div>
+  <div class="modal-foot">
+    <button class="secondary-btn" onclick="closeAll()">取消</button>
+    <button class="primary-btn" onclick="closeAll()">创建任务</button>
+  </div>
+</div>
+
+<script>
+  /* ---------- 主题 ---------- */
+  const themeToggle = document.getElementById("themeToggle");
+  // 方便直接截图对比：task-center.html?theme=dark
+  if (location.search.includes("theme=dark")) {
+    document.documentElement.dataset.theme = "dark";
+  }
+  themeToggle.addEventListener("click", () => {
+    const root = document.documentElement;
+    root.dataset.theme = root.dataset.theme === "dark" ? "light" : "dark";
+  });
+
+  /* ---------- 抽屉 ---------- */
+  const DATA = {
+    review: {
+      title: "把这次需求变更整理成验收清单，标注每条对应的接口和页面",
+      sub: "NovaStudio · Claude Code",
+      status: "排队中",
+      duration: "—",
+      created: "今天 09:42",
+      finished: "—",
+      prompt:
+        "把这次需求变更整理成验收清单，标注每条对应的接口和页面。\n输出格式：Markdown 表格，列为「需求点 / 接口 / 页面 / 验收方式」。",
+      log: "等待调度…",
+    },
+    refactor: {
+      title: "重构知识库的文档扫描逻辑，支持任意文件类型并保留索引状态",
+      sub: "NovaStudio · Claude Code",
+      status: "执行中 · 已运行 3 分 12 秒",
+      duration: "3 分 12 秒",
+      created: "今天 09:58",
+      finished: "—",
+      prompt:
+        "重构知识库的文档扫描逻辑，支持任意文件类型并保留索引状态。注意不要破坏现有的全文索引。",
+      log:
+        "▸ 读取 src/main/knowledge/catalog.ts\n▸ 修改 scanKnowledgeBase() → 收集所有扩展名\n▸ 运行 npm run typecheck … 通过\n▸ 正在更新 KnowledgeView 的空态文案…",
+    },
+    failed: {
+      title: "生成接口文档的变更说明",
+      sub: "NovaStudio · Claude Code",
+      status: "失败",
+      duration: "12 秒",
+      created: "昨天 18:03",
+      finished: "昨天 18:04",
+      prompt: "根据 git diff 生成接口文档的变更说明，输出到 docs/api/CHANGELOG.md。",
+      log:
+        "▸ 读取工作目录 E:\\Project\\Personal\\NovaStudio\\docs\\api\n✗ 目录不存在：ENOENT\n\n退出码 1",
+    },
+    weekly: {
+      title: "汇总本周的周报数据，按项目分组，附上完成率对比",
+      sub: "NovaStudio · Claude Code",
+      status: "排队中",
+      duration: "—",
+      created: "今天 09:19",
+      finished: "—",
+      prompt: "汇总本周的周报数据，按项目分组，附上完成率对比。",
+      log: "等待调度…",
+    },
+    docs: {
+      title: "检查知识库里所有 Markdown 的失效链接",
+      sub: "demo · Claude Code",
+      status: "排队中",
+      duration: "—",
+      created: "今天 08:55",
+      finished: "—",
+      prompt: "检查知识库里所有 Markdown 的失效链接，输出问题清单。",
+      log: "等待调度…",
+    },
+    menus: {
+      title: "这里面有几个菜单",
+      sub: "NovaBox · Claude Code",
+      status: "已完成",
+      duration: "4 分 12 秒",
+      created: "昨天 11:02",
+      finished: "昨天 11:06",
+      prompt: "这里面有几个菜单？",
+      log:
+        "有一个右下角的菜单入口。\n\n▸ 扫描 src/renderer/components/app\n▸ 找到 Sidebar.tsx / 顶部菜单 / 更多菜单",
+    },
+    weekly2: {
+      title: "把近一周的提交记录整理成发布说明",
+      sub: "NovaStudio · Claude Code",
+      status: "已完成",
+      duration: "2 分 40 秒",
+      created: "昨天 10:17",
+      finished: "昨天 10:20",
+      prompt: "把近一周的提交记录整理成发布说明，面向使用者，不写实现细节。",
+      log: "▸ git log --since='7 days ago'\n▸ 归并相似提交\n✓ 已写入 release/NOTES.md",
+    },
+  };
+
+  const drawer = document.getElementById("drawer");
+  const backdrop = document.getElementById("backdrop");
+  const modal = document.getElementById("modal");
+
+  function openDrawer(key) {
+    const d = DATA[key];
+    if (!d) return;
+    document.getElementById("drawerTitle").textContent = d.title;
+    document.getElementById("drawerSub").textContent = d.sub;
+    document.getElementById("drawerPrompt").textContent = d.prompt;
+    document.getElementById("drawerStatus").textContent = d.status;
+    document.getElementById("drawerDuration").textContent = d.duration;
+    document.getElementById("drawerCreated").textContent = d.created;
+    document.getElementById("drawerFinished").textContent = d.finished;
+    document.getElementById("drawerLog").textContent = d.log;
+    drawer.classList.add("open");
+    backdrop.classList.add("open");
+  }
+
+  function openModal() {
+    modal.classList.add("open");
+    backdrop.classList.add("open");
+    modal.querySelector("textarea").focus();
+  }
+
+  function closeAll() {
+    drawer.classList.remove("open");
+    modal.classList.remove("open");
+    backdrop.classList.remove("open");
+  }
+
+  document.getElementById("newTaskBtn").addEventListener("click", openModal);
+
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") closeAll();
+  });
+
+  // 便于直接打开某个状态做对照：?open=refactor / ?modal=1
+  const params = new URLSearchParams(location.search);
+  if (params.get("open")) openDrawer(params.get("open"));
+  if (params.get("modal")) openModal();
+</script>
+</body>
+</html>

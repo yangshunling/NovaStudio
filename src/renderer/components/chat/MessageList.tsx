@@ -18,23 +18,17 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Brain,
-  Wrench,
   Bug,
   AlertTriangle,
   ChevronRight,
-  FileText,
-  PenLine,
-  Terminal,
-  Search,
-  type LucideIcon,
 } from "lucide-react";
 import { MarkdownRenderer } from "../ui/MarkdownRenderer";
 import { StreamingIndicator } from "../ui/StreamingIndicator";
 import { UserBubble } from "../ui/UserBubble";
-import { truncateText, isToolResultError, firstText } from "../../lib/utils";
+import { isToolResultError, firstText } from "../../lib/utils";
 import { extractFileChanges } from "../../lib/tool-diff";
-import { ToolDiffView } from "./ToolDiffView";
-import type { AgentEvent, ToolKind } from "@shared/types";
+import { ToolCallCard } from "./ToolCallCard";
+import type { AgentEvent } from "@shared/types";
 
 // ============================================================================
 // 类型定义
@@ -87,98 +81,30 @@ function groupAssistantEvents(events: AgentEvent[]): RenderItem[] {
   return items;
 }
 
-/** 分类 → 图标 */
-const TOOL_ICONS: Record<ToolKind, LucideIcon> = {
-  read: FileText,
-  write: PenLine,
-  exec: Terminal,
-  search: Search,
-  other: Wrench,
-};
-
-/**
- * 操作对象的呈现形式：exec 显示命令、search 显示检索词、其余按路径缩短。
- * provider 只给原文，怎么截断/缩短由这里决定。
- */
-function toolTarget(call: Extract<AgentEvent, { type: "tool_call" }>): string {
-  return call.target || "";
-}
-
 // ============================================================================
-// 工具调用块（call + result 配对，紧凑单行，默认折叠）
+// 工具调用块（call + result 配对，与实时对话共用同一张卡片）
 // ============================================================================
 
 function ToolGroupBlock({ group }: { group: ToolGroup }) {
   const { call, result } = group;
   const hasError = !!result && isToolResultError(result);
-  const status = result ? (hasError ? "failed" : "ok") : "running";
-  const statusText = status === "ok" ? "完成" : status === "failed" ? "失败" : "进行中";
-  const dotClass =
-    status === "ok" ? "bg-success"
-    : status === "failed" ? "bg-error"
-    : "bg-accent animate-pulse";
-  const target = toolTarget(call);
-  const fullTarget = call.target || target;
-  const Icon = TOOL_ICONS[call.kind];
   const changes = useMemo(
     () => extractFileChanges(call.name, call.input, call.kind, call.lineStarts),
     [call.name, call.input, call.kind, call.lineStarts],
   );
-  // 改动类工具默认展开，其余保持折叠
-  const [collapsed, setCollapsed] = useState(() => changes.length === 0);
 
   return (
     <div className="mb-1.5 w-full">
-      <button
-        onClick={() => setCollapsed((c) => !c)}
-        className="ui-glass flex w-full items-start gap-2 rounded-md px-2.5 py-1.5 text-left text-meta text-text-secondary hover:text-text"
-      >
-        <Icon className="mt-0.5 h-3.5 w-3.5 shrink-0 text-tool" />
-        <span className="shrink-0 font-mono">{call.name}</span>
-        {target && (
-          /* 单行展示：换行折叠成空格，超宽用省略号；完整命令见 title / 展开明细 */
-          <span
-            className="min-w-0 flex-1 truncate font-mono text-text-muted"
-            title={fullTarget}
-          >
-            {target}
-          </span>
-        )}
-        <span className="ml-auto flex shrink-0 items-center gap-1">
-          <span className={`inline-block h-1.5 w-1.5 shrink-0 rounded-full ${dotClass}`} />
-          <span className={hasError ? "text-error" : "text-text-muted"}>{statusText}</span>
-          <ChevronRight
-            className={`h-3 w-3 shrink-0 text-text-muted transition-transform ${collapsed ? "" : "rotate-90"}`}
-          />
-        </span>
-      </button>
-      {!collapsed && (
-        <div className="mt-1 w-full space-y-1">
-          {changes.length > 0 ? (
-            <ToolDiffView changes={changes} />
-          ) : (
-            <div>
-              <div className="text-micro uppercase tracking-wide text-text-muted">input</div>
-              <pre className="ui-glass max-h-40 overflow-auto rounded-md px-2 py-1 text-meta text-text-secondary">
-                {truncateText(JSON.stringify(call.input, null, 2), 500)}
-              </pre>
-            </div>
-          )}
-          {/* 有 diff 且成功时回执没有信息量，不再展示；失败时保留错误信息 */}
-          {result && result.output && (changes.length === 0 || hasError) && (
-            <div>
-              <div className="text-micro uppercase tracking-wide text-text-muted">
-                {hasError ? "error" : "output"}
-              </div>
-              <pre
-                className={`ui-glass max-h-48 overflow-auto rounded-md px-2 py-1 text-meta ${hasError ? "text-error" : "text-text-muted"}`}
-              >
-                {truncateText(result.output, 500)}
-              </pre>
-            </div>
-          )}
-        </div>
-      )}
+      <ToolCallCard
+        toolName={call.name}
+        target={call.target || ""}
+        kind={call.kind}
+        args={call.input}
+        result={result ? result.output : undefined}
+        isError={hasError}
+        running={!result}
+        changes={changes}
+      />
     </div>
   );
 }
@@ -186,8 +112,12 @@ function ToolGroupBlock({ group }: { group: ToolGroup }) {
 function StandaloneResultBlock({ item }: { item: StandaloneResult }) {
   const hasError = isToolResultError(item.ev);
   return (
-    <div className="mb-1.5 flex items-center gap-2 text-meta text-text-muted">
-      <span className={`inline-block h-1.5 w-1.5 rounded-full ${hasError ? "bg-error" : "bg-success"}`} />
+    <div className="mb-1.5 flex items-center gap-2 rounded-lg border border-border/50 bg-surface-2/30 px-3 py-1.5 text-meta text-text-muted">
+      <span
+        className={`inline-block h-1.5 w-1.5 rounded-full ${
+          hasError ? "bg-error" : "bg-success"
+        }`}
+      />
       <span className="font-mono">{item.ev.name}</span>
       <span>{hasError ? "失败" : "完成"}</span>
     </div>
@@ -199,7 +129,7 @@ function StandaloneResultBlock({ item }: { item: StandaloneResult }) {
 // ============================================================================
 
 function EventBlock({ event }: { event: AgentEvent }) {
-  const [collapsed, setCollapsed] = useState(false);
+  const [collapsed, setCollapsed] = useState(true);
   /**
    * 思考块自带独立滚动条（max-h-60）：流式输出时若不自动跟随，
    * 新内容会落在可视区下方，用户必须手动滚动才能看到。
@@ -223,22 +153,22 @@ function EventBlock({ event }: { event: AgentEvent }) {
   switch (event.type) {
     case "thinking":
       return (
-        <div className="group mb-3 max-w-fit">
+        <div className="mb-2 max-w-full overflow-hidden rounded-xl border border-border/60 bg-surface-2/30">
           <button
             onClick={() => setCollapsed(!collapsed)}
-            className="flex w-full items-center gap-2 text-meta text-thinking hover:text-text-secondary"
+            className="flex w-full items-center gap-2 px-3 py-2 text-left text-meta text-thinking transition-colors hover:bg-surface-hover/40 hover:text-text-secondary"
           >
-            <Brain className="h-3.5 w-3.5" />
-            <span className="ui-serif">思考</span>
+            <Brain className="h-3.5 w-3.5 shrink-0" />
+            <span>思考过程</span>
             <ChevronRight
-              className={`h-3 w-3 text-text-muted transition-transform ${collapsed ? "" : "rotate-90"}`}
+              className={`ml-auto h-3 w-3 text-text-muted transition-transform ${collapsed ? "" : "rotate-90"}`}
             />
           </button>
           {!collapsed && (
             <div
               ref={bodyRef}
               onScroll={handleBodyScroll}
-              className="mt-2 max-h-60 overflow-auto rounded-md border-l-4 border-thinking bg-thinking-bg px-4 py-3 text-text-secondary backdrop-blur-md"
+              className="max-h-60 overflow-auto border-t border-border/50 bg-thinking-bg/60 px-3.5 py-2.5 text-text-secondary"
             >
               <MarkdownRenderer content={event.content} />
             </div>
@@ -248,25 +178,25 @@ function EventBlock({ event }: { event: AgentEvent }) {
 
     case "error":
       return (
-        <div className="mb-2 flex items-start gap-2 rounded-md border border-error bg-error-bg px-3 py-2 text-body-lg text-error backdrop-blur-sm">
+        <div className="mb-2 flex items-start gap-2.5 rounded-xl border border-error/30 bg-error-bg/70 px-3.5 py-2.5 text-body text-error">
           <Bug className="mt-0.5 h-4 w-4 shrink-0" />
-          {event.message}
+          <span className="min-w-0">{event.message}</span>
         </div>
       );
 
     // 非致命提示：运行仍在继续，用中性底 + 警示图标与致命错误区分开
     case "warning":
       return (
-        <div className="mb-2 flex items-start gap-2 rounded-md border border-border-strong bg-surface-2 px-3 py-2 text-body-lg text-text-secondary backdrop-blur-sm">
+        <div className="mb-2 flex items-start gap-2.5 rounded-xl border border-border/60 bg-surface-2/40 px-3.5 py-2.5 text-body text-text-secondary">
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-text-muted" />
-          {event.message}
+          <span className="min-w-0">{event.message}</span>
         </div>
       );
 
     case "text":
       return (
         <div className="mb-2">
-          <div className="ui-bubble w-fit max-w-full bg-surface-2 px-4 py-3">
+          <div className="ui-bubble w-fit max-w-full bg-surface-2/60 px-4 py-3.5">
             <MarkdownRenderer content={event.content} />
           </div>
         </div>

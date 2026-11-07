@@ -429,7 +429,6 @@ export function TodosView() {
               value={query}
               onChange={setQuery}
               placeholder="搜索待办"
-              widthClass="w-48"
             />
             <Button
               variant="primary"

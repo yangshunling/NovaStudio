@@ -126,9 +126,22 @@ export function isToolResultError(result: { isError?: boolean }): boolean {
  * 全项目统一用它替代散落的 `err instanceof Error ? err.message : String(err)`。
  * Error 取 message；其他取 String()；空值给兜底文案。
  */
+/**
+ * 去掉 Electron IPC 的包装前缀。
+ *
+ * 主进程抛出的错误到了渲染进程会变成
+ * 「Error invoking remote method 'xxx': Error: 真正的原因」，
+ * 这层前缀对用户没有任何意义，展示前统一剥掉。
+ */
+function stripIpcWrapper(message: string): string {
+  return message
+    .replace(/^Error invoking remote method '[^']*':\s*/, "")
+    .replace(/^Error:\s*/, "");
+}
+
 export function toMessage(err: unknown, fallback = "发生未知错误"): string {
-  if (err instanceof Error) return err.message || fallback;
-  if (typeof err === "string") return err || fallback;
+  if (err instanceof Error) return stripIpcWrapper(err.message) || fallback;
+  if (typeof err === "string") return stripIpcWrapper(err) || fallback;
   if (err == null) return fallback;
   try {
     const s = String(err);

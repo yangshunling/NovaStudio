@@ -11,7 +11,9 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   AlarmClock,
+  Clock,
   Pencil,
+  Play,
   Plus,
   Repeat,
   Trash2,
@@ -21,27 +23,13 @@ import {
 import { ipc } from "../../lib/ipc";
 import { toMessage } from "../../lib/utils";
 import { useLoad } from "../../hooks/useLoad";
-import {
-  EmptyBlock,
-  EmptyState,
-  ErrorState,
-  FilterEmpty,
-  LoadingState,
-} from "../ui/EmptyState";
+import { EmptyBlock, ErrorState, LoadingState } from "../ui/EmptyState";
 import { Page, PageBody, PageHeader } from "../ui/Page";
 import { OptionChips } from "../ui/OptionChips";
-import {
-  CARD_DESCRIPTION,
-  CARD_FOOTER,
-  CARD_ICON_TILE,
-  CARD_SHELL,
-  CARD_TITLE,
-} from "../ui/cardStyles";
 import { toast } from "../../stores/toast";
 import { confirmDialog } from "../../stores/confirm";
 import { Dialog, DialogActions } from "../ui/Dialog";
 import { Button } from "../ui/Button";
-import { SearchInput } from "../ui/SearchInput";
 import { Field, TextArea, TextInput } from "../ui/Field";
 import { Toggle } from "../ui/Toggle";
 import {
@@ -99,17 +87,6 @@ export function TriggersView() {
     }));
   const setTriggers = (next: Parameters<typeof patch<"triggers">>[1]) => patch("triggers", next);
   const setBindings = (next: Parameters<typeof patch<"bindings">>[1]) => patch("bindings", next);
-
-  const [query, setQuery] = useState("");
-  const filtered = useMemo(() => {
-    const keyword = query.trim().toLowerCase();
-    if (!keyword) return triggers;
-    return triggers.filter((trigger) =>
-      [trigger.title, trigger.description].some((value) =>
-        value.toLowerCase().includes(keyword),
-      ),
-    );
-  }, [triggers, query]);
 
   /** null 表示弹框关闭；"new" 表示新建；否则为正在编辑的触发器 */
   const [editing, setEditing] = useState<WorkflowTrigger | "new" | null>(null);
@@ -269,49 +246,38 @@ export function TriggersView() {
         countSuffix=" 个"
         icon={<Zap className="h-4 w-4" />}
         actions={
-          <>
-            <SearchInput
-              value={query}
-              onChange={setQuery}
-              placeholder="搜索标题 / 描述"
-            />
-            <Button
-              variant="primary"
-              onClick={() => setEditing("new")}
-              icon={<Plus className="h-4 w-4" />}
-            >
-              新建触发器
-            </Button>
-          </>
+          <Button
+            variant="primary"
+            onClick={() => setEditing("new")}
+            icon={<Plus className="h-4 w-4" />}
+          >
+            新建触发器
+          </Button>
         }
       />
 
       <PageBody>
-          {loading ? (
-            <LoadingState text="正在加载触发器" />
-          ) : error ? (
-            <ErrorState message={error} onRetry={reload} />
-          ) : triggers.length === 0 ? (
-            <EmptyTriggers onCreate={() => setEditing("new")} />
-          ) : filtered.length === 0 ? (
-            <FilterEmpty
-              title={`没有匹配「${query}」的触发器`}
-              onClear={() => setQuery("")}
-            />
-          ) : (
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
-              {filtered.map((trigger) => (
-                <TriggerCard
-                  key={trigger.id}
-                  trigger={trigger}
-                  onToggle={(enabled) => void toggleTrigger(trigger, enabled)}
-                  onBind={() => openBindings(trigger)}
-                  onEdit={() => setEditing(trigger)}
-                  onDelete={() => void deleteTrigger(trigger)}
-                />
-              ))}
-            </div>
-          )}
+        {loading ? (
+          <LoadingState text="正在加载触发器" />
+        ) : error ? (
+          <ErrorState message={error} onRetry={reload} />
+        ) : triggers.length === 0 ? (
+          <EmptyTriggers onCreate={() => setEditing("new")} />
+        ) : (
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 2xl:grid-cols-3">
+            {triggers.map((trigger) => (
+              <TriggerCard
+                key={trigger.id}
+                trigger={trigger}
+                workflowNames={boundWorkflowNames.get(trigger.id) ?? []}
+                onToggle={(enabled) => void toggleTrigger(trigger, enabled)}
+                onBind={() => openBindings(trigger)}
+                onEdit={() => setEditing(trigger)}
+                onDelete={() => void deleteTrigger(trigger)}
+              />
+            ))}
+          </div>
+        )}
       </PageBody>
 
       <TriggerDialog
@@ -393,91 +359,161 @@ export function TriggersView() {
 
 function TriggerCard({
   trigger,
+  workflowNames,
   onToggle,
   onBind,
   onEdit,
   onDelete,
 }: {
   trigger: WorkflowTrigger;
+  workflowNames: string[];
   onToggle: (enabled: boolean) => void;
   onBind: () => void;
   onEdit: () => void;
   onDelete: () => void;
 }) {
+  const enabled = trigger.enabled;
+
   return (
-    <div className={CARD_SHELL}>
-      <div className="flex items-start gap-3">
-        <span className={CARD_ICON_TILE}>
+    <article className="group relative flex flex-col overflow-hidden rounded-xl border border-border/70 bg-surface-2/40 shadow-[var(--c-shadow-sm)] transition-colors hover:bg-surface-2/55">
+      {/* 顶部状态条：启用时按强调色亮起 */}
+      <span
+        aria-hidden
+        className={`absolute inset-x-0 top-0 h-[2px] ${
+          enabled ? "bg-accent/70" : "bg-border"
+        }`}
+      />
+
+      <div className="flex items-start gap-3 p-4">
+        <span
+          className={`grid h-10 w-10 shrink-0 place-items-center rounded-xl transition-colors ${
+            enabled
+              ? "bg-accent-soft text-accent"
+              : "bg-surface-hover text-text-muted"
+          }`}
+        >
           <Zap className="h-5 w-5" />
         </span>
         <div className="min-w-0 flex-1">
-          <h3 className={CARD_TITLE}>{trigger.title}</h3>
-          <p className={`mt-2 ${CARD_DESCRIPTION}`}>
+          <div className="flex items-start justify-between gap-2">
+            <h3
+              className={`truncate text-body-lg font-semibold ${
+                enabled ? "text-text" : "text-text-secondary"
+              }`}
+              title={trigger.title}
+            >
+              {trigger.title}
+            </h3>
+            <Toggle
+              checked={enabled}
+              onChange={onToggle}
+              label={`启用触发器 ${trigger.title}`}
+            />
+          </div>
+          <p className="mt-1 line-clamp-2 text-meta leading-relaxed text-text-muted">
             {trigger.description || "暂无说明"}
           </p>
         </div>
-        <Toggle
-          checked={trigger.enabled}
-          onChange={onToggle}
-          label={`启用触发器 ${trigger.title}`}
-        />
       </div>
 
-      <div className="mt-3 flex flex-wrap items-center gap-1.5 text-meta">
-        <span className="flex items-center gap-1 rounded-full bg-surface-hover px-2 py-0.5 text-text-secondary">
-          <AlarmClock className="h-3 w-3 text-accent" />
-          {describeTriggerSchedule(trigger.schedule)}
-        </span>
+      {/* 调度信息：规则 + 下次执行 + 状态 */}
+      <div className="mx-4 rounded-lg border border-border/50 bg-surface/60 p-3">
+        <div className="flex items-center justify-between gap-2">
+          <span className="flex min-w-0 items-center gap-1.5 text-meta font-medium text-text-secondary">
+            <AlarmClock className="h-3.5 w-3.5 shrink-0 text-accent" />
+            <span className="truncate">
+              {describeTriggerSchedule(trigger.schedule)}
+            </span>
+          </span>
+          <span
+            className={`shrink-0 rounded-full px-2 py-0.5 text-caption font-medium ${
+              enabled
+                ? "bg-accent-soft text-accent"
+                : "bg-surface-hover text-text-muted"
+            }`}
+          >
+            {enabled ? "启用中" : "已停用"}
+          </span>
+        </div>
+        <div className="mt-2 flex items-center gap-1.5 text-caption text-text-muted">
+          <Clock className="h-3 w-3 shrink-0" />
+          {enabled
+            ? `下次执行 ${formatFireTime(trigger.nextFireAt) ?? "待计算"}`
+            : "停用期间不会触发"}
+        </div>
       </div>
 
       {trigger.lastError && (
         <p
-          className="mt-2 line-clamp-2 break-words rounded-lg bg-error-bg px-2.5 py-1.5 text-meta leading-relaxed text-error"
+          className="mx-4 mt-2 line-clamp-2 break-words rounded-lg bg-error-bg px-2.5 py-1.5 text-meta leading-relaxed text-error"
           title={trigger.lastError}
         >
           最近一次触发失败：{trigger.lastError}
         </p>
       )}
 
-      <div className={CARD_FOOTER}>
-        <p
-          className={`min-w-0 truncate text-meta text-text-muted ${
-            trigger.enabled ? "" : "opacity-70"
-          }`}
-        >
-          {trigger.enabled
-            ? `下次执行 ${formatFireTime(trigger.nextFireAt) ?? "待计算"}`
-            : "已停用"}
-        </p>
-        <div className="flex shrink-0 items-center gap-1">
-          <Button
-            size="xs"
-            onClick={onBind}
-            title="绑定工作流"
-            icon={<WorkflowIcon className="h-3.5 w-3.5" />}
-          >
-            绑定
-          </Button>
-          <Button
-            size="xs"
-            onClick={onEdit}
-            title="编辑触发器"
-            icon={<Pencil className="h-3.5 w-3.5" />}
-          >
-            编辑
-          </Button>
-          <Button
-            size="xs"
-            variant="dangerLink"
-            onClick={onDelete}
-            title="删除触发器"
-            icon={<Trash2 className="h-3.5 w-3.5" />}
-          >
-            删除
-          </Button>
+      {/* 已绑定的工作流：直接显示在卡片上，不用点开绑定弹窗才能确认 */}
+      <div className="mt-3 flex min-w-0 flex-wrap items-center gap-1.5 px-4">
+        <WorkflowIcon className="h-3.5 w-3.5 shrink-0 text-text-muted" />
+        {workflowNames.length > 0 ? (
+          <>
+            {workflowNames.slice(0, 3).map((name) => (
+              <span
+                key={name}
+                className="max-w-[140px] truncate rounded-full bg-surface-hover px-2 py-0.5 text-caption text-text-secondary"
+                title={name}
+              >
+                {name}
+              </span>
+            ))}
+            {workflowNames.length > 3 && (
+              <span className="text-caption text-text-muted">
+                +{workflowNames.length - 3}
+              </span>
+            )}
+          </>
+        ) : (
+          <span className="text-caption text-text-muted">尚未绑定工作流</span>
+        )}
+      </div>
+
+      <div className="mt-auto px-4 pb-4 pt-3">
+        <div className="flex items-center justify-between gap-2 border-t border-border/50 pt-2.5">
+          <span className="min-w-0 truncate text-caption text-text-muted">
+            {trigger.lastFiredAt !== null
+              ? `上次触发 ${formatFireTime(trigger.lastFiredAt)}`
+              : "从未触发"}
+          </span>
+          <div className="flex shrink-0 items-center gap-1">
+            <Button
+              size="xs"
+              onClick={onBind}
+              title="绑定工作流"
+              icon={<WorkflowIcon className="h-3.5 w-3.5" />}
+            >
+              绑定
+            </Button>
+            <Button
+              size="xs"
+              onClick={onEdit}
+              title="编辑触发器"
+              icon={<Pencil className="h-3.5 w-3.5" />}
+            >
+              编辑
+            </Button>
+            <Button
+              size="xs"
+              variant="dangerLink"
+              onClick={onDelete}
+              title="删除触发器"
+              icon={<Trash2 className="h-3.5 w-3.5" />}
+            >
+              删除
+            </Button>
+          </div>
         </div>
       </div>
-    </div>
+    </article>
   );
 }
 
@@ -737,21 +773,79 @@ function TriggerDialog({
 // ============================================================================
 
 function EmptyTriggers({ onCreate }: { onCreate: () => void }) {
+  const steps = [
+    {
+      icon: AlarmClock,
+      title: "设置时间",
+      description: "每天、每周或按固定间隔",
+    },
+    {
+      icon: WorkflowIcon,
+      title: "绑定工作流",
+      description: "一个触发器可驱动多条",
+    },
+    {
+      icon: Play,
+      title: "自动运行",
+      description: "应用保持运行即可",
+    },
+  ];
+
   return (
-    <EmptyState
-      icon={<Zap />}
-      title="让工作流按时自己跑起来"
-      description="先创建一个触发器，设置每天几点、每周哪几天或每隔多久触发；再在工作流卡片的右键菜单里把触发器绑上去。"
-      action={
-        <Button
-          variant="primary"
-          onClick={onCreate}
-          icon={<Plus className="h-4 w-4" />}
-        >
-          新建触发器
-        </Button>
-      }
-    />
+    <div className="flex min-h-[68vh] items-center justify-center">
+      <div className="relative w-full max-w-[680px] overflow-hidden rounded-2xl border border-border/70 bg-surface-2/40 p-8 text-center shadow-[var(--c-shadow-sm)]">
+        <span
+          aria-hidden
+          className="pointer-events-none absolute inset-0 bg-gradient-to-br from-accent/16 via-accent/[0.04] to-transparent"
+        />
+        <span
+          aria-hidden
+          className="pointer-events-none absolute -right-20 -top-24 h-56 w-56 rounded-full bg-accent/20 blur-3xl"
+        />
+        <span
+          aria-hidden
+          className="pointer-events-none absolute inset-x-10 top-0 h-px bg-gradient-to-r from-transparent via-accent/50 to-transparent"
+        />
+
+        <div className="relative">
+          <div className="mx-auto grid h-14 w-14 place-items-center rounded-2xl bg-accent text-accent-foreground shadow-[0_10px_30px_var(--c-accent-soft)]">
+            <Zap className="h-6 w-6" />
+          </div>
+          <h2 className="mt-5 text-heading font-semibold tracking-tight text-text">
+            让工作流按时自己跑起来
+          </h2>
+          <p className="mx-auto mt-2 max-w-md text-body leading-relaxed text-text-secondary">
+            设置每天几点、每周哪几天或每隔多久触发，再把工作流绑上去；到点后自动启动。
+          </p>
+
+          <div className="mt-6 grid grid-cols-1 gap-2.5 text-left sm:grid-cols-3">
+            {steps.map(({ icon: Icon, title, description }) => (
+              <div
+                key={title}
+                className="rounded-lg border border-border/50 bg-surface/60 p-3"
+              >
+                <span className="grid h-8 w-8 place-items-center rounded-lg bg-accent-soft text-accent">
+                  <Icon className="h-4 w-4" />
+                </span>
+                <p className="mt-2 text-meta font-medium text-text">{title}</p>
+                <p className="mt-0.5 text-caption leading-relaxed text-text-muted">
+                  {description}
+                </p>
+              </div>
+            ))}
+          </div>
+
+          <Button
+            variant="primary"
+            onClick={onCreate}
+            icon={<Plus className="h-4 w-4" />}
+            className="mt-6"
+          >
+            新建触发器
+          </Button>
+        </div>
+      </div>
+    </div>
   );
 }
 

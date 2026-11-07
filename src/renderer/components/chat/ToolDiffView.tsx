@@ -44,7 +44,7 @@ export function ToolDiffView({ changes }: { changes: FileChange[] }) {
       {changes.map((change, index) => (
         <div
           key={`${change.path}-${index}`}
-          className="overflow-hidden rounded-md border border-border bg-surface"
+          className="overflow-hidden border border-border bg-surface"
         >
           {showPath && (
             <div className="min-w-0 truncate border-b border-border px-2 py-1 font-mono text-micro text-text-muted">

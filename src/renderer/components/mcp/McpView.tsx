@@ -13,6 +13,7 @@ import {
 } from "react";
 import {
   AlertTriangle,
+  ChevronRight,
   FileJson,
   FolderOpen,
   KeyRound,
@@ -44,10 +45,10 @@ import { Page, PageBody, PageHeader } from "../ui/Page";
 import { SearchInput } from "../ui/SearchInput";
 import {
   CARD_DESCRIPTION,
-  CARD_ICON_TILE,
   CARD_META,
   CARD_SHELL,
   CARD_TITLE,
+  cardIconTile,
 } from "../ui/cardStyles";
 import {
   Drawer,
@@ -230,22 +231,33 @@ function McpCard({
   usage: number;
   onOpen: () => void;
 }) {
+  // stdio 展示命令，http / sse 展示端点：这是区分同类服务最有效的一行
+  const endpoint =
+    server.transport === "stdio"
+      ? [server.command, ...server.args].filter(Boolean).join(" ")
+      : server.url;
+
   return (
-    <button
-      type="button"
-      onClick={onOpen}
-      className={CARD_SHELL}
-    >
-      <div className="flex items-start gap-3">
-        <span className={CARD_ICON_TILE}>
+    <button type="button" onClick={onOpen} className={CARD_SHELL}>
+      <div className="flex min-w-0 items-start gap-3">
+        <span className={cardIconTile("sky")}>
           <Server className="h-5 w-5" />
         </span>
-        <div className="flex min-w-0 flex-1 items-start justify-between gap-2">
+        {/* 命令 / 端点常常很长：容器必须 min-w-0 + overflow-hidden，
+            再配合 truncate 才会真的出省略号，而不是顶破卡片宽度 */}
+        <div className="min-w-0 flex-1 overflow-hidden">
           <h3 className={CARD_TITLE}>{server.name}</h3>
+          <p
+            className="mt-0.5 truncate font-mono text-caption text-text-muted"
+            title={endpoint}
+          >
+            {endpoint || "未配置启动命令"}
+          </p>
         </div>
+        <ChevronRight className="mt-1 h-4 w-4 shrink-0 text-text-muted opacity-0 transition-opacity group-hover:opacity-100" />
       </div>
 
-      <p className={`mt-2 ${CARD_DESCRIPTION}`}>
+      <p className={`mt-2.5 ${CARD_DESCRIPTION}`}>
         {server.description || "暂无描述"}
       </p>
 
@@ -268,7 +280,7 @@ function McpCard({
             {usage} 位员工
           </Tag>
         )}
-        <span className="ml-auto text-meta text-text-muted">
+        <span className="ml-auto shrink-0 text-caption tabular-nums text-text-muted">
           {formatAssetTime(server.updatedAt)}
         </span>
       </div>

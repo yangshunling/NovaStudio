@@ -8,6 +8,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import {
+  ChevronRight,
   Library,
   Plug,
   Plus,
@@ -151,45 +152,90 @@ function EmployeeCard({
       onClick={onOpen}
       className={CARD_SHELL}
     >
-      <div className="flex items-start gap-3">
+      {/* 顶部状态条：启用的员工亮起一条强调色 */}
+      <span
+        aria-hidden
+        className={`absolute inset-x-0 top-0 h-[2px] ${
+          employee.enabled ? "bg-accent/70" : "bg-border"
+        }`}
+      />
+
+      <div className="flex min-w-0 items-start gap-3">
         <EmployeeAvatar employee={employee} size={48} />
-        <div className="min-w-0 flex-1">
+        <div className="min-w-0 flex-1 overflow-hidden">
           <div className="flex min-w-0 items-center gap-2">
-            <span
-              title={employee.enabled ? "已启用" : "已停用"}
-              aria-label={employee.enabled ? "已启用" : "已停用"}
-              className={`h-2 w-2 shrink-0 rounded-full ${
-                employee.enabled ? "bg-success" : "bg-error"
-              }`}
-            />
             <h3 className={CARD_TITLE}>{employee.name}</h3>
+            <span
+              className={`shrink-0 rounded-full px-1.5 py-0.5 text-caption font-medium ${
+                employee.enabled
+                  ? "bg-success/10 text-success"
+                  : "bg-surface-hover text-text-muted"
+              }`}
+            >
+              {employee.enabled ? "已启用" : "已停用"}
+            </span>
           </div>
           <p className="mt-0.5 truncate text-meta text-text-muted">
             {employee.role || "未设置职位"}
           </p>
         </div>
+        {/* hover 时出现的“可打开”提示，整卡可点但此前没有任何入口暗示 */}
+        <ChevronRight className="mt-3 h-4 w-4 shrink-0 text-text-muted opacity-0 transition-opacity group-hover:opacity-100" />
       </div>
 
-      <p className={`mt-2 whitespace-pre-line ${CARD_DESCRIPTION}`}>
+      <p className={`mt-2.5 whitespace-pre-line ${CARD_DESCRIPTION}`}>
         {employee.systemPrompt.trim() || "暂无系统提示词"}
       </p>
 
-      {/* mt-auto 把工具标签顶到卡片底部，保证卡片上、下、左、右的 padding 一致 */}
+      {/* mt-auto 把工具标签顶到卡片底部，保证卡片上、下、左、右的 padding 一致。
+          数量为 0 时降级为中性灰：没有绑定任何资产不该和真的绑定了的抢注意力。 */}
       <div className={CARD_META}>
-        <span className="flex items-center gap-1 rounded-full bg-accent-soft px-2 py-0.5 text-accent">
-          <Plug className="h-3 w-3" />
-          {mcpCount} MCP
-        </span>
-        <span className="flex items-center gap-1 rounded-full bg-agent-violet/10 px-2 py-0.5 text-agent-violet">
-          <Sparkles className="h-3 w-3" />
-          {skillCount} 技能
-        </span>
-        <span className="flex items-center gap-1 rounded-full bg-agent-teal/10 px-2 py-0.5 text-agent-teal">
-          <Library className="h-3 w-3" />
-          {knowledgeCount} 知识库
-        </span>
+        <UsageChip
+          icon={Plug}
+          count={mcpCount}
+          label="MCP"
+          tone="bg-accent-soft text-accent"
+        />
+        <UsageChip
+          icon={Sparkles}
+          count={skillCount}
+          label="技能"
+          tone="bg-agent-violet/10 text-agent-violet"
+        />
+        <UsageChip
+          icon={Library}
+          count={knowledgeCount}
+          label="知识库"
+          tone="bg-agent-teal/10 text-agent-teal"
+        />
       </div>
     </button>
+  );
+}
+
+/** 绑定数量徽标：数量为 0 时静音，避免一屏卡片全是彩色标签 */
+function UsageChip({
+  icon: Icon,
+  count,
+  label,
+  tone,
+}: {
+  icon: typeof Plug;
+  count: number;
+  label: string;
+  tone: string;
+}) {
+  const empty = count === 0;
+  return (
+    <span
+      title={empty ? `未绑定${label}` : `已绑定 ${count} 个${label}`}
+      className={`flex items-center gap-1 rounded-full px-2 py-0.5 ${
+        empty ? "bg-surface-hover/70 text-text-muted" : tone
+      }`}
+    >
+      <Icon className="h-3 w-3" />
+      {count} {label}
+    </span>
   );
 }
 

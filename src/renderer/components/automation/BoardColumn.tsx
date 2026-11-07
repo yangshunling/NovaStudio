@@ -38,7 +38,7 @@ export function BoardColumn({
 }: ColumnProps) {
   return (
     <div
-      className="board-col flex h-full w-1/3 min-w-[260px] flex-col border-r border-border last:border-r-0"
+      className="board-col flex h-full min-w-[280px] flex-1 basis-0 flex-col overflow-hidden rounded-xl border border-border/70 bg-surface-2/40 shadow-[var(--c-shadow-sm)]"
       data-tone={tone}
       data-has-items={count > 0 ? "" : undefined}
     >
@@ -46,11 +46,11 @@ export function BoardColumn({
       <div className="board-col-rail h-[3px] w-full shrink-0" />
 
       {/* 列头 */}
-      <div className="board-col-head flex h-11 shrink-0 items-center justify-between border-b border-border px-inset">
-        <div className="board-col-accent flex items-center gap-2">
+      <div className="board-col-head flex h-12 shrink-0 items-center justify-between border-b border-border/60 px-3.5">
+        <div className="board-col-accent flex min-w-0 items-center gap-2">
           {icon}
-          <span className="text-body font-semibold">{title}</span>
-          <span className="board-col-badge rounded-full px-2 py-0.5 text-meta font-mono leading-none">
+          <span className="truncate text-body font-semibold">{title}</span>
+          <span className="board-col-badge shrink-0 rounded-full px-2 py-0.5 text-meta font-mono leading-none">
             {count}
           </span>
         </div>
@@ -59,7 +59,7 @@ export function BoardColumn({
             onClick={onAdd}
             title="新建任务"
             aria-label="新建任务"
-            className="ui-btn-round ui-icon-action flex h-9 w-9 items-center justify-center rounded-full"
+            className="ui-btn-round ui-icon-action flex h-8 w-8 shrink-0 items-center justify-center rounded-full"
           >
             <Plus className="h-4 w-4" />
           </button>
@@ -67,10 +67,20 @@ export function BoardColumn({
       </div>
 
       {/* 列正文 */}
-      <div className="board-col-body flex-1 space-y-2.5 overflow-y-auto p-inset">
-        {tasks.length === 0 && (
-          <EmptyState size="compact" icon={icon} title={emptyHint} />
-        )}
+      <div className="board-col-body min-h-0 flex-1 space-y-2.5 overflow-y-auto p-3">
+        {tasks.length === 0 &&
+          (onAdd ? (
+            <button
+              type="button"
+              onClick={onAdd}
+              className="flex w-full flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-border bg-surface/40 py-10 text-text-muted transition-colors hover:border-accent/40 hover:bg-accent-soft/30 hover:text-accent"
+            >
+              <Plus className="h-5 w-5" />
+              <span className="text-meta">{emptyHint}</span>
+            </button>
+          ) : (
+            <EmptyState size="compact" icon={icon} title={emptyHint} />
+          ))}
         {tasks.map((task) => (
           <TaskCard
             key={task.id}

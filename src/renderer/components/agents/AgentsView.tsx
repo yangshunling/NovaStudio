@@ -88,6 +88,15 @@ const PERMISSION_OPTIONS = [
   { value: "bypassPermissions", label: "bypassPermissions" },
 ];
 
+/** 右侧配置区的分区锚点 */
+const SECTION_NAV = [
+  { id: "connection", label: "连接配置" },
+  { id: "models", label: "模型配置" },
+  { id: "permission", label: "默认权限" },
+  { id: "file", label: "配置文件" },
+] as const;
+type SectionId = (typeof SECTION_NAV)[number]["id"];
+
 interface FormState {
   baseUrl: string;
   apiKey: string;
@@ -130,6 +139,35 @@ export function AgentsView() {
   const [modelsError, setModelsError] = useState<string | null>(null);
   /** 只接受最后一次请求的结果，避免旧响应覆盖新列表 */
   const modelRequestRef = useRef(0);
+  /** 右侧配置区：滚动容器 + 当前分区 */
+  const contentRef = useRef<HTMLDivElement>(null);
+  const [activeSection, setActiveSection] = useState<SectionId>("connection");
+
+  const scrollToSection = (id: SectionId) => {
+    document
+      .getElementById(`agent-${id}`)
+      ?.scrollIntoView({ behavior: "smooth", block: "start" });
+    setActiveSection(id);
+  };
+
+  /** 滚动时高亮离顶部最近的分区 */
+  const handleContentScroll = () => {
+    const container = contentRef.current;
+    if (!container) return;
+    // 以容器顶部往下约 280px 作为「正在阅读」的分界，避免要等分区顶到
+    // 吸顶导航下面才切换高亮
+    const threshold =
+      container.getBoundingClientRect().top +
+      Math.min(280, container.clientHeight * 0.35);
+    let current: SectionId = "connection";
+    for (const item of SECTION_NAV) {
+      const element = document.getElementById(`agent-${item.id}`);
+      if (element && element.getBoundingClientRect().top <= threshold) {
+        current = item.id;
+      }
+    }
+    setActiveSection(current);
+  };
 
   /** 按当前 Base URL / API Key 重新拉取模型列表 */
   const refreshModelList = useCallback(async () => {
@@ -450,8 +488,13 @@ export function AgentsView() {
 
       <div className="flex min-h-0 flex-1">
           <aside className="flex w-60 shrink-0 flex-col overflow-y-auto border-r border-border bg-surface-2/30 p-3">
-            <div className="px-1 pb-2 text-meta font-semibold tracking-wide text-text-muted">
-              已检测到的 Agent
+            <div className="flex items-center justify-between px-1 pb-2">
+              <span className="text-meta font-semibold tracking-wide text-text-muted">
+                已检测到的 Agent
+              </span>
+              <span className="rounded-full bg-surface-hover px-1.5 text-caption tabular-nums text-text-muted">
+                {agents.length}
+              </span>
             </div>
             {agents.length === 0 ? (
               <p className="px-1 py-3 text-caption leading-relaxed text-text-muted">
@@ -468,7 +511,7 @@ export function AgentsView() {
               ))
             )}
 
-            <div className="mt-4 rounded-lg border border-border bg-surface-2/50 p-3 text-caption leading-relaxed text-text-muted">
+            <div className="mt-4 rounded-lg border border-border/60 bg-surface-2/40 p-3 text-caption leading-relaxed text-text-muted">
               <p className="mb-1 font-medium text-text-secondary">共享配置</p>
               Nova 直接编辑 Claude Code 的本机配置：写入{" "}
               <code className="font-mono">~/.claude/settings.json</code>，
@@ -479,8 +522,12 @@ export function AgentsView() {
           </aside>
 
           <section className="flex min-w-0 flex-1 flex-col overflow-hidden">
-            <div className="min-h-0 flex-1 overflow-y-auto p-section">
-              <div className="mx-auto max-w-3xl space-y-4 pb-6">
+            <div
+              ref={contentRef}
+              onScroll={handleContentScroll}
+              className="min-h-0 flex-1 overflow-y-auto"
+            >
+              <div className="mx-auto max-w-4xl space-y-4 px-section pt-section pb-6">
                 {!selected ? (
                   <EmptyAgent />
                 ) : loading ? (
@@ -510,7 +557,34 @@ export function AgentsView() {
                       />
                     )}
 
+                    <AgentStatusCard
+                      agent={selected}
+                      form={form}
+                      hasApiKey={settings.hasApiKey}
+                    />
+
+                    <nav className="ui-glass-strong ui-ring sticky top-0 z-20 flex flex-wrap items-center gap-1 rounded-xl p-1">
+                      {SECTION_NAV.map((item) => {
+                        const active = activeSection === item.id;
+                        return (
+                          <button
+                            key={item.id}
+                            type="button"
+                            onClick={() => scrollToSection(item.id)}
+                            className={`rounded-lg px-3 py-1.5 text-meta font-medium transition-colors ${
+                              active
+                                ? "bg-surface text-text shadow-[var(--c-shadow-sm)]"
+                                : "text-text-muted hover:text-text"
+                            }`}
+                          >
+                            {item.label}
+                          </button>
+                        );
+                      })}
+                    </nav>
+
                     <SectionCard
+                      id="agent-connection"
                       title="连接配置"
                       description="写入 Claude 本机 settings.json；Base URL 与 Key 同时供 Claude CLI 与 Nova 使用。"
                       icon={KeyRound}
@@ -596,6 +670,7 @@ export function AgentsView() {
                     </SectionCard>
 
                     <SectionCard
+                      id="agent-models"
                       title="模型配置"
                       description="模型名与上下文分列选择；上下文（如 1M）会以 [1M] 形式追加到模型 ID。"
                       icon={Sparkles}
@@ -654,6 +729,7 @@ export function AgentsView() {
                     </SectionCard>
 
                     <SectionCard
+                      id="agent-permission"
                       title="默认权限"
                       description="写入 settings.json 的 permissions.defaultMode；终端 claude、Nova 会话与工作流节点统一按此配置运行。无人值守运行建议使用 bypassPermissions。"
                       icon={ShieldCheck}
@@ -671,8 +747,13 @@ export function AgentsView() {
                       </Field>
                     </SectionCard>
 
-                    <div>
-                      <div className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-input-bg px-inset py-2 text-caption text-text-muted">
+                    <SectionCard
+                      id="agent-file"
+                      title="配置文件"
+                      description="Claude Code 与 Nova 共用同一份本机配置；保存后会直接写回该文件。"
+                      icon={FolderOpen}
+                    >
+                      <div className="flex flex-wrap items-center gap-2 rounded-lg border border-border/60 bg-input-bg px-3 py-2.5 text-caption text-text-muted">
                         <FolderOpen className="h-3.5 w-3.5 shrink-0" />
                         <span
                           title={settings.settingsPath}
@@ -694,12 +775,12 @@ export function AgentsView() {
                           <span className="text-accent">打开所在目录</span>
                         </button>
                       </div>
-                      <p className="mt-1 text-caption leading-relaxed text-text-muted">
+                      <p className="mt-2 text-caption leading-relaxed text-text-muted">
                         {settings.exists
                           ? "修改会直接写回该文件；Claude CLI 与 Nova 共用同一份配置。"
                           : "配置文件尚未创建，保存后会自动生成。"}
                       </p>
-                    </div>
+                    </SectionCard>
                   </>
                 ) : null}
               </div>
@@ -715,13 +796,119 @@ export function AgentsView() {
 // 子组件
 // ============================================================================
 
+function AgentStatusCard({
+  agent,
+  form,
+  hasApiKey,
+}: {
+  agent: AgentInfo;
+  form: FormState;
+  hasApiKey: boolean;
+}) {
+  const hasCustomEndpoint = form.baseUrl.trim() !== "";
+  const modelLabel = form.defaultModel.name
+    ? `${form.defaultModel.name}${
+        form.defaultModel.context ? ` [${form.defaultModel.context}]` : ""
+      }`
+    : "跟随默认";
+
+  return (
+    <section className="relative overflow-hidden rounded-2xl border border-border/70 bg-surface-2/40 p-5">
+      <span
+        aria-hidden
+        className="pointer-events-none absolute inset-0 bg-gradient-to-br from-accent/18 via-accent/[0.04] to-transparent"
+      />
+      <span
+        aria-hidden
+        className="pointer-events-none absolute -right-24 -top-28 h-64 w-64 rounded-full bg-accent/20 blur-3xl"
+      />
+      <span
+        aria-hidden
+        className="pointer-events-none absolute inset-x-10 top-0 h-px bg-gradient-to-r from-transparent via-accent/50 to-transparent"
+      />
+
+      <div className="relative flex flex-wrap items-center justify-between gap-x-8 gap-y-4">
+        <div className="flex min-w-0 items-center gap-3.5">
+          <span className="grid h-12 w-12 shrink-0 place-items-center rounded-xl bg-accent text-accent-foreground shadow-[0_8px_24px_var(--c-accent-soft)]">
+            <Bot className="h-5 w-5" />
+          </span>
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <h2 className="truncate text-heading font-semibold tracking-tight text-text">
+                {agent.displayName}
+              </h2>
+              <span
+                className={`rounded-full px-2 py-0.5 text-caption font-medium ${
+                  agent.status.installed
+                    ? "bg-success/10 text-success"
+                    : "bg-error-bg text-error"
+                }`}
+              >
+                {agent.status.installed ? "已安装" : "未安装"}
+              </span>
+            </div>
+            <p className="mt-0.5 truncate text-meta text-text-muted">
+              {agent.status.version ? `版本 ${agent.status.version} · ` : ""}
+              配置与 Claude CLI 共用
+            </p>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-x-8 gap-y-3">
+          <StatusMetric
+            label="端点"
+            value={hasCustomEndpoint ? "自定义" : "官方默认"}
+          />
+          <StatusMetric
+            label="API Key"
+            value={hasApiKey ? "已配置" : "未配置"}
+            tone={hasApiKey ? "success" : "muted"}
+          />
+          <StatusMetric label="默认模型" value={modelLabel} />
+          <StatusMetric label="权限模式" value={form.permissionMode} />
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function StatusMetric({
+  label,
+  value,
+  tone = "default",
+}: {
+  label: string;
+  value: string;
+  tone?: "default" | "success" | "muted";
+}) {
+  return (
+    <div className="min-w-0">
+      <div className="text-caption text-text-muted">{label}</div>
+      <div
+        className={`mt-0.5 max-w-[150px] truncate text-body font-medium ${
+          tone === "success"
+            ? "text-success"
+            : tone === "muted"
+              ? "text-text-muted"
+              : "text-text"
+        }`}
+        title={value}
+      >
+        {value}
+      </div>
+    </div>
+  );
+}
+
 function SectionCard({
+  id,
   title,
   description,
   icon: Icon,
   action,
   children,
 }: {
+  id?: string;
   title: string;
   description?: string;
   icon: LucideIcon;
@@ -729,18 +916,23 @@ function SectionCard({
   children: ReactNode;
 }) {
   return (
-    <section className="rounded-xl border border-border bg-surface-2/60 p-card">
-      <div className="mb-3 flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <h2 className="flex items-center gap-2 text-body font-semibold text-text">
-            <Icon className="h-4 w-4 shrink-0 text-accent" />
-            {title}
-          </h2>
-          {description && (
-            <p className="mt-1 text-meta leading-relaxed text-text-muted">
-              {description}
-            </p>
-          )}
+    <section
+      id={id}
+      className="scroll-mt-14 rounded-xl border border-border/70 bg-surface-2/40 p-5 shadow-[var(--c-shadow-sm)]"
+    >
+      <div className="mb-4 flex items-start justify-between gap-3">
+        <div className="flex min-w-0 items-start gap-3">
+          <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-accent-soft text-accent">
+            <Icon className="h-4 w-4" />
+          </span>
+          <div className="min-w-0">
+            <h2 className="text-body font-semibold text-text">{title}</h2>
+            {description && (
+              <p className="mt-0.5 text-meta leading-relaxed text-text-muted">
+                {description}
+              </p>
+            )}
+          </div>
         </div>
         {action}
       </div>
@@ -842,18 +1034,24 @@ function AgentListItem({
         <Bot className="h-4 w-4" />
       </span>
       <span className="min-w-0 flex-1">
-        <span className="flex items-center gap-1.5">
-          <span className="truncate text-body-lg font-medium text-text">
-            {agent.displayName}
-          </span>
-          <span
-            className={`h-2 w-2 shrink-0 rounded-full ${
-              agent.status.installed ? "bg-success" : "bg-error"
-            }`}
-          />
+        <span className="block truncate text-body-lg font-medium text-text">
+          {agent.displayName}
         </span>
-        <span className="mt-0.5 block truncate text-caption text-text-muted">
-          {agent.status.installed ? agent.status.version || "已安装" : "未安装"}
+        <span className="mt-1 flex min-w-0 items-center gap-1.5">
+          <span
+            className={`shrink-0 rounded-full px-1.5 py-0.5 text-caption font-medium ${
+              agent.status.installed
+                ? "bg-success/10 text-success"
+                : "bg-error-bg text-error"
+            }`}
+          >
+            {agent.status.installed ? "已安装" : "未安装"}
+          </span>
+          {agent.status.installed && agent.status.version && (
+            <span className="min-w-0 truncate text-caption text-text-muted">
+              {agent.status.version}
+            </span>
+          )}
         </span>
       </span>
     </button>

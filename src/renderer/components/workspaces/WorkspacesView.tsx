@@ -37,12 +37,18 @@ import { Button } from "../ui/Button";
 import {
   CARD_FOOTER,
   CARD_FOOTER_META,
-  CARD_ICON_TILE,
   CARD_SHELL,
   CARD_TITLE,
+  cardIconTile,
 } from "../ui/cardStyles";
 import { SearchInput } from "../ui/SearchInput";
 import type { Project } from "@shared/types";
+
+/** 路径末两级，用于卡片上的简短标识（完整路径在 title 里） */
+function shortPath(cwd: string): string {
+  const parts = cwd.split(/[\\/]+/).filter(Boolean);
+  return parts.slice(-2).join(" / ") || cwd;
+}
 
 /** 路径比较：Windows 下大小写与分隔符都不敏感，其他平台大小写敏感 */
 function samePath(a: string, b: string): boolean {
@@ -280,36 +286,46 @@ function WorkspaceCard({
 }) {
   return (
     <div className={CARD_SHELL}>
-      <div className="flex items-start gap-3">
-        <span className={CARD_ICON_TILE}>
+      <div className="flex min-w-0 items-start gap-3">
+        <span className={cardIconTile("amber")}>
           <Folder className="h-5 w-5" />
         </span>
-        <div className="min-w-0 flex-1">
+        <div className="min-w-0 flex-1 overflow-hidden">
           <h3 className={CARD_TITLE} title={project.name}>
             {project.name}
           </h3>
+          {/* 路径只保留最后两级：完整路径太长，末两级足够辨认 */}
           <p
-            className="mt-1 break-all font-mono text-caption leading-relaxed text-text-muted"
+            className="mt-0.5 truncate font-mono text-caption text-text-muted"
             title={project.cwd}
           >
-            {project.cwd}
+            {shortPath(project.cwd)}
           </p>
         </div>
       </div>
 
       {/* 会话 / 工作流数量在左，操作按钮在右，与触发器/工作流卡片一致 */}
       <div className={CARD_FOOTER}>
+        {/* 数量为 0 的计数降级为中性灰：空工作区不该显得“很热闹” */}
         <div className={CARD_FOOTER_META}>
           <span
             title={`${sessionCount} 个会话`}
-            className="flex items-center gap-1 rounded-full bg-agent-teal/10 px-2 py-0.5 text-agent-teal"
+            className={`flex items-center gap-1 rounded-full px-2 py-0.5 ${
+              sessionCount > 0
+                ? "bg-agent-teal/10 text-agent-teal"
+                : "bg-surface-hover/70 text-text-muted"
+            }`}
           >
             <MessageSquare className="h-3 w-3" />
             {sessionCount} 个会话
           </span>
           <span
             title={`${workflowCount} 个工作流`}
-            className="flex items-center gap-1 rounded-full bg-agent-amber/10 px-2 py-0.5 text-agent-amber"
+            className={`flex items-center gap-1 rounded-full px-2 py-0.5 ${
+              workflowCount > 0
+                ? "bg-agent-amber/10 text-agent-amber"
+                : "bg-surface-hover/70 text-text-muted"
+            }`}
           >
             <WorkflowIcon className="h-3 w-3" />
             {workflowCount} 个工作流

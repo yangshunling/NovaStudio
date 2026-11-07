@@ -47,7 +47,7 @@ export function TaskCard({
 
   return (
     <div
-      className={`group relative rounded-xl border border-border border-l-[3px] ${borderColor} bg-surface-2/60 p-card shadow-[var(--c-shadow-sm)] backdrop-blur-sm transition-colors hover:bg-surface-2/80 ${
+      className={`group relative rounded-xl border border-border border-l-[3px] ${borderColor} bg-surface-2/60 p-card shadow-[var(--c-shadow-sm)] backdrop-blur-sm transition-all hover:-translate-y-0.5 hover:bg-surface-2/80 ${
         canViewDetail ? "cursor-pointer" : ""
       }`}
       onClick={() => canViewDetail && onViewDetail()}
@@ -58,7 +58,10 @@ export function TaskCard({
           status={isRunning ? "streaming" : isCompleted ? "success" : isFailed ? "error" : "inactive"}
           className="mt-1.5"
         />
-        <p className="min-w-0 flex-1 truncate text-body-lg text-text" title={task.prompt}>
+        <p
+          className="line-clamp-2 min-w-0 flex-1 text-body-lg leading-snug text-text"
+          title={task.prompt}
+        >
           {task.prompt}
         </p>
       </div>

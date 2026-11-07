@@ -12,6 +12,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { MENU_WIDTH, MenuItem, MenuPanel, MenuSeparator } from "../ui/Menu";
 import {
+  ChevronRight,
   Copy,
   Folder,
   FolderKanban,
@@ -48,9 +49,9 @@ import { ListItem, ListPane } from "../ui/ListPane";
 import {
   CARD_DESCRIPTION,
   CARD_FOOTER,
-  CARD_ICON_TILE,
   CARD_SHELL,
   CARD_TITLE,
+  cardIconTile,
 } from "../ui/cardStyles";
 import { NoWorkspaceState } from "../ui/NoWorkspaceState";
 import { WorkflowEditor } from "./WorkflowEditor";
@@ -1078,17 +1079,20 @@ function WorkflowCard({
       }}
       className={`${CARD_SHELL} cursor-pointer`}
     >
-      <div className="flex items-start gap-3">
-        <span className={CARD_ICON_TILE}>
+      <div className="flex min-w-0 items-start gap-3">
+        <span className={cardIconTile("teal")}>
           <WorkflowIcon className="h-5 w-5" />
         </span>
-        <div className="min-w-0 flex-1">
+        <div className="min-w-0 flex-1 overflow-hidden">
           <h3 className={CARD_TITLE}>{workflow.name}</h3>
-          <p className={`mt-2 ${CARD_DESCRIPTION}`}>
-            {workflow.description || "暂无说明"}
-          </p>
         </div>
+        {/* 整卡可点，hover 时给出一个明确的“进入”暗示 */}
+        <ChevronRight className="mt-1 h-4 w-4 shrink-0 text-text-muted opacity-0 transition-opacity group-hover:opacity-100" />
       </div>
+
+      <p className={`mt-2.5 ${CARD_DESCRIPTION}`}>
+        {workflow.description || "暂无说明"}
+      </p>
 
       <div className="mt-3 flex flex-wrap items-center gap-1.5 text-meta text-text-muted">
         {runMeta && RunIcon && (

@@ -550,7 +550,10 @@ export function SettingsModal() {
       {/* 弹框正文：左侧菜单 + 右侧内容 */}
       <div className="flex flex-1 overflow-hidden">
         {/* 左侧菜单 */}
-        <aside className="flex w-[var(--c-layout-menu)] shrink-0 flex-col gap-1 border-r border-border p-2">
+        <aside className="flex w-[var(--c-layout-menu)] shrink-0 flex-col gap-1 border-r border-border bg-surface-2/30 p-2.5">
+          <p className="px-2 pb-1.5 pt-1 text-caption font-semibold text-text-muted">
+            设置
+          </p>
           {SETTINGS_SECTIONS.map(({ id, label, Icon }) => {
             const active = section === id;
             return (
@@ -559,13 +562,21 @@ export function SettingsModal() {
                 type="button"
                 onClick={() => setSection(id)}
                 aria-current={active ? "page" : undefined}
-                className={`flex w-full items-center gap-2 rounded-xl px-2.5 py-2.5 text-body-lg font-medium transition-colors ${
+                className={`relative flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-body font-medium transition-colors ${
                   active
-                    ? "bg-surface-active text-text"
+                    ? "bg-accent-soft text-accent"
                     : "text-text-secondary hover:bg-surface-hover hover:text-text"
                 }`}
               >
-                <Icon className="h-4 w-4" />
+                <span
+                  className={`grid h-6 w-6 shrink-0 place-items-center rounded-md ${
+                    active
+                      ? "bg-accent text-accent-foreground"
+                      : "bg-surface-hover text-text-muted"
+                  }`}
+                >
+                  <Icon className="h-3.5 w-3.5" />
+                </span>
                 {label}
               </button>
             );

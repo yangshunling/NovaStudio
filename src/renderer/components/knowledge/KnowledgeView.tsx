@@ -498,12 +498,13 @@ export function KnowledgeView() {
                         ? "当前检索全部知识库，点击切换为仅当前知识库"
                         : "当前仅检索当前知识库，点击切换为全部知识库"
                     }
-                    className={`rounded-full px-2.5 py-1 text-caption transition-colors ${
+                    className={`flex items-center gap-1 rounded-full border px-2.5 py-1 text-caption transition-colors ${
                       scopeAll
-                        ? "bg-accent-soft font-medium text-accent"
-                        : "bg-surface-2/60 text-text-secondary hover:bg-surface-hover hover:text-text"
+                        ? "border-accent/30 bg-accent-soft font-medium text-accent"
+                        : "border-border/60 bg-surface-2/40 text-text-secondary hover:border-border hover:text-text"
                     }`}
                   >
+                    <Library className="h-3 w-3" />
                     {scopeAll ? "全部知识库" : "当前知识库"}
                   </button>
 
@@ -554,8 +555,8 @@ export function KnowledgeView() {
                     uploading={uploading}
                   />
                 ) : (
-                  <div className="overflow-hidden rounded-xl border border-border bg-surface-2/30">
-                    <div className="grid grid-cols-[28px_minmax(0,1fr)_90px_130px_36px] items-center gap-3 border-b border-border bg-surface-2/60 px-3 py-2 text-meta font-medium text-text-muted">
+                  <div className="overflow-hidden rounded-xl border border-border/70 bg-surface-2/30 shadow-[var(--c-shadow-sm)]">
+                    <div className="sticky top-0 z-10 grid grid-cols-[28px_minmax(0,1fr)_90px_130px_36px] items-center gap-3 border-b border-border/70 bg-surface-2/85 px-3.5 py-2.5 text-caption font-semibold text-text-muted backdrop-blur-sm">
                       <input
                         type="checkbox"
                         checked={allSelected}
@@ -583,8 +584,10 @@ export function KnowledgeView() {
                       return (
                         <div
                           key={document.relativePath}
-                          className={`group grid grid-cols-[28px_minmax(0,1fr)_90px_130px_36px] items-center gap-3 border-b border-border/60 px-3 py-2 transition-colors last:border-b-0 ${
-                            checked ? "bg-accent-soft/40" : "hover:bg-surface-hover/60"
+                          className={`group grid grid-cols-[28px_minmax(0,1fr)_90px_130px_36px] items-center gap-3 border-b border-border/40 px-3.5 py-2.5 transition-colors last:border-b-0 ${
+                            checked
+                              ? "bg-accent-soft/50"
+                              : "hover:bg-surface-hover/50"
                           }`}
                         >
                           <input
