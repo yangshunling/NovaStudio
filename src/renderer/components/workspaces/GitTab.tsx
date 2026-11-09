@@ -11,14 +11,20 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
+  ArrowUp,
   Check,
   CheckCircle2,
   ChevronDown,
+  CircleDot,
+  Cloud,
   GitBranch,
-  GitCommitHorizontal,
+  GitBranchPlus,
   Loader2,
+  Minus,
   Plus,
   RefreshCw,
+  Tag,
+  type LucideIcon,
 } from "lucide-react";
 import type { Project } from "@shared/types";
 import type {
@@ -325,6 +331,43 @@ export function GitTab({
     }
   };
 
+  const push = async () => {
+    if (!status?.branch || status.detached || busy) return;
+    setBusy("push");
+    try {
+      const result = await ipc.pushGitBranch(project.id, status.branch);
+      if (!result.ok) {
+        toast.error(result.error ?? "推送失败", 6000);
+        return;
+      }
+      toast.success("已推送到远端");
+      onRefresh();
+    } catch (err) {
+      toast.error(toMessage(err), 5000);
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const pull = async () => {
+    if (busy) return;
+    setBusy("pull");
+    try {
+      const result = await ipc.pullGitBranch(project.id);
+      if (!result.ok) {
+        toast.error(result.error ?? "拉取失败", 6000);
+        return;
+      }
+      toast.success("已拉取远端更新");
+      setSelected(null);
+      onAfterMutation();
+    } catch (err) {
+      toast.error(toMessage(err), 5000);
+    } finally {
+      setBusy(null);
+    }
+  };
+
   const init = async () => {
     setBusy("init");
     try {
@@ -362,7 +405,7 @@ export function GitTab({
       <div className="flex h-full items-center justify-center p-section">
         <div className="max-w-md rounded-xl border border-border/70 bg-surface-2/40 p-6 text-center shadow-[var(--c-shadow-sm)]">
           <GitBranch className="mx-auto h-7 w-7 text-text-muted" />
-          <h3 className="mt-2 text-title font-semibold text-text">
+          <h3 className="mt-2 text-body font-semibold text-text">
             {gitMissing ? "未检测到 Git" : "该工作区还不是 Git 仓库"}
           </h3>
           <p className="mt-1 text-meta text-text-muted">
@@ -389,6 +432,23 @@ export function GitTab({
     label: branch.current ? `${branch.name}（当前）` : branch.name,
   }));
 
+  /** 当前分支是否已有 upstream；没有时「推送」会顺带建立跟踪 */
+  const hasUpstream = Boolean(
+    branches.find((branch) => branch.current)?.upstream,
+  );
+  const canPush =
+    status.hasHead &&
+    !status.detached &&
+    Boolean(status.branch) &&
+    !busy &&
+    (status.ahead > 0 || !hasUpstream);
+  /** 分支列表未加载出来时不做判断，交给主进程给出明确错误 */
+  const canPull =
+    status.hasHead &&
+    !status.detached &&
+    !busy &&
+    (branches.length === 0 || hasUpstream);
+
   const selectedEntry = selected
     ? (status.files.find(
         (file) => file.relativePath === selected.relativePath,
@@ -401,8 +461,8 @@ export function GitTab({
   return (
     <div className="flex h-full min-h-0 flex-col">
       {/* 顶栏：分支 / 批量操作 */}
-      <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-border px-card py-2">
-        <div className="ui-ring flex h-8 min-w-40 items-center gap-1.5 rounded-full bg-input-bg px-3">
+      <div className="flex shrink-0 flex-wrap items-center gap-1.5 border-b border-border px-card py-2">
+        <div className="ui-ring flex h-7 min-w-0 items-center gap-1 rounded-full bg-input-bg pl-2.5 pr-1">
           <GitBranch className="h-3.5 w-3.5 shrink-0 text-accent" />
           {branchOptions.length > 0 ? (
             <Select
@@ -410,45 +470,72 @@ export function GitTab({
               onChange={requestCheckout}
               options={branchOptions}
               disabled={Boolean(busy)}
-              className="text-meta text-text-secondary"
+              className="min-w-0 max-w-44 text-meta text-text-secondary"
               minMenuWidth={200}
               aria-label="切换分支"
               title="切换分支"
             />
           ) : (
-            <span className="text-meta text-text-muted">尚无分支</span>
+            <span className="px-1 text-meta text-text-muted">尚无分支</span>
+          )}
+          {(status.ahead > 0 || status.behind > 0) && (
+            <span className="flex shrink-0 items-center gap-1 rounded-full bg-surface-hover px-1.5 font-mono text-caption leading-4 text-text-muted">
+              {status.ahead > 0 && <span>↑{status.ahead}</span>}
+              {status.behind > 0 && <span>↓{status.behind}</span>}
+            </span>
           )}
         </div>
 
         {status.detached && (
-          <span className="flex items-center gap-1 rounded-full bg-agent-amber/10 px-2 py-0.5 text-caption text-agent-amber">
+          <span className="flex h-7 items-center gap-1 rounded-full bg-agent-amber/10 px-2 text-caption text-agent-amber">
             <AlertTriangle className="h-3 w-3" />
             detached HEAD
-          </span>
-        )}
-        {status.ahead > 0 && (
-          <span className="rounded-full bg-surface-hover px-2 py-0.5 font-mono text-caption text-text-muted">
-            ↑{status.ahead}
-          </span>
-        )}
-        {status.behind > 0 && (
-          <span className="rounded-full bg-surface-hover px-2 py-0.5 font-mono text-caption text-text-muted">
-            ↓{status.behind}
           </span>
         )}
 
         <Button
           size="xs"
-          icon={<Plus className="h-3 w-3" />}
+          icon={<GitBranchPlus className="h-3 w-3" />}
           onClick={() => setNewBranchOpen(true)}
           disabled={Boolean(busy)}
         >
           新建分支
         </Button>
 
-        <div className="ml-auto flex items-center gap-1.5">
+        <div className="flex items-center gap-1">
           <Button
             size="xs"
+            onClick={() => void pull()}
+            disabled={!canPull}
+            loading={busy === "pull"}
+            title={
+              hasUpstream || branches.length === 0
+                ? "拉取远端更新（仅 fast-forward）"
+                : "当前分支没有 upstream，请先推送一次"
+            }
+          >
+            拉取
+          </Button>
+          <Button
+            size="xs"
+            icon={<ArrowUp className="h-3 w-3" />}
+            onClick={() => void push()}
+            disabled={!canPush}
+            loading={busy === "push"}
+            title={
+              hasUpstream
+                ? "推送本地提交到远端"
+                : "首次推送并建立 upstream 跟踪"
+            }
+          >
+            推送
+          </Button>
+        </div>
+
+        <div className="ml-auto flex items-center gap-1">
+          <Button
+            size="xs"
+            icon={<Plus className="h-3 w-3" />}
             onClick={() =>
               void stage(
                 [...unstaged, ...untracked].map((file) => file.relativePath),
@@ -460,6 +547,7 @@ export function GitTab({
           </Button>
           <Button
             size="xs"
+            icon={<Minus className="h-3 w-3" />}
             onClick={() =>
               void unstage(staged.map((file) => file.relativePath))
             }
@@ -473,10 +561,10 @@ export function GitTab({
             disabled={loading}
             title="刷新 Git 状态"
             aria-label="刷新 Git 状态"
-            className="ui-btn-round ui-icon-action flex h-8 w-8 items-center justify-center rounded-full text-text-muted disabled:opacity-40"
+            className="ui-btn-round ui-icon-action flex h-7 w-7 items-center justify-center rounded-full text-text-muted disabled:opacity-40"
           >
             <RefreshCw
-              className={`h-4 w-4 ${loading ? "animate-spin" : ""}`}
+              className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`}
             />
           </button>
         </div>
@@ -488,10 +576,10 @@ export function GitTab({
           {/* 变更列表：占剩余空间，独立滚动 */}
           <div className="min-h-0 flex-1 overflow-y-auto p-2">
             {changes === 0 ? (
-              <div className="flex flex-col items-center gap-2 px-4 py-10 text-center">
-                <CheckCircle2 className="h-7 w-7 text-success" />
-                <p className="text-body font-medium text-text">工作区干净</p>
-                <p className="text-meta text-text-muted">
+              <div className="flex flex-col items-center gap-1.5 px-4 py-8 text-center">
+                <CheckCircle2 className="h-6 w-6 text-success" />
+                <p className="text-meta font-semibold text-text">工作区干净</p>
+                <p className="max-w-56 text-caption leading-relaxed text-text-muted">
                   没有未提交变更，切换分支或提交都会很安全。
                 </p>
               </div>
@@ -578,7 +666,7 @@ export function GitTab({
               <span className="flex-1 text-caption font-semibold text-text-secondary">
                 最近提交
               </span>
-              <span className="font-mono text-caption text-text-muted">
+              <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-surface-hover px-1.5 font-mono text-caption leading-none text-text-muted">
                 {commits.length}
               </span>
             </button>
@@ -592,31 +680,12 @@ export function GitTab({
                   {status.hasHead ? "还没有提交记录" : "仓库还没有第一次提交"}
                 </p>
               ) : (
-                <div className="space-y-0.5">
-                  {commits.slice(0, 10).map((commit) => (
-                    <div
-                      key={commit.hash}
-                      title={`${commit.hash}\n${commit.author}`}
-                      className="rounded-md px-1.5 py-1.5 transition-colors hover:bg-surface-hover"
-                    >
-                      <div className="flex items-center gap-1.5">
-                        <GitCommitHorizontal className="h-3 w-3 shrink-0 text-text-muted" />
-                        <span className="min-w-0 flex-1 truncate text-meta text-text-secondary">
-                          {commit.subject}
-                        </span>
-                        <span className="shrink-0 font-mono text-caption text-text-muted">
-                          {commit.shortHash}
-                        </span>
-                      </div>
-                      <div className="mt-0.5 flex items-center gap-2 pl-4 text-caption text-text-muted">
-                        <span className="truncate">{commit.author}</span>
-                        <span className="shrink-0">
-                          {timeAgo(commit.date)}
-                        </span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
+                <CommitGraph
+                  commits={commits}
+                  ahead={status.ahead}
+                  branch={status.branch}
+                  branches={branches}
+                />
               )}
             </div>
           </section>
@@ -629,15 +698,6 @@ export function GitTab({
               <span className="min-w-0 flex-1 truncate font-mono text-meta text-text-secondary">
                 {selected?.relativePath ?? "选择左侧变更文件查看 diff"}
               </span>
-              {selected && (
-                <span className="shrink-0 rounded-full bg-surface-hover px-2 py-0.5 text-caption text-text-muted">
-                  {selected.untracked
-                    ? "未跟踪"
-                    : selected.staged
-                      ? "已暂存"
-                      : "未暂存"}
-                </span>
-              )}
               {selected && !selected.untracked && !selectedDeleted && (
                 <Button
                   size="xs"
@@ -669,11 +729,11 @@ export function GitTab({
                 )
               ) : selected.untracked ? (
                 <div className="flex h-full flex-col items-center justify-center gap-2 p-section text-center">
-                  <GitBranch className="h-7 w-7 text-text-muted" />
-                  <p className="text-body font-medium text-text">
+                  <GitBranch className="h-6 w-6 text-text-muted" />
+                  <p className="text-meta font-semibold text-text">
                     未跟踪文件
                   </p>
-                  <p className="text-meta text-text-muted">
+                  <p className="max-w-60 text-caption leading-relaxed text-text-muted">
                     文件还没有被 Git 跟踪，暂存后才能查看 diff。
                   </p>
                   <div className="mt-1 flex gap-2">
@@ -703,17 +763,17 @@ export function GitTab({
               ) : diffBinary ? (
                 <div className="flex h-full flex-col items-center justify-center gap-2 p-section text-center">
                   <AlertTriangle className="h-6 w-6 text-agent-amber" />
-                  <p className="text-body font-medium text-text">
+                  <p className="text-meta font-semibold text-text">
                     二进制文件
                   </p>
-                  <p className="text-meta text-text-muted">
+                  <p className="max-w-60 text-caption leading-relaxed text-text-muted">
                     无法以文本方式显示 diff，请用系统程序打开查看。
                   </p>
                 </div>
               ) : diff.trim() === "" ? (
                 <div className="flex h-full flex-col items-center justify-center gap-2 p-section text-center">
                   <GitBranch className="h-6 w-6 text-text-muted" />
-                  <p className="text-meta text-text-muted">
+                  <p className="max-w-60 text-caption leading-relaxed text-text-muted">
                     没有可显示的 diff（文件可能已删除或内容未变化）。
                   </p>
                 </div>
@@ -725,68 +785,67 @@ export function GitTab({
 
           {/* 提交区 */}
           {changes > 0 && (
-            <div
-              ref={commitBoxRef}
-              className="shrink-0 border-t border-border p-card"
-            >
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-meta font-semibold text-text-secondary">
-                  提交信息
-                </span>
-                <span className="font-mono text-caption text-text-muted">
-                  {staged.length} 个文件已暂存
-                </span>
-              </div>
-
-              <TextArea
-                value={message}
-                onChange={(event) => setMessage(event.target.value)}
-                placeholder="描述这次变更…"
-                rows={3}
-                className="mt-2"
-              />
-
-              {checkoutAfterCommit && (
-                <p className="mt-1.5 flex items-center gap-2 text-caption text-agent-amber">
-                  提交成功后将自动切换到 {checkoutAfterCommit}。
-                  <button
-                    type="button"
-                    onClick={() => setCheckoutAfterCommit(null)}
-                    className="font-medium underline underline-offset-2"
-                  >
-                    取消
-                  </button>
-                </p>
-              )}
-
-              {commitError && (
-                <div className="mt-2 rounded-lg border border-error/25 bg-error-bg px-2.5 py-2 text-caption text-error">
-                  <p>{commitError}</p>
-                  {commitOutput && (
-                    <pre className="mt-1 max-h-24 overflow-auto whitespace-pre-wrap font-mono text-caption opacity-80">
-                      {commitOutput}
-                    </pre>
-                  )}
+            <div ref={commitBoxRef} className="shrink-0 border-t border-border p-2.5">
+              <div className="rounded-xl border border-border/70 bg-surface-2/40 p-2.5">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-caption font-semibold text-text-secondary">
+                    提交信息
+                  </span>
+                  <span className="font-mono text-caption text-text-muted">
+                    {staged.length} 个文件已暂存
+                  </span>
                 </div>
-              )}
 
-              <div className="mt-2 flex items-center justify-between gap-2">
-                <span className="text-caption text-text-muted">
-                  {staged.length === 0
-                    ? "先在左侧勾选要提交的文件"
-                    : message.trim()
-                      ? `将提交 ${staged.length} 个文件`
-                      : "填写提交信息后即可提交"}
-                </span>
-                <Button
-                  variant="primary"
-                  size="sm"
-                  loading={busy === "commit"}
-                  disabled={!canCommit}
-                  onClick={() => void commit()}
-                >
-                  提交
-                </Button>
+                <TextArea
+                  value={message}
+                  onChange={(event) => setMessage(event.target.value)}
+                  placeholder="描述这次变更…"
+                  rows={3}
+                  className="mt-1.5"
+                />
+
+                {checkoutAfterCommit && (
+                  <p className="mt-1.5 flex items-center gap-2 text-caption text-agent-amber">
+                    提交成功后将自动切换到 {checkoutAfterCommit}。
+                    <button
+                      type="button"
+                      onClick={() => setCheckoutAfterCommit(null)}
+                      className="font-medium underline underline-offset-2"
+                    >
+                      取消
+                    </button>
+                  </p>
+                )}
+
+                {commitError && (
+                  <div className="mt-2 rounded-lg border border-error/25 bg-error-bg px-2.5 py-2 text-caption text-error">
+                    <p>{commitError}</p>
+                    {commitOutput && (
+                      <pre className="mt-1 max-h-24 overflow-auto whitespace-pre-wrap font-mono text-caption opacity-80">
+                        {commitOutput}
+                      </pre>
+                    )}
+                  </div>
+                )}
+
+                <div className="mt-2 flex items-center justify-between gap-2">
+                  <span className="text-caption text-text-muted">
+                    {staged.length === 0
+                      ? "先在左侧勾选要提交的文件"
+                      : message.trim()
+                        ? `将提交 ${staged.length} 个文件`
+                        : "填写提交信息后即可提交"}
+                  </span>
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    loading={busy === "commit"}
+                    disabled={!canCommit}
+                    onClick={() => void commit()}
+                  >
+                    提交
+                  </Button>
+                </div>
               </div>
             </div>
           )}
@@ -913,7 +972,7 @@ function ChangeGroup({
         type="button"
         aria-expanded={!collapsed}
         onClick={onToggleCollapsed}
-        className="mb-1 flex w-full items-center gap-1.5 rounded-md px-1 py-1 text-left transition-colors hover:bg-surface-hover"
+        className="mb-0.5 flex h-7 w-full items-center gap-1.5 rounded px-1.5 text-left transition-colors hover:bg-surface-hover"
       >
         <ChevronDown
           className={`h-3.5 w-3.5 shrink-0 text-text-muted transition-transform ${
@@ -927,7 +986,7 @@ function ChangeGroup({
         >
           {title}
         </span>
-        <span className="font-mono text-caption text-text-muted">
+        <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-surface-hover px-1.5 font-mono text-caption leading-none text-text-muted">
           {files.length}
         </span>
       </button>
@@ -954,7 +1013,7 @@ function ChangeGroup({
           return (
             <div
               key={`${kind}:${file.relativePath}`}
-              className={`flex items-center gap-1.5 rounded-md px-1.5 py-1.5 transition-colors ${
+              className={`flex h-7 items-center gap-2 rounded px-1.5 transition-colors ${
                 active ? "bg-surface-active" : "hover:bg-surface-hover"
               }`}
             >
@@ -967,16 +1026,16 @@ function ChangeGroup({
                     stagedFlag ? "取消暂存" : "暂存此文件"
                   }
                   aria-label={stagedFlag ? "取消暂存" : "暂存此文件"}
-                  className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border transition-colors disabled:opacity-40 ${
+                  className={`flex h-[15px] w-[15px] shrink-0 items-center justify-center rounded-[5px] border transition-all active:scale-90 disabled:opacity-40 ${
                     stagedFlag
-                      ? "border-accent bg-accent text-accent-foreground"
-                      : "border-border-strong bg-transparent text-transparent hover:border-accent"
+                      ? "border-accent bg-accent text-accent-foreground shadow-[var(--c-shadow-sm)]"
+                      : "border-text-muted/45 text-transparent hover:border-accent hover:bg-accent-soft hover:text-accent/50"
                   }`}
                 >
-                  <Check className="h-3 w-3" />
+                  <Check className="h-3 w-3" strokeWidth={3.2} />
                 </button>
               ) : (
-                <span className="grid h-4 w-4 shrink-0 place-items-center text-error">
+                <span className="grid h-[15px] w-[15px] shrink-0 place-items-center text-error">
                   <AlertTriangle className="h-3.5 w-3.5" />
                 </span>
               )}
@@ -993,18 +1052,16 @@ function ChangeGroup({
                 title={file.relativePath}
                 className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
               >
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate text-meta text-text-secondary">
-                    {name}
-                  </span>
-                  {parent && (
-                    <span className="block truncate font-mono text-caption text-text-muted">
-                      {parent}
-                    </span>
-                  )}
+                <span className="max-w-[65%] shrink-0 truncate text-meta text-text-secondary">
+                  {name}
                 </span>
+                {parent && (
+                  <span className="min-w-0 shrink truncate font-mono text-caption text-text-muted">
+                    {parent}
+                  </span>
+                )}
                 <span
-                  className={`shrink-0 font-mono text-caption font-semibold ${meta.textClass}`}
+                  className={`ml-auto shrink-0 rounded-full px-1.5 text-caption font-medium leading-4 ${meta.badge}`}
                   title={meta.text}
                 >
                   {meta.label}
@@ -1016,6 +1073,235 @@ function ChangeGroup({
       </div>
     </div>
   );
+}
+
+// ============================================================================
+// 最近提交：Git Graph 风格
+// ============================================================================
+
+type CommitRefKind = "head" | "branch" | "remote" | "tag";
+
+interface CommitRefBadge {
+  label: string;
+  kind: CommitRefKind;
+}
+
+const COMMIT_REF_BADGE: Record<
+  CommitRefKind,
+  { icon: LucideIcon; className: string }
+> = {
+  head: {
+    icon: CircleDot,
+    className: "border-accent/40 bg-accent-soft text-accent",
+  },
+  branch: {
+    icon: GitBranch,
+    className: "border-accent/40 bg-accent-soft text-accent",
+  },
+  remote: {
+    icon: Cloud,
+    className: "border-agent-violet/40 bg-agent-violet/10 text-agent-violet",
+  },
+  tag: {
+    icon: Tag,
+    className: "border-agent-amber/40 bg-agent-amber/10 text-agent-amber",
+  },
+};
+
+/** 竖线颜色跟着提交段走：未推送段用主色，已推送段用紫色 */
+type GraphTone = "outgoing" | "pushed";
+
+const GRAPH_TONE: Record<
+  GraphTone,
+  { line: string; dot: string; ring: string }
+> = {
+  outgoing: { line: "bg-accent", dot: "bg-accent", ring: "border-accent" },
+  pushed: {
+    line: "bg-agent-violet",
+    dot: "bg-agent-violet",
+    ring: "border-agent-violet",
+  },
+};
+
+function CommitGraph({
+  commits,
+  ahead,
+  branch,
+  branches,
+}: {
+  commits: GitCommitSummary[];
+  /** 相对 upstream 领先的提交数；窗口内截断使用 */
+  ahead: number;
+  branch: string | null;
+  branches: GitBranchInfo[];
+}) {
+  const localBranches = new Set(branches.map((item) => item.name));
+  const outgoing = Math.min(Math.max(ahead, 0), commits.length);
+  const showOutgoing = outgoing > 0 && Boolean(branch);
+  const rowCount = commits.length + (showOutgoing ? 1 : 0);
+
+  return (
+    <div>
+      {/* 未推送的提交聚合在「传出的更改」下，与已推送段用颜色区分 */}
+      {showOutgoing && (
+        <div className="relative flex h-7 items-center gap-1.5 pr-1">
+          <GraphRail
+            tone="outgoing"
+            size="small"
+            isFirst
+            isLast={rowCount === 1}
+          />
+          <span className="shrink-0 text-caption font-medium text-text-secondary">
+            传出的更改
+          </span>
+          <span className="min-w-0 truncate text-caption text-text-muted">
+            {branch}
+          </span>
+        </div>
+      )}
+
+      {commits.map((commit, index) => {
+        const isHead = index === 0;
+        const tone: GraphTone = index < outgoing ? "outgoing" : "pushed";
+        const badges = parseCommitRefs(commit.refs, localBranches);
+        const rest = badges.slice(2);
+
+        return (
+          <div
+            key={commit.hash}
+            title={`${commit.subject}\n${commit.hash}\n${commit.author} · ${timeAgo(commit.date)}`}
+            className="relative flex h-7 items-center gap-1.5 rounded pr-1 transition-colors hover:bg-surface-hover"
+          >
+            <GraphRail
+              tone={tone}
+              head={isHead}
+              isFirst={index === 0 && !showOutgoing}
+              isLast={index === commits.length - 1}
+            />
+            <span
+              className={`min-w-0 flex-1 truncate text-meta ${
+                isHead ? "font-semibold text-text" : "text-text-secondary"
+              }`}
+            >
+              {commit.subject}
+            </span>
+            <span className="max-w-[68px] shrink-0 truncate text-caption text-text-muted">
+              {commit.author}
+            </span>
+            {badges.slice(0, 2).map((badge) => (
+              <CommitRefChip
+                key={`${badge.kind}:${badge.label}`}
+                badge={badge}
+              />
+            ))}
+            {rest.length > 0 && (
+              <span
+                title={rest.map((badge) => badge.label).join("\n")}
+                className="shrink-0 rounded-full border border-border px-1.5 font-mono text-caption leading-4 text-text-muted"
+              >
+                +{rest.length}
+              </span>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/** 左侧竖线 + 圆点；首尾行把线裁到圆点，避免超出提交范围 */
+function GraphRail({
+  tone,
+  head = false,
+  isFirst = false,
+  isLast = false,
+  size = "normal",
+}: {
+  tone: GraphTone;
+  /** HEAD 用空心圆点 */
+  head?: boolean;
+  isFirst?: boolean;
+  isLast?: boolean;
+  size?: "normal" | "small";
+}) {
+  const { line, dot, ring } = GRAPH_TONE[tone];
+  const drawLine = !(isFirst && isLast);
+
+  return (
+    <span className="relative flex h-full w-5 shrink-0 items-center justify-center">
+      {drawLine && (
+        <span
+          aria-hidden
+          className={`absolute left-1/2 w-px -translate-x-1/2 ${line} ${
+            isFirst
+              ? "top-1/2 bottom-0"
+              : isLast
+                ? "top-0 bottom-1/2"
+                : "inset-y-0"
+          }`}
+        />
+      )}
+      {head ? (
+        <span
+          className={`relative h-[13px] w-[13px] rounded-full border-2 bg-surface ${ring}`}
+        />
+      ) : (
+        <span
+          className={`relative rounded-full ${dot} ${
+            size === "small" ? "h-[7px] w-[7px]" : "h-[11px] w-[11px]"
+          }`}
+        />
+      )}
+    </span>
+  );
+}
+
+function CommitRefChip({ badge }: { badge: CommitRefBadge }) {
+  const { icon: Icon, className } = COMMIT_REF_BADGE[badge.kind];
+
+  return (
+    <span
+      className={`inline-flex h-[18px] shrink-0 items-center gap-1 rounded-full border px-2 text-caption leading-none ${className}`}
+    >
+      <Icon className="h-3 w-3" />
+      <span className="max-w-[92px] truncate">{badge.label}</span>
+    </span>
+  );
+}
+
+/** %D 的引用串 → 徽标；本地分支表用来区分「远端跟踪分支」和「带斜杠的本地分支」 */
+function parseCommitRefs(
+  refs: string[],
+  localBranches: Set<string>,
+): CommitRefBadge[] {
+  const badges: CommitRefBadge[] = [];
+
+  for (const raw of refs) {
+    const ref = raw.trim();
+    if (!ref) continue;
+
+    if (ref.startsWith("HEAD -> ")) {
+      badges.push({ label: ref.slice("HEAD -> ".length), kind: "head" });
+      continue;
+    }
+    if (ref === "HEAD") {
+      badges.push({ label: "HEAD", kind: "head" });
+      continue;
+    }
+    if (ref.startsWith("tag: ")) {
+      badges.push({ label: ref.slice("tag: ".length), kind: "tag" });
+      continue;
+    }
+    // origin/HEAD 只是远端默认分支的别名，不单独展示
+    if (ref.endsWith("/HEAD")) continue;
+
+    badges.push({
+      label: ref,
+      kind: localBranches.has(ref) || !ref.includes("/") ? "branch" : "remote",
+    });
+  }
+
+  return badges;
 }
 
 // ============================================================================
@@ -1034,11 +1320,11 @@ function DiffView({ diff }: { diff: string }) {
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex shrink-0 items-center gap-3 border-b border-border/60 px-3 py-1.5 font-mono text-caption">
-        <span className="text-success">+{added}</span>
-        <span className="text-error">-{removed}</span>
+        <span className="text-diff-add">+{added}</span>
+        <span className="text-diff-del">-{removed}</span>
       </div>
       <div className="min-h-0 flex-1 overflow-auto">
-        <pre className="min-w-max p-3 font-mono text-caption leading-relaxed">
+        <pre className="min-w-max py-2 font-mono text-meta leading-6">
           {lines.map((line, index) => {
             let className = "text-text-secondary";
             if (
@@ -1051,13 +1337,13 @@ function DiffView({ diff }: { diff: string }) {
             } else if (line.startsWith("@@")) {
               className = "text-accent";
             } else if (line.startsWith("+")) {
-              className = "bg-success/10 text-success";
+              className = "bg-diff-add-bg text-diff-add";
             } else if (line.startsWith("-")) {
-              className = "bg-error/10 text-error";
+              className = "bg-diff-del-bg text-diff-del";
             }
 
             return (
-              <div key={index} className={`px-2 ${className}`}>
+              <div key={index} className={`px-3 ${className}`}>
                 {line || " "}
               </div>
             );

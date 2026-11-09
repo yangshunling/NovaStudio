@@ -1,11 +1,12 @@
 /**
  * 终端会话状态
  *
- * 与文件预览标签分开：终端需要跨页面常驻（由 App 中的 TerminalsView 保持挂载），
- * 而文件标签只在会话页内使用。
+ * 终端标签显示在会话页的中心标签栏（对话 / 文件 / 终端），
+ * 由 App 常驻挂载的会话页保持 PTY 不因切换页面而重启。
  *
- * 同一工作区只保留一个终端：再次「打开终端」时直接切回已有会话，
- * 避免用户重复点击时开出一堆同样的 Claude Code 实例。
+ * 默认同一工作区只保留一个终端：再次「打开终端」时直接复用已有会话，
+ * 避免用户重复点击时开出一堆同样的 Claude Code 实例；
+ * 会话菜单里的「新建终端」传 forceNew，允许并排开多个标签。
  */
 
 import { create } from "zustand";
@@ -13,12 +14,12 @@ import { newId } from "../lib/utils";
 
 export interface TerminalSession {
   id: string;
-  /** 归属的工作区（项目）id；通过「新建终端」临时打开的目录为 null */
+  /** 归属的工作区（项目）id；未绑定工作区的会话为 null */
   workspaceId: string | null;
   cwd: string;
   name: string;
   /**
-   * 重启计数。PTY 退出后需要重新创建进程，但标签 id 不变（保持列表顺序），
+   * 重启计数。PTY 退出后需要重新创建进程，但标签 id 不变（保持标签顺序），
    * TerminalView 通过这个值感知「应该重开一个 shell」。
    */
   generation: number;
@@ -26,43 +27,34 @@ export interface TerminalSession {
 
 interface TerminalState {
   terminals: TerminalSession[];
-  activeId: string | null;
-  /**
-   * 其他页面（工作区卡片 / 详情）调用 open 时请求终端页切换到的工作区。
-   * TerminalsView 消费后清空，避免关闭终端时选中项被意外带跑。
-   */
-  requestedWorkspaceId: string | null;
 
-  /** 打开终端；同一工作区已存在时直接激活并返回其 id */
+  /**
+   * 打开终端并返回其 id。
+   * 默认同一工作区复用已有终端；forceNew 时总是新建（会话菜单的「新建终端」）。
+   */
   open: (input: {
     workspaceId?: string | null;
     cwd: string;
     name?: string;
+    forceNew?: boolean;
   }) => string;
-  activate: (id: string) => void;
+  /** 关闭终端并销毁对应 PTY */
   close: (id: string) => void;
-  /** TerminalsView 消费完外部切换请求后调用 */
-  clearRequestedWorkspace: () => void;
   /** 在同一个标签里重新拉起 shell（PTY 退出后使用） */
   restart: (id: string) => void;
   /** 关闭某工作区下的所有终端（删除工作区时调用） */
   closeByWorkspace: (workspaceId: string) => void;
-  closeAll: () => void;
 }
 
 export const useTerminalStore = create<TerminalState>((set, get) => ({
   terminals: [],
-  activeId: null,
-  requestedWorkspaceId: null,
 
-  open: ({ workspaceId = null, cwd, name = "终端" }) => {
-    const existing = workspaceId
-      ? get().terminals.find((item) => item.workspaceId === workspaceId)
-      : undefined;
-    if (existing) {
-      set({ activeId: existing.id, requestedWorkspaceId: workspaceId });
-      return existing.id;
-    }
+  open: ({ workspaceId = null, cwd, name = "终端", forceNew = false }) => {
+    const existing =
+      !forceNew && workspaceId
+        ? get().terminals.find((item) => item.workspaceId === workspaceId)
+        : undefined;
+    if (existing) return existing.id;
 
     const id = `terminal:${newId()}`;
     set((state) => ({
@@ -70,37 +62,25 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
         ...state.terminals,
         { id, workspaceId, cwd, name, generation: 0 },
       ],
-      activeId: id,
-      requestedWorkspaceId: workspaceId,
     }));
     return id;
   },
 
-  clearRequestedWorkspace: () => set({ requestedWorkspaceId: null }),
-
-  activate: (id) => set({ activeId: id }),
+  close: (id) => {
+    set((state) => {
+      if (!state.terminals.some((item) => item.id === id)) return state;
+      return {
+        terminals: state.terminals.filter((item) => item.id !== id),
+      };
+    });
+  },
 
   restart: (id) => {
     set((state) => ({
       terminals: state.terminals.map((item) =>
         item.id === id ? { ...item, generation: item.generation + 1 } : item,
       ),
-      activeId: id,
     }));
-  },
-
-  close: (id) => {
-    set((state) => {
-      const index = state.terminals.findIndex((item) => item.id === id);
-      if (index < 0) return state;
-
-      const terminals = state.terminals.filter((item) => item.id !== id);
-      if (state.activeId !== id) return { ...state, terminals };
-
-      const next =
-        terminals[Math.min(index, terminals.length - 1)] ?? null;
-      return { terminals, activeId: next?.id ?? null };
-    });
   },
 
   closeByWorkspace: (workspaceId) => {
@@ -108,19 +88,9 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
       const terminals = state.terminals.filter(
         (item) => item.workspaceId !== workspaceId,
       );
-      if (terminals.length === state.terminals.length) return state;
-
-      const activeStillOpen =
-        state.activeId !== null &&
-        terminals.some((item) => item.id === state.activeId);
-      return {
-        terminals,
-        activeId: activeStillOpen
-          ? state.activeId
-          : (terminals[0]?.id ?? null),
-      };
+      return terminals.length === state.terminals.length
+        ? state
+        : { terminals };
     });
   },
-
-  closeAll: () => set({ terminals: [], activeId: null }),
 }));

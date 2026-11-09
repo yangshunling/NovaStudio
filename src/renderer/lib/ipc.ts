@@ -94,6 +94,10 @@ export const ipc = {
     call("git:createBranch", { projectId, name }),
   initGitRepository: (projectId: string) =>
     call("git:init", { projectId }),
+  pushGitBranch: (projectId: string, branch: string) =>
+    call("git:push", { projectId, branch }),
+  pullGitBranch: (projectId: string) =>
+    call("git:pull", { projectId }),
   readFile: (projectId: string, relativePath: string) =>
     call("file:read", { projectId, relativePath }),
   readEmbeddedImage: (projectId: string, markdownPath: string, src: string) =>

@@ -21,7 +21,6 @@ import {
   Plug,
   Settings,
   Sparkles,
-  SquareTerminal,
   Users,
   Waypoints,
   Workflow,
@@ -119,10 +118,10 @@ export function Sidebar() {
   ).length;
 
   const itemClass = (active: boolean) =>
-    `flex w-full items-center gap-2 rounded-xl px-2.5 py-2.5 ${FONT_BODY} font-medium transition-colors ${
+    `relative flex w-full items-center gap-2 rounded-lg px-2.5 py-2 ${FONT_BODY} transition-colors ${
       active
-        ? "bg-surface-active text-text shadow-[var(--c-shadow-sm)]"
-        : "text-text-secondary hover:bg-surface-hover hover:text-text"
+        ? "bg-accent-soft/60 font-medium text-text before:absolute before:left-0 before:top-1/2 before:h-5 before:w-[2px] before:-translate-y-1/2 before:rounded-full before:bg-accent"
+        : "text-text-secondary hover:bg-surface-hover/70 hover:text-text"
     }`;
 
   return (
@@ -163,14 +162,6 @@ export function Sidebar() {
         >
           <MessageSquare className="h-4 w-4 shrink-0" />
           会话管理
-        </button>
-        <button
-          type="button"
-          onClick={() => setViewMode("terminals")}
-          className={itemClass(viewMode === "terminals")}
-        >
-          <SquareTerminal className="h-4 w-4 shrink-0" />
-          终端管理
         </button>
         <button
           type="button"

@@ -32,13 +32,10 @@ import type { FileTab } from "../../stores/fileViewer";
 export function FilePreview({
   tab,
   onClose,
-  embedded = false,
 }: {
   tab: FileTab;
-  /** 传入时在标题栏末尾展示关闭按钮（终端页内嵌预览使用） */
+  /** 传入时在标题栏末尾展示关闭按钮 */
   onClose?: () => void;
-  /** 内嵌到终端页时可用宽度更窄，标题栏省略相对路径等次要信息 */
-  embedded?: boolean;
 }) {
   const [file, setFile] = useState<FilePreviewData | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -91,7 +88,7 @@ export function FilePreview({
       <PageHeader
         icon={<FileTypeIcon name={tab.name} size={17} />}
         title={tab.name}
-        subtitle={!embedded ? tab.relativePath : undefined}
+        subtitle={tab.relativePath}
         actions={
           <>
             {file && (

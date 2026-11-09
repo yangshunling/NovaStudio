@@ -13,6 +13,8 @@
 
 import { useEffect, useState } from "react";
 import { useChatStore } from "./stores/chat";
+import { useFileViewerStore } from "./stores/fileViewer";
+import { useTerminalStore } from "./stores/terminal";
 import { useAutomationStore } from "./stores/automation";
 import { preloadAssets } from "./stores/assets";
 import { useAgentStream } from "./hooks/useAgentStream";
@@ -28,7 +30,6 @@ import { KnowledgeView } from "./components/knowledge/KnowledgeView";
 import { WorkspacesView } from "./components/workspaces/WorkspacesView";
 import { WorkflowsView } from "./components/workflows/WorkflowsView";
 import { TriggersView } from "./components/triggers/TriggersView";
-import { TerminalsView } from "./components/terminal/TerminalsView";
 import { TodosView } from "./components/todos/TodosView";
 import { SettingsModal } from "./components/app/SettingsModal";
 import { WorkspacePanel } from "./components/workspaces/WorkspacePanel";
@@ -46,11 +47,22 @@ export default function App() {
   const viewMode = useChatStore((s) => s.viewMode);
   const showSettings = useChatStore((s) => s.showSettings);
   const showWorkspace = useChatStore((s) => s.showWorkspace);
+  const projects = useChatStore((s) => s.projects);
+  const activeTabId = useFileViewerStore((s) => s.activeTabId);
+  const terminals = useTerminalStore((s) => s.terminals);
   const loadTasks = useAutomationStore((s) => s.loadTasks);
+
+  /** 终端标签激活时，右侧工作区面板跟随终端所属工作区 */
+  const activeTerminal =
+    terminals.find((tab) => tab.id === activeTabId) ?? null;
+  const workspacePanelProject = activeTerminal
+    ? (projects.find((project) => project.id === activeTerminal.workspaceId) ??
+      null)
+    : undefined;
 
   /**
    * 工作区页首次进入才挂载，之后常驻（切走只隐藏）。
-   * 避免应用启动时就去扫描所有工作区目录，又能在切到终端 / 会话后
+   * 避免应用启动时就去扫描所有工作区目录，又能在切换页面后
    * 保留文件预览标签和 Git 提交草稿。
    */
   const [workspacesMounted, setWorkspacesMounted] = useState(false);
@@ -85,7 +97,7 @@ export default function App() {
     <ErrorBoundary>
       <div className="flex h-screen w-screen overflow-hidden bg-bg text-text">
         <Sidebar />
-        {viewMode === "terminals" ? null : viewMode === "todos" ? (
+        {viewMode === "todos" ? (
           <TodosView />
         ) : viewMode === "automation" ? (
           <AutomationView />
@@ -106,17 +118,13 @@ export default function App() {
         {/*
           会话页常驻挂载：切换侧栏菜单时只隐藏、不卸载。
           否则 ChatArea 的输入草稿、@ 引用与滚动位置等局部状态会随卸载丢失。
+          终端标签也挂在这里，因此切换侧栏页面不会重启 PTY。
         */}
         <div className={viewMode === "chat" ? "contents" : "hidden"}>
           <SessionsView />
-          {showWorkspace && <WorkspacePanel />}
-        </div>
-        {/*
-          终端页常驻挂载：切换到其他侧栏页面时只隐藏、不卸载，
-          这样多个工作区的 PTY 与输出不会因切换而丢失。
-        */}
-        <div className={viewMode === "terminals" ? "contents" : "hidden"}>
-          <TerminalsView />
+          {showWorkspace && (
+            <WorkspacePanel project={workspacePanelProject} />
+          )}
         </div>
         {/*
           工作流页常驻挂载：编辑器的画布草稿、未保存状态、调试面板都是

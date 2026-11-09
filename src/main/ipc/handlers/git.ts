@@ -11,6 +11,8 @@ import {
   createBranch,
   initRepository,
   listBranches,
+  pullBranch,
+  pushBranch,
   readDiff,
   readLog,
   readStatusDetail,
@@ -55,5 +57,11 @@ export function registerGitHandlers(): void {
   );
   handle("git:init", ({ projectId }) =>
     initRepository(projectCwd(projectId)),
+  );
+  handle("git:push", ({ projectId, branch }) =>
+    pushBranch(projectCwd(projectId), branch),
+  );
+  handle("git:pull", ({ projectId }) =>
+    pullBranch(projectCwd(projectId)),
   );
 }

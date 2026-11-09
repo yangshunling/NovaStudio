@@ -166,7 +166,7 @@ export function TerminalView({
 
     const fitTerminal = () => {
       if (disposed) return;
-      // 终端页在非激活侧栏下是 display:none：此时容器没有尺寸，
+      // 终端标签在非激活侧栏 / 非当前标签下是 display:none：此时容器没有尺寸，
       // 不要按 0 列去 resize PTY，等重新显示后再适配。
       if (!container.clientWidth || !container.clientHeight) return;
       try {
@@ -276,7 +276,7 @@ export function TerminalView({
 }
 
 /** 顶栏右侧的工作区文件面板开关：与对话页 ChatArea 顶栏同一套交互 */
-export function WorkspaceToggleButton({
+function WorkspaceToggleButton({
   showWorkspace,
   onToggle,
 }: {

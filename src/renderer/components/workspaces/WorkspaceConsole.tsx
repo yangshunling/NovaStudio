@@ -12,7 +12,6 @@ import {
   FolderOpen,
   GitBranch,
   MoreHorizontal,
-  RefreshCw,
   SquareTerminal,
   Trash2,
 } from "lucide-react";
@@ -180,14 +179,14 @@ export function WorkspaceConsole({
                 type="button"
                 onClick={() => onTabChange("git")}
                 title="查看 Git 状态 / 切换分支"
-                className="flex h-8 max-w-56 items-center gap-1.5 rounded-full border border-border/70 bg-surface-2/50 px-2.5 text-meta text-text-secondary transition-colors hover:border-accent/35 hover:text-text"
+                className="flex h-9 max-w-56 items-center gap-1.5 rounded-full border border-border/70 bg-surface-2/50 px-3 text-meta text-text-secondary transition-colors hover:border-accent/35 hover:text-text"
               >
                 <GitBranch className="h-3.5 w-3.5 shrink-0 text-accent" />
                 <span className="min-w-0 truncate font-mono">
                   {git.branch ?? "HEAD"}
                 </span>
                 {changes > 0 && (
-                  <span className="shrink-0 rounded-full bg-agent-amber/10 px-1.5 font-mono text-caption text-agent-amber">
+                  <span className="flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-agent-amber/10 px-1.5 font-mono text-caption leading-none text-agent-amber">
                     {changes}
                   </span>
                 )}
@@ -199,7 +198,7 @@ export function WorkspaceConsole({
               onClick={onOpenTerminal}
               title="在此工作区打开终端"
               aria-label="打开终端"
-              className="ui-btn-round ui-icon-action flex h-8 w-8 items-center justify-center rounded-full text-text-muted"
+              className="ui-btn-round ui-icon-action flex h-9 w-9 items-center justify-center rounded-full text-text-muted"
             >
               <SquareTerminal className="h-4 w-4" />
             </button>
@@ -208,7 +207,7 @@ export function WorkspaceConsole({
               onClick={onOpenFolder}
               title="在文件管理器中打开"
               aria-label="打开工作区目录"
-              className="ui-btn-round ui-icon-action flex h-8 w-8 items-center justify-center rounded-full text-text-muted"
+              className="ui-btn-round ui-icon-action flex h-9 w-9 items-center justify-center rounded-full text-text-muted"
             >
               <FolderOpen className="h-4 w-4" />
             </button>
@@ -217,7 +216,7 @@ export function WorkspaceConsole({
               onClick={openMenu}
               title="更多操作"
               aria-label="更多操作"
-              className="ui-btn-round ui-icon-action flex h-8 w-8 items-center justify-center rounded-full text-text-muted"
+              className="ui-btn-round ui-icon-action flex h-9 w-9 items-center justify-center rounded-full text-text-muted"
             >
               <MoreHorizontal className="h-4 w-4" />
             </button>
@@ -226,7 +225,7 @@ export function WorkspaceConsole({
       />
 
       {/* Tab 栏 */}
-      <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-border px-card py-2">
+      <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-border px-card py-2">
         <SegmentedTabs
           value={tab}
           onChange={(next) => onTabChange(next as WorkspaceTab)}
@@ -239,18 +238,6 @@ export function WorkspaceConsole({
             },
           ]}
         />
-
-        <button
-          type="button"
-          onClick={refreshGit}
-          title="刷新 Git 状态"
-          aria-label="刷新"
-          className="ui-btn-round ui-icon-action flex h-7 w-7 items-center justify-center rounded-full text-text-muted"
-        >
-          <RefreshCw
-            className={`h-3.5 w-3.5 ${gitLoading ? "animate-spin" : ""}`}
-          />
-        </button>
       </div>
 
       {/* Tab 内容：两个都挂载，切换保留状态 */}

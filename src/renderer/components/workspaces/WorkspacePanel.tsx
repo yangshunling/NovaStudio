@@ -48,6 +48,8 @@ function readStoredWidth(): number | null {
 interface GitStatusMeta {
   label: string;
   textClass: string;
+  /** 行尾状态胶囊的底色 + 文字色 */
+  badge: string;
 }
 
 interface DirectoryGitStatus {
@@ -56,14 +58,46 @@ interface DirectoryGitStatus {
 }
 
 const GIT_STATUS_META: Record<GitStatusKind, GitStatusMeta> = {
-  untracked: { label: "U", textClass: "text-success" },
-  added: { label: "A", textClass: "text-success" },
-  modified: { label: "M", textClass: "text-accent" },
-  deleted: { label: "D", textClass: "text-error" },
-  renamed: { label: "R", textClass: "text-agent-sky" },
-  copied: { label: "C", textClass: "text-agent-teal" },
-  conflicted: { label: "!", textClass: "text-error" },
-  changed: { label: "M", textClass: "text-text-secondary" },
+  untracked: {
+    label: "U",
+    textClass: "text-success",
+    badge: "bg-success/10 text-success",
+  },
+  added: {
+    label: "A",
+    textClass: "text-success",
+    badge: "bg-success/10 text-success",
+  },
+  modified: {
+    label: "M",
+    textClass: "text-accent",
+    badge: "bg-accent-soft text-accent",
+  },
+  deleted: {
+    label: "D",
+    textClass: "text-error",
+    badge: "bg-error/10 text-error",
+  },
+  renamed: {
+    label: "R",
+    textClass: "text-agent-sky",
+    badge: "bg-agent-sky/10 text-agent-sky",
+  },
+  copied: {
+    label: "C",
+    textClass: "text-agent-teal",
+    badge: "bg-agent-teal/10 text-agent-teal",
+  },
+  conflicted: {
+    label: "!",
+    textClass: "text-error",
+    badge: "bg-error/10 text-error",
+  },
+  changed: {
+    label: "M",
+    textClass: "text-text-secondary",
+    badge: "bg-surface-hover text-text-muted",
+  },
 };
 
 const GIT_STATUS_PRIORITY: Record<GitStatusKind, number> = {
@@ -151,43 +185,23 @@ function overlayDeletedEntries(
 
 export interface WorkspacePanelProps {
   /**
-   * 要展示的工作区。会话页不传，取当前会话绑定的工作区；
-   * 终端页传入当前选中的工作区。
+   * 要展示的工作区。对话标签不传，取当前会话绑定的工作区；
+   * 终端标签由外层传入终端所属的工作区。
    */
   project?: Project | null;
-  /** 点击文件时的处理；不传则打开到会话页的文件标签 */
-  onOpenFile?: (file: {
-    projectId: string;
-    relativePath: string;
-    name: string;
-  }) => void;
-  /** 高亮的已打开文件 id（`${projectId}:${relativePath}`）；不传则跟随文件标签 */
-  activeFileId?: string | null;
 }
 
 export function WorkspacePanel({
   project: projectProp,
-  onOpenFile,
-  activeFileId,
 }: WorkspacePanelProps = {}) {
   const storeProject = useChatStore(
     (s) => s.projects.find((p) => p.id === s.currentProjectId) ?? null,
   );
   const project = projectProp === undefined ? storeProject : projectProp;
   const openFile = useFileViewerStore((s) => s.openFile);
-  const storeActiveTabId = useFileViewerStore((s) => s.activeTabId);
-  const activeTabId =
-    activeFileId === undefined ? storeActiveTabId : activeFileId;
+  const activeTabId = useFileViewerStore((s) => s.activeTabId);
 
   const handleOpenFile = (entry: FileEntry, owner: Project) => {
-    if (onOpenFile) {
-      onOpenFile({
-        projectId: owner.id,
-        relativePath: entry.relativePath,
-        name: entry.name,
-      });
-      return;
-    }
     openFile(owner.id, entry.relativePath, entry.name);
   };
 
@@ -600,14 +614,10 @@ function TreeNode({
   const directoryStatus = entry.isDirectory
     ? directoryStatusByPath.get(entry.relativePath)
     : null;
-  const directoryStatusMeta = directoryStatus
-    ? GIT_STATUS_META[directoryStatus.status]
-    : null;
   const fileTabId = `${projectId}:${entry.relativePath}`;
   const isActiveFile = !entry.isDirectory && activeTabId === fileTabId;
-  // 文件列表直接使用全局基准字号（--c-font-size），不再比全局小一档
   const rowClass =
-    "flex min-h-8 w-full items-center gap-1.5 rounded-md pr-2 text-left text-body transition-colors";
+    "flex h-7 w-full items-center gap-1.5 rounded pr-1.5 text-left text-body transition-colors";
 
   return (
     <div>
@@ -626,13 +636,12 @@ function TreeNode({
           />
           <FolderTypeIcon open={expanded} />
           <span className="min-w-0 flex-1 truncate">{entry.name}</span>
-          {directoryStatus && directoryStatusMeta && (
+          {directoryStatus && (
             <span
               title={`${directoryStatus.count} 个文件有变更`}
-              className={`flex shrink-0 items-center gap-1 text-caption ${directoryStatusMeta.textClass}`}
+              className="shrink-0 rounded-full bg-agent-amber/10 px-1.5 font-mono text-caption leading-4 text-agent-amber"
             >
-              <span className="h-1.5 w-1.5 rounded-full bg-current" />
-              {directoryStatus.count > 1 && <span>{directoryStatus.count}</span>}
+              {directoryStatus.count}
             </span>
           )}
           {loading && <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-text-muted" />}
@@ -660,7 +669,7 @@ function TreeNode({
           {statusMeta && (
             <span
               title={status}
-              className={`shrink-0 font-mono text-caption font-semibold ${statusMeta.textClass}`}
+              className={`shrink-0 rounded-full px-1.5 text-caption font-medium leading-4 ${statusMeta.badge}`}
             >
               {statusMeta.label}
             </span>

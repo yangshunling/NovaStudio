@@ -23,7 +23,6 @@ import type { AgentEvent, Message, Project, Session } from "@shared/types";
 /** 主视图标识：state 与 setter 共用，避免联合类型各写一份 */
 export type ViewMode =
   | "chat"
-  | "terminals"
   | "todos"
   | "automation"
   | "employees"
@@ -52,7 +51,7 @@ interface ChatState {
   loadingHistoryFor: string | null;
   /** 当前选中的 Agent；空字符串表示尚未确定 */
   selectedAgentId: string;
-  /** 视图模式：会话 / 终端 / 待办 / 任务中心 / 数字员工 / 工作流 … */
+  /** 视图模式：会话 / 待办 / 任务中心 / 数字员工 / 工作流 …（终端在会话页内） */
   viewMode: ViewMode;
   /** 设置弹框是否展开 */
   showSettings: boolean;

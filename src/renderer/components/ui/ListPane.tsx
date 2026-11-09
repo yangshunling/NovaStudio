@@ -40,7 +40,7 @@ export function ListPane({
             {title}
           </p>
           {count !== undefined && (
-            <span className="shrink-0 rounded-full bg-surface-hover px-2 py-0.5 font-mono text-meta leading-none text-text-muted">
+            <span className="flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-surface-hover px-1.5 font-mono text-caption leading-none text-text-muted">
               {count}
             </span>
           )}
@@ -89,25 +89,31 @@ export function ListItem({
 }: ListItemProps) {
   return (
     <div
-      className={`flex w-full items-center rounded-xl transition-colors ${
+      className={`relative flex w-full items-center rounded-lg transition-colors ${
         active
-          ? "bg-surface-active text-text shadow-[var(--c-shadow-sm)]"
-          : "text-text-secondary hover:bg-surface-hover hover:text-text"
+          ? "bg-accent-soft/60 text-text"
+          : "text-text-secondary hover:bg-surface-hover/70 hover:text-text"
       }`}
     >
+      {/* 选中态：左侧细竖条，与会话列表保持一致 */}
+      {active && (
+        <span
+          aria-hidden
+          className="absolute left-0 top-1/2 h-5 w-[2px] -translate-y-1/2 rounded-full bg-accent"
+        />
+      )}
+
       <button
         type="button"
         onClick={onClick}
         onContextMenu={onContextMenu}
         title={titleAttr}
-        className="flex min-w-0 flex-1 items-center gap-3 px-2.5 py-2.5 text-left"
+        className="flex min-w-0 flex-1 items-center gap-2.5 px-2.5 py-2 text-left"
       >
         {icon ? (
           <span
-            className={`grid h-9 w-9 shrink-0 place-items-center rounded-lg ${
-              active
-                ? "bg-accent-soft text-accent"
-                : "bg-surface-hover text-text-muted"
+            className={`grid h-6 w-6 shrink-0 place-items-center ${
+              active ? "text-accent" : "text-text-muted"
             }`}
           >
             {icon}
@@ -117,7 +123,11 @@ export function ListItem({
         )}
 
         <span className="min-w-0 flex-1">
-          <span className="block truncate text-body-lg font-medium">
+          <span
+            className={`block truncate text-body-lg leading-5 ${
+              active ? "font-medium" : ""
+            }`}
+          >
             {title}
           </span>
           {subtitle !== undefined && subtitle !== null && (

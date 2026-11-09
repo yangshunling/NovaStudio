@@ -11,6 +11,7 @@ import type { Project } from "@shared/types";
 import { ipc } from "../../lib/ipc";
 import { toMessage } from "../../lib/utils";
 import { useChatStore } from "../../stores/chat";
+import { useFileViewerStore } from "../../stores/fileViewer";
 import { useTerminalStore } from "../../stores/terminal";
 import { toast } from "../../stores/toast";
 import { confirmDialog } from "../../stores/confirm";
@@ -143,12 +144,14 @@ export function WorkspacesView() {
   };
 
   const openTerminal = (project: Project) => {
-    useTerminalStore.getState().open({
+    const id = useTerminalStore.getState().open({
       workspaceId: project.id,
       cwd: project.cwd,
       name: project.name,
     });
-    useChatStore.getState().setViewMode("terminals");
+    // 终端作为会话页中心区域的一个标签打开
+    useFileViewerStore.getState().activateTab(id);
+    useChatStore.getState().setViewMode("chat");
   };
 
   const copyPath = async (project: Project) => {
@@ -213,7 +216,7 @@ export function WorkspacesView() {
               <p className="truncate text-meta font-semibold tracking-wide text-text-muted">
                 工作区
               </p>
-              <span className="shrink-0 rounded-full bg-surface-hover px-2 py-0.5 font-mono text-meta leading-none text-text-muted">
+              <span className="flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-surface-hover px-1.5 font-mono text-caption leading-none text-text-muted">
                 {projects.length}
               </span>
             </div>

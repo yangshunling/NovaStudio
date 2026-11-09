@@ -1020,26 +1020,36 @@ function AgentListItem({
     <button
       type="button"
       onClick={onClick}
-      className={`mb-1 flex w-full items-center gap-2 rounded-xl border px-2.5 py-2.5 text-left transition-colors ${
+      className={`relative mb-1 flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left transition-colors ${
         active
-          ? "border-accent/30 bg-accent-soft"
-          : "border-transparent hover:bg-surface-hover"
+          ? "bg-accent-soft/60 text-text"
+          : "text-text-secondary hover:bg-surface-hover/70 hover:text-text"
       }`}
     >
+      {active && (
+        <span
+          aria-hidden
+          className="absolute left-0 top-1/2 h-5 w-[2px] -translate-y-1/2 rounded-full bg-accent"
+        />
+      )}
       <span
-        className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${
-          active ? "bg-accent/10 text-accent" : "bg-surface-hover text-text-muted"
+        className={`grid h-6 w-6 shrink-0 place-items-center ${
+          active ? "text-accent" : "text-text-muted"
         }`}
       >
         <Bot className="h-4 w-4" />
       </span>
       <span className="min-w-0 flex-1">
-        <span className="block truncate text-body-lg font-medium text-text">
+        <span
+          className={`block truncate text-body-lg leading-5 ${
+            active ? "font-medium" : ""
+          }`}
+        >
           {agent.displayName}
         </span>
-        <span className="mt-1 flex min-w-0 items-center gap-1.5">
+        <span className="mt-0.5 flex min-w-0 items-center gap-1.5">
           <span
-            className={`shrink-0 rounded-full px-1.5 py-0.5 text-caption font-medium ${
+            className={`flex h-4 shrink-0 items-center rounded-full px-1.5 text-caption font-medium leading-none ${
               agent.status.installed
                 ? "bg-success/10 text-success"
                 : "bg-error-bg text-error"

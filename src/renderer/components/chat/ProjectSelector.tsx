@@ -21,6 +21,7 @@ import {
   SquareTerminal,
 } from "lucide-react";
 import { useChatStore } from "../../stores/chat";
+import { useFileViewerStore } from "../../stores/fileViewer";
 import { useTerminalStore } from "../../stores/terminal";
 import { toast } from "../../stores/toast";
 import { confirmDialog } from "../../stores/confirm";
@@ -226,12 +227,13 @@ export function ProjectSelector() {
                       onClick={(e) => {
                         e.stopPropagation();
                         setOpen(false);
-                        openTerminal({
+                        const id = openTerminal({
                           workspaceId: project.id,
                           cwd: project.cwd,
                           name: project.name,
                         });
-                        setViewMode("terminals");
+                        useFileViewerStore.getState().activateTab(id);
+                        setViewMode("chat");
                       }}
                       title="在此工作区打开终端"
                       aria-label="在此工作区打开终端"

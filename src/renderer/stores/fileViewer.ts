@@ -1,8 +1,8 @@
 /**
  * 文件预览标签状态
  *
- * activeTabId 为 null 表示显示对话；文件标签只在当前聊天视图内保持。
- * 终端标签由 stores/terminal.ts 独立管理（需要跨页面常驻）。
+ * activeTabId 为 null 表示显示对话；非 null 时可以是文件标签 id，
+ * 也可以是终端标签 id（终端数据由 stores/terminal.ts 独立管理）。
  */
 
 import { create } from "zustand";

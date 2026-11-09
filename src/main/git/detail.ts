@@ -23,6 +23,8 @@ import type {
 import { isInside } from "../utils/paths";
 
 const GIT_TIMEOUT_MS = 20_000;
+/** 推送 / 拉取 / 获取要等网络，超时放宽 */
+const GIT_REMOTE_TIMEOUT_MS = 120_000;
 const GIT_MAX_BUFFER = 64 * 1024 * 1024;
 /** diff 超过这个长度就截断，避免渲染进程被超大 diff 卡死 */
 const MAX_DIFF_CHARS = 400_000;
@@ -35,7 +37,11 @@ interface GitRunResult {
   message: string;
 }
 
-function runGit(cwd: string, args: string[]): Promise<GitRunResult> {
+function runGit(
+  cwd: string,
+  args: string[],
+  timeoutMs = GIT_TIMEOUT_MS,
+): Promise<GitRunResult> {
   return new Promise((resolveRun) => {
     execFile(
       "git",
@@ -43,7 +49,7 @@ function runGit(cwd: string, args: string[]): Promise<GitRunResult> {
       {
         encoding: "utf8",
         windowsHide: true,
-        timeout: GIT_TIMEOUT_MS,
+        timeout: timeoutMs,
         maxBuffer: GIT_MAX_BUFFER,
       },
       (error, stdout, stderr) => {
@@ -439,6 +445,93 @@ export async function commitChanges(
   };
 }
 
+// ============================================================================
+// 远端操作
+// ============================================================================
+
+/** 当前分支的 upstream（如 origin/main）；没有跟踪分支时返回 null */
+async function readUpstream(cwd: string): Promise<string | null> {
+  const result = await runGit(cwd, [
+    "rev-parse",
+    "--abbrev-ref",
+    "--symbolic-full-name",
+    "@{u}",
+  ]);
+  if (!result.ok) return null;
+  const upstream = result.stdout.trim();
+  return upstream && upstream !== "@{u}" ? upstream : null;
+}
+
+/** 推送当前分支；首次推送时自动建立 upstream 跟踪（优先 origin） */
+export async function pushBranch(
+  cwd: string,
+  branch: string,
+): Promise<GitOperationResult> {
+  if (branch === "HEAD") {
+    return { ok: false, error: "detached HEAD 状态下无法推送" };
+  }
+  try {
+    validateBranch(branch);
+  } catch (err) {
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
+
+  if (await readUpstream(cwd)) {
+    return runGitOperation(cwd, ["push"], "推送失败", GIT_REMOTE_TIMEOUT_MS);
+  }
+
+  const remotes = await runGit(cwd, ["remote"]);
+  if (!remotes.ok) {
+    return {
+      ok: false,
+      error: remotes.stderr.trim() || "无法读取远端列表",
+    };
+  }
+  const names = remotes.stdout
+    .split("\n")
+    .map((name) => name.trim())
+    .filter(Boolean);
+  if (names.length === 0) {
+    return { ok: false, error: "仓库没有配置远端（remote）" };
+  }
+
+  const remote = names.includes("origin") ? "origin" : names[0];
+  try {
+    validateRemote(remote);
+  } catch (err) {
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
+
+  return runGitOperation(
+    cwd,
+    ["push", "-u", remote, branch],
+    "推送失败",
+    GIT_REMOTE_TIMEOUT_MS,
+  );
+}
+
+/** 拉取当前分支：只允许 fast-forward，避免自动产生合并提交 */
+export async function pullBranch(cwd: string): Promise<GitOperationResult> {
+  if (!(await readUpstream(cwd))) {
+    return {
+      ok: false,
+      error: "当前分支没有 upstream，请先推送一次建立跟踪",
+    };
+  }
+  return runGitOperation(
+    cwd,
+    ["pull", "--ff-only"],
+    "拉取失败",
+    GIT_REMOTE_TIMEOUT_MS,
+  );
+}
+
 /** 切换分支 */
 export async function checkoutBranch(
   cwd: string,
@@ -513,6 +606,38 @@ function validatePath(root: string, relativePath: string): string {
     throw new Error("文件路径超出工作区");
   }
   return normalized;
+}
+
+/** 执行不涉及具体文件的 Git 命令，统一整理成功输出与失败信息 */
+async function runGitOperation(
+  cwd: string,
+  args: string[],
+  fallbackError: string,
+  timeoutMs = GIT_TIMEOUT_MS,
+): Promise<GitOperationResult> {
+  const result = await runGit(cwd, args, timeoutMs);
+  const output = `${result.stdout}${result.stderr}`.trim();
+  if (result.ok) return { ok: true, output: output || undefined };
+  return {
+    ok: false,
+    error: result.stderr.trim() || result.stdout.trim() || fallbackError,
+    output: output || undefined,
+  };
+}
+
+/** 远端名来自 git remote，仍按引用规则再校验一次，避免被当成命令行参数 */
+function validateRemote(remote: string): string {
+  const name = remote.trim();
+  if (
+    !name ||
+    name.startsWith("-") ||
+    name.includes("..") ||
+    /[\s~^:?*\[\]\\]/.test(name) ||
+    name.includes("\0")
+  ) {
+    throw new Error("远端名称不合法");
+  }
+  return name;
 }
 
 /** 分支名不做复杂推断，但拦住明显的命令行注入与非法字符 */

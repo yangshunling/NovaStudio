@@ -180,7 +180,7 @@ export function FilesTab({ project, git, request, revision }: FilesTabProps) {
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex min-h-0 flex-1">
         {/* 树 */}
-        <div className="flex w-[300px] shrink-0 flex-col border-r border-border">
+        <div className="flex w-[340px] shrink-0 flex-col border-r border-border">
           <div className="min-h-0 flex-1 overflow-y-auto p-1.5">
             {treeError ? (
               <div className="m-2 rounded-lg border border-error/25 bg-error-bg px-2.5 py-2 text-caption text-error">
@@ -314,7 +314,7 @@ function TreeNode({
           type="button"
           onClick={() => onToggle(entry)}
           title={entry.relativePath}
-          className="flex min-h-8 w-full items-center gap-1.5 rounded-md pr-2 text-left text-body text-text-secondary transition-colors hover:bg-surface-hover hover:text-text"
+          className="flex h-7 w-full items-center gap-1.5 rounded pr-1.5 text-left text-body text-text-secondary transition-colors hover:bg-surface-hover hover:text-text"
           style={{ paddingLeft: 8 + depth * 14 }}
         >
           <ChevronRight
@@ -327,10 +327,9 @@ function TreeNode({
           {directoryChangeCount > 0 && (
             <span
               title={`${directoryChangeCount} 个文件有变更`}
-              className="flex shrink-0 items-center gap-1 text-caption text-agent-amber"
+              className="shrink-0 rounded-full bg-agent-amber/10 px-1.5 font-mono text-caption leading-4 text-agent-amber"
             >
-              <span className="h-1.5 w-1.5 rounded-full bg-current" />
-              {directoryChangeCount > 1 && directoryChangeCount}
+              {directoryChangeCount}
             </span>
           )}
           {loading && (
@@ -362,7 +361,7 @@ function TreeNode({
       type="button"
       onClick={() => onOpen(entry.relativePath, entry.name)}
       title={entry.relativePath}
-      className={`flex min-h-8 w-full items-center gap-1.5 rounded-md pr-2 text-left text-body transition-colors hover:bg-surface-hover hover:text-text ${
+      className={`flex h-7 w-full items-center gap-1.5 rounded pr-1.5 text-left text-body transition-colors hover:bg-surface-hover hover:text-text ${
         statusMeta ? "text-text" : "text-text-secondary"
       }`}
       style={{ paddingLeft: 30 + depth * 14 }}
@@ -375,7 +374,7 @@ function TreeNode({
       {statusMeta && (
         <span
           title={statusMeta.text}
-          className={`shrink-0 font-mono text-caption font-semibold ${statusMeta.textClass}`}
+          className={`shrink-0 rounded-full px-1.5 text-caption font-medium leading-4 ${statusMeta.badge}`}
         >
           {statusMeta.label}
         </span>
@@ -404,15 +403,15 @@ function PreviewTabs({
   if (tabs.length === 0) return null;
 
   return (
-    <div className="flex shrink-0 items-center gap-1 overflow-x-auto border-b border-border px-2 py-1.5">
+    <div className="flex shrink-0 items-center gap-1 overflow-x-auto border-b border-border px-2 py-1">
       {tabs.map((tab) => {
         const active = tab.id === activeId;
         return (
           <span
             key={tab.id}
-            className={`flex max-w-52 shrink-0 items-center gap-1 rounded-md px-2 py-1 text-caption ${
+            className={`flex h-7 max-w-52 shrink-0 items-center gap-1 rounded px-2 text-meta ${
               active
-                ? "bg-surface text-text shadow-[var(--c-shadow-sm)]"
+                ? "bg-surface-active text-text"
                 : "text-text-muted hover:bg-surface-hover hover:text-text"
             }`}
           >

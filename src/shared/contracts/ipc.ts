@@ -157,6 +157,12 @@ export interface IpcInvokeMap {
     result: GitOperationResult;
   };
   "git:init": { args: [{ projectId: string }]; result: GitOperationResult };
+  /** Git 远端：推送（无 upstream 时自动建立跟踪） / 拉取 */
+  "git:push": {
+    args: [{ projectId: string; branch: string }];
+    result: GitOperationResult;
+  };
+  "git:pull": { args: [{ projectId: string }]; result: GitOperationResult };
   /** 读取项目内文件，供中间区域只读预览 */
   "file:read": {
     args: [{ projectId: string; relativePath: string }];

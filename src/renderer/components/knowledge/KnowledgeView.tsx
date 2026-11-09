@@ -397,7 +397,7 @@ export function KnowledgeView() {
                   onClick={() => selectBase(asset.id)}
                   onContextMenu={(event) => openBaseMenu(asset, event)}
                   trailing={
-                    <span className="shrink-0 rounded-full bg-surface-hover px-2 py-0.5 font-mono text-caption text-text-muted">
+                    <span className="flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-surface-hover px-1.5 font-mono text-caption leading-none text-text-muted">
                       {asset.documentCount}
                     </span>
                   }

@@ -25,16 +25,19 @@ import {
   MessageSquarePlus,
   MoreHorizontal,
   PenLine,
+  SquareTerminal,
   Trash2,
 } from "lucide-react";
 import { useChatStore } from "../../stores/chat";
+import { useFileViewerStore } from "../../stores/fileViewer";
+import { useTerminalStore } from "../../stores/terminal";
 import { confirmDialog } from "../../stores/confirm";
 import { EmptyState } from "../ui/EmptyState";
 import { ListPane } from "../ui/ListPane";
 import type { Session } from "@shared/types";
 
 /** 会话操作菜单尺寸：用于贴近视口边缘时收拢位置 */
-const MENU_HEIGHT = 88;
+const MENU_HEIGHT = 124;
 const DAY = 24 * 60 * 60 * 1000;
 
 function startOfDay(ts: number): number {
@@ -125,8 +128,26 @@ export function SessionListPanel() {
   const deleteSession = useChatStore((s) => s.deleteSession);
   const renameSession = useChatStore((s) => s.renameSession);
   const newSession = useChatStore((s) => s.newSession);
+  const openTerminal = useTerminalStore((s) => s.open);
+  const terminals = useTerminalStore((s) => s.terminals);
+  const activateCenterTab = useFileViewerStore((s) => s.activateTab);
 
   const groups = useMemo(() => groupSessions(sessions), [sessions]);
+
+  /** 在会话工作目录里新建终端，并作为中心区域的新标签打开 */
+  const openSessionTerminal = (session: Session) => {
+    const usedNames = new Set(terminals.map((tab) => tab.name));
+    let index = terminals.length + 1;
+    while (usedNames.has(`终端 ${index}`)) index += 1;
+
+    const id = openTerminal({
+      workspaceId: session.projectId,
+      cwd: session.cwd,
+      name: `终端 ${index}`,
+      forceNew: true,
+    });
+    activateCenterTab(id);
+  };
 
   return (
     <ListPane
@@ -177,6 +198,7 @@ export function SessionListPanel() {
                   onOpen={() => selectSession(session.id)}
                   onDelete={() => deleteSession(session.id)}
                   onRename={(title) => renameSession(session.id, title)}
+                  onNewTerminal={() => openSessionTerminal(session)}
                 />
               ))}
             </div>
@@ -200,6 +222,7 @@ function SessionRow({
   onOpen,
   onDelete,
   onRename,
+  onNewTerminal,
 }: {
   /** 所属分组：决定行内时间显示精度（组内不再重复「昨天」这类词） */
   group: string;
@@ -210,6 +233,8 @@ function SessionRow({
   onOpen: () => void;
   onDelete: () => void;
   onRename: (title: string) => void;
+  /** 在会话工作目录中打开终端 */
+  onNewTerminal: () => void;
 }) {
   const [editing, setEditing] = useState(false);
   const [editTitle, setEditTitle] = useState("");
@@ -392,6 +417,14 @@ function SessionRow({
       {menu && (
         <MenuPanel x={menu.x} y={menu.y} menuRef={menuRef}>
           <MenuItem icon={PenLine} label="重命名" onClick={startEdit} />
+          <MenuItem
+            icon={SquareTerminal}
+            label="新建终端"
+            onClick={() => {
+              setMenu(null);
+              onNewTerminal();
+            }}
+          />
           <MenuSeparator />
           <MenuItem
             icon={Trash2}
