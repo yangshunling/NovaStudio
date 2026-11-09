@@ -15,19 +15,15 @@
  * 在 provider 侧，本文件不认识任何具体工具。
  */
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import {
-  Brain,
-  Bug,
-  AlertTriangle,
-  ChevronRight,
-} from "lucide-react";
+import { useMemo } from "react";
+import { Bug, AlertTriangle } from "lucide-react";
 import { MarkdownRenderer } from "../ui/MarkdownRenderer";
 import { StreamingIndicator } from "../ui/StreamingIndicator";
 import { UserBubble } from "../ui/UserBubble";
 import { isToolResultError, firstText } from "../../lib/utils";
 import { extractFileChanges } from "../../lib/tool-diff";
 import { ToolCallCard } from "./ToolCallCard";
+import { ThinkingCard } from "./ThinkingCard";
 import type { AgentEvent } from "@shared/types";
 
 // ============================================================================
@@ -101,6 +97,7 @@ function ToolGroupBlock({ group }: { group: ToolGroup }) {
         kind={call.kind}
         args={call.input}
         result={result ? result.output : undefined}
+        resultImages={result?.images}
         isError={hasError}
         running={!result}
         changes={changes}
@@ -112,7 +109,7 @@ function ToolGroupBlock({ group }: { group: ToolGroup }) {
 function StandaloneResultBlock({ item }: { item: StandaloneResult }) {
   const hasError = isToolResultError(item.ev);
   return (
-    <div className="mb-1.5 flex items-center gap-2 rounded-lg border border-border/50 bg-surface-2/30 px-3 py-1.5 text-meta text-text-muted">
+    <div className="mb-1.5 flex items-center gap-2 rounded-lg border border-border/60 bg-surface-2/40 px-3 py-1.5 text-meta text-text-muted">
       <span
         className={`inline-block h-1.5 w-1.5 rounded-full ${
           hasError ? "bg-error" : "bg-success"
@@ -129,50 +126,11 @@ function StandaloneResultBlock({ item }: { item: StandaloneResult }) {
 // ============================================================================
 
 function EventBlock({ event }: { event: AgentEvent }) {
-  const [collapsed, setCollapsed] = useState(true);
-  /**
-   * 思考块自带独立滚动条（max-h-60）：流式输出时若不自动跟随，
-   * 新内容会落在可视区下方，用户必须手动滚动才能看到。
-   * 采用「贴近底部才跟随」策略 —— 用户主动往上翻阅时不被拉回。
-   */
-  const bodyRef = useRef<HTMLDivElement>(null);
-  const stickToBottom = useRef(true);
-
-  useEffect(() => {
-    const el = bodyRef.current;
-    if (!el || !stickToBottom.current) return;
-    el.scrollTop = el.scrollHeight;
-  }, [event]);
-
-  const handleBodyScroll = () => {
-    const el = bodyRef.current;
-    if (!el) return;
-    stickToBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 24;
-  };
-
   switch (event.type) {
     case "thinking":
       return (
-        <div className="mb-2 max-w-full overflow-hidden rounded-xl border border-border/60 bg-surface-2/30">
-          <button
-            onClick={() => setCollapsed(!collapsed)}
-            className="flex w-full items-center gap-2 px-3 py-2 text-left text-meta text-thinking transition-colors hover:bg-surface-hover/40 hover:text-text-secondary"
-          >
-            <Brain className="h-3.5 w-3.5 shrink-0" />
-            <span>思考过程</span>
-            <ChevronRight
-              className={`ml-auto h-3 w-3 text-text-muted transition-transform ${collapsed ? "" : "rotate-90"}`}
-            />
-          </button>
-          {!collapsed && (
-            <div
-              ref={bodyRef}
-              onScroll={handleBodyScroll}
-              className="max-h-60 overflow-auto border-t border-border/50 bg-thinking-bg/60 px-3.5 py-2.5 text-text-secondary"
-            >
-              <MarkdownRenderer content={event.content} />
-            </div>
-          )}
+        <div className="mb-2">
+          <ThinkingCard text={event.content} running={false} />
         </div>
       );
 
@@ -196,7 +154,7 @@ function EventBlock({ event }: { event: AgentEvent }) {
     case "text":
       return (
         <div className="mb-2">
-          <div className="ui-bubble w-fit max-w-full bg-surface-2/60 px-4 py-3.5">
+          <div className="ui-cv-block w-full">
             <MarkdownRenderer content={event.content} />
           </div>
         </div>

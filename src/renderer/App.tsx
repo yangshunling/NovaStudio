@@ -26,6 +26,7 @@ import { EmployeesView } from "./components/employees/EmployeesView";
 import { AgentsView } from "./components/agents/AgentsView";
 import { SkillsView } from "./components/skills/SkillsView";
 import { McpView } from "./components/mcp/McpView";
+import { PromptsView } from "./components/prompts/PromptsView";
 import { KnowledgeView } from "./components/knowledge/KnowledgeView";
 import { WorkspacesView } from "./components/workspaces/WorkspacesView";
 import { WorkflowsView } from "./components/workflows/WorkflowsView";
@@ -37,6 +38,7 @@ import { ErrorBoundary } from "./components/ui/ErrorBoundary";
 import { ToastViewport } from "./components/ui/ToastViewport";
 import { ConfirmDialog } from "./components/ui/ConfirmDialog";
 import { validateSkins } from "./skins/validate";
+import { toast } from "./stores/toast";
 
 export default function App() {
   useAgentStream();
@@ -73,17 +75,24 @@ export default function App() {
 
     detectAgents().catch((err) => {
       console.error("[nova] Agent 检测失败：", err);
+      toast.error("Agent 检测失败，请检查本机 CLI 是否可用", 5000);
     });
     void loadSkinSettings().catch((err) => {
       console.error("[nova] 皮肤设置加载失败：", err);
     });
-    loadProjects()
-      .then(() => loadSessions())
-      .catch((err) => {
-        console.error("[nova] 项目 / 会话加载失败：", err);
-      });
+    // 工作区与会话互不依赖：并行加载，任一失败都不能拖垮另一个
+    void Promise.allSettled([loadProjects(), loadSessions()]).then((results) => {
+      if (results.some((result) => result.status === "rejected")) {
+        const failed = results.find(
+          (result) => result.status === "rejected",
+        ) as PromiseRejectedResult | undefined;
+        console.error("[nova] 工作区 / 会话加载失败：", failed?.reason);
+        toast.error("工作区或会话加载失败，请稍后重试", 5000);
+      }
+    });
     loadTasks().catch((err) => {
       console.error("[nova] 自动化任务加载失败：", err);
+      toast.error("自动化任务加载失败，请稍后重试", 5000);
     });
     // 资产目录扫描一次即可：后续页面切换读缓存，外部变更由刷新按钮触发重扫
     preloadAssets();
@@ -107,6 +116,8 @@ export default function App() {
           <SkillsView />
         ) : viewMode === "mcp" ? (
           <McpView />
+        ) : viewMode === "prompts" ? (
+          <PromptsView />
         ) : viewMode === "knowledge" ? (
           <KnowledgeView />
         ) : viewMode === "triggers" ? (
@@ -120,10 +131,22 @@ export default function App() {
           否则 ChatArea 的输入草稿、@ 引用与滚动位置等局部状态会随卸载丢失。
           终端标签也挂在这里，因此切换侧栏页面不会重启 PTY。
         */}
-        <div className={viewMode === "chat" ? "contents" : "hidden"}>
+        <div
+          className={
+            viewMode === "chat"
+              ? "relative flex min-w-0 flex-1 overflow-hidden"
+              : "hidden"
+          }
+        >
           <SessionsView />
           {showWorkspace && (
-            <WorkspacePanel project={workspacePanelProject} />
+            /*
+             * 窄窗口下工作区改为覆盖层：否则 1024 宽时侧栏 + 会话列表 +
+             * 工作区会把对话正文压到 300px 左右，输入区几乎不可用。
+             */
+            <div className="flex h-full shrink-0 max-[1180px]:absolute max-[1180px]:inset-y-0 max-[1180px]:right-0 max-[1180px]:z-40 max-[1180px]:shadow-[var(--c-shadow)]">
+              <WorkspacePanel project={workspacePanelProject} />
+            </div>
           )}
         </div>
         {/*

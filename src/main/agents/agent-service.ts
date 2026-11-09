@@ -28,6 +28,9 @@ export type Emit = <C extends IpcPushChannel>(channel: C, payload: IpcPushMap[C]
 /** 历史缓存容量上限（超出后淘汰最久未使用的条目） */
 const HISTORY_CACHE_LIMIT = 32;
 
+/** 退出时等待运行收尾的上限：超时后仍然退出，避免应用关不掉 */
+const SHUTDOWN_TIMEOUT_MS = 5000;
+
 /** 单次运行超时（毫秒）：来自设置里的分钟数，非法值回退默认 */
 function resolveTimeoutMs(): number {
   const raw = db.getSetting("agentTimeoutMinutes");
@@ -94,7 +97,7 @@ export interface AgentService {
   /** 中断指定会话；返回是否确实有运行中的会话 */
   abort(sessionId: string): boolean;
   /** 取会话元数据 + 回放历史 */
-  getSessionWithHistory(sessionId: string): Session | null;
+  getSessionWithHistory(sessionId: string): Promise<Session | null>;
   /**
    * 中断该会话、等待运行收尾，再清理其 CLI 侧数据与缓存。
    * 必须先等运行结束再删数据库行，否则运行收尾写入 messages 会触发外键错误。
@@ -102,8 +105,11 @@ export interface AgentService {
   releaseSession(sessionId: string): Promise<void>;
   /** 中断并清理某项目下所有会话的 CLI 侧数据与缓存 */
   releaseProject(projectId: string): Promise<void>;
-  /** 应用退出：中断全部运行中的会话 */
-  shutdown(): void;
+  /**
+   * 应用退出：中断全部运行中的会话，并等待它们完成落库收尾。
+   * 必须在关库之前 await，否则最后一条 assistant 消息可能写不进去。
+   */
+  shutdown(): Promise<void>;
 }
 
 /**
@@ -139,7 +145,7 @@ export function createAgentService(emit: Emit): AgentService {
    * 带缓存的历史回放。
    * 先问版本号（廉价），命中即返回；未命中才真正读取，再按 provider 给的版本号入缓存。
    */
-  function readHistoryCached(session: Session): Message[] {
+  async function readHistoryCached(session: Session): Promise<Message[]> {
     const provider = getProvider(session.agentId);
     const ref = session.agentSessionId;
     if (!provider || !ref) return [];
@@ -148,7 +154,7 @@ export function createAgentService(emit: Emit): AgentService {
     if (!key) return [];
 
     const ctx = { cwd: session.cwd, configDir: session.configDir ?? null };
-    const version = provider.historyVersion(ref, ctx);
+    const version = await provider.historyVersion(ref, ctx);
 
     if (version !== null) {
       const cached = historyCache.get(key);
@@ -160,7 +166,7 @@ export function createAgentService(emit: Emit): AgentService {
       }
     }
 
-    const messages = provider.readHistory(ref, ctx);
+    const messages = await provider.readHistory(ref, ctx);
 
     if (version !== null) {
       historyCache.set(key, { version, messages });
@@ -183,7 +189,7 @@ export function createAgentService(emit: Emit): AgentService {
    *
    * 没有「写文件类调用缺行号」时直接返回，避免为每一次打开会话都回放。
    */
-  function backfillLineStarts(session: Session, messages: Message[]): Message[] {
+  async function backfillLineStarts(session: Session, messages: Message[]): Promise<Message[]> {
     const missing = messages.some((message) =>
       message.content.some(
         (event) => event.type === "tool_call" && event.kind === "write" && !event.lineStarts,
@@ -191,7 +197,7 @@ export function createAgentService(emit: Emit): AgentService {
     );
     if (!missing) return messages;
 
-    const replayed = readHistoryCached(session);
+    const replayed = await readHistoryCached(session);
     if (replayed.length === 0) return messages;
 
     const byCall = new Map<string, number[]>();
@@ -215,7 +221,7 @@ export function createAgentService(emit: Emit): AgentService {
   }
 
   /** 释放单个会话的 CLI 侧数据；是否清理由 provider 的能力声明决定 */
-  function dropSessionArtifacts(sessionId: string): void {
+  async function dropSessionArtifacts(sessionId: string): Promise<void> {
     const session = db.getSession(sessionId);
     if (!session) return;
     const ref = session.agentSessionId;
@@ -223,7 +229,7 @@ export function createAgentService(emit: Emit): AgentService {
 
     const provider = getProvider(session.agentId);
     if (provider?.manifest.capabilities.sessionCleanup) {
-      provider.deleteSession(ref, {
+      await provider.deleteSession(ref, {
         cwd: session.cwd,
         configDir: session.configDir ?? null,
       });
@@ -319,7 +325,7 @@ export function createAgentService(emit: Emit): AgentService {
        * 旧对话在界面上会“消失”。因此在第一次运行前把 CLI 历史导入本地。
        */
       if (!db.hasSessionMessages(sessionId) && session.agentSessionId) {
-        const history = readHistoryCached(session);
+        const history = await readHistoryCached(session);
         if (history.length > 0) db.importSessionMessages(sessionId, history);
       }
 
@@ -476,7 +482,7 @@ export function createAgentService(emit: Emit): AgentService {
       return true;
     },
 
-    getSessionWithHistory(sessionId: string): Session | null {
+    async getSessionWithHistory(sessionId: string): Promise<Session | null> {
       const session = db.getSession(sessionId);
       if (!session) return null;
 
@@ -485,26 +491,41 @@ export function createAgentService(emit: Emit): AgentService {
       // 回退到 provider 从 CLI 侧回放（仅文本，不含工具调用细节）。
       const persisted = db.readSessionMessages(sessionId);
       if (persisted) {
-        return { ...session, messages: backfillLineStarts(session, persisted) };
+        return { ...session, messages: await backfillLineStarts(session, persisted) };
       }
-      return { ...session, messages: readHistoryCached(session) };
+      return { ...session, messages: await readHistoryCached(session) };
     },
 
     async releaseSession(sessionId: string): Promise<void> {
       running.get(sessionId)?.abort();
       await waitForIdle(sessionId);
-      dropSessionArtifacts(sessionId);
+      await dropSessionArtifacts(sessionId);
     },
 
     async releaseProject(projectId: string): Promise<void> {
       const sessionIds = db.listSessionIdsByProject(projectId);
       for (const sessionId of sessionIds) running.get(sessionId)?.abort();
       await Promise.all(sessionIds.map((sessionId) => waitForIdle(sessionId)));
-      for (const sessionId of sessionIds) dropSessionArtifacts(sessionId);
+      await Promise.all(sessionIds.map((sessionId) => dropSessionArtifacts(sessionId)));
     },
 
-    shutdown(): void {
+    async shutdown(): Promise<void> {
       for (const runSession of running.values()) runSession.abort();
+
+      /*
+       * 不能只等 RunSession.done：run() 在 done 之后还要写 messages /
+       * 更新会话引用，真正完成收尾才会从 running 表移除。这里以 running
+       * 变空为准，并设置上限，避免异常进程让应用永远退不掉。
+       */
+      const deadline = Date.now() + SHUTDOWN_TIMEOUT_MS;
+      while (running.size > 0 && Date.now() < deadline) {
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+      if (running.size > 0) {
+        console.warn(
+          `[agent] 退出时仍有 ${running.size} 个会话未在 ${SHUTDOWN_TIMEOUT_MS}ms 内收尾，继续退出`,
+        );
+      }
     },
   };
 }

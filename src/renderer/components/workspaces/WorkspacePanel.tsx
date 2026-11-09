@@ -10,6 +10,7 @@ import {
   ChevronRight,
   GitBranch,
   Loader2,
+  PanelRightClose,
   RefreshCw,
 } from "lucide-react";
 import { ipc } from "../../lib/ipc";
@@ -200,6 +201,7 @@ export function WorkspacePanel({
   const project = projectProp === undefined ? storeProject : projectProp;
   const openFile = useFileViewerStore((s) => s.openFile);
   const activeTabId = useFileViewerStore((s) => s.activeTabId);
+  const setShowWorkspace = useChatStore((s) => s.setShowWorkspace);
 
   const handleOpenFile = (entry: FileEntry, owner: Project) => {
     openFile(owner.id, entry.relativePath, entry.name);
@@ -438,17 +440,29 @@ export function WorkspacePanel({
           title={project?.name ?? "工作区"}
           subtitle={cwd || "尚未选择工作区"}
           actions={
-            <button
-              type="button"
-              onClick={() => setReloadKey((value) => value + 1)}
-              disabled={!hasWorkspace || isLoadingRoot}
-              title="刷新文件"
-              className="ui-btn-round ui-icon-action flex h-9 w-9 items-center justify-center rounded-full text-text-muted disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              <RefreshCw
-                className={`h-4 w-4 ${isLoadingRoot ? "animate-spin" : ""}`}
-              />
-            </button>
+            <>
+              <button
+                type="button"
+                onClick={() => setReloadKey((value) => value + 1)}
+                disabled={!hasWorkspace || isLoadingRoot}
+                title="刷新文件"
+                aria-label="刷新文件"
+                className="ui-btn-round ui-icon-action flex h-9 w-9 items-center justify-center rounded-full text-text-muted disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                <RefreshCw
+                  className={`h-4 w-4 ${isLoadingRoot ? "animate-spin" : ""}`}
+                />
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowWorkspace(false)}
+                title="收起工作区"
+                aria-label="收起工作区"
+                className="ui-btn-round ui-icon-action flex h-9 w-9 items-center justify-center rounded-full text-text-muted"
+              >
+                <PanelRightClose className="h-4 w-4" />
+              </button>
+            </>
           }
         />
 
@@ -617,7 +631,7 @@ function TreeNode({
   const fileTabId = `${projectId}:${entry.relativePath}`;
   const isActiveFile = !entry.isDirectory && activeTabId === fileTabId;
   const rowClass =
-    "flex h-7 w-full items-center gap-1.5 rounded pr-1.5 text-left text-body transition-colors";
+    "ui-cv-row flex h-7 w-full items-center gap-1.5 rounded pr-1.5 text-left text-body transition-colors";
 
   return (
     <div>

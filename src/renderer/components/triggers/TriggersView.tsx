@@ -375,7 +375,7 @@ function TriggerCard({
   const enabled = trigger.enabled;
 
   return (
-    <article className="group relative flex flex-col overflow-hidden rounded-xl border border-border/70 bg-surface-2/40 shadow-[var(--c-shadow-sm)] transition-colors hover:bg-surface-2/55">
+    <article className="group relative flex flex-col overflow-hidden rounded-xl border border-border/60 bg-surface-2/40 shadow-[var(--c-shadow-sm)] transition-colors hover:bg-surface-2/55">
       {/* 顶部状态条：启用时按强调色亮起 */}
       <span
         aria-hidden
@@ -417,7 +417,7 @@ function TriggerCard({
       </div>
 
       {/* 调度信息：规则 + 下次执行 + 状态 */}
-      <div className="mx-4 rounded-lg border border-border/50 bg-surface/60 p-3">
+      <div className="mx-4 rounded-lg border border-border/60 bg-surface/60 p-3">
         <div className="flex items-center justify-between gap-2">
           <span className="flex min-w-0 items-center gap-1.5 text-meta font-medium text-text-secondary">
             <AlarmClock className="h-3.5 w-3.5 shrink-0 text-accent" />
@@ -478,7 +478,7 @@ function TriggerCard({
       </div>
 
       <div className="mt-auto px-4 pb-4 pt-3">
-        <div className="flex items-center justify-between gap-2 border-t border-border/50 pt-2.5">
+        <div className="flex items-center justify-between gap-2 border-t border-border/60 pt-2.5">
           <span className="min-w-0 truncate text-caption text-text-muted">
             {trigger.lastFiredAt !== null
               ? `上次触发 ${formatFireTime(trigger.lastFiredAt)}`
@@ -733,7 +733,7 @@ function TriggerDialog({
             </>
           )}
 
-          <div className="flex items-center justify-between rounded-lg bg-surface-2/60 px-3 py-2.5">
+          <div className="flex items-center justify-between rounded-lg bg-surface-2/40 px-3 py-2.5">
             <div className="min-w-0">
               <p className="text-body font-medium text-text">启用触发器</p>
               <p className="mt-0.5 text-meta text-text-muted">
@@ -793,22 +793,14 @@ function EmptyTriggers({ onCreate }: { onCreate: () => void }) {
 
   return (
     <div className="flex min-h-[68vh] items-center justify-center">
-      <div className="relative w-full max-w-[680px] overflow-hidden rounded-2xl border border-border/70 bg-surface-2/40 p-8 text-center shadow-[var(--c-shadow-sm)]">
+      <div className="relative w-full max-w-[680px] overflow-hidden rounded-2xl border border-border/60 bg-surface-2/40 p-8 text-center shadow-[var(--c-shadow-sm)]">
         <span
           aria-hidden
-          className="pointer-events-none absolute inset-0 bg-gradient-to-br from-accent/16 via-accent/[0.04] to-transparent"
-        />
-        <span
-          aria-hidden
-          className="pointer-events-none absolute -right-20 -top-24 h-56 w-56 rounded-full bg-accent/20 blur-3xl"
-        />
-        <span
-          aria-hidden
-          className="pointer-events-none absolute inset-x-10 top-0 h-px bg-gradient-to-r from-transparent via-accent/50 to-transparent"
+          className="pointer-events-none absolute inset-x-10 top-0 h-px bg-accent/30"
         />
 
         <div className="relative">
-          <div className="mx-auto grid h-14 w-14 place-items-center rounded-2xl bg-accent text-accent-foreground shadow-[0_10px_30px_var(--c-accent-soft)]">
+          <div className="mx-auto grid h-14 w-14 place-items-center rounded-2xl bg-accent text-accent-foreground shadow-[var(--c-shadow-sm)]">
             <Zap className="h-6 w-6" />
           </div>
           <h2 className="mt-5 text-heading font-semibold tracking-tight text-text">
@@ -822,7 +814,7 @@ function EmptyTriggers({ onCreate }: { onCreate: () => void }) {
             {steps.map(({ icon: Icon, title, description }) => (
               <div
                 key={title}
-                className="rounded-lg border border-border/50 bg-surface/60 p-3"
+                className="rounded-lg border border-border/60 bg-surface/60 p-3"
               >
                 <span className="grid h-8 w-8 place-items-center rounded-lg bg-accent-soft text-accent">
                   <Icon className="h-4 w-4" />

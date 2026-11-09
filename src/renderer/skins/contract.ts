@@ -79,6 +79,7 @@ export const REQUIRED_TOKENS: readonly string[] = [
   "--c-font-sans",
   "--c-font-mono",
   "--c-font-serif",
+  "--c-font-display",
   "--c-serif-tracking",
   // 圆角
   "--c-radius-sm",

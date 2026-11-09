@@ -115,17 +115,25 @@ export function PageToolbar({
   );
 }
 
-/** 可滚动的页面主体 */
+/** 可滚动的页面主体
+ *
+ * scroll={false} 用于「表单要占满可视高度」的页面（如提示词编辑器）：
+ * 取消滚动，改为 flex 纵向布局，让子元素用 flex-1 撑满剩余高度。
+ */
 export function PageBody({
   children,
   className = "",
+  scroll = true,
 }: {
   children: ReactNode;
   className?: string;
+  scroll?: boolean;
 }) {
   return (
     <div
-      className={`min-h-0 flex-1 overflow-y-auto p-section ${className}`.trim()}
+      className={`min-h-0 flex-1 p-section ${
+        scroll ? "overflow-y-auto" : "flex flex-col overflow-hidden"
+      } ${className}`.trim()}
     >
       {children}
     </div>

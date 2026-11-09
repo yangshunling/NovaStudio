@@ -237,7 +237,7 @@ export function ProjectSelector() {
                       }}
                       title="在此工作区打开终端"
                       aria-label="在此工作区打开终端"
-                      className="shrink-0 rounded-md p-1 text-text-muted opacity-0 transition-all hover:bg-surface-active hover:text-text group-hover/proj:opacity-100"
+                      className="shrink-0 rounded-md p-1 text-text-muted opacity-0 transition-all hover:bg-surface-active hover:text-text focus-visible:opacity-100 group-hover/proj:opacity-100 group-focus-within/proj:opacity-100"
                     >
                       <SquareTerminal className="h-3.5 w-3.5" />
                     </button>

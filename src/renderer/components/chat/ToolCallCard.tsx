@@ -24,7 +24,7 @@ import {
   Terminal,
   Wrench,
 } from "lucide-react";
-import type { ToolKind } from "@shared/types";
+import type { ToolKind, ToolResultImage } from "@shared/types";
 import type { FileChange } from "../../lib/tool-diff";
 import { truncateText } from "../../lib/utils";
 import { ToolDiffView } from "./ToolDiffView";
@@ -47,6 +47,8 @@ export interface ToolCallCardProps {
   argsText?: string;
   /** 工具输出；undefined 表示尚无结果 */
   result?: string;
+  /** 工具返回的图片（截图等） */
+  resultImages?: ToolResultImage[];
   isError?: boolean;
   /** 是否正在执行（无结果时用于区分「进行中」和「未完成」） */
   running?: boolean;
@@ -60,14 +62,17 @@ export function ToolCallCard({
   args,
   argsText,
   result,
+  resultImages,
   isError = false,
   running = false,
   changes,
 }: ToolCallCardProps) {
   const done = result !== undefined;
   const failed = isError;
-  // 改动类工具默认展开：diff 本身就是这类调用最值得看的内容
-  const [collapsed, setCollapsed] = useState(() => changes.length === 0);
+  // 改动类工具与带图片的结果默认展开：diff / 截图本身就是最值得看的内容
+  const [collapsed, setCollapsed] = useState(
+    () => changes.length === 0 && !resultImages?.length,
+  );
 
   const status = failed ? "error" : done ? "done" : running ? "running" : "pending";
   const statusText =
@@ -109,7 +114,7 @@ export function ToolCallCard({
 
   return (
     <div
-      className={`w-full overflow-hidden rounded-xl border transition-colors ${
+      className={`ui-cv-block w-full overflow-hidden rounded-xl border transition-colors ${
         status === "error"
           ? "border-error/30 bg-error-bg/25"
           : status === "running"
@@ -120,12 +125,12 @@ export function ToolCallCard({
       <button
         type="button"
         onClick={() => setCollapsed((value) => !value)}
-        className="flex w-full items-center gap-2.5 px-3 py-2 text-left transition-colors hover:bg-surface-hover/40"
+        className="flex w-full items-center gap-2.5 px-3 py-1.5 text-left transition-colors hover:bg-surface-hover/40"
       >
         <span
-          className={`grid h-7 w-7 shrink-0 place-items-center rounded-lg ${tileClass}`}
+          className={`grid h-6 w-6 shrink-0 place-items-center rounded-lg ${tileClass}`}
         >
-          <Icon className="h-3.5 w-3.5" />
+          <Icon className="h-3 w-3" />
         </span>
 
         <span className="min-w-0 flex-1">
@@ -173,7 +178,7 @@ export function ToolCallCard({
       </button>
 
       {!collapsed && (
-        <div className="space-y-2 border-t border-border/50 bg-surface/50 p-3">
+        <div className="space-y-2 border-t border-border/60 bg-surface/50 p-3">
           {changes.length > 0 ? (
             <ToolDiffView changes={changes} />
           ) : (
@@ -181,7 +186,7 @@ export function ToolCallCard({
               <div className="mb-1 text-micro font-medium text-text-muted">
                 输入
               </div>
-              <pre className="max-h-40 overflow-auto rounded-lg border border-border/50 bg-surface-2/50 px-2.5 py-2 font-mono text-caption leading-relaxed text-text-secondary">
+              <pre className="max-h-40 overflow-auto rounded-lg border border-border/60 bg-surface-2/50 px-2.5 py-2 font-mono text-caption leading-relaxed text-text-secondary">
                 {truncateText(
                   argsText ?? JSON.stringify(args ?? {}, null, 2),
                   500,
@@ -200,11 +205,30 @@ export function ToolCallCard({
                 className={`max-h-48 overflow-auto rounded-lg border px-2.5 py-2 font-mono text-caption leading-relaxed ${
                   failed
                     ? "border-error/30 bg-error-bg text-error"
-                    : "border-border/50 bg-surface-2/50 text-text-muted"
+                    : "border-border/60 bg-surface-2/50 text-text-muted"
                 }`}
               >
                 {truncateText(result, 500)}
               </pre>
+            </div>
+          )}
+
+          {/* 截图 / 图片类工具输出：base64 直接内联展示，避免再落文件 */}
+          {resultImages && resultImages.length > 0 && (
+            <div>
+              <div className="mb-1 text-micro font-medium text-text-muted">
+                图片
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {resultImages.map((image, index) => (
+                  <img
+                    key={index}
+                    src={`data:${image.mediaType};base64,${image.data}`}
+                    alt={`工具输出图片 ${index + 1}`}
+                    className="max-h-80 max-w-full rounded-lg border border-border/60 object-contain"
+                  />
+                ))}
+              </div>
             </div>
           )}
         </div>

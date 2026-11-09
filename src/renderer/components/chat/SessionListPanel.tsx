@@ -21,7 +21,6 @@ import {
 import { INLINE_INPUT_CLASS } from "../ui/Field";
 import {
   Check,
-  Loader2,
   MessageSquarePlus,
   MoreHorizontal,
   PenLine,
@@ -34,6 +33,7 @@ import { useTerminalStore } from "../../stores/terminal";
 import { confirmDialog } from "../../stores/confirm";
 import { EmptyState } from "../ui/EmptyState";
 import { ListPane } from "../ui/ListPane";
+import { Spinner } from "../ui/Spinner";
 import type { Session } from "@shared/types";
 
 /** 会话操作菜单尺寸：用于贴近视口边缘时收拢位置 */
@@ -170,7 +170,7 @@ export function SessionListPanel() {
           size="compact"
           icon={<MessageSquarePlus />}
           title="还没有会话"
-          description="直接在右侧输入消息即可开始。需要读写本地文件时，在输入框旁绑定一个项目目录。"
+          description="直接在右侧输入消息即可开始。需要读写本地文件时，在输入框旁选择一个工作区。"
         />
       ) : (
         groups.map((group) => (
@@ -354,7 +354,7 @@ function SessionRow({
           onOpen();
         }
       }}
-      className={`group relative cursor-pointer select-none rounded-lg px-2.5 py-2 transition-colors ${
+      className={`ui-cv-row group relative cursor-pointer select-none rounded-lg px-2.5 py-2 transition-colors ${
         isActive
           ? "bg-accent-soft/60 text-text"
           : "text-text-secondary hover:bg-surface-hover/70 hover:text-text"
@@ -368,7 +368,7 @@ function SessionRow({
         />
       )}
 
-      <div className="flex items-baseline gap-2">
+      <div className="flex items-center gap-2">
         <div
           className={`min-w-0 flex-1 truncate text-body-lg leading-5 ${
             isActive ? "font-medium" : ""
@@ -376,12 +376,9 @@ function SessionRow({
         >
           {session.title}
         </div>
-        <span className="shrink-0 text-caption tabular-nums text-text-muted transition-opacity group-hover:opacity-0">
+        <span className="flex shrink-0 items-center text-caption tabular-nums text-text-muted transition-opacity group-hover:opacity-0">
           {isStreaming ? (
-            <Loader2
-              aria-label="正在执行"
-              className="h-3.5 w-3.5 animate-spin text-accent"
-            />
+            <Spinner label="正在执行" className="h-4 w-4 text-accent" />
           ) : (
             sessionTimeLabel(session.updatedAt, group)
           )}
@@ -408,7 +405,11 @@ function SessionRow({
         onClick={openMenuAtButton}
         title="会话操作"
         aria-label="会话操作"
-        className="pointer-events-none absolute right-1.5 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-md text-text-muted opacity-0 transition-all hover:bg-surface-hover hover:text-text focus-visible:pointer-events-auto focus-visible:opacity-100 group-hover:pointer-events-auto group-hover:opacity-100"
+        className={`absolute right-1.5 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-md text-text-muted transition-all hover:bg-surface-hover hover:text-text ${
+          menu
+            ? "pointer-events-auto opacity-100"
+            : "pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100 focus-visible:pointer-events-auto focus-visible:opacity-100"
+        }`}
       >
         <MoreHorizontal className="h-3.5 w-3.5" />
       </button>

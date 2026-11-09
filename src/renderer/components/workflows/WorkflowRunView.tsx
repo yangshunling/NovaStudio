@@ -1117,7 +1117,7 @@ function NodeDetailPanel({
         title={preview ? `预览 · ${preview.path}` : "预览"}
         width="xl"
       >
-        <pre className="max-h-[65vh] overflow-auto whitespace-pre-wrap rounded-lg bg-surface-2/60 p-3 font-mono text-meta leading-relaxed text-text-secondary">
+        <pre className="max-h-[65vh] overflow-auto whitespace-pre-wrap rounded-lg bg-surface-2/40 p-3 font-mono text-meta leading-relaxed text-text-secondary">
           {preview?.content}
         </pre>
       </Dialog>

@@ -447,24 +447,11 @@ export function TodosView() {
           <div className="grid grid-cols-1 gap-6 min-[1080px]:grid-cols-[minmax(0,1fr)_300px]">
             <div className="min-w-0">
               {/* 概览：日期主视觉 + 摘要 + 进度 */}
-              <section className="relative overflow-hidden rounded-2xl border border-border/70 bg-surface-2/40 p-5">
-                {/* 强调色渐变：整卡一层斜向洗色，右上角主光、左下角补光，
-                    顶部再加一道细高光，避免大块表面显得平 */}
+              <section className="relative overflow-hidden rounded-2xl border border-border/60 bg-surface-2/40 p-5">
+                {/* 编辑式强调：一条静态细线 + 留白，取代渐变与光晕 */}
                 <span
                   aria-hidden
-                  className="pointer-events-none absolute inset-0 bg-gradient-to-br from-accent/20 via-accent/[0.05] to-transparent"
-                />
-                <span
-                  aria-hidden
-                  className="pointer-events-none absolute -right-24 -top-28 h-72 w-72 rounded-full bg-accent/25 blur-3xl"
-                />
-                <span
-                  aria-hidden
-                  className="pointer-events-none absolute -bottom-24 left-1/4 h-56 w-56 rounded-full bg-accent/10 blur-3xl"
-                />
-                <span
-                  aria-hidden
-                  className="pointer-events-none absolute inset-x-10 top-0 h-px bg-gradient-to-r from-transparent via-accent/60 to-transparent"
+                  className="pointer-events-none absolute inset-x-10 top-0 h-px bg-accent/30"
                 />
                 <div className="relative flex flex-wrap items-end justify-between gap-x-8 gap-y-4">
                   <div className="min-w-0">
@@ -608,7 +595,7 @@ export function TodosView() {
                   )}
 
                   {visible.length === 0 ? (
-                    <div className="mt-4 rounded-xl border border-dashed border-border bg-surface-2/30">
+                    <div className="mt-4 rounded-xl border border-dashed border-border bg-surface-2/40">
                       <EmptyState
                         icon={<Inbox />}
                         title={emptyTitle}
@@ -741,7 +728,7 @@ function TodoGroupCard({
         : "text-text-secondary";
 
   return (
-    <section className="overflow-hidden rounded-xl border border-border/70 bg-surface-2/40 shadow-[var(--c-shadow-sm)]">
+    <section className="overflow-hidden rounded-xl border border-border/60 bg-surface-2/40 shadow-[var(--c-shadow-sm)]">
       <header className="flex items-center gap-2 border-b border-border/60 bg-surface-hover/35 px-4 py-2.5">
         <span aria-hidden className={`h-1.5 w-1.5 rounded-full ${dot}`} />
         <h3 className={`text-meta font-semibold ${labelTone}`}>{label}</h3>

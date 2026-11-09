@@ -379,7 +379,7 @@ function ProfileTab({
         {draft.systemPrompt.length} 字符
       </div>
 
-      <div className="flex items-center justify-between gap-3 rounded-lg bg-surface-2/60 px-3 py-2.5">
+      <div className="flex items-center justify-between gap-3 rounded-lg bg-surface-2/40 px-3 py-2.5">
         <div>
           <div className="text-body font-medium text-text">启用状态</div>
           <div className="mt-0.5 text-meta text-text-muted">

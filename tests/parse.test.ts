@@ -135,6 +135,101 @@ test("Bash 等命令类工具同样进入消息流，正文既不重复也不丢
   assert.equal(results[0].name, "Bash");
 });
 
+test("API 错误 assistant 事件解码成 error，而不是普通正文", () => {
+  const decoder = parse.createDecoder();
+  const event = decoder(
+    line({
+      type: "assistant",
+      session_id: SESSION,
+      isApiErrorMessage: true,
+      error: "server_error",
+      message: {
+        id: "m1",
+        role: "assistant",
+        content: [{ type: "text", text: "API Error: 502 upstream failed" }],
+      },
+    }),
+  );
+
+  assert.deepEqual(event, {
+    type: "error",
+    message: "API Error: 502 upstream failed",
+  });
+});
+
+test("API 错误没有正文时用 error 字段兜底", () => {
+  const decoder = parse.createDecoder();
+  const event = decoder(
+    line({
+      type: "assistant",
+      session_id: SESSION,
+      isApiErrorMessage: true,
+      error: "unknown",
+      message: { id: "m1", role: "assistant", content: [] },
+    }),
+  );
+
+  assert.deepEqual(event, { type: "error", message: "API 错误（unknown）" });
+});
+
+test("tool_result 里的图片块转成 images，文本仍保留", () => {
+  const events = parse.mapToolResultBlocks(
+    [
+      {
+        type: "tool_result",
+        tool_use_id: "t1",
+        is_error: false,
+        content: [
+          { type: "text", text: "screenshot" },
+          {
+            type: "image",
+            source: { type: "base64", media_type: "image/png", data: "AAAA" },
+          },
+        ],
+      },
+    ],
+    new Map([["t1", "Bash"]]),
+  );
+
+  assert.equal(events.length, 1);
+  const [event] = events;
+  assert.equal(event.type, "tool_result");
+  if (event.type !== "tool_result") return;
+  assert.equal(event.output, "screenshot");
+  assert.deepEqual(event.images, [{ mediaType: "image/png", data: "AAAA" }]);
+});
+
+test("system api_error 解码为 error", () => {
+  const decoder = parse.createDecoder();
+  const event = decoder(
+    line({
+      type: "system",
+      subtype: "api_error",
+      error: { message: "401 authentication failed" },
+    }),
+  );
+  assert.deepEqual(event, {
+    type: "error",
+    message: "401 authentication failed",
+  });
+});
+
+test("system informational 按 level 解码为 warning", () => {
+  const decoder = parse.createDecoder();
+  const event = decoder(
+    line({
+      type: "system",
+      subtype: "informational",
+      level: "warning",
+      content: "Streaming ended, retrying",
+    }),
+  );
+  assert.deepEqual(event, {
+    type: "warning",
+    message: "Streaming ended, retrying",
+  });
+});
+
 test("同一段内的增量仍由 message_end 收敛，不产生重复", () => {
   const content = reduce([
     messageStart(),

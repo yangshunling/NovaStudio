@@ -11,6 +11,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
+  ArrowDown,
   ArrowUp,
   Check,
   CheckCircle2,
@@ -403,7 +404,7 @@ export function GitTab({
       Boolean(status.error?.toLowerCase().includes("not found"));
     return (
       <div className="flex h-full items-center justify-center p-section">
-        <div className="max-w-md rounded-xl border border-border/70 bg-surface-2/40 p-6 text-center shadow-[var(--c-shadow-sm)]">
+        <div className="max-w-md rounded-xl border border-border/60 bg-surface-2/40 p-6 text-center shadow-[var(--c-shadow-sm)]">
           <GitBranch className="mx-auto h-7 w-7 text-text-muted" />
           <h3 className="mt-2 text-body font-semibold text-text">
             {gitMissing ? "未检测到 Git" : "该工作区还不是 Git 仓库"}
@@ -505,6 +506,7 @@ export function GitTab({
         <div className="flex items-center gap-1">
           <Button
             size="xs"
+            icon={<ArrowDown className="h-3 w-3" />}
             onClick={() => void pull()}
             disabled={!canPull}
             loading={busy === "pull"}
@@ -786,7 +788,7 @@ export function GitTab({
           {/* 提交区 */}
           {changes > 0 && (
             <div ref={commitBoxRef} className="shrink-0 border-t border-border p-2.5">
-              <div className="rounded-xl border border-border/70 bg-surface-2/40 p-2.5">
+              <div className="rounded-xl border border-border/60 bg-surface-2/40 p-2.5">
                 <div className="flex items-center justify-between gap-2">
                   <span className="text-caption font-semibold text-text-secondary">
                     提交信息
@@ -1013,7 +1015,7 @@ function ChangeGroup({
           return (
             <div
               key={`${kind}:${file.relativePath}`}
-              className={`flex h-7 items-center gap-2 rounded px-1.5 transition-colors ${
+              className={`ui-cv-row flex h-7 items-center gap-2 rounded px-1.5 transition-colors ${
                 active ? "bg-surface-active" : "hover:bg-surface-hover"
               }`}
             >
@@ -1170,7 +1172,7 @@ function CommitGraph({
           <div
             key={commit.hash}
             title={`${commit.subject}\n${commit.hash}\n${commit.author} · ${timeAgo(commit.date)}`}
-            className="relative flex h-7 items-center gap-1.5 rounded pr-1 transition-colors hover:bg-surface-hover"
+            className="ui-cv-row relative flex h-7 items-center gap-1.5 rounded pr-1 transition-colors hover:bg-surface-hover"
           >
             <GraphRail
               tone={tone}

@@ -30,6 +30,10 @@ let mainWindow: BrowserWindow | null = null;
 /** 退出清理只执行一次：before-quit 与 will-quit 都可能被触发 */
 let backgroundStopped = false;
 let databaseClosed = false;
+/** 异步退出流程是否已经启动：防止 before-quit 重入时重复等待 */
+let quitting = false;
+/** 清理是否完成；完成前所有 before-quit 都必须继续阻止退出 */
+let cleanupFinished = false;
 
 /**
  * 解析 preload 脚本路径。
@@ -61,7 +65,8 @@ function createWindow(): BrowserWindow {
   const win = new BrowserWindow({
     width: 1200,
     height: 800,
-    minWidth: 800,
+    // 三栏（侧栏 216 + 会话列表 268 + 工作区 240）在 1024 以下会把对话区挤没
+    minWidth: 1024,
     minHeight: 600,
     show: false,
     icon: iconPath,
@@ -147,15 +152,20 @@ async function bootstrap(): Promise<void> {
   });
 }
 
-/** 退出前中断所有后台任务（不关闭数据库，避免收尾写入失败） */
-function stopBackgroundTasks(): void {
+/**
+ * 退出前中断所有后台任务（不关闭数据库，避免收尾写入失败）。
+ *
+ * 必须先 abort（同步）再 await Agent 收尾：运行中的会话在 abort 之后还会
+ * 写 messages / 更新会话引用，只有这些完成才能关库。
+ */
+async function stopBackgroundTasks(): Promise<void> {
   if (backgroundStopped) return;
   backgroundStopped = true;
   stopAutomation();
-  stopAgents();
   stopTriggers();
   stopWorkflows();
   stopTerminals();
+  await stopAgents();
 }
 
 function closeDatabaseOnce(): void {
@@ -198,6 +208,22 @@ if (!app.requestSingleInstanceLock()) {
     if (process.platform !== "darwin") app.quit();
   });
 
-  app.on("before-quit", stopBackgroundTasks);
+  /*
+   * 退出要等运行收尾：before-quit 默认是同步的，直接关库会丢掉最后
+   * 一条 assistant 消息。这里先阻止默认退出，完成清理后再重新 quit。
+   * 清理完成前（包括用户重复点退出）始终 preventDefault，避免第二次
+   * 直接走到 will-quit 关库。
+   */
+  app.on("before-quit", (event) => {
+    if (cleanupFinished) return;
+    // 清理完成前反复点退出也必须继续阻止：否则第二次会直接走到关库
+    event.preventDefault();
+    if (quitting) return;
+    quitting = true;
+    void stopBackgroundTasks().finally(() => {
+      cleanupFinished = true;
+      app.quit();
+    });
+  });
   app.on("will-quit", closeDatabaseOnce);
 }

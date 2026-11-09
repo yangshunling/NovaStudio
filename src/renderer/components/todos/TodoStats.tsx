@@ -52,7 +52,7 @@ export function TodoStats({ todos }: { todos: TodoItem[] }) {
   const maxCount = Math.max(1, ...stats.series.map((day) => day.count));
 
   return (
-    <section className="rounded-2xl border border-border/70 bg-surface-2/40 p-4 shadow-[var(--c-shadow-sm)]">
+    <section className="rounded-2xl border border-border/60 bg-surface-2/40 p-4 shadow-[var(--c-shadow-sm)]">
       <div className="flex items-baseline justify-between">
         <h3 className="text-meta font-semibold text-text-secondary">完成情况</h3>
         <span className="text-caption tabular-nums text-text-muted">
@@ -190,7 +190,7 @@ function Metric({
   tone?: "default" | "error";
 }) {
   return (
-    <div className="rounded-lg border border-border/50 bg-surface/60 px-2.5 py-2">
+    <div className="rounded-lg border border-border/60 bg-surface/60 px-2.5 py-2">
       <div className="text-caption text-text-muted">{label}</div>
       <div
         className={`mt-0.5 text-title font-semibold tabular-nums ${

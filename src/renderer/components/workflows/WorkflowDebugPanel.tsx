@@ -88,7 +88,7 @@ export function WorkflowDebugPanel({
   const percent = nodes.length === 0 ? 0 : Math.round((done / nodes.length) * 100);
 
   return (
-    <section className="shrink-0 border-b border-border bg-surface-2/60">
+    <section className="shrink-0 border-b border-border bg-surface-2/40">
       <div className="h-0.5 w-full bg-border">
         <div
           className="h-full bg-accent transition-all"

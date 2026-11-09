@@ -81,12 +81,12 @@ export function OptionChips(props: OptionChipsProps) {
         } ${
           active
             ? "bg-accent-soft font-medium text-accent"
-            : "bg-surface-2/60 text-text-secondary hover:bg-surface-hover hover:text-text"
+            : "bg-surface-2/40 text-text-secondary hover:bg-surface-hover hover:text-text"
         }`
       : `flex-1 rounded-lg px-3 py-2 text-body font-medium transition-colors ${
           active
             ? "bg-accent-soft text-accent shadow-[var(--c-shadow-sm)]"
-            : "bg-surface-2/60 text-text-secondary hover:bg-surface-hover hover:text-text"
+            : "bg-surface-2/40 text-text-secondary hover:bg-surface-hover hover:text-text"
         }`;
 
   return (

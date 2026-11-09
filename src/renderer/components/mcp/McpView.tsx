@@ -415,7 +415,7 @@ function McpDrawer({
           {server && server.problems.length > 0 && (
             <div
               className={`shrink-0 rounded-lg border p-3 ${
-                server.valid ? "border-border bg-surface-2/60" : "border-error/40 bg-error-bg"
+                server.valid ? "border-border bg-surface-2/40" : "border-error/40 bg-error-bg"
               }`}
             >
               <div className="flex items-start gap-2">

@@ -5,7 +5,7 @@
  * 点击「详情」进入该次运行的节点明细页。
  */
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowLeft,
   ChevronRight,
@@ -48,6 +48,10 @@ export function WorkflowRunHistoryView({
     "all" | "active" | "failed" | "succeeded"
   >("all");
   const [busyRunId, setBusyRunId] = useState<string | null>(null);
+  const runsRef = useRef(runs);
+  runsRef.current = runs;
+  /** 轮询失败只提示一次，避免活跃运行时每 2 秒刷屏 */
+  const loadErrorReported = useRef(false);
 
   const load = useCallback(async () => {
     try {
@@ -58,8 +62,16 @@ export function WorkflowRunHistoryView({
           : [];
       setRuns(list);
       setError(null);
+      loadErrorReported.current = false;
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      const message = err instanceof Error ? err.message : String(err);
+      // 首屏没有数据才整页错误；已有数据时保留快照，只轻提示
+      if (runsRef.current.length === 0) {
+        setError(message);
+      } else if (!loadErrorReported.current) {
+        loadErrorReported.current = true;
+        toast.error("运行记录刷新失败，正在显示上次结果", 5000);
+      }
     } finally {
       setLoading(false);
     }
@@ -242,7 +254,7 @@ export function WorkflowRunHistoryView({
                         onOpenRun(run.id, run.workflowId);
                       }
                     }}
-                    className="flex w-full cursor-pointer items-start gap-3 border-b border-border px-4 py-3 text-left transition-colors last:border-b-0 hover:bg-surface-hover"
+                    className="ui-cv-row flex w-full cursor-pointer items-start gap-3 border-b border-border px-4 py-3 text-left transition-colors last:border-b-0 hover:bg-surface-hover"
                   >
                     <span
                       className={`flex w-24 shrink-0 items-center gap-1.5 pt-0.5 text-meta font-medium ${meta.className}`}

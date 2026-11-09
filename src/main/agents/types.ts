@@ -187,11 +187,11 @@ export interface AgentProvider {
    * 返回 null 表示该 provider 无法廉价地判断会话是否变化，宿主将不做缓存。
    * 契约：版本号不变 ⟺ readHistory 的结果不变。
    */
-  historyVersion(ref: string, ctx: SessionContext): string | null;
+  historyVersion(ref: string, ctx: SessionContext): Promise<string | null>;
 
   /** 回放历史为 UI 消息列表。失败返回空数组，不抛错 */
-  readHistory(ref: string, ctx: SessionContext): Message[];
+  readHistory(ref: string, ctx: SessionContext): Promise<Message[]>;
 
   /** 删除 CLI 侧会话数据。失败静默 */
-  deleteSession(ref: string, ctx: SessionContext): void;
+  deleteSession(ref: string, ctx: SessionContext): Promise<void>;
 }

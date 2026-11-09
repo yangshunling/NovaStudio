@@ -48,6 +48,14 @@ export interface LineRunConfig {
   extractSessionId(line: string): string | null;
   /** 把一行输出解码为事件（可返回多个） */
   decode(line: string): AgentEvent | AgentEvent[] | null;
+  /**
+   * 一次解析同时给出会话 id 与事件（避免每行 JSON.parse 两次）。
+   * provider 提供时优先走它，extractSessionId / decode 只作兜底。
+   */
+  decodeLine?(line: string): {
+    sessionId: string | null;
+    event: AgentEvent | AgentEvent[] | null;
+  } | null;
 }
 
 /**
@@ -129,6 +137,19 @@ export function startLineRun(
   const handleLine = (raw: string) => {
     const line = raw.trim();
     if (!line) return;
+
+    // 合并解析：一次 JSON.parse 同时拿到 session_id 与事件，省掉一半解析开销
+    if (config.decodeLine) {
+      const out = config.decodeLine(line);
+      if (!out) return;
+      if (out.sessionId) handlers.onSessionId(out.sessionId);
+      if (!out.event) return;
+      for (const event of Array.isArray(out.event) ? out.event : [out.event]) {
+        emit(event);
+      }
+      return;
+    }
+
     const sid = config.extractSessionId(line);
     if (sid) handlers.onSessionId(sid);
     const decoded = config.decode(line);

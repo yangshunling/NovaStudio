@@ -62,30 +62,22 @@ export function EmptyState({
   }
 
   /*
-   * 整页空态：一张带渐变洗色的欢迎卡。
-   * 与待办 / 会话 / 触发器页一致，让「第一次进来」也有明确的起点。
+   * 整页空态：编辑式排版。
+   * 用静态细线 + 留白建立起点，不再使用渐变/光晕——与侧栏刊头保持同一气质。
    */
   return (
     <div
       className={`flex min-h-[60vh] items-center justify-center ${className}`.trim()}
     >
-      <div className="relative w-full max-w-[640px] overflow-hidden rounded-2xl border border-border/70 bg-surface-2/40 p-8 text-center shadow-[var(--c-shadow-sm)]">
+      <div className="relative w-full max-w-[640px] overflow-hidden rounded-2xl border border-border/60 bg-surface-2/40 p-8 text-center shadow-[var(--c-shadow-sm)]">
         <span
           aria-hidden
-          className="pointer-events-none absolute inset-0 bg-gradient-to-br from-accent/16 via-accent/[0.04] to-transparent"
-        />
-        <span
-          aria-hidden
-          className="pointer-events-none absolute -right-20 -top-24 h-56 w-56 rounded-full bg-accent/20 blur-3xl"
-        />
-        <span
-          aria-hidden
-          className="pointer-events-none absolute inset-x-10 top-0 h-px bg-gradient-to-r from-transparent via-accent/50 to-transparent"
+          className="pointer-events-none absolute inset-x-10 top-0 h-px bg-accent/30"
         />
 
         <div className="relative flex flex-col items-center">
           {icon && (
-            <div className="grid h-14 w-14 place-items-center rounded-2xl bg-accent text-accent-foreground shadow-[0_10px_30px_var(--c-accent-soft)] [&>svg]:h-6 [&>svg]:w-6">
+            <div className="grid h-14 w-14 place-items-center rounded-2xl bg-accent text-accent-foreground shadow-[var(--c-shadow-sm)] [&>svg]:h-6 [&>svg]:w-6">
               {icon}
             </div>
           )}
@@ -158,7 +150,7 @@ export function EmptyBlock({
 }: EmptyStateProps) {
   return (
     <div
-      className={`rounded-xl border border-dashed border-border-strong bg-surface-2/30 ${className}`.trim()}
+      className={`rounded-xl border border-dashed border-border-strong bg-surface-2/40 ${className}`.trim()}
     >
       <EmptyState
         size="compact"

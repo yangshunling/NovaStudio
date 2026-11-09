@@ -6,7 +6,14 @@
  * 视觉样式全部走 Nova 的语义 token，因此昼夜皮肤自动兼容。
  */
 
-import { useCallback, useMemo, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   AssistantRuntimeProvider,
   MessagePrimitive,
@@ -19,24 +26,27 @@ import {
   type ToolCallMessagePartProps,
 } from "@assistant-ui/react";
 import {
-  Brain,
   Bug,
-  ChevronRight,
   FileText,
   FolderTree,
   ListChecks,
-  Loader2,
   Sparkles,
   AlertTriangle,
 } from "lucide-react";
-import type { AgentEvent, Message, ToolKind } from "@shared/types";
-import { selectEffectiveAgentId, useChatStore } from "../../stores/chat";
+import type { AgentEvent, Message, ToolKind, ToolResultImage } from "@shared/types";
+import {
+  selectCurrentMessages,
+  selectEffectiveAgentId,
+  useChatStore,
+} from "../../stores/chat";
+import { REVEAL_MESSAGE_EVENT } from "../../lib/chat-events";
 import { MarkdownRenderer } from "../ui/MarkdownRenderer";
 import { AgentAvatar, NovaAvatar } from "../ui/MessageAvatar";
 import { UserBubble } from "../ui/UserBubble";
 import { extractFileChanges } from "../../lib/tool-diff";
 import { markdownInterval, useThrottledValue } from "../../hooks/useThrottledValue";
 import { ToolCallCard } from "./ToolCallCard";
+import { ThinkingCard } from "./ThinkingCard";
 
 /** 欢迎卡上的示例：点击后填入输入框，由用户决定是否发送 */
 const SUGGESTIONS = [
@@ -62,22 +72,131 @@ const SUGGESTIONS = [
   },
 ];
 
+/** 首次只挂载最近多少条消息；更早的按需展开 */
+const INITIAL_MESSAGE_WINDOW = 120;
+/** 每次「载入更早」增加多少条 */
+const LOAD_EARLIER_STEP = 80;
+const VIEWPORT_ID = "chat-viewport";
+
 export function AssistantMessageList({
   onSuggestion,
 }: {
   onSuggestion?: (text: string) => void;
 } = {}) {
-  const messages = useChatStore((s) => s.messagesBySession[s.currentSessionId ?? ""] ?? []);
+  const currentSessionId = useChatStore((s) => s.currentSessionId);
+  const messages = useChatStore(selectCurrentMessages);
   const streaming = useChatStore(
     (s) => !!s.streamingBySession[s.currentSessionId ?? ""],
   );
-  const messageCount = messages.length;
+
+  /*
+   * 窗口化：只把最近一段消息交给 assistant-ui。
+   *
+   * 长会话下真正昂贵的是「转换 + 渲染所有历史消息」，仅靠 CSS 跳过绘制
+   * 并不能省掉 React/Markdown 的成本。这里默认只挂载最近 120 条，顶部
+   * 提供「载入更早」，既保留可回看能力，又让打开长会话的成本与长度无关。
+   */
+  const [windowStart, setWindowStart] = useState(() =>
+    Math.max(0, messages.length - INITIAL_MESSAGE_WINDOW),
+  );
+  /** 载入更早前的高度，用于抵消前插造成的滚动跳变 */
+  const prependHeightRef = useRef<number | null>(null);
+  /** 需要展开窗口后滚动到的消息 id（问题导航点击未挂载消息时） */
+  const revealIdRef = useRef<string | null>(null);
+  /** 记录已经为哪个会话初始化过窗口，避免每次消息增长都重置 */
+  const initializedSessionRef = useRef<string | null>(null);
+
+  const total = messages.length;
+  // 会话切换后的第一帧可能还用着上一个会话的 windowStart，先夹紧避免越界
+  const start = Math.min(windowStart, Math.max(0, total - 1));
+  const visibleMessages = useMemo(
+    () => messages.slice(start),
+    [messages, start],
+  );
+  const messageCount = visibleMessages.length;
+
+  // 会话切换 / 历史到达时，把窗口定位到「最近 N 条」
+  useEffect(() => {
+    if (!currentSessionId) {
+      initializedSessionRef.current = null;
+      return;
+    }
+    if (initializedSessionRef.current === currentSessionId) return;
+    if (messages.length === 0) return; // 等历史回放完成再定位
+    initializedSessionRef.current = currentSessionId;
+    setWindowStart(Math.max(0, messages.length - INITIAL_MESSAGE_WINDOW));
+  }, [currentSessionId, messages.length]);
+
+  const scrollToMessage = useCallback((id: string) => {
+    const viewport = document.getElementById(VIEWPORT_ID);
+    const element = viewport?.querySelector<HTMLElement>(
+      `[data-message-id="${id}"]`,
+    );
+    if (!viewport || !element) return;
+    const top =
+      element.getBoundingClientRect().top -
+      viewport.getBoundingClientRect().top +
+      viewport.scrollTop -
+      16;
+    viewport.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
+  }, []);
+
+  // 问题导航请求查看一条可能尚未挂载的消息
+  const revealStateRef = useRef({ messages, start });
+  revealStateRef.current = { messages, start };
+  useEffect(() => {
+    const onReveal = (event: Event) => {
+      const id = (event as CustomEvent<{ id?: string }>).detail?.id;
+      if (!id) return;
+
+      const current = revealStateRef.current;
+      const index = current.messages.findIndex((message) => message.id === id);
+      if (index < 0) return;
+
+      if (index >= current.start) {
+        scrollToMessage(id);
+        return;
+      }
+
+      // 目标在窗口之前：向前扩到目标附近，渲染完成后再滚动
+      revealIdRef.current = id;
+      setWindowStart(Math.max(0, index - 5));
+    };
+
+    window.addEventListener(REVEAL_MESSAGE_EVENT, onReveal);
+    return () => window.removeEventListener(REVEAL_MESSAGE_EVENT, onReveal);
+  }, [scrollToMessage]);
+
+  // 展开后滚动到目标消息（等 assistant-ui 完成一次渲染）
+  useEffect(() => {
+    const id = revealIdRef.current;
+    if (!id) return;
+    revealIdRef.current = null;
+    requestAnimationFrame(() => scrollToMessage(id));
+  }, [start, scrollToMessage]);
+
+  // 前插更早消息后抵消高度差，保持用户当前阅读位置
+  useLayoutEffect(() => {
+    const previousHeight = prependHeightRef.current;
+    if (previousHeight === null) return;
+    prependHeightRef.current = null;
+    const viewport = document.getElementById(VIEWPORT_ID);
+    if (!viewport) return;
+    viewport.scrollTop += viewport.scrollHeight - previousHeight;
+  }, [start]);
+
+  const loadEarlier = () => {
+    if (start <= 0) return;
+    const viewport = document.getElementById(VIEWPORT_ID);
+    prependHeightRef.current = viewport?.scrollHeight ?? null;
+    setWindowStart((current) => Math.max(0, current - LOAD_EARLIER_STEP));
+  };
 
   /*
    * convertMessage 必须保持引用稳定。
    *
    * assistant-ui 以 callback 引用作为转换缓存的失效条件：回调每次渲染都新建，
-   * 缓存就会整体丢弃，导致每来一个 token 都把**整个会话**重新转换一遍
+   * 缓存就会整体丢弃，导致每来一个 token 都把**整个窗口**重新转换一遍
    * （重建 part、序列化每个工具调用参数）。长会话下这是最主要的卡顿来源。
    */
   const convertMessage = useCallback(
@@ -87,7 +206,7 @@ export function AssistantMessageList({
   );
 
   const runtime = useExternalStoreRuntime<Message>({
-    messages,
+    messages: visibleMessages,
     isRunning: streaming,
     convertMessage,
     // 输入框仍由 Nova 管理，这里只借用 assistant-ui 的展示运行时。
@@ -97,7 +216,21 @@ export function AssistantMessageList({
   return (
     <AssistantRuntimeProvider runtime={runtime}>
       <ThreadPrimitive.Root className="relative h-full">
-        <ThreadPrimitive.Viewport className="ui-chat-scale ui-chat-gutter h-full overflow-y-auto py-4">
+        <ThreadPrimitive.Viewport
+          id={VIEWPORT_ID}
+          className="ui-chat-scale ui-chat-gutter h-full overflow-y-auto py-4"
+        >
+          {start > 0 && (
+            <div className="flex justify-center pb-3">
+              <button
+                type="button"
+                onClick={loadEarlier}
+                className="rounded-full border border-border/60 bg-surface-2/40 px-3 py-1 text-meta text-text-secondary transition-colors hover:border-accent/40 hover:text-accent"
+              >
+                载入更早的 {Math.min(start, LOAD_EARLIER_STEP)} 条消息
+              </button>
+            </div>
+          )}
           <ThreadPrimitive.Empty>
             <ThreadEmpty onSuggestion={onSuggestion} />
           </ThreadPrimitive.Empty>
@@ -142,23 +275,15 @@ function ThreadEmpty({
 
   return (
     <div className="flex min-h-full flex-col items-center justify-center px-4 py-8">
-      <div className="relative w-full max-w-[680px] overflow-hidden rounded-2xl border border-border/70 bg-surface-2/40 p-8 shadow-[var(--c-shadow-sm)]">
-        {/* 与待办页同一套渐变语言：主光在右上，左上斜向洗色 */}
+      <div className="relative w-full max-w-[680px] overflow-hidden rounded-2xl border border-border/60 bg-surface-2/40 p-8 shadow-[var(--c-shadow-sm)]">
+        {/* 编辑式空态：一条静态强调线代替渐变/光晕 */}
         <span
           aria-hidden
-          className="pointer-events-none absolute inset-0 bg-gradient-to-br from-accent/16 via-accent/[0.04] to-transparent"
-        />
-        <span
-          aria-hidden
-          className="pointer-events-none absolute -right-20 -top-24 h-56 w-56 rounded-full bg-accent/20 blur-3xl"
-        />
-        <span
-          aria-hidden
-          className="pointer-events-none absolute inset-x-10 top-0 h-px bg-gradient-to-r from-transparent via-accent/50 to-transparent"
+          className="pointer-events-none absolute inset-x-10 top-0 h-px bg-accent/30"
         />
 
         <div className="relative flex flex-col items-center text-center">
-          <div className="grid h-14 w-14 place-items-center rounded-2xl bg-accent text-accent-foreground shadow-[0_10px_30px_var(--c-accent-soft)]">
+          <div className="grid h-14 w-14 place-items-center rounded-2xl bg-accent text-accent-foreground shadow-[var(--c-shadow-sm)]">
             <Sparkles className="h-6 w-6" />
           </div>
 
@@ -261,47 +386,29 @@ function AnswerPart() {
    */
   const text = useThrottledValue(part.text, markdownInterval(part.text.length));
 
+  // 助手正文不再套气泡外框：正文直接落在内容列上，与输入框左右对齐
   return (
-    <div className="ui-bubble w-fit max-w-full bg-surface-2/60 px-4 py-3.5 text-text">
+    <div className="ui-cv-block w-full text-text">
       <MarkdownRenderer content={text} streaming={running} />
       {running && (
-        <span className="ml-0.5 inline-block h-3.5 w-1 animate-pulse rounded-full bg-accent align-middle" />
+        <div className="mt-2 flex items-center">
+          {/* 整句流光：让「正在工作」这件事在字面上持续流动 */}
+          <span className="shimmer shimmer-fast ui-serif text-body italic tracking-wide">
+            Nova is working...
+          </span>
+        </div>
       )}
     </div>
   );
 }
 
 function ReasoningPart() {
-  const [collapsed, setCollapsed] = useState(true);
   const part = useMessagePartReasoning();
   const running = part.status.type === "running";
   // 思考块默认折叠，展开时同样需要节流（原因见 AnswerPart）
   const text = useThrottledValue(part.text, markdownInterval(part.text.length, 120));
 
-  return (
-    <div className="max-w-full overflow-hidden rounded-xl border border-border/60 bg-surface-2/30">
-      <button
-        type="button"
-        onClick={() => setCollapsed((value) => !value)}
-        className="flex w-full items-center gap-2 px-3 py-2 text-left text-meta text-thinking transition-colors hover:bg-surface-hover/40 hover:text-text-secondary"
-      >
-        <Brain className="h-3.5 w-3.5 shrink-0" />
-        <span>思考过程</span>
-        {running && <Loader2 className="h-3 w-3 animate-spin text-text-muted" />}
-        <ChevronRight
-          className={`ml-auto h-3 w-3 text-text-muted transition-transform ${
-            collapsed ? "" : "rotate-90"
-          }`}
-        />
-      </button>
-
-      {!collapsed && (
-        <div className="max-h-60 overflow-auto border-t border-border/50 bg-thinking-bg/60 px-3.5 py-2.5 text-meta text-text-secondary">
-          <MarkdownRenderer content={text} streaming={running} />
-        </div>
-      )}
-    </div>
-  );
+  return <ThinkingCard text={text} running={running} />;
 }
 
 function ToolPart(props: ToolCallMessagePartProps) {
@@ -324,6 +431,7 @@ function ToolPart(props: ToolCallMessagePartProps) {
     () => extractFileChanges(props.toolName, props.args, kind, meta?.lineStarts),
     [props.toolName, props.args, kind, meta?.lineStarts],
   );
+  const resultImages = readResultImages(props.result);
 
   return (
     <ToolCallCard
@@ -333,6 +441,7 @@ function ToolPart(props: ToolCallMessagePartProps) {
       args={props.args}
       argsText={props.argsText}
       result={done ? stringifyToolResult(props.result) : undefined}
+      resultImages={resultImages}
       isError={hasError}
       running={running}
       changes={changes}
@@ -390,12 +499,16 @@ function assistantParts(
    * 一个，另一份会永久停在“进行中”。这里按 callId 收集已有结果，
    * 最后把仍未配对的同名调用一并补上结果（重复的那份也视为完成）。
    */
-  const resultsByCall = new Map<string, { output: string; isError?: boolean }>();
+  const resultsByCall = new Map<
+    string,
+    { output: string; isError?: boolean; images?: ToolResultImage[] }
+  >();
   for (const event of message.content) {
     if (event.type === "tool_result" && event.callId && !resultsByCall.has(event.callId)) {
       resultsByCall.set(event.callId, {
         output: event.output,
         isError: event.isError,
+        images: event.images,
       });
     }
   }
@@ -429,6 +542,7 @@ function assistantParts(
         const result = {
           output: event.output,
           isError: event.isError,
+          images: event.images,
         };
         if (index >= 0) {
           const part = parts[index];
@@ -530,6 +644,21 @@ function readToolTarget(args: unknown): string {
     if (typeof value === "string" && value) return value;
   }
   return "";
+}
+
+/** tool-call part 的 result 里携带的工具输出图片 */
+function readResultImages(result: unknown): ToolResultImage[] | undefined {
+  if (!result || typeof result !== "object") return undefined;
+  const images = (result as { images?: unknown }).images;
+  if (!Array.isArray(images)) return undefined;
+  const valid = images.filter(
+    (image): image is ToolResultImage =>
+      !!image &&
+      typeof image === "object" &&
+      typeof (image as { mediaType?: unknown }).mediaType === "string" &&
+      typeof (image as { data?: unknown }).data === "string",
+  );
+  return valid.length > 0 ? valid : undefined;
 }
 
 function stringifyToolResult(result: unknown): string {

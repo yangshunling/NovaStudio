@@ -555,8 +555,8 @@ export function KnowledgeView() {
                     uploading={uploading}
                   />
                 ) : (
-                  <div className="overflow-hidden rounded-xl border border-border/70 bg-surface-2/30 shadow-[var(--c-shadow-sm)]">
-                    <div className="sticky top-0 z-10 grid grid-cols-[28px_minmax(0,1fr)_90px_130px_36px] items-center gap-3 border-b border-border/70 bg-surface-2/85 px-3.5 py-2.5 text-caption font-semibold text-text-muted backdrop-blur-sm">
+                  <div className="overflow-hidden rounded-xl border border-border/60 bg-surface-2/40 shadow-[var(--c-shadow-sm)]">
+                    <div className="sticky top-0 z-10 grid grid-cols-[28px_minmax(0,1fr)_90px_130px_36px] items-center gap-3 border-b border-border/60 bg-surface-2/85 px-3.5 py-2.5 text-caption font-semibold text-text-muted backdrop-blur-sm">
                       <input
                         type="checkbox"
                         checked={allSelected}
@@ -584,7 +584,7 @@ export function KnowledgeView() {
                       return (
                         <div
                           key={document.relativePath}
-                          className={`group grid grid-cols-[28px_minmax(0,1fr)_90px_130px_36px] items-center gap-3 border-b border-border/40 px-3.5 py-2.5 transition-colors last:border-b-0 ${
+                          className={`ui-cv-row group grid grid-cols-[28px_minmax(0,1fr)_90px_130px_36px] items-center gap-3 border-b border-border/40 px-3.5 py-2.5 transition-colors last:border-b-0 ${
                             checked
                               ? "bg-accent-soft/50"
                               : "hover:bg-surface-hover/50"
@@ -663,7 +663,7 @@ export function KnowledgeView() {
                               void handleDeleteDocuments([document.relativePath])
                             }
                             title="删除"
-                            className="rounded-lg p-1.5 text-text-muted opacity-0 transition-colors hover:bg-error-bg hover:text-error group-hover:opacity-100"
+                            className="rounded-lg p-1.5 text-text-muted opacity-0 transition-colors hover:bg-error-bg hover:text-error focus-visible:opacity-100 group-hover:opacity-100 group-focus-within:opacity-100"
                           >
                             <Trash2 className="h-3.5 w-3.5" />
                           </button>
@@ -676,7 +676,7 @@ export function KnowledgeView() {
 
               {/* 批量操作条 */}
               {selectedPaths.size > 0 && !searchingNow && (
-                <div className="flex shrink-0 items-center justify-between gap-3 border-t border-border bg-surface-2/70 px-card py-2">
+                <div className="flex shrink-0 items-center justify-between gap-3 border-t border-border bg-surface-2/40 px-card py-2">
                   <span className="text-meta text-text-secondary">
                     已选 {selectedPaths.size} 项
                   </span>
@@ -857,7 +857,7 @@ function SearchResults({
           key={`${hit.kbId}:${hit.relativePath}`}
           type="button"
           onClick={() => onOpen(hit.kbId, hit.relativePath)}
-          className="flex w-full items-start gap-3 rounded-xl border border-border bg-surface-2/40 p-3 text-left transition-colors hover:border-border-strong hover:bg-surface-2/70"
+          className="flex w-full items-start gap-3 rounded-xl border border-border bg-surface-2/40 p-3 text-left transition-colors hover:border-border-strong hover:bg-surface-2/40"
         >
           <FileTypeIcon name={hit.relativePath} size={20} className="mt-0.5 shrink-0" />
           <div className="min-w-0 flex-1">
@@ -1046,7 +1046,7 @@ function KnowledgePreview({
             {error}
           </div>
         ) : !textual ? (
-          <div className="flex items-start gap-2 rounded-lg border border-border bg-surface-2/60 p-3 text-body text-text-secondary">
+          <div className="flex items-start gap-2 rounded-lg border border-border bg-surface-2/40 p-3 text-body text-text-secondary">
             <FileText className="mt-0.5 h-4 w-4 shrink-0 text-text-muted" />
             <div>
               这是非文本格式，无法在 Nova 内预览或编辑。请使用右上角「用系统程序打开」查看，
@@ -1056,7 +1056,7 @@ function KnowledgePreview({
         ) : (
           <div className="flex min-h-0 flex-1 flex-col">
             {meta?.truncated && (
-              <div className="mb-2 shrink-0 rounded-lg border border-border bg-surface-2/60 p-3 text-meta text-text-muted">
+              <div className="mb-2 shrink-0 rounded-lg border border-border bg-surface-2/40 p-3 text-meta text-text-muted">
                 文档超过 2MB，这里只展示前 2MB 内容，已禁止在 Nova 内保存；
                 完整内容请用系统程序打开。
               </div>

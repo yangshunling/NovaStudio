@@ -18,6 +18,7 @@ import {
   FolderKanban,
   ListTodo,
   MessageSquare,
+  MessageSquareText,
   Plug,
   Settings,
   Sparkles,
@@ -25,7 +26,6 @@ import {
   Waypoints,
   Workflow,
 } from "lucide-react";
-import logoUrl from "../../assets/logo.png";
 import { ThemeToggle } from "./ThemeToggle";
 
 /** 导航项字号 */
@@ -46,6 +46,8 @@ export function Sidebar() {
   const activeRunsRef = useRef<WorkflowRun[]>([]);
   activeRunsRef.current = activeRuns;
   const knownAwaiting = useRef<Set<string> | null>(null);
+  /** 刷新失败只提示一次：否则 3 秒一次的轮询会不断刷屏 */
+  const errorReported = useRef(false);
 
   useEffect(() => {
     let alive = true;
@@ -56,6 +58,7 @@ export function Sidebar() {
         const runs = await ipc.listActiveWorkflowRuns();
         if (!alive) return;
         setActiveRuns(runs);
+        errorReported.current = false;
 
         const awaiting = new Set(
           runs
@@ -72,7 +75,11 @@ export function Sidebar() {
           if (hasNew) toast.info("有工作流节点等待审核");
         }
       } catch {
-        // 提示失败不影响导航
+        // 状态刷新失败不能静默：用户会以为没有运行中的工作流
+        if (!errorReported.current) {
+          errorReported.current = true;
+          toast.error("工作流运行状态刷新失败，正在显示上次结果", 5000);
+        }
       }
     };
 
@@ -126,23 +133,17 @@ export function Sidebar() {
 
   return (
     <aside className="ui-sidebar relative flex h-full w-[var(--c-layout-sidebar)] flex-col border-r-0">
-      {/* 头部：品牌 */}
+      {/* 头部：艺术字品牌（无 logo / 图标） */}
       <div
         style={{ zIndex: 30 }}
-        className="relative flex h-[var(--c-layout-header)] items-center justify-between gap-2 border-b border-border px-4"
+        className="relative flex h-[var(--c-layout-header)] items-center justify-between gap-2 overflow-hidden border-b border-border px-3"
       >
-        <div className="flex min-w-0 items-center gap-2">
-          <img
-            src={logoUrl}
-            alt="Nova Studio"
-            className="h-8 w-8 shrink-0 rounded-lg object-cover"
-          />
-          {/* 标题与 logo / 切换按钮共用 32px 行盒，并压掉多余行高，
-              避免文字行盒高度与图标不一致导致视觉上偏上。 */}
-          <span className="flex h-8 min-w-0 items-center">
-            <span className="min-w-0 truncate text-title font-semibold leading-none tracking-wide text-text">
-              Nova Studio
-            </span>
+        {/* 刊头式座右铭：斜体衬线引子 + 正体粗字主词，单行排布。
+            高端感来自真实斜体、字重对比与留白，不用渐变 / 光晕 / 装饰。 */}
+        <div className="relative flex min-w-0 items-center">
+          <span className="select-none whitespace-nowrap font-display text-hero leading-none tracking-tight text-text">
+            <span className="font-normal italic text-text-secondary">Work is</span>{" "}
+            <span className="font-bold">Agentic</span>
           </span>
         </div>
         <ThemeToggle />
@@ -243,6 +244,14 @@ export function Sidebar() {
       <div className="space-y-1 px-2.5 pb-2">
         <button
           type="button"
+          onClick={() => setViewMode("mcp")}
+          className={itemClass(viewMode === "mcp")}
+        >
+          <Plug className="h-4 w-4 shrink-0" />
+          MCP
+        </button>
+        <button
+          type="button"
           onClick={() => setViewMode("skills")}
           className={itemClass(viewMode === "skills")}
         >
@@ -251,11 +260,11 @@ export function Sidebar() {
         </button>
         <button
           type="button"
-          onClick={() => setViewMode("mcp")}
-          className={itemClass(viewMode === "mcp")}
+          onClick={() => setViewMode("prompts")}
+          className={itemClass(viewMode === "prompts")}
         >
-          <Plug className="h-4 w-4 shrink-0" />
-          MCP
+          <MessageSquareText className="h-4 w-4 shrink-0" />
+          提示词
         </button>
         <button
           type="button"

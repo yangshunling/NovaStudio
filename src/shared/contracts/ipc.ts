@@ -27,6 +27,8 @@ import type {
   McpWriteResult,
   OpenFileExternalResult,
   Project,
+  PromptDraft,
+  PromptItem,
   ReadEmbeddedImageResult,
   ReadFileResult,
   Session,
@@ -449,6 +451,18 @@ export interface IpcInvokeMap {
   "todos:clearCompleted": { args: []; result: number };
   /** 按传入顺序重写 sort_order（同一分组内拖动） */
   "todos:reorder": { args: [{ ids: string[] }]; result: boolean };
+
+  /** 常用提示词：列表 / 新建 / 更新 / 删除 */
+  "prompts:list": { args: []; result: PromptItem[] };
+  "prompts:create": {
+    args: [{ draft: PromptDraft }];
+    result: PromptItem;
+  };
+  "prompts:update": {
+    args: [{ id: string; draft: PromptDraft }];
+    result: PromptItem | null;
+  };
+  "prompts:delete": { args: [{ id: string }]; result: boolean };
 }
 
 /** 主进程 → 渲染进程（push）通道表。事件均带 sessionId，供多会话并发路由。 */

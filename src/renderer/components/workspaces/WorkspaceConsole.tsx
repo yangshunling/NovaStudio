@@ -179,7 +179,7 @@ export function WorkspaceConsole({
                 type="button"
                 onClick={() => onTabChange("git")}
                 title="查看 Git 状态 / 切换分支"
-                className="flex h-9 max-w-56 items-center gap-1.5 rounded-full border border-border/70 bg-surface-2/50 px-3 text-meta text-text-secondary transition-colors hover:border-accent/35 hover:text-text"
+                className="flex h-9 max-w-56 items-center gap-1.5 rounded-full border border-border/60 bg-surface-2/50 px-3 text-meta text-text-secondary transition-colors hover:border-accent/35 hover:text-text"
               >
                 <GitBranch className="h-3.5 w-3.5 shrink-0 text-accent" />
                 <span className="min-w-0 truncate font-mono">

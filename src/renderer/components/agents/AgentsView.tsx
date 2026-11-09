@@ -487,7 +487,7 @@ export function AgentsView() {
       />
 
       <div className="flex min-h-0 flex-1">
-          <aside className="flex w-60 shrink-0 flex-col overflow-y-auto border-r border-border bg-surface-2/30 p-3">
+          <aside className="flex w-60 shrink-0 flex-col overflow-y-auto border-r border-border bg-surface-2/40 p-3">
             <div className="flex items-center justify-between px-1 pb-2">
               <span className="text-meta font-semibold tracking-wide text-text-muted">
                 已检测到的 Agent
@@ -813,23 +813,15 @@ function AgentStatusCard({
     : "跟随默认";
 
   return (
-    <section className="relative overflow-hidden rounded-2xl border border-border/70 bg-surface-2/40 p-5">
+    <section className="relative overflow-hidden rounded-2xl border border-border/60 bg-surface-2/40 p-5">
       <span
         aria-hidden
-        className="pointer-events-none absolute inset-0 bg-gradient-to-br from-accent/18 via-accent/[0.04] to-transparent"
-      />
-      <span
-        aria-hidden
-        className="pointer-events-none absolute -right-24 -top-28 h-64 w-64 rounded-full bg-accent/20 blur-3xl"
-      />
-      <span
-        aria-hidden
-        className="pointer-events-none absolute inset-x-10 top-0 h-px bg-gradient-to-r from-transparent via-accent/50 to-transparent"
+        className="pointer-events-none absolute inset-x-10 top-0 h-px bg-accent/30"
       />
 
       <div className="relative flex flex-wrap items-center justify-between gap-x-8 gap-y-4">
         <div className="flex min-w-0 items-center gap-3.5">
-          <span className="grid h-12 w-12 shrink-0 place-items-center rounded-xl bg-accent text-accent-foreground shadow-[0_8px_24px_var(--c-accent-soft)]">
+          <span className="grid h-12 w-12 shrink-0 place-items-center rounded-xl bg-accent text-accent-foreground shadow-[var(--c-shadow-sm)]">
             <Bot className="h-5 w-5" />
           </span>
           <div className="min-w-0">
@@ -918,7 +910,7 @@ function SectionCard({
   return (
     <section
       id={id}
-      className="scroll-mt-14 rounded-xl border border-border/70 bg-surface-2/40 p-5 shadow-[var(--c-shadow-sm)]"
+      className="scroll-mt-14 rounded-xl border border-border/60 bg-surface-2/40 p-5 shadow-[var(--c-shadow-sm)]"
     >
       <div className="mb-4 flex items-start justify-between gap-3">
         <div className="flex min-w-0 items-start gap-3">

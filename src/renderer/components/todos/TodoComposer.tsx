@@ -83,7 +83,7 @@ export function TodoComposer({
   return (
     <div
       className={`overflow-hidden rounded-xl border bg-surface-2/40 shadow-[var(--c-shadow-sm)] transition-[border-color,box-shadow] focus-within:border-accent/50 focus-within:shadow-[0_0_0_3px_var(--c-accent-soft)] ${
-        expanded ? "border-accent/40" : "border-border/70"
+        expanded ? "border-accent/40" : "border-border/60"
       }`}
     >
       <div className="flex items-center gap-2.5 px-3.5 py-2.5">

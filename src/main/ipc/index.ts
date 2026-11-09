@@ -34,6 +34,7 @@ import { registerWorkflowHandlers } from "./handlers/workflow";
 import { registerWorkflowRunHandlers } from "./handlers/workflow-run";
 import { registerTriggerHandlers } from "./handlers/trigger";
 import { registerTodoHandlers } from "./handlers/todo";
+import { registerPromptHandlers } from "./handlers/prompt";
 import { registerGitHandlers } from "./handlers/git";
 import { registerUpdaterHandlers } from "./handlers/updater";
 import { registerAppHandlers } from "./handlers/app";
@@ -108,6 +109,7 @@ export function initIpcHandlers(window: BrowserWindow): void {
   registerWorkflowRunHandlers(service, runner);
   registerTriggerHandlers();
   registerTodoHandlers();
+  registerPromptHandlers();
   registerGitHandlers();
   registerUpdaterHandlers();
   registerAppHandlers();
@@ -143,8 +145,12 @@ export function stopTriggers(): void {
   triggerScheduler = null;
 }
 
-/** 中断聊天 / 自动化等所有运行中的 Agent 会话（应用退出时调用） */
-export function stopAgents(): void {
-  agentService?.shutdown();
+/**
+ * 中断聊天 / 自动化等所有运行中的 Agent 会话（应用退出时调用）。
+ * 返回 Promise：调用方必须在关库前 await，保证消息落库完成。
+ */
+export async function stopAgents(): Promise<void> {
+  const service = agentService;
   agentService = null;
+  if (service) await service.shutdown();
 }

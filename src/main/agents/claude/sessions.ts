@@ -17,11 +17,16 @@
  * 这些文件系统细节全部收敛在本文件，宿主不感知。
  */
 
-import { existsSync, readFileSync, readdirSync, rmSync, rmdirSync, statSync } from "fs";
+import { readFile, readdir, rm, rmdir, stat } from "fs/promises";
 import { dirname, join } from "path";
 import { homedir } from "os";
 import type { AgentEvent, Message } from "../../../shared/types";
-import { mapAssistantBlocks, mapToolResultBlocks, type CallNames } from "./parse";
+import {
+  mapAssistantBlocks,
+  mapSystemRecord,
+  mapToolResultBlocks,
+  type CallNames,
+} from "./parse";
 import { lineOfText } from "./file-lines";
 
 /**
@@ -45,44 +50,54 @@ function encodeCwd(cwd: string): string {
  *    （同一个盘符可能写成 C-- 也可能写成 c--），所以不能只靠字符串相等；
  *    会话 uuid 全局唯一，按文件名扫描不会误命中。
  */
-export function locateSessionFile(
+export async function locateSessionFile(
   cwd: string,
   sessionId: string,
   configDir?: string | null,
-): string | null {
+): Promise<string | null> {
   if (!cwd || !sessionId) return null;
   if (!SESSION_ID_PATTERN.test(sessionId)) return null;
   const root = projectsRoot(configDir);
   const file = `${sessionId}.jsonl`;
 
   const fast = join(root, encodeCwd(cwd), file);
-  if (existsSync(fast)) return fast;
+  if (await exists(fast)) return fast;
 
   let dirs: string[] = [];
   try {
-    dirs = readdirSync(root);
+    dirs = await readdir(root);
   } catch {
     return null;
   }
   for (const dir of dirs) {
     const candidate = join(root, dir, file);
-    if (existsSync(candidate)) return candidate;
+    if (await exists(candidate)) return candidate;
   }
   return null;
 }
 
 /** 文件版本号（mtime），供历史缓存失效使用；引用定位不到时返回 null */
-export function fileVersion(
+export async function fileVersion(
   ref: string,
   cwd: string,
   configDir?: string | null,
-): string | null {
-  const file = locateSessionFile(cwd, ref, configDir);
+): Promise<string | null> {
+  const file = await locateSessionFile(cwd, ref, configDir);
   if (!file) return null;
   try {
-    return String(statSync(file).mtimeMs);
+    const info = await stat(file);
+    return String(info.mtimeMs);
   } catch {
     return null;
+  }
+}
+
+async function exists(path: string): Promise<boolean> {
+  try {
+    await stat(path);
+    return true;
+  } catch {
+    return false;
   }
 }
 
@@ -117,6 +132,17 @@ interface ClaudeSessionEntry {
   timestamp?: string;
   /** 子代理（Task 工具）产生的对话，不属于主对话 */
   isSidechain?: boolean;
+  /** 系统注入的用户消息（local-command-caveat、图片尺寸说明等），不是用户发言 */
+  isMeta?: boolean;
+  /** 上下文压缩摘要，不是用户输入 */
+  isCompactSummary?: boolean;
+  /** API 错误的 assistant 记录：正文是错误信息，应显示为错误而不是普通发言 */
+  isApiErrorMessage?: boolean;
+  error?: unknown;
+  /** system 记录：api_error / informational 等子类型及其正文 */
+  subtype?: unknown;
+  content?: unknown;
+  level?: unknown;
   message?: { role?: string; content?: unknown };
   toolUseResult?: ClaudeToolUseResult;
 }
@@ -127,17 +153,17 @@ interface ClaudeSessionEntry {
  * （与流式时 tool_result 紧跟 tool_call 的呈现一致）。
  * 文件缺失或解析失败返回空数组。
  */
-export function readHistory(
+export async function readHistory(
   ref: string,
   cwd: string,
   configDir?: string | null,
-): Message[] {
-  const file = locateSessionFile(cwd, ref, configDir);
+): Promise<Message[]> {
+  const file = await locateSessionFile(cwd, ref, configDir);
   if (!file) return [];
 
   let raw: string;
   try {
-    raw = readFileSync(file, "utf8");
+    raw = await readFile(file, "utf8");
   } catch {
     return [];
   }
@@ -157,10 +183,14 @@ export function readHistory(
     }
     if (entry.isSidechain) continue; // 子代理对话不进主视图
     const content = entry.message?.content;
-    if (content === undefined) continue;
+    // system 记录的正文在顶层 content，不在 message 里
+    if (content === undefined && entry.type !== "system") continue;
     const timestamp = entry.timestamp ? Date.parse(entry.timestamp) : Date.now();
 
     if (entry.type === "user") {
+      // 系统注入的 meta 消息与压缩摘要都不是用户发言，混进对话只会制造噪声
+      if (entry.isMeta || entry.isCompactSummary) continue;
+
       if (typeof content === "string") {
         messages.push({
           id: entry.uuid ?? "",
@@ -169,14 +199,44 @@ export function readHistory(
           timestamp,
         });
         lastAssistant = null;
-      } else if (lastAssistant) {
-        // 数组内容 = 工具回执；顺带把结构化结果里的真实行号补到对应调用上
-        lastAssistant.content.push(...mapToolResultBlocks(content, names));
-        // 并行工具调用的回执可能晚于后续 assistant 记录到达，所以按 callId
-        // 在整个已回放的消息里找，而不是只在最后一条消息里找
-        attachLineStarts(messages, content, entry.toolUseResult);
+      } else if (Array.isArray(content)) {
+        // 数组内容里既可能是工具回执，也可能是真实用户输入：
+        // 带图提问的正文、以及「Request interrupted by user」这类中断标记都放在这里。
+        // 之前只取 tool_result，导致这些记录整段丢失。
+        const text = userTextBlocks(content);
+        if (text) {
+          messages.push({
+            id: entry.uuid ?? "",
+            role: "user",
+            content: [{ type: "text", content: text }],
+            timestamp,
+          });
+        }
+        if (lastAssistant) {
+          // 工具回执追加到最后一条 assistant 消息；顺带把结构化结果里的真实行号
+          // 补到对应调用上。并行工具调用的回执可能晚于后续 assistant 记录到达，
+          // 所以按 callId 在整个已回放的消息里找。
+          lastAssistant.content.push(...mapToolResultBlocks(content, names));
+          attachLineStarts(messages, content, entry.toolUseResult);
+        }
+        if (text) lastAssistant = null;
       }
     } else if (entry.type === "assistant") {
+      // API 错误记录：正文是错误信息，显示成普通助手发言会被误读成模型输出
+      if (entry.isApiErrorMessage || typeof entry.error === "string") {
+        const errorText = assistantErrorText(entry);
+        if (errorText) {
+          messages.push({
+            id: entry.uuid ?? "",
+            role: "assistant",
+            content: [{ type: "error", message: errorText }],
+            timestamp,
+          });
+        }
+        lastAssistant = null;
+        continue;
+      }
+
       const blocks: AgentEvent[] = mapAssistantBlocks(content, names);
       // 整条只剩不展示的工具（Bash 等）时，块为空；与流式时不发事件保持一致，
       // 不进消息流（否则会多出一个空气泡）
@@ -189,10 +249,53 @@ export function readHistory(
       };
       messages.push(message);
       lastAssistant = message;
+    } else if (entry.type === "system") {
+      // api_error / informational：错误或提示要进历史，否则用户只看到对话“莫名中断”。
+      // 追加到上一条 assistant 消息后，没有则单独成条；不改变 lastAssistant，
+      // 避免后续 tool_result 错挂到提示消息上。
+      const event = mapSystemRecord(entry);
+      if (!event) continue;
+      if (lastAssistant) {
+        lastAssistant.content.push(event);
+      } else {
+        messages.push({
+          id: entry.uuid ?? "",
+          role: "assistant",
+          content: [event],
+          timestamp,
+        });
+      }
     }
     // attachment / queue-operation / atis-latch 等系统记录跳过
   }
   return messages;
+}
+
+/** user 数组 content 里的 text 块：带图提问的正文、中断标记等真实用户输入 */
+function userTextBlocks(content: unknown[]): string {
+  const parts: string[] = [];
+  for (const block of content) {
+    if (block && typeof block === "object") {
+      const record = block as { type?: unknown; text?: unknown };
+      if (record.type === "text" && typeof record.text === "string" && record.text) {
+        parts.push(record.text);
+      }
+    }
+  }
+  return parts.join("\n").trim();
+}
+
+/** API 错误 assistant 记录的错误文案：优先取 content 里的 text 块，其次取 error 字段 */
+function assistantErrorText(entry: ClaudeSessionEntry): string {
+  const content = entry.message?.content;
+  if (typeof content === "string") return content.trim();
+  if (Array.isArray(content)) {
+    const text = userTextBlocks(content);
+    if (text) return text;
+  }
+  return typeof entry.error === "string" && entry.error
+    ? `API 错误（${entry.error}）`
+    : "";
 }
 
 /**
@@ -296,22 +399,22 @@ function hunkStartLine(hunk: ClaudePatchHunk | null | undefined): number | null 
  * 只删这一个文件；父目录仅在「空目录」时移除（rmdir 对非空目录会抛错并被忽略）。
  * 绝不做递归删除 —— 同一目录下可能存在其他会话文件。
  */
-export function deleteSession(
+export async function deleteSession(
   ref: string,
   cwd: string,
   configDir?: string | null,
-): void {
-  const file = locateSessionFile(cwd, ref, configDir);
-  if (!file || !existsSync(file)) return;
+): Promise<void> {
+  const file = await locateSessionFile(cwd, ref, configDir);
+  if (!file || !(await exists(file))) return;
 
   try {
-    rmSync(file, { force: true });
+    await rm(file, { force: true });
   } catch {
     // 清理失败不阻断主流程
   }
 
   try {
-    rmdirSync(dirname(file));
+    await rmdir(dirname(file));
   } catch {
     // 目录非空或不存在：保留
   }

@@ -96,7 +96,7 @@ export function TodoCalendar({
   };
 
   return (
-    <section className="rounded-2xl border border-border/70 bg-surface-2/40 p-4 shadow-[var(--c-shadow-sm)]">
+    <section className="rounded-2xl border border-border/60 bg-surface-2/40 p-4 shadow-[var(--c-shadow-sm)]">
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-0.5">
           <button
@@ -191,7 +191,7 @@ export function TodoCalendar({
         })}
       </div>
 
-      <p className="mt-3 border-t border-border/50 pt-2.5 text-caption leading-relaxed text-text-muted">
+      <p className="mt-3 border-t border-border/60 pt-2.5 text-caption leading-relaxed text-text-muted">
         圆点表示当天有截止任务；点日期可只看当天。
       </p>
     </section>

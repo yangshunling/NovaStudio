@@ -163,6 +163,8 @@ export function WorkflowsView() {
   const [runsRefresh, setRunsRefresh] = useState(0);
   const runsRef = useRef<WorkflowRun[]>([]);
   runsRef.current = runs;
+  /** 运行状态刷新失败只提示一次，避免 2.5 秒轮询反复刷屏 */
+  const runsErrorReported = useRef(false);
 
   const [creatingWorkflow, setCreatingWorkflow] = useState(false);
   const [newName, setNewName] = useState("");
@@ -297,13 +299,21 @@ export function WorkflowsView() {
     }
     let alive = true;
     let debounce: ReturnType<typeof setTimeout> | null = null;
+    // 切换工作区后重新允许提示一次失败，避免上一次的静默状态带到新列表
+    runsErrorReported.current = false;
 
     const load = async () => {
       try {
         const list = await ipc.listWorkspaceRuns(effectiveWorkspaceId);
-        if (alive) setRuns(list);
+        if (!alive) return;
+        setRuns(list);
+        runsErrorReported.current = false;
       } catch {
-        // 卡片状态不是核心路径，读取失败时保持上一次快照
+        // 读取失败时保留上一次快照，但要让用户知道状态可能已过期
+        if (alive && !runsErrorReported.current) {
+          runsErrorReported.current = true;
+          toast.error("运行状态刷新失败，正在显示上次结果", 5000);
+        }
       }
     };
 

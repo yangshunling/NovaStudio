@@ -18,6 +18,7 @@ import type {
   AppSettings,
   DigitalEmployeeDraft,
   McpServerDraft,
+  PromptDraft,
   SkillImportKind,
   TodoDraft,
   WorkflowDraft,
@@ -275,6 +276,13 @@ export const ipc = {
   deleteTodo: (id: string) => call("todos:delete", { id }),
   clearCompletedTodos: () => call("todos:clearCompleted"),
   reorderTodos: (ids: string[]) => call("todos:reorder", { ids }),
+
+  // === 常用提示词 ===
+  listPrompts: () => call("prompts:list"),
+  createPrompt: (draft: PromptDraft) => call("prompts:create", { draft }),
+  updatePrompt: (id: string, draft: PromptDraft) =>
+    call("prompts:update", { id, draft }),
+  deletePrompt: (id: string) => call("prompts:delete", { id }),
 
   // === 主进程推送订阅（返回取消订阅函数） ===
   on: {

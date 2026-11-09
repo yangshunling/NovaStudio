@@ -40,22 +40,27 @@ export function Field({
   label,
   hint,
   required,
+  className = "",
   children,
 }: {
   label: string;
   hint?: string;
   required?: boolean;
+  /** 额外类名：需要字段撑满剩余高度时传 flex-1 */
+  className?: string;
   children: ReactNode;
 }) {
   return (
-    <div>
-      <div className="mb-1.5 flex items-center gap-1 text-meta font-medium text-text-secondary">
+    <div className={className.trim()}>
+      <div className="mb-1.5 flex shrink-0 items-center gap-1 text-meta font-medium text-text-secondary">
         {label}
         {required && <span className="text-error">*</span>}
       </div>
       {children}
       {hint && (
-        <p className="mt-1 text-meta leading-relaxed text-text-muted">{hint}</p>
+        <p className="mt-1 shrink-0 text-meta leading-relaxed text-text-muted">
+          {hint}
+        </p>
       )}
     </div>
   );

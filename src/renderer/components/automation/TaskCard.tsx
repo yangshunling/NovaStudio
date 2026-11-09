@@ -47,7 +47,7 @@ export function TaskCard({
 
   return (
     <div
-      className={`group relative rounded-xl border border-border border-l-[3px] ${borderColor} bg-surface-2/60 p-card shadow-[var(--c-shadow-sm)] backdrop-blur-sm transition-all hover:-translate-y-0.5 hover:bg-surface-2/80 ${
+      className={`group relative rounded-xl border border-border border-l-[3px] ${borderColor} bg-surface-2/40 p-card shadow-[var(--c-shadow-sm)] backdrop-blur-sm transition-all hover:-translate-y-0.5 hover:bg-surface-2/80 ${
         canViewDetail ? "cursor-pointer" : ""
       }`}
       onClick={() => canViewDetail && onViewDetail()}
@@ -103,7 +103,9 @@ export function TaskCard({
       {canDelete && (
         <div
           className={`absolute right-2 top-2 flex items-center gap-1 transition-opacity ${
-            isFailed ? "opacity-100" : "opacity-0 group-hover:opacity-100"
+            isFailed
+              ? "opacity-100"
+              : "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100"
           }`}
         >
           {isFailed && (

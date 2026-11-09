@@ -29,6 +29,8 @@ import { FolderTypeIcon } from "../ui/FolderTypeIcon";
 // ============================================================================
 
 interface UseFileMentionOpts {
+  /** 草稿归属（会话 id / 新会话桶）；切换时清空文件引用 */
+  draftKey: string;
   /** 绑定的工作区 id；空字符串表示未绑定，不启用 @ 提及 */
   projectId: string;
   input: string;
@@ -37,6 +39,7 @@ interface UseFileMentionOpts {
 }
 
 export function useFileMention({
+  draftKey,
   projectId,
   input,
   setInput,
@@ -111,6 +114,17 @@ export function useFileMention({
     setRawItems([]);
     setReferences([]);
   }, [projectId]);
+
+  // ---- 切换会话时清空已引用文件 ----
+  // 文件引用属于当前草稿：切到别的会话后如果继续保留，会跟着草稿一起
+  // 被误发到另一个上下文里。这里只清引用，不动项目文件缓存。
+  useEffect(() => {
+    setReferences([]);
+    setMentionQuery(null);
+    setRawItems([]);
+    loadedSubPathRef.current = null;
+    setHoverIdx(0);
+  }, [draftKey]);
 
   // ---- 客户端过滤 ----
   const items = useMemo(() => {

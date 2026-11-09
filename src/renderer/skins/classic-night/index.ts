@@ -13,5 +13,6 @@ export const variant: SkinVariant = {
   description: "黑色调、GitHub 深蓝、夜间护眼",
   appearance: "dark",
   codeTheme: "github-dark",
-  order: 20,
+  // 排序最靠前 = 默认皮肤：新装或未保存主题时进入夜间
+  order: 5,
 };

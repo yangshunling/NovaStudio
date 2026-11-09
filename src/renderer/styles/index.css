@@ -122,6 +122,7 @@
   --font-sans: var(--c-font-sans);
   --font-mono: var(--c-font-mono);
   --font-serif: var(--c-font-serif);
+  --font-display: var(--c-font-display);
 
   /* 字号量表：text-micro / text-caption / text-meta / text-body / ... */
   --text-micro: var(--c-font-size-micro);
@@ -177,6 +178,41 @@ body {
   color: var(--c-text);
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
+}
+
+/* === 键盘焦点（全局兜底） ===
+ *
+ * 组件里大量 `outline-none` 是为了去掉鼠标点击时的系统描边，但键盘用户因此
+ * 完全看不到焦点位置。这里给所有可交互元素补一个统一焦点环：本文件未分层，
+ * 优先级高于 Tailwind 的 utilities 层，因此能覆盖 `outline-none`；
+ * 组件自己的 `.ui-btn:focus-visible` 仍可覆盖颜色与偏移。
+ */
+:where(
+  button,
+  [role="button"],
+  a[href],
+  summary,
+  [role="menuitem"],
+  [tabindex]:not([tabindex="-1"])
+):focus-visible {
+  outline: 2px solid var(--c-accent);
+  outline-offset: 2px;
+}
+
+/* === 减少动效 ===
+ *
+ * 尊重系统设置：关闭循环动画与过渡，保留最终状态。单独写在组件里的
+ * prefers-reduced-motion 规则仍然兼容，这里是兜底。
+ */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }
 
 /* === 滚动条 === */
@@ -413,6 +449,24 @@ body {
   box-shadow: var(--c-ring-shadow);
 }
 
+/* ============================================================================
+ * 长列表 / 长消息的离屏渲染优化
+ *
+ * content-visibility:auto 让浏览器跳过离屏元素的布局与绘制。它不会跳过
+ * React 渲染，因此这是「廉价虚拟化」而不是完整窗口化：适合会话 / 文档 /
+ * 文件 / 运行记录这类可能上千行的列表，能明显降低滚动与首屏的浏览器侧开销。
+ * 元素进入视口后会换回真实高度，不改变最终布局。
+ * ========================================================================== */
+.ui-cv-row {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 44px;
+}
+
+.ui-cv-block {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 64px;
+}
+
 /* 助手正文气泡 */
 .ui-bubble {
   border-radius: var(--c-radius-bubble);
@@ -556,20 +610,65 @@ body {
 }
 
 /* ============================================================================
+ * 加载圆环（Material 风格不定进度）
+ *
+ * 底环保持低透明度作为轨道，前景弧线一边旋转一边伸缩：
+ * 比「匀速转一圈」的图标更像系统级的等待反馈。
+ * ============================================================================ */
+.ui-spinner {
+  animation: spinner-rotate 2.2s linear infinite;
+}
+
+.ui-spinner-arc {
+  animation: spinner-arc 2.2s ease-in-out infinite;
+}
+
+@keyframes spinner-rotate {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes spinner-arc {
+  0% {
+    stroke-dasharray: 1 150;
+    stroke-dashoffset: 0;
+  }
+  50% {
+    stroke-dasharray: 90 150;
+    stroke-dashoffset: -35;
+  }
+  100% {
+    stroke-dasharray: 90 150;
+    stroke-dashoffset: -124;
+  }
+}
+
+/* ============================================================================
  * 流光动画（流式状态指示器）
  * ============================================================================ */
 .shimmer {
+  /* 静止段保持中性灰，高光段用全站唯一的强调蓝：
+     光带经过时有一个明确的色相变化，而不是只在灰度里微调。 */
   background: linear-gradient(
     90deg,
     var(--c-text-muted) 0%,
-    var(--c-text-secondary) 50%,
+    var(--c-text-secondary) 38%,
+    var(--c-accent) 50%,
+    var(--c-text-secondary) 62%,
     var(--c-text-muted) 100%
   );
-  background-size: 200% 100%;
+  background-size: 250% 100%;
   animation: shimmer var(--c-motion-loop) linear infinite;
   -webkit-background-clip: text;
   background-clip: text;
   -webkit-text-fill-color: transparent;
+}
+
+/* 「正在工作」文案的流光：略快于默认循环，但保持线性匀速，
+   让光带缓慢经过，读起来像呼吸而不是闪烁。 */
+.shimmer-fast {
+  animation-duration: calc(var(--c-motion-loop) * 0.85);
 }
 
 @keyframes shimmer {

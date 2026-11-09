@@ -115,7 +115,7 @@ export function TodoRow({
         );
         setArmed(false);
       }}
-      className={`group relative flex items-start gap-2 px-3.5 py-3 transition-colors ${
+      className={`ui-cv-row group relative flex items-start gap-2 px-3.5 py-3 transition-colors ${
         dragging ? "bg-surface-hover/30 opacity-40" : "hover:bg-surface-hover/60"
       }`}
     >

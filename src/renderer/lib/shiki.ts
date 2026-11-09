@@ -1,38 +1,81 @@
 /**
- * Shiki 代码高亮 — 单例管理
+ * Shiki 代码高亮 — 单例管理（精简版）
  *
- * Shiki 初始化较重（加载 WASM + 语法文件），全局只创建一次；首次调用时异步初始化，
- * 后续同步使用。
+ * 改用 `shiki/core` + 显式语言清单：
+ * - `shiki` 全量入口会为每个语言注册表生成动态 chunk（此前构建里有 270+ 个
+ *   lang-*.js），只有用到的语言才会被 Webpack/Rollup 打进产物。
+ * - 这里只显式引入常用语言 + 皮肤声明的主题，产物里不再出现其余语言的
+ *   语法文件，JS 总量和首屏解析成本都显著下降。
  *
- * 高亮主题由皮肤自己声明（SkinVariant.codeTheme），本模块只负责把注册表里
- * 出现过的主题一次性预加载，不做任何基于皮肤 id 的推断。
+ * 对外 API（getHighlighter / highlightCodeSync / isHighlighterReady）保持不变，
+ * 调用方无需改动。
  */
 
-import { createHighlighter, type Highlighter } from "shiki";
-import { skins } from "../skins/registry";
+import {
+  createHighlighterCore,
+  createOnigurumaEngine,
+  type HighlighterCore,
+} from "shiki/core";
 
-let highlighter: Highlighter | null = null;
-let initPromise: Promise<Highlighter> | null = null;
+// 主题：皮肤注册表里出现过的 codeTheme 对应到打包进产物的一组
+import githubDark from "shiki/themes/github-dark.mjs";
+import githubLight from "shiki/themes/github-light.mjs";
 
-/** 预加载的常用语言 */
-const PRELOAD_LANGS = [
-  "python", "javascript", "typescript", "tsx", "jsx",
-  "bash", "shell", "json", "html", "css",
-  "go", "rust", "java", "c", "cpp", "sql",
-  "yaml", "markdown", "xml", "diff",
-];
+// 语言：只引入界面真正会用到的一小部分；用到的语法随主包走，
+// 不再按需拉取 270+ 个独立 chunk
+import python from "shiki/langs/python.mjs";
+import javascript from "shiki/langs/javascript.mjs";
+import typescript from "shiki/langs/typescript.mjs";
+import tsx from "shiki/langs/tsx.mjs";
+import jsx from "shiki/langs/jsx.mjs";
+import bash from "shiki/langs/bash.mjs";
+import shell from "shiki/langs/shell.mjs";
+import json from "shiki/langs/json.mjs";
+import html from "shiki/langs/html.mjs";
+import css from "shiki/langs/css.mjs";
+import go from "shiki/langs/go.mjs";
+import rust from "shiki/langs/rust.mjs";
+import java from "shiki/langs/java.mjs";
+import c from "shiki/langs/c.mjs";
+import cpp from "shiki/langs/cpp.mjs";
+import sql from "shiki/langs/sql.mjs";
+import yaml from "shiki/langs/yaml.mjs";
+import markdown from "shiki/langs/markdown.mjs";
+import xml from "shiki/langs/xml.mjs";
+import diff from "shiki/langs/diff.mjs";
 
-/** 预加载的高亮主题：各皮肤声明过的主题之并集（新增皮肤自动带上） */
-const PRELOAD_THEMES: string[] = Array.from(new Set(skins.map((s) => s.codeTheme)));
+/**
+ * shiki 的 lang 模块有时导出的是语言对象数组（`[lang]`），
+ * 统一取第一个元素再交给核心，避免拿到数组报错。
+ */
+function unwrap<T>(module: T | T[]): T {
+  return Array.isArray(module) ? module[0] : module;
+}
+
+const THEMES = {
+  "github-dark": githubDark,
+  "github-light": githubLight,
+};
+
+const LANGS = [
+  python, javascript, typescript, tsx, jsx,
+  bash, shell, json, html, css,
+  go, rust, java, c, cpp, sql,
+  yaml, markdown, xml, diff,
+].map(unwrap);
+
+let highlighter: HighlighterCore | null = null;
+let initPromise: Promise<HighlighterCore> | null = null;
 
 /** 获取 Shiki 高亮器（单例）。首次调用会异步初始化，后续直接返回缓存 */
-export function getHighlighter(): Promise<Highlighter> {
+export function getHighlighter(): Promise<HighlighterCore> {
   if (highlighter) return Promise.resolve(highlighter);
   if (initPromise) return initPromise;
 
-  initPromise = createHighlighter({
-    themes: PRELOAD_THEMES,
-    langs: PRELOAD_LANGS,
+  initPromise = createHighlighterCore({
+    themes: [...new Set(Object.values(THEMES))],
+    langs: LANGS,
+    engine: createOnigurumaEngine(() => import("shiki/wasm")),
   }).then((h) => {
     highlighter = h;
     return h;

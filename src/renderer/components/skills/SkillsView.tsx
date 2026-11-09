@@ -489,7 +489,7 @@ function SkillDrawer({
             <div
               className={`rounded-lg border p-3 ${
                 skill.valid
-                  ? "border-border bg-surface-2/60"
+                  ? "border-border bg-surface-2/40"
                   : "border-error/40 bg-error-bg"
               }`}
             >
@@ -608,7 +608,7 @@ function SkillDrawer({
                   读取目录失败：{filesError}
                 </div>
               ) : !activePath ? (
-                <div className="flex flex-1 items-center justify-center rounded-lg border border-border bg-surface-2/60 p-4 text-body text-text-muted">
+                <div className="flex flex-1 items-center justify-center rounded-lg border border-border bg-surface-2/40 p-4 text-body text-text-muted">
                   技能目录里还没有文件
                 </div>
               ) : loadingFile ? (
@@ -617,7 +617,7 @@ function SkillDrawer({
                   正在读取 {activePath}
                 </div>
               ) : document?.binary ? (
-                <div className="flex flex-1 items-center justify-center rounded-lg border border-border bg-surface-2/60 p-4 text-body text-text-muted">
+                <div className="flex flex-1 items-center justify-center rounded-lg border border-border bg-surface-2/40 p-4 text-body text-text-muted">
                   二进制文件，无法在 Nova 中编辑
                 </div>
               ) : document ? (
@@ -636,7 +636,7 @@ function SkillDrawer({
                   />
                 </>
               ) : (
-                <div className="flex flex-1 items-center justify-center rounded-lg border border-border bg-surface-2/60 p-4 text-body text-text-muted">
+                <div className="flex flex-1 items-center justify-center rounded-lg border border-border bg-surface-2/40 p-4 text-body text-text-muted">
                   读取不到该文件。目录可能已被移动或删除，请返回列表重新扫描。
                 </div>
               )}

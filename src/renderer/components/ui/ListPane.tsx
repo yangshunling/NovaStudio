@@ -89,7 +89,7 @@ export function ListItem({
 }: ListItemProps) {
   return (
     <div
-      className={`relative flex w-full items-center rounded-lg transition-colors ${
+      className={`ui-cv-row relative flex w-full items-center rounded-lg transition-colors ${
         active
           ? "bg-accent-soft/60 text-text"
           : "text-text-secondary hover:bg-surface-hover/70 hover:text-text"

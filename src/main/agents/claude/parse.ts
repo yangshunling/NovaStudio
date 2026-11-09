@@ -34,7 +34,7 @@
  *   执行类）都进入消息流，聊天 / 任务中心 / 工作流看到的是同一条链路
  */
 
-import type { AgentEvent } from "../../../shared/types";
+import type { AgentEvent, ToolResultImage } from "../../../shared/types";
 import { describeTool } from "../tool-display";
 
 /** Anthropic 风格的内容块（只声明我们关心的字段） */
@@ -80,6 +80,57 @@ function resultText(content: unknown): string {
     }
   }
   return parts.join("");
+}
+
+/**
+ * tool_result 里的 image 块 → 可渲染的 base64 图片。
+ * 文本仍由 resultText 提取；图片单独携带，避免把 base64 塞进正文。
+ */
+function resultImages(content: unknown): ToolResultImage[] | undefined {
+  if (!Array.isArray(content)) return undefined;
+  const images: ToolResultImage[] = [];
+  for (const block of content) {
+    if (!block || typeof block !== "object") continue;
+    const record = block as { type?: unknown; source?: unknown };
+    if (record.type !== "image" || !record.source || typeof record.source !== "object") {
+      continue;
+    }
+    const source = record.source as {
+      type?: unknown;
+      media_type?: unknown;
+      data?: unknown;
+    };
+    if (source.type !== "base64" || typeof source.data !== "string" || !source.data) {
+      continue;
+    }
+    images.push({
+      mediaType:
+        typeof source.media_type === "string" && source.media_type
+          ? source.media_type
+          : "image/png",
+      data: source.data,
+    });
+  }
+  return images.length > 0 ? images : undefined;
+}
+
+/** API 错误 assistant 记录的错误文案：优先取 content 里的 text 块，其次取 error 字段 */
+function assistantErrorText(content: unknown, error: unknown): string {
+  if (typeof content === "string") return content.trim();
+  const parts: string[] = [];
+  if (Array.isArray(content)) {
+    for (const block of content) {
+      if (block && typeof block === "object") {
+        const record = block as { type?: unknown; text?: unknown };
+        if (record.type === "text" && typeof record.text === "string" && record.text) {
+          parts.push(record.text);
+        }
+      }
+    }
+  }
+  const text = parts.join("\n").trim();
+  if (text) return text;
+  return typeof error === "string" && error ? `API 错误（${error}）` : "";
 }
 
 /**
@@ -144,9 +195,52 @@ export function mapToolResultBlocks(
       name,
       output: resultText(block.content),
       isError: !!block.is_error,
+      images: resultImages(block.content),
     });
   }
   return out;
+}
+
+/**
+ * system 记录里值得展示的错误 / 提示。
+ *
+ * - api_error：API 请求失败（401/502 等），必须显示成错误
+ * - informational：CLI 的非致命提示（如流式中断后重试），按 level 映射
+ *
+ * 其余子类型（turn_duration / compact_boundary / local_command / away_summary）
+ * 属于元数据或后续功能，这里返回 null。
+ */
+export function mapSystemRecord(obj: {
+  type?: unknown;
+  subtype?: unknown;
+  content?: unknown;
+  level?: unknown;
+  error?: unknown;
+}): AgentEvent | null {
+  if (obj.type !== "system") return null;
+  const subtype = typeof obj.subtype === "string" ? obj.subtype : "";
+
+  if (subtype === "api_error") {
+    const error = obj.error;
+    const message =
+      error &&
+      typeof error === "object" &&
+      typeof (error as { message?: unknown }).message === "string"
+        ? (error as { message: string }).message
+        : typeof obj.content === "string" && obj.content.trim()
+          ? obj.content.trim()
+          : "API 请求失败";
+    return { type: "error", message };
+  }
+
+  if (subtype === "informational") {
+    if (typeof obj.content !== "string" || !obj.content.trim()) return null;
+    return obj.level === "error"
+      ? { type: "error", message: obj.content.trim() }
+      : { type: "warning", message: obj.content.trim() };
+  }
+
+  return null;
 }
 
 /**
@@ -161,10 +255,18 @@ export interface MessageBuffer {
   blocks: AgentEvent[];
 }
 
+/** 一条命令行解出的会话 id + 事件；用一次 JSON.parse 同时得到两者 */
+export interface DecodedStreamLine {
+  sessionId: string | null;
+  event: AgentEvent | AgentEvent[] | null;
+}
+
+/** 单行解码器：返回「会话 id + 事件」（流式热路径，一次 parse 出两者） */
+export type StreamDecoder = (line: string) => DecodedStreamLine | null;
+
 /**
- * 一次运行一个解码器：把「本次运行内各次工具调用叫什么」与「当前 assistant 消息
- * 已累积了哪些块」记在闭包里。前者让 tool_result 能补上工具名（协议只给 id），
- * 后者让按块到达的 assistant 事件能拼成完整消息再发权威块。
+ * 事件版解码器（传统形态）：只返回事件。
+ * 供测试与不需要 session_id 的场景使用；流式运行请用 createStreamDecoder。
  */
 export function createDecoder(options?: {
   resolveLineStarts?: LineStartsResolver;
@@ -172,6 +274,43 @@ export function createDecoder(options?: {
   const names: CallNames = new Map();
   const buffer: MessageBuffer = { id: null, blocks: [] };
   return (line) => decode(line, names, buffer, options?.resolveLineStarts);
+}
+
+/**
+ * 流式解码器：一次 JSON.parse 同时取出会话 id 与事件。
+ * 行缓冲先按 extractSessionId 解析一次、再交给 decode 解析第二次，等于每行
+ * 做了两次 JSON.parse；合并成一次能省掉流式热路径上一半的解析开销。
+ */
+export function createStreamDecoder(options?: {
+  resolveLineStarts?: LineStartsResolver;
+}): StreamDecoder {
+  const names: CallNames = new Map();
+  const buffer: MessageBuffer = { id: null, blocks: [] };
+  return (line) => decodeStreamLine(line, names, buffer, options?.resolveLineStarts);
+}
+
+/**
+ * 把一行 JSON 解码为「会话 id + 事件」。
+ * 事件分发逻辑与 decode 共用 decodeObject，行为完全一致。
+ */
+export function decodeStreamLine(
+  line: string,
+  names: CallNames,
+  buffer: MessageBuffer,
+  resolveLineStarts?: LineStartsResolver,
+): DecodedStreamLine | null {
+  if (!line.trim()) return null;
+
+  let obj: Record<string, unknown>;
+  try {
+    obj = JSON.parse(line);
+  } catch {
+    return null; // 非 JSON 行（如 claude 自己打印的告警），忽略
+  }
+
+  const sessionId = typeof obj.session_id === "string" ? obj.session_id : null;
+  const event = decodeObject(obj, names, buffer, resolveLineStarts);
+  return { sessionId, event };
 }
 
 /** 把一行 JSON 解码为事件 */
@@ -190,6 +329,16 @@ export function decode(
     return null; // 非 JSON 行（如 claude 自己打印的告警），忽略
   }
 
+  return decodeObject(obj, names, buffer, resolveLineStarts);
+}
+
+/** 已 JSON.parse 的对象 → 事件（decode / decodeStreamLine 共用同一份分发逻辑） */
+function decodeObject(
+  obj: Record<string, unknown>,
+  names: CallNames,
+  buffer: MessageBuffer,
+  resolveLineStarts?: LineStartsResolver,
+): AgentEvent | AgentEvent[] | null {
   // 子代理的对话（parent_tool_use_id 非空）不进入主对话视图。
   // 空字符串按“主链”处理：部分网关/版本会用 "" 而不是 null 表示无父调用。
   if (obj.parent_tool_use_id != null && obj.parent_tool_use_id !== "") return null;
@@ -222,6 +371,16 @@ export function decode(
   // 于是 delta 与完整块不会重复，同一条消息里先到的块也不会被后到的块删掉
   if (type === "assistant") {
     const message = obj.message as { id?: unknown; content?: unknown } | undefined;
+
+    // API 错误记录：正文是错误信息。若按普通 assistant 处理，会被当成模型
+    // 正常发言展示；这里直接转成 error 事件，并清空累积块避免污染下一条消息。
+    if (obj.isApiErrorMessage === true || typeof obj.error === "string") {
+      buffer.id = null;
+      buffer.blocks = [];
+      const errorText = assistantErrorText(message?.content, obj.error);
+      return errorText ? { type: "error", message: errorText } : null;
+    }
+
     const messageId = typeof message?.id === "string" ? message.id : null;
     // 兜底：万一没收到 message_start，靠 message.id 变化识别新消息
     if (messageId && buffer.id && messageId !== buffer.id) buffer.blocks = [];
@@ -279,6 +438,8 @@ export function decode(
     return { type: "error", message };
   }
 
-  // 其余 system 等记录：无内容可展示
+  // system 记录：只取 api_error / informational，其余无内容可展示
+  if (type === "system") return mapSystemRecord(obj);
+
   return null;
 }

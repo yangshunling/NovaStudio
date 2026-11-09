@@ -33,6 +33,8 @@ import type {
   EmployeeKnowledge,
   EmployeeMcpServer,
   EmployeeSkill,
+  PromptDraft,
+  PromptItem,
   SessionSource,
   Workflow,
   WorkflowDraft,
@@ -53,6 +55,31 @@ import { normalizeTriggerSchedule } from "../../shared/trigger-schedule";
 import { DB_PATH, ensureDataDirs } from "../utils/paths";
 
 let db: Database.Database | null = null;
+
+/**
+ * prepared statement 缓存。
+ *
+ * better-sqlite3 的 prepare 每次都会编译 SQL；同一句 SQL 在不同函数里反复
+ * `db.prepare(...)`（本文件 80+ 处）意味着每条语句在每次调用时都重新编译。
+ * 这里按 SQL 文本缓存复用，命中即返回同一 statement，只在数据库关闭时清空。
+ * SQL 全是固定字面量（无拼接），语句数量有界，缓存不会失控。
+ */
+const stmtCache = new Map<string, Database.Statement>();
+
+/** prepare 的缓存包装：重复的 SQL 命中同一 Statement，避免反复编译 */
+function prepare(sql: string): Database.Statement {
+  let statement = stmtCache.get(sql);
+  if (!statement) {
+    statement = db!.prepare(sql);
+    stmtCache.set(sql, statement);
+  }
+  return statement;
+}
+
+/** 数据库关闭后旧 statement 指向已关闭的连接，统一失效 */
+function clearStmtCache(): void {
+  stmtCache.clear();
+}
 
 /**
  * FTS5 是否可用。better-sqlite3 默认带 FTS5，但这里仍做一次防御：
@@ -145,6 +172,21 @@ export function initDatabase(): void {
 
     CREATE INDEX IF NOT EXISTS idx_todos_done_completed
       ON todos (done, completed_at DESC);
+
+    -- 常用提示词：独立资产，只服务「收藏 → 查找 → 复用」。
+    -- tags_json 存字符串数组；收藏条目在列表里固定排在前面。
+    CREATE TABLE IF NOT EXISTS prompts (
+      id TEXT PRIMARY KEY,
+      title TEXT NOT NULL,
+      content TEXT NOT NULL DEFAULT '',
+      tags_json TEXT NOT NULL DEFAULT '[]',
+      favorite INTEGER NOT NULL DEFAULT 0,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_prompts_favorite_updated
+      ON prompts (favorite DESC, updated_at DESC);
 
     CREATE TABLE IF NOT EXISTS workflows (
       id TEXT PRIMARY KEY,
@@ -376,7 +418,7 @@ function ensureKnowledgeFts(): void {
 
 /** 检测并给 digital_employees 表补 knowledge_json 列 */
 function migrateEmployeeKnowledge(): void {
-  const cols = db!.prepare("PRAGMA table_info(digital_employees)").all() as {
+  const cols = prepare("PRAGMA table_info(digital_employees)").all() as {
     name: string;
   }[];
   if (!cols.some((column) => column.name === "knowledge_json")) {
@@ -410,10 +452,10 @@ function migrateEmployeeAgentToWorkflowNode(): void {
   }
 
   // 1) 把员工的 Agent 落到引用它的工作流节点上
-  const updateWorkflow = db!.prepare(
+  const updateWorkflow = prepare(
     "UPDATE workflows SET graph_json = ? WHERE id = ?",
   );
-  const workflows = db!.prepare("SELECT id, graph_json FROM workflows").all() as any[];
+  const workflows = prepare("SELECT id, graph_json FROM workflows").all() as any[];
   for (const row of workflows) {
     let graph: any;
     try {
@@ -472,7 +514,7 @@ function migrateEmployeeAgentToWorkflowNode(): void {
 
 /** 检测并给 sessions 表补 project_id 列 */
 function migrateSessionsProjectId(): void {
-  const cols = db!.prepare("PRAGMA table_info(sessions)").all() as { name: string }[];
+  const cols = prepare("PRAGMA table_info(sessions)").all() as { name: string }[];
   if (!cols.some((c) => c.name === "project_id")) {
     db!.exec("ALTER TABLE sessions ADD COLUMN project_id TEXT");
   }
@@ -480,7 +522,7 @@ function migrateSessionsProjectId(): void {
 
 /** 检测并给 sessions 表补 source 列：工作流节点会话不进入项目会话列表 */
 function migrateSessionsSource(): void {
-  const cols = db!.prepare("PRAGMA table_info(sessions)").all() as { name: string }[];
+  const cols = prepare("PRAGMA table_info(sessions)").all() as { name: string }[];
   if (!cols.some((c) => c.name === "source")) {
     db!.exec("ALTER TABLE sessions ADD COLUMN source TEXT NOT NULL DEFAULT 'chat'");
   }
@@ -502,7 +544,7 @@ function migrateSessionsSource(): void {
 
 /** 检测并给 sessions 表补 config_dir 列（工作流节点使用独立 CLI 配置目录） */
 function migrateSessionsConfigDir(): void {
-  const cols = db!.prepare("PRAGMA table_info(sessions)").all() as { name: string }[];
+  const cols = prepare("PRAGMA table_info(sessions)").all() as { name: string }[];
   if (!cols.some((c) => c.name === "config_dir")) {
     db!.exec("ALTER TABLE sessions ADD COLUMN config_dir TEXT");
   }
@@ -510,7 +552,7 @@ function migrateSessionsConfigDir(): void {
 
 /** 检测并给 sessions 表补 message_count 列（旧索引不含消息计数） */
 function migrateSessionsMessageCount(): void {
-  const cols = db!.prepare("PRAGMA table_info(sessions)").all() as { name: string }[];
+  const cols = prepare("PRAGMA table_info(sessions)").all() as { name: string }[];
   if (!cols.some((c) => c.name === "message_count")) {
     db!.exec("ALTER TABLE sessions ADD COLUMN message_count INTEGER NOT NULL DEFAULT 0");
   }
@@ -524,7 +566,7 @@ function migrateSessionsMessageCount(): void {
  * 直接回填为 1；没有消息的旧会话保持 0，下次运行前会从 CLI 侧导入历史。
  */
 function migrateSessionsHistoryComplete(): void {
-  const cols = db!.prepare("PRAGMA table_info(sessions)").all() as { name: string }[];
+  const cols = prepare("PRAGMA table_info(sessions)").all() as { name: string }[];
   if (!cols.some((c) => c.name === "history_complete")) {
     db!.exec(
       "ALTER TABLE sessions ADD COLUMN history_complete INTEGER NOT NULL DEFAULT 0",
@@ -546,12 +588,12 @@ function migrateSessionsHistoryComplete(): void {
 /** 一次性数据迁移标记：存于 settings，避免每次启动重复执行 */
 function hasMigrationRun(marker: string): boolean {
   return Boolean(
-    db!.prepare("SELECT 1 FROM settings WHERE key = ?").get(marker),
+    prepare("SELECT 1 FROM settings WHERE key = ?").get(marker),
   );
 }
 
 function markMigrationRun(marker: string): void {
-  db!.prepare(
+  prepare(
     "INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",
   ).run(marker, "1");
 }
@@ -563,7 +605,7 @@ function markMigrationRun(marker: string): void {
  * 只保证历史工作流不会因为缺少 workspace_id 而从列表里消失。
  */
 function migrateWorkflowWorkspace(): void {
-  const cols = db!.prepare("PRAGMA table_info(workflows)").all() as {
+  const cols = prepare("PRAGMA table_info(workflows)").all() as {
     name: string;
   }[];
   if (!cols.some((col) => col.name === "workspace_id")) {
@@ -580,7 +622,7 @@ function migrateWorkflowWorkspace(): void {
     .get() as { id: string } | undefined;
   if (!first) return; // 还没有项目：下次启动再尝试，不写标记
 
-  db!.prepare(
+  prepare(
     "UPDATE workflows SET workspace_id = ? WHERE workspace_id IS NULL OR workspace_id = ''",
   ).run(first.id);
   markMigrationRun(marker);
@@ -673,21 +715,21 @@ function migrateLegacyInboxProject(): void {
 
   // 极旧的库还没有 workspace_id 列：此时工作流不可能指向该收件箱，
   // 跳过工作流处理；随后的 migrateWorkflowWorkspace 会补列并重新归属。
-  const workflowCols = db!.prepare("PRAGMA table_info(workflows)").all() as {
+  const workflowCols = prepare("PRAGMA table_info(workflows)").all() as {
     name: string;
   }[];
   const hasWorkspaceId = workflowCols.some((c) => c.name === "workspace_id");
 
   db!.transaction(() => {
-    db!.prepare("UPDATE sessions SET project_id = NULL WHERE project_id = ?").run(
+    prepare("UPDATE sessions SET project_id = NULL WHERE project_id = ?").run(
       inbox.id,
     );
     if (hasWorkspaceId) {
-      db!.prepare(
+      prepare(
         "UPDATE workflows SET workspace_id = NULL WHERE workspace_id = ?",
       ).run(inbox.id);
     }
-    db!.prepare("DELETE FROM projects WHERE id = ?").run(inbox.id);
+    prepare("DELETE FROM projects WHERE id = ?").run(inbox.id);
   })();
 }
 
@@ -696,19 +738,19 @@ function migrateLegacyInboxProject(): void {
 // ============================================================================
 
 export function listProjects(): Project[] {
-  const rows = db!.prepare("SELECT * FROM projects ORDER BY updated_at DESC").all() as any[];
+  const rows = prepare("SELECT * FROM projects ORDER BY updated_at DESC").all() as any[];
   return rows.map(rowToProject);
 }
 
 export function getProject(id: string): Project | null {
-  const row = db!.prepare("SELECT * FROM projects WHERE id = ?").get(id) as any;
+  const row = prepare("SELECT * FROM projects WHERE id = ?").get(id) as any;
   return row ? rowToProject(row) : null;
 }
 
 export function createProject(name: string, cwd: string): Project {
   const id = randomUUID();
   const now = Date.now();
-  db!.prepare(
+  prepare(
     "INSERT INTO projects (id, name, cwd, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
   ).run(id, name, cwd, now, now);
   return { id, name, cwd, createdAt: now, updatedAt: now };
@@ -722,9 +764,9 @@ export function deleteProject(id: string): void {
   // 删除会话、自动化任务与项目包在同一个事务里，保证原子性（任一失败则整体回滚）。
   // 任务不同步清理的话，轮询器之后会对着已不存在的项目反复失败。
   db!.transaction(() => {
-    db!.prepare("DELETE FROM automation_tasks WHERE project_id = ?").run(id);
-    db!.prepare("DELETE FROM sessions WHERE project_id = ?").run(id);
-    db!.prepare("DELETE FROM projects WHERE id = ?").run(id);
+    prepare("DELETE FROM automation_tasks WHERE project_id = ?").run(id);
+    prepare("DELETE FROM sessions WHERE project_id = ?").run(id);
+    prepare("DELETE FROM projects WHERE id = ?").run(id);
   })();
 }
 
@@ -758,7 +800,7 @@ export function createSession(
   const now = Date.now();
   const resolvedTitle = title || "新会话";
 
-  db!.prepare(
+  prepare(
     "INSERT INTO sessions (id, project_id, agent_id, agent_session_id, title, cwd, config_dir, source, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
   ).run(
     id,
@@ -804,12 +846,12 @@ export function setSessionProject(
 ): void {
   const now = Date.now();
   if (resetAgentSession) {
-    db!.prepare(
+    prepare(
       "UPDATE sessions SET project_id = ?, cwd = ?, agent_session_id = NULL, updated_at = ? WHERE id = ?",
     ).run(projectId, cwd, now, sessionId);
     return;
   }
-  db!.prepare(
+  prepare(
     "UPDATE sessions SET project_id = ?, cwd = ?, updated_at = ? WHERE id = ?",
   ).run(projectId, cwd, now, sessionId);
 }
@@ -819,21 +861,21 @@ export function setSessionProject(
  * 保留本地 messages，界面历史不丢；下一次运行会自动开启新上下文。
  */
 export function clearAgentSessionId(sessionId: string): void {
-  db!.prepare(
+  prepare(
     "UPDATE sessions SET agent_session_id = NULL, updated_at = ? WHERE id = ?",
   ).run(Date.now(), sessionId);
 }
 
 /** 更新会话的 agent session 引用（用于多轮 --resume；引用形态由 provider 解释） */
 export function updateAgentSessionId(sessionId: string, agentSessionId: string): void {
-  db!.prepare(
+  prepare(
     "UPDATE sessions SET agent_session_id = ?, updated_at = ? WHERE id = ?",
   ).run(agentSessionId, Date.now(), sessionId);
 }
 
 /** 更新会话标题 */
 export function setSessionTitle(sessionId: string, title: string): void {
-  db!.prepare("UPDATE sessions SET title = ?, updated_at = ? WHERE id = ?").run(
+  prepare("UPDATE sessions SET title = ?, updated_at = ? WHERE id = ?").run(
     title,
     Date.now(),
     sessionId,
@@ -845,7 +887,7 @@ export function setSessionTitle(sessionId: string, title: string): void {
  * 一次 run 产生一条 user 消息 + 一条 assistant 消息；多次 run（对话场景）自然追加。
  */
 export function saveSessionMessage(sessionId: string, msg: Message): void {
-  db!.prepare(
+  prepare(
     "INSERT INTO messages (id, session_id, role, content_json, timestamp) VALUES (?, ?, ?, ?, ?)",
   ).run(msg.id, sessionId, msg.role, JSON.stringify(msg.content), msg.timestamp);
 }
@@ -888,7 +930,7 @@ export function importSessionMessages(
   messages: Message[],
 ): void {
   if (messages.length === 0) return;
-  const insert = db!.prepare(
+  const insert = prepare(
     "INSERT OR IGNORE INTO messages (id, session_id, role, content_json, timestamp) VALUES (?, ?, ?, ?, ?)",
   );
   db!.transaction(() => {
@@ -906,7 +948,7 @@ export function importSessionMessages(
 
 /** 标记会话的本地消息已经覆盖完整历史 */
 export function markSessionHistoryComplete(sessionId: string): void {
-  db!.prepare(
+  prepare(
     "UPDATE sessions SET history_complete = 1 WHERE id = ?",
   ).run(sessionId);
 }
@@ -922,11 +964,11 @@ export function touchSession(
   const now = Date.now();
   const delta = opts?.countDelta ?? 0;
   if (opts?.title) {
-    db!.prepare(
+    prepare(
       "UPDATE sessions SET title = ?, updated_at = ?, message_count = message_count + ? WHERE id = ?",
     ).run(opts.title, now, delta, sessionId);
   } else {
-    db!.prepare(
+    prepare(
       "UPDATE sessions SET updated_at = ?, message_count = message_count + ? WHERE id = ?",
     ).run(now, delta, sessionId);
   }
@@ -969,7 +1011,7 @@ export function listSessions(): Session[] {
  * 获取会话元数据。正文不入库——由 agent-service 调 provider 回放后填充 messages 字段。
  */
 export function getSession(id: string): Session | null {
-  const row = db!.prepare("SELECT * FROM sessions WHERE id = ?").get(id) as any;
+  const row = prepare("SELECT * FROM sessions WHERE id = ?").get(id) as any;
   return row ? rowToSession(row) : null;
 }
 
@@ -986,7 +1028,7 @@ export function listSessionIdsByProject(projectId: string): string[] {
  * CLI 侧会话文件的清理由 IPC handler 调适配器 deleteSessionFile 完成。
  */
 export function deleteSession(id: string): void {
-  db!.prepare("DELETE FROM sessions WHERE id = ?").run(id);
+  prepare("DELETE FROM sessions WHERE id = ?").run(id);
 }
 
 // ============================================================================
@@ -1118,14 +1160,14 @@ export function listDigitalEmployees(): DigitalEmployee[] {
 }
 
 export function getDigitalEmployee(id: string): DigitalEmployee | null {
-  const row = db!.prepare("SELECT * FROM digital_employees WHERE id = ?").get(id) as any;
+  const row = prepare("SELECT * FROM digital_employees WHERE id = ?").get(id) as any;
   return row ? rowToDigitalEmployee(row) : null;
 }
 
 export function createDigitalEmployee(draft: DigitalEmployeeDraft): DigitalEmployee {
   const id = randomUUID();
   const now = Date.now();
-  db!.prepare(
+  prepare(
     `INSERT INTO digital_employees (
       id, name, role, description, avatar,
       system_prompt, mcp_servers_json, skills_json, knowledge_json,
@@ -1152,7 +1194,7 @@ export function updateDigitalEmployee(
 }
 
 export function deleteDigitalEmployee(id: string): void {
-  db!.prepare("DELETE FROM digital_employees WHERE id = ?").run(id);
+  prepare("DELETE FROM digital_employees WHERE id = ?").run(id);
 }
 
 /** 迁移时只更新员工的 MCP / Skill 引用，避免改动其它字段 */
@@ -1277,7 +1319,7 @@ export function deleteKnowledgeDocument(
         )
         .run(row.id, row.content);
     }
-    db!.prepare("DELETE FROM knowledge_documents WHERE id = ?").run(row.id);
+    prepare("DELETE FROM knowledge_documents WHERE id = ?").run(row.id);
   })();
 }
 
@@ -1288,12 +1330,12 @@ export function deleteKnowledgeDocumentsByKb(kbId: string): void {
 
   db!.transaction(() => {
     if (knowledgeFtsReady) {
-      const del = db!.prepare(
+      const del = prepare(
         "INSERT INTO knowledge_fts(knowledge_fts, rowid, content) VALUES ('delete', ?, ?)",
       );
       for (const row of rows) del.run(row.id, row.content);
     }
-    db!.prepare("DELETE FROM knowledge_documents WHERE kb_id = ?").run(kbId);
+    prepare("DELETE FROM knowledge_documents WHERE kb_id = ?").run(kbId);
   })();
 }
 
@@ -1529,14 +1571,14 @@ export function listWorkflows(): Workflow[] {
 }
 
 export function getWorkflow(id: string): Workflow | null {
-  const row = db!.prepare("SELECT * FROM workflows WHERE id = ?").get(id) as any;
+  const row = prepare("SELECT * FROM workflows WHERE id = ?").get(id) as any;
   return row ? rowToWorkflow(row) : null;
 }
 
 export function createWorkflow(draft: WorkflowDraft): Workflow {
   const id = randomUUID();
   const now = Date.now();
-  db!.prepare(
+  prepare(
     "INSERT INTO workflows (id, workspace_id, name, description, graph_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
   ).run(
     id,
@@ -1577,10 +1619,10 @@ export function listWorkflowsByWorkspace(workspaceId: string): Workflow[] {
 
 export function deleteWorkflow(id: string): void {
   db!.transaction(() => {
-    db!.prepare("DELETE FROM workflow_trigger_bindings WHERE workflow_id = ?").run(
+    prepare("DELETE FROM workflow_trigger_bindings WHERE workflow_id = ?").run(
       id,
     );
-    db!.prepare("DELETE FROM workflows WHERE id = ?").run(id);
+    prepare("DELETE FROM workflows WHERE id = ?").run(id);
   })();
 }
 
@@ -1629,7 +1671,7 @@ export function createWorkflowTrigger(
 ): WorkflowTrigger {
   const id = randomUUID();
   const now = Date.now();
-  db!.prepare(
+  prepare(
     "INSERT INTO workflow_triggers (id, title, description, schedule_json, enabled, last_fired_at, next_fire_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
   ).run(
     id,
@@ -1678,7 +1720,7 @@ export function updateWorkflowTriggerRuntime(
   const current = getWorkflowTrigger(id);
   if (!current) return null;
 
-  db!.prepare(
+  prepare(
     "UPDATE workflow_triggers SET last_fired_at = ?, next_fire_at = ?, last_error = ?, updated_at = ? WHERE id = ?",
   ).run(
     patch.lastFiredAt !== undefined ? patch.lastFiredAt : current.lastFiredAt,
@@ -1693,11 +1735,11 @@ export function updateWorkflowTriggerRuntime(
 export function deleteWorkflowTrigger(id: string): boolean {
   let deleted = false;
   db!.transaction(() => {
-    db!.prepare("DELETE FROM workflow_trigger_bindings WHERE trigger_id = ?").run(
+    prepare("DELETE FROM workflow_trigger_bindings WHERE trigger_id = ?").run(
       id,
     );
     deleted =
-      db!.prepare("DELETE FROM workflow_triggers WHERE id = ?").run(id).changes >
+      prepare("DELETE FROM workflow_triggers WHERE id = ?").run(id).changes >
       0;
   })();
   return deleted;
@@ -1739,10 +1781,10 @@ export function setWorkflowTriggers(
 ): void {
   const unique = [...new Set(triggerIds)];
   db!.transaction(() => {
-    db!.prepare(
+    prepare(
       "DELETE FROM workflow_trigger_bindings WHERE workflow_id = ?",
     ).run(workflowId);
-    const insert = db!.prepare(
+    const insert = prepare(
       "INSERT OR IGNORE INTO workflow_trigger_bindings (trigger_id, workflow_id) VALUES (?, ?)",
     );
     for (const triggerId of unique) {
@@ -1780,10 +1822,10 @@ export function deleteWorkflowRuns(workflowId: string): {
       for (const row of [...nodeRows, ...attemptRows]) {
         if (row.session_id) sessionIds.add(row.session_id);
       }
-      db!.prepare("DELETE FROM workflow_run_events WHERE run_id = ?").run(runId);
-      db!.prepare("DELETE FROM workflow_node_attempts WHERE run_id = ?").run(runId);
-      db!.prepare("DELETE FROM workflow_node_runs WHERE run_id = ?").run(runId);
-      db!.prepare("DELETE FROM workflow_runs WHERE id = ?").run(runId);
+      prepare("DELETE FROM workflow_run_events WHERE run_id = ?").run(runId);
+      prepare("DELETE FROM workflow_node_attempts WHERE run_id = ?").run(runId);
+      prepare("DELETE FROM workflow_node_runs WHERE run_id = ?").run(runId);
+      prepare("DELETE FROM workflow_runs WHERE id = ?").run(runId);
     }
   })();
 
@@ -1812,10 +1854,10 @@ export function deleteWorkflowRun(runId: string): {
   }
 
   db!.transaction(() => {
-    db!.prepare("DELETE FROM workflow_run_events WHERE run_id = ?").run(runId);
-    db!.prepare("DELETE FROM workflow_node_attempts WHERE run_id = ?").run(runId);
-    db!.prepare("DELETE FROM workflow_node_runs WHERE run_id = ?").run(runId);
-    db!.prepare("DELETE FROM workflow_runs WHERE id = ?").run(runId);
+    prepare("DELETE FROM workflow_run_events WHERE run_id = ?").run(runId);
+    prepare("DELETE FROM workflow_node_attempts WHERE run_id = ?").run(runId);
+    prepare("DELETE FROM workflow_node_runs WHERE run_id = ?").run(runId);
+    prepare("DELETE FROM workflow_runs WHERE id = ?").run(runId);
   })();
 
   return { run, sessionIds: [...sessionIds] };
@@ -1885,7 +1927,7 @@ export function createWorkflowRun(input: {
   triggerId?: string | null;
   createdAt: number;
 }): WorkflowRun {
-  db!.prepare(
+  prepare(
     `INSERT INTO workflow_runs (
       id, workflow_id, workspace_id, workflow_name, workspace_path,
       graph_json, artifact_dir, status, source, trigger_id, error,
@@ -1977,7 +2019,7 @@ export function updateWorkflowRun(
   }
   if (sets.length === 0) return;
   values.push(id);
-  db!.prepare(`UPDATE workflow_runs SET ${sets.join(", ")} WHERE id = ?`).run(
+  prepare(`UPDATE workflow_runs SET ${sets.join(", ")} WHERE id = ?`).run(
     ...values,
   );
 }
@@ -1995,7 +2037,7 @@ export function createWorkflowNodeRun(input: {
   attempt: number;
   maxRetries: number;
 }): WorkflowNodeRun {
-  db!.prepare(
+  prepare(
     `INSERT INTO workflow_node_runs (
       id, run_id, node_id, node_name, node_type, employee_id, employee_name,
       agent_id, status, attempt, max_retries
@@ -2033,7 +2075,7 @@ export function createWorkflowNodeAttempt(input: {
   sessionId: string | null;
   artifactDir: string | null;
 }): void {
-  db!.prepare(
+  prepare(
     `INSERT INTO workflow_node_attempts (
       id, run_id, node_run_id, attempt, round, kind,
       session_id, artifact_dir, created_at
@@ -2068,7 +2110,7 @@ export function updateWorkflowNodeAttemptMessages(
   }
   if (sets.length === 0) return;
   values.push(id);
-  db!.prepare(
+  prepare(
     `UPDATE workflow_node_attempts SET ${sets.join(", ")} WHERE id = ?`,
   ).run(...values);
 }
@@ -2165,7 +2207,7 @@ export function updateWorkflowNodeRun(
   }
   if (sets.length === 0) return;
   values.push(id);
-  db!.prepare(
+  prepare(
     `UPDATE workflow_node_runs SET ${sets.join(", ")} WHERE id = ?`,
   ).run(...values);
 }
@@ -2273,15 +2315,15 @@ export function interruptStaleWorkflowRuns(): void {
     )
     .all() as { trigger_id: string }[];
   for (const row of staleTriggerIds) {
-    db!.prepare(
+    prepare(
       "UPDATE workflow_triggers SET last_error = ?, updated_at = ? WHERE id = ?",
     ).run("应用异常退出，运行被中断", now, row.trigger_id);
   }
 
-  db!.prepare(
+  prepare(
     "UPDATE workflow_runs SET status = 'interrupted', error = '应用已退出，运行被中断', finished_at = ? WHERE status IN ('running','awaiting_approval')",
   ).run(now);
-  db!.prepare(
+  prepare(
     "UPDATE workflow_node_runs SET status = 'canceled', finished_at = ? WHERE status IN ('pending','running','awaiting_approval','retrying')",
   ).run(now);
 }
@@ -2291,12 +2333,12 @@ export function interruptStaleWorkflowRuns(): void {
 // ============================================================================
 
 export function getSetting(key: string): string | null {
-  const row = db!.prepare("SELECT value FROM settings WHERE key = ?").get(key) as any;
+  const row = prepare("SELECT value FROM settings WHERE key = ?").get(key) as any;
   return row?.value ?? null;
 }
 
 export function setSetting(key: string, value: string): void {
-  db!.prepare(
+  prepare(
     "INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = ?",
   ).run(key, value, value);
 }
@@ -2306,19 +2348,19 @@ export function setSetting(key: string, value: string): void {
 // ============================================================================
 
 export function listAutomationTasks(): AutomationTask[] {
-  const rows = db!.prepare("SELECT * FROM automation_tasks ORDER BY created_at DESC").all() as any[];
+  const rows = prepare("SELECT * FROM automation_tasks ORDER BY created_at DESC").all() as any[];
   return rows.map(rowToAutomationTask);
 }
 
 export function getAutomationTask(id: string): AutomationTask | null {
-  const row = db!.prepare("SELECT * FROM automation_tasks WHERE id = ?").get(id) as any;
+  const row = prepare("SELECT * FROM automation_tasks WHERE id = ?").get(id) as any;
   return row ? rowToAutomationTask(row) : null;
 }
 
 export function createAutomationTask(prompt: string, projectId: string, agentId: string): AutomationTask {
   const id = randomUUID();
   const now = Date.now();
-  db!.prepare(
+  prepare(
     "INSERT INTO automation_tasks (id, prompt, project_id, agent_id, status, session_id, created_at, started_at, completed_at, error) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
   ).run(id, prompt, projectId, agentId, "pending", null, now, null, null, null);
   return { id, prompt, projectId, agentId, status: "pending", sessionId: null, createdAt: now, startedAt: null, completedAt: null, error: null };
@@ -2334,11 +2376,11 @@ export function updateAutomationTask(id: string, fields: Partial<Omit<Automation
   if (fields.error !== undefined) { sets.push("error = ?"); vals.push(fields.error); }
   if (sets.length === 0) return;
   vals.push(id);
-  db!.prepare(`UPDATE automation_tasks SET ${sets.join(", ")} WHERE id = ?`).run(...vals);
+  prepare(`UPDATE automation_tasks SET ${sets.join(", ")} WHERE id = ?`).run(...vals);
 }
 
 export function deleteAutomationTask(id: string): void {
-  db!.prepare("DELETE FROM automation_tasks WHERE id = ?").run(id);
+  prepare("DELETE FROM automation_tasks WHERE id = ?").run(id);
 }
 
 function rowToAutomationTask(row: any): AutomationTask {
@@ -2395,7 +2437,7 @@ export function listTodos(): TodoItem[] {
 }
 
 export function getTodo(id: string): TodoItem | null {
-  const row = db!.prepare("SELECT * FROM todos WHERE id = ?").get(id) as any;
+  const row = prepare("SELECT * FROM todos WHERE id = ?").get(id) as any;
   return row ? rowToTodo(row) : null;
 }
 
@@ -2404,12 +2446,12 @@ export function createTodo(draft: TodoDraft): TodoItem {
   const now = Date.now();
   // 新条目排在最前面：取全局最小 sort_order 再减一。
   // 分组展示时，各组的相对顺序仍由各自的 sort_order 决定。
-  const min = db!.prepare("SELECT MIN(sort_order) AS value FROM todos").get() as {
+  const min = prepare("SELECT MIN(sort_order) AS value FROM todos").get() as {
     value: number | null;
   };
   const sortOrder = (min.value ?? 0) - 1;
 
-  db!.prepare(
+  prepare(
     "INSERT INTO todos (id, title, note, priority, due_at, tags_json, done, completed_at, sort_order, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, 0, NULL, ?, ?, ?)",
   ).run(
     id,
@@ -2453,11 +2495,11 @@ export function setTodoDone(id: string, done: boolean): TodoItem | null {
 }
 
 export function deleteTodo(id: string): boolean {
-  return db!.prepare("DELETE FROM todos WHERE id = ?").run(id).changes > 0;
+  return prepare("DELETE FROM todos WHERE id = ?").run(id).changes > 0;
 }
 
 export function clearCompletedTodos(): number {
-  return db!.prepare("DELETE FROM todos WHERE done = 1").run().changes;
+  return prepare("DELETE FROM todos WHERE done = 1").run().changes;
 }
 
 /**
@@ -2466,7 +2508,7 @@ export function clearCompletedTodos(): number {
  */
 export function reorderTodos(ids: string[]): boolean {
   const now = Date.now();
-  const stmt = db!.prepare("UPDATE todos SET sort_order = ?, updated_at = ? WHERE id = ?");
+  const stmt = prepare("UPDATE todos SET sort_order = ?, updated_at = ? WHERE id = ?");
   db!.transaction(() => {
     ids.forEach((id, index) => stmt.run(index, now, id));
   })();
@@ -2480,7 +2522,88 @@ export function countPendingTodos(): number {
   return row.value;
 }
 
+// ============================================================================
+// 提示词
+// ============================================================================
+
+function rowToPrompt(row: any): PromptItem {
+  let tags: string[] = [];
+  try {
+    const parsed: unknown = JSON.parse(row.tags_json);
+    if (Array.isArray(parsed)) {
+      tags = parsed.filter((tag): tag is string => typeof tag === "string");
+    }
+  } catch {
+    // 损坏的标签按空数组处理，不影响正文
+  }
+  return {
+    id: row.id,
+    title: row.title,
+    content: row.content ?? "",
+    tags,
+    favorite: row.favorite === 1,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+/**
+ * 按最近修改排序。
+ *
+ * favorite 列仍保留在表里（历史数据不丢），但界面已移除收藏功能，
+ * 因此不再参与排序 —— 否则旧收藏会毫无提示地钉在列表顶部。
+ */
+export function listPrompts(): PromptItem[] {
+  const rows = db!
+    .prepare("SELECT * FROM prompts ORDER BY updated_at DESC, rowid DESC")
+    .all() as any[];
+  return rows.map(rowToPrompt);
+}
+
+export function getPrompt(id: string): PromptItem | null {
+  const row = prepare("SELECT * FROM prompts WHERE id = ?").get(id) as any;
+  return row ? rowToPrompt(row) : null;
+}
+
+export function createPrompt(draft: PromptDraft): PromptItem {
+  const id = randomUUID();
+  const now = Date.now();
+  prepare(
+    "INSERT INTO prompts (id, title, content, tags_json, favorite, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+  ).run(
+    id,
+    draft.title,
+    draft.content,
+    JSON.stringify(draft.tags),
+    draft.favorite ? 1 : 0,
+    now,
+    now,
+  );
+  return getPrompt(id)!;
+}
+
+export function updatePrompt(id: string, draft: PromptDraft): PromptItem | null {
+  const info = db!
+    .prepare(
+      "UPDATE prompts SET title = ?, content = ?, tags_json = ?, favorite = ?, updated_at = ? WHERE id = ?",
+    )
+    .run(
+      draft.title,
+      draft.content,
+      JSON.stringify(draft.tags),
+      draft.favorite ? 1 : 0,
+      Date.now(),
+      id,
+    );
+  return info.changes > 0 ? getPrompt(id) : null;
+}
+
+export function deletePrompt(id: string): boolean {
+  return prepare("DELETE FROM prompts WHERE id = ?").run(id).changes > 0;
+}
+
 /** 关闭数据库 */
 export function closeDatabase(): void {
+  clearStmtCache();
   db?.close();
 }

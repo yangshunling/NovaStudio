@@ -30,9 +30,13 @@ export type ViewMode =
   | "triggers"
   | "skills"
   | "mcp"
+  | "prompts"
   | "knowledge"
   | "workspaces"
   | "agents";
+
+/** 尚未创建会话时的草稿桶 key；UUID 会话 id 不会与之冲突 */
+export const NEW_SESSION_DRAFT_KEY = "__new__";
 
 interface ChatState {
   // 状态
@@ -45,6 +49,8 @@ interface ChatState {
   currentSessionId: string | null;
   /** 每个会话的实时消息桶（含未落库的流式增量） */
   messagesBySession: Record<string, Message[]>;
+  /** 每个会话的输入草稿；切走再回来不丢，也不会串到别的会话 */
+  draftsBySession: Record<string, string>;
   /** 每个会话是否正在流式运行（供会话列表并发指示、输入区按钮态） */
   streamingBySession: Record<string, boolean>;
   /** 正在回放历史的会话 id（供聊天区显示进度条；null 表示空闲） */
@@ -60,6 +66,8 @@ interface ChatState {
   /** 项目 / 会话是否已成功加载过；工作区页据此跳过重复加载与启动骨架 */
   projectsLoaded: boolean;
   sessionsLoaded: boolean;
+  /** 从「提示词」页带到会话输入框的正文；ChatArea 消费后清空 */
+  pendingPrompt: string | null;
 
   // 项目（工作目录）
   loadProjects: () => Promise<void>;
@@ -83,11 +91,19 @@ interface ChatState {
   // 对话
   sendMessage: (prompt: string) => Promise<void>;
   abort: (sessionId?: string) => Promise<void>;
+  /** 写入某个会话（或新会话草稿桶）的输入草稿 */
+  setDraft: (key: string, value: string) => void;
 
   // 视图
   setViewMode: (mode: ViewMode) => void;
   setShowSettings: (show: boolean) => void;
   setShowWorkspace: (show: boolean) => void;
+
+  // 提示词
+  /** 把提示词正文带到会话页并切到会话视图（不自动发送） */
+  usePromptInChat: (content: string) => void;
+  /** 取出待插入正文；取到后清空，避免重复插入 */
+  consumePendingPrompt: () => string | null;
 
   // 内部
   _onEvent: (payload: { sessionId: string; event: AgentEvent }) => void;
@@ -165,6 +181,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   currentProjectId: null,
   currentSessionId: null,
   messagesBySession: {},
+  draftsBySession: {},
   streamingBySession: {},
   loadingHistoryFor: null,
   selectedAgentId: "",
@@ -173,6 +190,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   showWorkspace: false,
   projectsLoaded: false,
   sessionsLoaded: false,
+  pendingPrompt: null,
 
   // ==========================================================================
   // 项目
@@ -200,15 +218,18 @@ export const useChatStore = create<ChatState>((set, get) => ({
       );
       const messagesBySession = { ...state.messagesBySession };
       const streamingBySession = { ...state.streamingBySession };
+      const draftsBySession = { ...state.draftsBySession };
       for (const sessionId of removed) {
         delete messagesBySession[sessionId];
         delete streamingBySession[sessionId];
+        delete draftsBySession[sessionId];
       }
       return {
         projects: state.projects.filter((p) => p.id !== id),
         sessions: state.sessions.filter((s) => s.projectId !== id),
         messagesBySession,
         streamingBySession,
+        draftsBySession,
         currentProjectId: state.currentProjectId === id ? null : state.currentProjectId,
         currentSessionId:
           state.currentSessionId && removed.has(state.currentSessionId)
@@ -258,7 +279,19 @@ export const useChatStore = create<ChatState>((set, get) => ({
   newSession: () => {
     // 只清空当前视图，不预建会话；首条消息时才 createSession，
     // 避免产生大量空会话。新会话默认不绑定项目。
-    set({ currentSessionId: null, currentProjectId: null });
+    // 显式「新建」意味着放弃上一份未发送草稿，避免下次进来又看到旧内容。
+    set((state) => {
+      if (!(NEW_SESSION_DRAFT_KEY in state.draftsBySession)) {
+        return { currentSessionId: null, currentProjectId: null };
+      }
+      const draftsBySession = { ...state.draftsBySession };
+      delete draftsBySession[NEW_SESSION_DRAFT_KEY];
+      return {
+        currentSessionId: null,
+        currentProjectId: null,
+        draftsBySession,
+      };
+    });
   },
 
   pickDirectory: () => ipc.pickDirectory(),
@@ -341,11 +374,16 @@ export const useChatStore = create<ChatState>((set, get) => ({
       delete messagesBySession[id];
       const streamingBySession = { ...s.streamingBySession };
       delete streamingBySession[id];
+      const draftsBySession = { ...s.draftsBySession };
+      delete draftsBySession[id];
       const wasCurrent = s.currentSessionId === id;
+      // 删除当前会话后输入区回到「新会话」态：不要翻出更早遗留的新会话草稿
+      if (wasCurrent) delete draftsBySession[NEW_SESSION_DRAFT_KEY];
       return {
         sessions: s.sessions.filter((se) => se.id !== id),
         messagesBySession,
         streamingBySession,
+        draftsBySession,
         currentSessionId: wasCurrent ? null : s.currentSessionId,
         currentProjectId: wasCurrent ? null : s.currentProjectId,
       };
@@ -465,6 +503,21 @@ export const useChatStore = create<ChatState>((set, get) => ({
     set((s) => ({ streamingBySession: { ...s.streamingBySession, [id]: false } }));
   },
 
+  setDraft: (key, value) => {
+    set((state) => {
+      if ((state.draftsBySession[key] ?? "") === value) return state;
+      if (!value) {
+        if (!(key in state.draftsBySession)) return state;
+        const draftsBySession = { ...state.draftsBySession };
+        delete draftsBySession[key];
+        return { draftsBySession };
+      }
+      return {
+        draftsBySession: { ...state.draftsBySession, [key]: value },
+      };
+    });
+  },
+
   // ==========================================================================
   // 视图
   // ==========================================================================
@@ -479,6 +532,22 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   setShowWorkspace: (show) => {
     set({ showWorkspace: show });
+  },
+
+  // ==========================================================================
+  // 提示词
+  // ==========================================================================
+
+  usePromptInChat: (content) => {
+    const text = content.trim();
+    if (!text) return;
+    set({ pendingPrompt: text, viewMode: "chat" });
+  },
+
+  consumePendingPrompt: () => {
+    const pending = get().pendingPrompt;
+    if (pending !== null) set({ pendingPrompt: null });
+    return pending;
   },
 
   // ==========================================================================

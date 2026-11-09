@@ -20,6 +20,7 @@ import {
 import { X } from "lucide-react";
 import type { ReactNode } from "react";
 import { isTopOverlay, popOverlay, pushOverlay } from "./overlayStack";
+import { useFocusTrap } from "./useFocusTrap";
 
 /** ModalHeader 把标题 id 登记给最近的 Modal，供 aria-labelledby 使用 */
 const ModalTitleContext = createContext<((id: string) => void) | null>(null);
@@ -59,6 +60,9 @@ export function Modal({
     pushOverlay(layer);
     return () => popOverlay(layer);
   }, [open]);
+
+  // Tab / Shift+Tab 限制在面板内部
+  useFocusTrap(panelRef, layerRef.current, open);
 
   // Esc 关闭
   useEffect(() => {

@@ -539,8 +539,10 @@ export function WorkflowEditor({
             run.status === "awaiting_approval",
         );
         if (alive && active) setDebugRunId(active.id);
-      } catch {
-        // 历史读取失败不影响继续编辑
+      } catch (err) {
+        // 读取失败不影响继续编辑，但要让用户知道没有自动接回调试
+        console.warn("[workflow] 活跃运行恢复失败：", err);
+        if (alive) toast.error("未能恢复调试状态，可稍后重新运行", 5000);
       }
     })();
     return () => {
@@ -553,16 +555,23 @@ export function WorkflowEditor({
     if (!debugRunId) return;
     let alive = true;
     let timer: ReturnType<typeof setTimeout> | null = null;
+    let errorReported = false;
 
     const load = async () => {
       try {
         const next = await ipc.getWorkflowRun(debugRunId);
         if (!alive) return;
         setDebugDetail(next);
+        errorReported = false;
         // 运行被删除后不能一直停在“调试中”
         if (!next) setDebugRunId(null);
-      } catch {
-        // 单次读取失败不打断调试
+      } catch (err) {
+        // 单次读取失败不打断调试，但持续失败要让用户知道状态已过期
+        console.warn("[workflow] 调试状态刷新失败：", err);
+        if (alive && !errorReported) {
+          errorReported = true;
+          toast.error("调试状态刷新失败，正在显示上次结果", 5000);
+        }
       }
     };
 
@@ -1074,7 +1083,7 @@ function PaletteItem({
     <button
       type="button"
       onClick={onClick}
-      className="group flex w-full items-center gap-3 rounded-xl border border-border bg-surface-2/60 px-2.5 py-2.5 text-left transition-all hover:-translate-y-0.5 hover:border-accent/40 hover:bg-surface-2 hover:shadow-[var(--c-shadow-sm)] active:translate-y-0 active:scale-[0.99]"
+      className="group flex w-full items-center gap-3 rounded-xl border border-border bg-surface-2/40 px-2.5 py-2.5 text-left transition-all hover:-translate-y-0.5 hover:border-accent/40 hover:bg-surface-2 hover:shadow-[var(--c-shadow-sm)] active:translate-y-0 active:scale-[0.99]"
     >
       <span
         className={`grid h-9 w-9 shrink-0 place-items-center rounded-lg ${tone}`}
@@ -1379,7 +1388,7 @@ function ValidationBanner({
   return (
     <section
       className={`shrink-0 border-b border-border px-4 py-2 ${
-        hasErrors ? "bg-error-bg" : "bg-surface-2/60"
+        hasErrors ? "bg-error-bg" : "bg-surface-2/40"
       }`}
     >
       <button

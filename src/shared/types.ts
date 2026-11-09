@@ -35,6 +35,13 @@ export type SessionOptions = Record<string, string>;
  */
 export type ToolKind = "read" | "write" | "exec" | "search" | "other";
 
+/** 工具返回的图片。data 是不带 data: 前缀的 base64 原文 */
+export interface ToolResultImage {
+  /** MIME 类型，如 image/png */
+  mediaType: string;
+  data: string;
+}
+
 export type AgentEvent =
   | { type: "thinking"; content: string }
   | { type: "text"; content: string }
@@ -64,6 +71,8 @@ export type AgentEvent =
       name: string;
       output: string;
       isError?: boolean;
+      /** 工具返回的图片（截图等）；文本输出仍在 output 里 */
+      images?: ToolResultImage[];
     }
   | { type: "error"; message: string }
   /**
@@ -964,6 +973,36 @@ export interface TodoDraft {
   priority: TodoPriority;
   dueAt: number | null;
   tags: string[];
+}
+
+// ============================================================================
+// 提示词
+// ============================================================================
+
+/**
+ * 一条常用提示词。
+ *
+ * 与应用内其它实体完全独立：只做「收藏 → 查找 → 复用」这条链路，
+ * 后续需要接到会话输入框时再按 id 取正文即可。
+ */
+export interface PromptItem {
+  id: string;
+  title: string;
+  content: string;
+  /** 自定义标签，用于筛选 */
+  tags: string[];
+  /** 收藏的提示词排在列表最前面 */
+  favorite: boolean;
+  createdAt: number;
+  updatedAt: number;
+}
+
+/** 可编辑字段；新建与更新共用 */
+export interface PromptDraft {
+  title: string;
+  content: string;
+  tags: string[];
+  favorite: boolean;
 }
 
 /** 应用与运行环境信息，供「关于」页展示 */

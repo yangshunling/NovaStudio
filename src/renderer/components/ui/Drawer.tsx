@@ -15,6 +15,7 @@ import { forwardRef, useEffect, useRef } from "react";
 import { X } from "lucide-react";
 import type { ReactNode } from "react";
 import { isTopOverlay, popOverlay, pushOverlay } from "./overlayStack";
+import { useFocusTrap } from "./useFocusTrap";
 
 /** 抽屉宽度档位：sm=默认 token / md=680 / lg=760 */
 export type DrawerWidth = "sm" | "md" | "lg";
@@ -77,6 +78,9 @@ export function Drawer({
       previous?.focus({ preventScroll: true });
     };
   }, []);
+
+  // Tab / Shift+Tab 限制在抽屉内部
+  useFocusTrap(panelRef, layerRef.current, true);
 
   return (
     <div

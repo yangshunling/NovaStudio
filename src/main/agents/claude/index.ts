@@ -30,7 +30,7 @@ import type { AgentProvider, RunOptions, RunSession } from "../types";
 import { startLineRun } from "../line-run";
 import { probeVersion } from "../probe";
 import { manifest } from "./manifest";
-import { createDecoder, extractSessionId } from "./parse";
+import { createDecoder, createStreamDecoder, extractSessionId } from "./parse";
 import { createLineStartsResolver } from "./file-lines";
 import { prepareClaudeWorkflowRun } from "./prepare";
 import { getClaudeSettingsView } from "./settings";
@@ -190,7 +190,13 @@ export const provider: AgentProvider = {
         // 工作流运行记录看到的是同一条完整执行链路。
         // 行号定位需要 cwd：Edit / MultiEdit 的 old_string 要在磁盘上的
         // 改动前文件里找位置，供聊天里的 diff 展示真实行号
-        decode: createDecoder({ resolveLineStarts: createLineStartsResolver(opts.cwd) }),
+        decodeLine: createStreamDecoder({
+          resolveLineStarts: createLineStartsResolver(opts.cwd),
+        }),
+        // 兜底通道：decodeLine 已接管实际解析并同时产出事件，decode 不参与
+        decode: createDecoder({
+          resolveLineStarts: createLineStartsResolver(opts.cwd),
+        }),
       },
       opts,
     );
@@ -198,6 +204,7 @@ export const provider: AgentProvider = {
     if (systemPromptFile) {
       void session.done.finally(systemPromptFile.cleanup);
     }
+
     return session;
   },
 
@@ -207,15 +214,15 @@ export const provider: AgentProvider = {
   },
 
   /** 会话文件是文件，用 mtime 作为版本号，命中率极高 */
-  historyVersion(ref, ctx) {
+  async historyVersion(ref, ctx) {
     return fileVersion(ref, ctx.cwd, ctx.configDir);
   },
 
-  readHistory(ref, ctx) {
+  async readHistory(ref, ctx) {
     return readHistoryFile(ref, ctx.cwd, ctx.configDir);
   },
 
-  deleteSession(ref, ctx) {
-    deleteSessionFile(ref, ctx.cwd, ctx.configDir);
+  async deleteSession(ref, ctx) {
+    await deleteSessionFile(ref, ctx.cwd, ctx.configDir);
   },
 };

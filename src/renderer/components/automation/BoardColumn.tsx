@@ -38,7 +38,7 @@ export function BoardColumn({
 }: ColumnProps) {
   return (
     <div
-      className="board-col flex h-full min-w-[280px] flex-1 basis-0 flex-col overflow-hidden rounded-xl border border-border/70 bg-surface-2/40 shadow-[var(--c-shadow-sm)]"
+      className="board-col flex h-full min-w-[280px] flex-1 basis-0 flex-col overflow-hidden rounded-xl border border-border/60 bg-surface-2/40 shadow-[var(--c-shadow-sm)]"
       data-tone={tone}
       data-has-items={count > 0 ? "" : undefined}
     >
