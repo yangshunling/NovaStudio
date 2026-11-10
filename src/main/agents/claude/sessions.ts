@@ -19,7 +19,6 @@
 
 import { readFile, readdir, rm, rmdir, stat } from "fs/promises";
 import { dirname, join } from "path";
-import { homedir } from "os";
 import type { AgentEvent, Message } from "../../../shared/types";
 import {
   mapAssistantBlocks,
@@ -27,7 +26,9 @@ import {
   mapToolResultBlocks,
   type CallNames,
 } from "./parse";
+import { claudeConfigDir } from "./config";
 import { lineOfText } from "./file-lines";
+import { parseJsonSafe } from "../../../shared/json";
 
 /**
  * 会话根目录。
@@ -35,7 +36,12 @@ import { lineOfText } from "./file-lines";
  * 此时 Claude 会把会话写到 <configDir>/projects 下。
  */
 function projectsRoot(configDir?: string | null): string {
-  return join(configDir || join(homedir(), ".claude"), "projects");
+  /*
+   * 必须与 CLI 使用同一套配置根目录：宿主进程设置了 CLAUDE_CONFIG_DIR 时，
+   * CLI 会把会话写到该目录下，而不是 ~/.claude。否则历史回放与删除会
+   * 静默找错位置（configInfo / settings / MCP 都认这个环境变量）。
+   */
+  return join(configDir || claudeConfigDir(), "projects");
 }
 
 /** cwd → 目录名（与 claude 自己的转义一致：\ / : 一律变成 -） */
@@ -175,12 +181,8 @@ export async function readHistory(
   for (const line of raw.split("\n")) {
     if (!line.trim()) continue;
 
-    let entry: ClaudeSessionEntry;
-    try {
-      entry = JSON.parse(line) as ClaudeSessionEntry;
-    } catch {
-      continue;
-    }
+    const entry = parseJsonSafe<ClaudeSessionEntry | null>(line, null);
+    if (!entry) continue;
     if (entry.isSidechain) continue; // 子代理对话不进主视图
     const content = entry.message?.content;
     // system 记录的正文在顶层 content，不在 message 里

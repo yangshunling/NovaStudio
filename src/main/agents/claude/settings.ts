@@ -23,6 +23,8 @@ import {
   type AgentSettingsView,
 } from "../../../shared/contracts/agent";
 import { claudeSettingsPath, isOfficialBaseUrl } from "./config";
+import { formatModelEntry } from "./models";
+import { errorMessage } from "../../../shared/error";
 
 const ALIASES = AGENT_MODEL_ALIASES;
 
@@ -143,14 +145,6 @@ function parseModelEntry(
   return { name: fallbackName, context: "" };
 }
 
-/** 模型配置 → Claude 的模型 ID：`deepseek-flash` + `1M` → `deepseek-flash[1M]` */
-function formatModelEntry(entry: AgentModelEntry): string {
-  const name = entry.name.trim();
-  const context = entry.context.trim();
-  if (!name) return "";
-  return context ? `${name}[${context}]` : name;
-}
-
 function uniqueModelCount(
   entries: readonly AgentModelEntry[],
 ): number {
@@ -176,7 +170,7 @@ function readSettings(): SettingsFile {
   } catch (err) {
     throw new Error(
       `~/.claude/settings.json 无法解析：${
-        err instanceof Error ? err.message : String(err)
+        errorMessage(err)
       }`,
     );
   }

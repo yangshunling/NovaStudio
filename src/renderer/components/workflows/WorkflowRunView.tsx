@@ -7,25 +7,14 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  AlertTriangle,
-  ArrowLeft,
-  Check,
-  FileText,
-  FolderOpen,
-  Loader2,
-  PauseCircle,
-  Pencil,
-  RotateCw,
-  Square,
-  X,
-} from "lucide-react";
+  AlertTriangle, ArrowLeft, Check, FileText, FolderOpen, PauseCircle, Pencil, RotateCw, Square, X } from "lucide-react";
 import { ipc } from "../../lib/ipc";
 import { formatBytes } from "../../lib/utils";
 import { toast } from "../../stores/toast";
 import { confirmDialog } from "../../stores/confirm";
 import { appendEvent } from "@shared/agent-events";
 import { MessageGroup } from "../chat/MessageList";
-import { formatDateTime, formatDuration } from "../../lib/workflow/format";
+import { formatDateTime, formatDuration } from "@shared/time";
 import { MarkdownRenderer } from "../ui/MarkdownRenderer";
 import { Button } from "../ui/Button";
 import { Dialog } from "../ui/Dialog";
@@ -45,6 +34,8 @@ import type {
   WorkflowRunDetail,
   WorkflowRunStatus,
 } from "@shared/types";
+import { errorMessage } from "@shared/error";
+import { Spinner } from "../ui/Spinner";
 
 // ============================================================================
 // 实时对话缓冲
@@ -206,7 +197,7 @@ export function WorkflowRunView({
         setDetail(next);
         setError(next ? null : "运行记录不存在");
       } catch (err) {
-        if (alive) setError(err instanceof Error ? err.message : String(err));
+        if (alive) setError(errorMessage(err));
       } finally {
         if (alive) setLoading(false);
       }
@@ -394,7 +385,7 @@ export function WorkflowRunView({
       }
       setApprovalNotes((current) => ({ ...current, [target.id]: "" }));
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : String(err));
+      toast.error(errorMessage(err));
     } finally {
       setBusy(false);
     }
@@ -418,7 +409,7 @@ export function WorkflowRunView({
       await ipc.resumeWorkflowRun(runId, nodeRunId);
       toast.success("已开始继续执行");
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : String(err), 5000);
+      toast.error(errorMessage(err), 5000);
     } finally {
       setBusy(false);
     }
@@ -432,7 +423,7 @@ export function WorkflowRunView({
       // false：运行已经结束（可能在另一个窗口处理过），提示刷新而不是静默成功
       if (!handled) toast.error("该运行已结束，无需终止", 4000);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : String(err));
+      toast.error(errorMessage(err));
     } finally {
       setBusy(false);
     }
@@ -501,10 +492,10 @@ export function WorkflowRunView({
           <span className="h-5 w-px shrink-0 bg-border" />
 
           <div className="min-w-0">
-            <p className="ui-serif truncate text-title font-semibold tracking-wide text-text-secondary">
+            <p className="ui-type-title truncate text-text-secondary">
               {run.workflowName}
             </p>
-            <p className="truncate font-mono text-caption text-text-muted">
+            <p className="truncate ui-type-code-sm text-text-muted">
               运行 #{run.id.slice(0, 8)} ·{" "}
               {run.source === "trigger"
                 ? `触发器${run.triggerId ? ` ${run.triggerId.slice(0, 8)}` : ""}`
@@ -514,7 +505,7 @@ export function WorkflowRunView({
           </div>
 
           <span
-            className={`ml-1 flex shrink-0 items-center gap-1.5 rounded-full bg-surface-hover px-2.5 py-1 text-meta font-medium ${statusMeta.className}`}
+            className={`ml-1 flex shrink-0 items-center gap-1.5 rounded-full bg-surface-hover px-2.5 py-1 ui-type-label ${statusMeta.className}`}
           >
             <StatusIcon
               className={`h-3.5 w-3.5 ${active ? "animate-spin" : ""}`}
@@ -522,17 +513,17 @@ export function WorkflowRunView({
             {statusMeta.label}
           </span>
 
-          <span className="shrink-0 font-mono text-meta text-text-muted">
+          <span className="shrink-0 ui-type-code text-text-muted">
             {elapsed}
           </span>
-          <span className="shrink-0 text-meta text-text-muted">
+          <span className="shrink-0 ui-type-note text-text-muted">
             {doneCount}/{nodes.length} 节点
           </span>
 
           <div className="min-w-0 flex-1" />
 
           {run.error && (
-            <span className="max-w-64 truncate text-meta text-error" title={run.error}>
+            <span className="max-w-64 truncate ui-type-note text-error" title={run.error}>
               {run.error}
             </span>
           )}
@@ -582,7 +573,7 @@ export function WorkflowRunView({
         </header>
 
         {rejectedNode && (
-          <div className="flex items-start gap-2 border-b border-border bg-agent-amber/10 px-4 py-2.5 text-meta text-text-secondary">
+          <div className="flex items-start gap-2 border-b border-border bg-agent-amber/10 px-4 py-2.5 ui-type-note text-text-secondary">
             <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-agent-amber" />
             <span>
               节点「{rejectedNode.nodeName}」已被人工驳回，本次运行已终止且不能继续执行。
@@ -595,10 +586,10 @@ export function WorkflowRunView({
           {/* 左：节点列表 */}
           <aside className="flex w-[300px] shrink-0 flex-col border-r border-border bg-[var(--c-panel-bg)]">
             <div className="flex items-center justify-between px-4 pb-2 pt-4">
-              <p className="text-meta font-semibold tracking-wide text-text-muted">
+              <p className="ui-type-note font-semibold tracking-wide text-text-muted">
                 节点
               </p>
-              <span className="font-mono text-caption text-text-muted">
+              <span className="ui-type-code-sm text-text-muted">
                 {doneCount}/{nodes.length}
               </span>
             </div>
@@ -613,7 +604,7 @@ export function WorkflowRunView({
                 />
               ))}
               {nodes.length === 0 && (
-                <p className="px-1 py-2 text-meta text-text-muted">
+                <p className="px-1 py-2 ui-type-note text-text-muted">
                   本次运行没有可执行节点。
                 </p>
               )}
@@ -636,25 +627,25 @@ export function WorkflowRunView({
                   >
                     <div className="flex items-center gap-2">
                       <PauseCircle className="h-4 w-4 shrink-0 text-accent" />
-                      <p className="text-body-lg font-semibold text-text">
+                      <p className="ui-type-item font-semibold text-text">
                         产物待审核 · {awaitingNode.nodeName}
                       </p>
-                      <span className="rounded-full bg-surface/60 px-2 py-0.5 text-caption text-text-secondary">
+                      <span className="rounded-full bg-surface/60 px-2 py-0.5 ui-type-sub text-text-secondary">
                         {awaitingNode.employeeName}
                       </span>
                     </div>
-                    <p className="mt-2 text-meta text-text-secondary">
+                    <p className="mt-2 ui-type-note text-text-secondary">
                       节点已执行完成，请确认产物。通过则节点完成并继续下游；
                       「要求修改」会在同一个会话里带着意见重做（当前还可修改{" "}
                       {remainingRevisions(awaitingNode)} 轮）；
                       驳回会立即终止本次运行，且不能重试。
                     </p>
                     {awaitingNode.outputSummary && (
-                      <pre className="mt-3 max-h-40 overflow-y-auto whitespace-pre-wrap rounded-lg bg-surface/60 p-3 font-sans text-body leading-relaxed text-text">
+                      <pre className="mt-3 max-h-40 overflow-y-auto whitespace-pre-wrap rounded-lg bg-surface/60 p-3 font-sans ui-type-body leading-relaxed text-text">
                         {awaitingNode.outputSummary}
                       </pre>
                     )}
-                    <p className="mt-2 text-caption text-text-muted">
+                    <p className="mt-2 ui-type-sub text-text-muted">
                       完整产物与对话见下方节点详情
                       {awaitingNode.outputPath ? `（${awaitingNode.nodeName} · result.md）` : ""}
                     </p>
@@ -668,7 +659,7 @@ export function WorkflowRunView({
                       }
                       rows={2}
                       placeholder="审核备注（要求修改时必填，会作为下一轮的评审意见）"
-                      className="ui-ring mt-3 w-full resize-none rounded-lg bg-surface/60 px-3 py-2 text-meta text-text placeholder-text-muted outline-none"
+                      className="ui-ring mt-3 w-full resize-none rounded-lg bg-surface/60 px-3 py-2 ui-type-note text-text placeholder-text-muted outline-none"
                     />
                     <div className="mt-3 flex items-center justify-end gap-2">
                       <Button
@@ -727,7 +718,7 @@ export function WorkflowRunView({
               ) : (
                 <div className="flex flex-col items-center gap-2 py-16 text-center text-text-muted">
                   <FileText className="h-5 w-5 opacity-50" />
-                  <p className="text-body">左侧选择一个节点查看执行详情</p>
+                  <p className="ui-type-body">左侧选择一个节点查看执行详情</p>
                 </div>
               )}
             </div>
@@ -773,12 +764,12 @@ function NodeListItem({
       />
       <span className="min-w-0 flex-1">
         <span className="flex items-center gap-2">
-          <span className="truncate text-body-lg font-medium">{node.nodeName}</span>
-          <span className={`shrink-0 text-caption ${meta.className}`}>
+          <span className="truncate ui-type-item font-medium">{node.nodeName}</span>
+          <span className={`shrink-0 ui-type-sub ${meta.className}`}>
             {meta.label}
           </span>
         </span>
-        <span className="mt-0.5 block truncate text-meta text-text-muted">
+        <span className="mt-0.5 block truncate ui-type-note text-text-muted">
           {node.employeeName ?? "未绑定员工"}
           {node.attempt > 1 ? ` · 第 ${node.attempt} 次` : ""} ·{" "}
           {formatDuration(node.startedAt, node.finishedAt, now)}
@@ -882,21 +873,21 @@ function NodeDetailPanel({
       {/* 基本信息 */}
       <section className="rounded-xl border border-border bg-surface-2/50 p-3.5">
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5">
-          <span className={`flex items-center gap-1.5 text-body-lg font-semibold ${meta.className}`}>
+          <span className={`flex items-center gap-1.5 ui-type-item font-semibold ${meta.className}`}>
             {meta.label}
           </span>
-          <span className="text-meta text-text-secondary">
+          <span className="ui-type-note text-text-secondary">
             执行者：{node.employeeName ?? "—"}
           </span>
-          <span className="text-meta text-text-secondary">
+          <span className="ui-type-note text-text-secondary">
             Agent：{node.agentId ?? "—"}
           </span>
-          <span className="text-meta text-text-secondary">
+          <span className="ui-type-note text-text-secondary">
             尝试：第 {node.attempt} 次 · 第 {node.round} 轮
           </span>
         </div>
 
-        <div className="mt-2 flex flex-wrap gap-x-5 gap-y-1 text-meta text-text-muted">
+        <div className="mt-2 flex flex-wrap gap-x-5 gap-y-1 ui-type-note text-text-muted">
           <span>开始：{formatDateTime(node.startedAt)}</span>
           <span>完成：{formatDateTime(node.finishedAt)}</span>
           <span>
@@ -906,7 +897,7 @@ function NodeDetailPanel({
 
         {node.decision && (
           <p
-            className={`mt-2 rounded-lg px-2.5 py-2 text-meta leading-relaxed ${
+            className={`mt-2 rounded-lg px-2.5 py-2 ui-type-note leading-relaxed ${
               node.decision === "approved"
                 ? "bg-success/10 text-success"
                 : "bg-error-bg text-error"
@@ -919,7 +910,7 @@ function NodeDetailPanel({
         )}
 
         {node.error && (
-          <p className="mt-2 rounded-lg bg-error-bg px-2.5 py-2 text-meta leading-relaxed text-error">
+          <p className="mt-2 rounded-lg bg-error-bg px-2.5 py-2 ui-type-note leading-relaxed text-error">
             {node.error}
           </p>
         )}
@@ -942,13 +933,13 @@ function NodeDetailPanel({
       <SegmentedTabs options={tabs} value={tab} onChange={setTab} />
 
       {loading ? (
-        <div className="flex items-center justify-center gap-2 py-10 text-body text-text-muted">
-          <Loader2 className="h-4 w-4 animate-spin" />
+        <div className="flex items-center justify-center gap-2 py-10 ui-type-body text-text-muted">
+          <Spinner className="h-4 w-4" />
           正在读取节点详情
         </div>
       ) : tab === "conversation" ? (
         !hasConversation ? (
-          <p className="py-10 text-center text-meta italic text-text-muted">
+          <p className="py-10 text-center ui-type-note italic text-text-muted">
             （还没有记录到对话）
           </p>
         ) : (
@@ -958,10 +949,10 @@ function NodeDetailPanel({
                 key={`${attempt.attempt}-${attempt.round}`}
                 className="overflow-hidden rounded-xl border border-border bg-surface-2/40"
               >
-                <div className="flex items-center justify-between gap-2 border-b border-border px-3 py-2 text-meta">
+                <div className="flex items-center justify-between gap-2 border-b border-border px-3 py-2 ui-type-note">
                   <span className="font-medium text-text-secondary">
                     第 {attempt.attempt} 次尝试 · 第 {attempt.round} 轮
-                    <span className="ml-2 rounded-full bg-surface/70 px-2 py-0.5 text-caption text-text-muted">
+                    <span className="ml-2 rounded-full bg-surface/70 px-2 py-0.5 ui-type-sub text-text-muted">
                       {attempt.kind === "revise"
                         ? "人工要求修改"
                         : attempt.kind === "retry"
@@ -969,7 +960,7 @@ function NodeDetailPanel({
                           : "初次执行"}
                     </span>
                   </span>
-                  <span className="truncate font-mono text-caption text-text-muted">
+                  <span className="truncate ui-type-code-sm text-text-muted">
                     {attempt.sessionId
                       ? `会话 ${attempt.sessionId.slice(0, 8)}`
                       : "无会话"}
@@ -977,7 +968,7 @@ function NodeDetailPanel({
                 </div>
                 <div className="space-y-3 p-3">
                   {attempt.messages.length === 0 ? (
-                    <p className="text-meta italic text-text-muted">
+                    <p className="ui-type-note italic text-text-muted">
                       （本次尝试没有对话记录）
                     </p>
                   ) : (
@@ -995,7 +986,7 @@ function NodeDetailPanel({
 
             {live && live.length > 0 && (
               <section className="overflow-hidden rounded-xl border border-accent/30 bg-accent-soft/20">
-                <div className="border-b border-accent/20 px-3 py-2 text-meta font-medium text-accent">
+                <div className="border-b border-accent/20 px-3 py-2 ui-type-label text-accent">
                   实时执行
                 </div>
                 <div className="p-3">
@@ -1011,14 +1002,14 @@ function NodeDetailPanel({
             <MarkdownRenderer content={detail.result} />
           </div>
         ) : (
-          <p className="py-10 text-center text-meta italic text-text-muted">
+          <p className="py-10 text-center ui-type-note italic text-text-muted">
             （没有结果文件）
           </p>
         )
       ) : tab === "artifacts" ? (
         <div className="overflow-hidden rounded-xl border border-border bg-surface-2/50">
           <div className="flex items-center justify-between gap-2 border-b border-border px-3 py-2">
-            <span className="text-meta font-medium text-text-secondary">
+            <span className="ui-type-label text-text-secondary">
               产物文件（{files.length}）
             </span>
             <Button
@@ -1032,7 +1023,7 @@ function NodeDetailPanel({
             </Button>
           </div>
           {files.length === 0 ? (
-            <p className="px-3 py-8 text-center text-meta italic text-text-muted">
+            <p className="px-3 py-8 text-center ui-type-note italic text-text-muted">
               （没有产物文件）
             </p>
           ) : (
@@ -1045,12 +1036,12 @@ function NodeDetailPanel({
                   <FileText className="h-4 w-4 shrink-0 text-text-muted" />
                   <div className="min-w-0 flex-1">
                     <p
-                      className="truncate text-body text-text"
+                      className="truncate ui-type-body text-text"
                       title={file.relativePath}
                     >
                       {file.relativePath}
                     </p>
-                    <p className="font-mono text-caption text-text-muted">
+                    <p className="ui-type-code-sm text-text-muted">
                       {formatBytes(file.size)}
                     </p>
                   </div>
@@ -1081,7 +1072,7 @@ function NodeDetailPanel({
           {notices.map((notice, index) => (
             <div
               key={`${notice.type}-${index}`}
-              className={`rounded-xl border px-3 py-2.5 text-meta leading-relaxed ${
+              className={`rounded-xl border px-3 py-2.5 ui-type-note leading-relaxed ${
                 notice.level === "error"
                   ? "border-error/30 bg-error-bg text-error"
                   : notice.level === "warning"
@@ -1089,7 +1080,7 @@ function NodeDetailPanel({
                     : "border-border bg-surface-2/50 text-text-secondary"
               }`}
             >
-              <div className="mb-1 flex items-center justify-between gap-2 text-caption text-text-muted">
+              <div className="mb-1 flex items-center justify-between gap-2 ui-type-sub text-text-muted">
                 <span>
                   {notice.type === "node_retry"
                     ? "重试"
@@ -1106,7 +1097,7 @@ function NodeDetailPanel({
           ))}
         </div>
       ) : (
-        <pre className="max-h-[60vh] overflow-auto whitespace-pre-wrap rounded-xl border border-border bg-surface-2/50 p-4 font-sans text-meta leading-relaxed text-text-secondary">
+        <pre className="max-h-[60vh] overflow-auto whitespace-pre-wrap rounded-xl border border-border bg-surface-2/50 p-4 font-sans ui-type-note leading-relaxed text-text-secondary">
           {detail?.execution || "（没有执行信息）"}
         </pre>
       )}
@@ -1117,7 +1108,7 @@ function NodeDetailPanel({
         title={preview ? `预览 · ${preview.path}` : "预览"}
         width="xl"
       >
-        <pre className="max-h-[65vh] overflow-auto whitespace-pre-wrap rounded-lg bg-surface-2/40 p-3 font-mono text-meta leading-relaxed text-text-secondary">
+        <pre className="max-h-[65vh] overflow-auto whitespace-pre-wrap rounded-lg bg-surface-2/40 p-3 ui-type-code leading-relaxed text-text-secondary">
           {preview?.content}
         </pre>
       </Dialog>

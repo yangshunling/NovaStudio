@@ -12,6 +12,7 @@ import { execFile } from "node:child_process";
 import { realpath } from "node:fs/promises";
 import { relative, resolve } from "node:path";
 import type { GitStatusKind } from "../../shared/types";
+import { clamp } from "../../shared/math";
 import type {
   GitBranchInfo,
   GitCommitSummary,
@@ -21,6 +22,7 @@ import type {
   GitStatusDetail,
 } from "../../shared/git";
 import { isInside } from "../utils/paths";
+import { errorMessage } from "../../shared/error";
 
 const GIT_TIMEOUT_MS = 20_000;
 /** 推送 / 拉取 / 获取要等网络，超时放宽 */
@@ -294,7 +296,7 @@ export async function readLog(
   cwd: string,
   limit = 20,
 ): Promise<GitCommitSummary[]> {
-  const count = Math.max(1, Math.min(Math.round(limit), 100));
+  const count = clamp(Math.round(limit), 1, 100);
   const result = await runGit(cwd, [
     "log",
     `-n${count}`,
@@ -339,7 +341,7 @@ export async function readDiff(
       diff: "",
       binary: false,
       truncated: false,
-      error: err instanceof Error ? err.message : String(err),
+      error: errorMessage(err),
     };
   }
 
@@ -410,7 +412,7 @@ async function runPathOperation(
   } catch (err) {
     return {
       ok: false,
-      error: err instanceof Error ? err.message : String(err),
+      error: errorMessage(err),
     };
   }
   if (safePaths.length === 0) return { ok: true };
@@ -475,7 +477,7 @@ export async function pushBranch(
   } catch (err) {
     return {
       ok: false,
-      error: err instanceof Error ? err.message : String(err),
+      error: errorMessage(err),
     };
   }
 
@@ -504,7 +506,7 @@ export async function pushBranch(
   } catch (err) {
     return {
       ok: false,
-      error: err instanceof Error ? err.message : String(err),
+      error: errorMessage(err),
     };
   }
 
@@ -542,7 +544,7 @@ export async function checkoutBranch(
   } catch (err) {
     return {
       ok: false,
-      error: err instanceof Error ? err.message : String(err),
+      error: errorMessage(err),
     };
   }
 
@@ -565,7 +567,7 @@ export async function createBranch(
   } catch (err) {
     return {
       ok: false,
-      error: err instanceof Error ? err.message : String(err),
+      error: errorMessage(err),
     };
   }
 

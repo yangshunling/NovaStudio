@@ -249,3 +249,127 @@ test("同一段内的增量仍由 message_end 收敛，不产生重复", () => {
     ["你好"],
   );
 });
+
+test("result 行解析出本轮 token 用量与上下文窗口", () => {
+  const decoder = parse.createDecoder();
+  const event = decoder(
+    line({
+      type: "result",
+      subtype: "success",
+      session_id: SESSION,
+      usage: {
+        input_tokens: 1200,
+        output_tokens: 345,
+        cache_creation_input_tokens: 60,
+        cache_read_input_tokens: 7890,
+      },
+      modelUsage: {
+        "claude-sonnet-4-5": { contextWindow: 200_000 },
+      },
+      total_cost_usd: 0.0123,
+      duration_ms: 4567,
+    }),
+  );
+
+  assert.deepEqual(event, {
+    type: "usage",
+    inputTokens: 1200,
+    outputTokens: 345,
+    cacheCreationInputTokens: 60,
+    cacheReadInputTokens: 7890,
+    contextWindow: 200_000,
+    costUsd: 0.0123,
+    durationMs: 4567,
+  });
+});
+
+test("message_start 解析出单次 API 调用的上下文快照", () => {
+  const decoder = parse.createDecoder();
+  const event = decoder(
+    line({
+      type: "stream_event",
+      session_id: SESSION,
+      event: {
+        type: "message_start",
+        message: {
+          id: "m1",
+          usage: {
+            input_tokens: 11,
+            cache_creation_input_tokens: 22,
+            cache_read_input_tokens: 33,
+            output_tokens: 1,
+          },
+        },
+      },
+    }),
+  );
+
+  assert.deepEqual(event, {
+    type: "usage",
+    scope: "context",
+    inputTokens: 11,
+    outputTokens: 1,
+    cacheCreationInputTokens: 22,
+    cacheReadInputTokens: 33,
+  });
+});
+
+test("assistant 消息解析出单次 API 调用的上下文快照", () => {
+  const decoder = parse.createDecoder();
+  const event = decoder(
+    line({
+      type: "assistant",
+      session_id: SESSION,
+      message: {
+        id: "m1",
+        role: "assistant",
+        content: [{ type: "text", text: "hi" }],
+        usage: {
+          input_tokens: 12,
+          cache_creation_input_tokens: 34,
+          cache_read_input_tokens: 56,
+          output_tokens: 7,
+        },
+      },
+    }),
+  );
+
+  assert.ok(Array.isArray(event));
+  assert.equal(event[0]?.type, "message_end");
+  assert.deepEqual(event[1], {
+    type: "usage",
+    scope: "context",
+    inputTokens: 12,
+    outputTokens: 7,
+    cacheCreationInputTokens: 34,
+    cacheReadInputTokens: 56,
+  });
+});
+
+test("失败的 result 同时上报 error 与 usage", () => {
+  const decoder = parse.createDecoder();
+  const events = decoder(
+    line({
+      type: "result",
+      subtype: "error_during_execution",
+      is_error: true,
+      usage: { input_tokens: 10, output_tokens: 20 },
+      errors: ["No conversation found"],
+    }),
+  );
+
+  assert.ok(Array.isArray(events));
+  assert.deepEqual(events[0], {
+    type: "error",
+    message: "No conversation found",
+  });
+  assert.equal(events[1]?.type, "usage");
+});
+
+test("缺少 usage 的 result 不产生用量事件", () => {
+  const decoder = parse.createDecoder();
+  const event = decoder(
+    line({ type: "result", subtype: "success", session_id: SESSION }),
+  );
+  assert.equal(event, null);
+});

@@ -8,6 +8,7 @@
 import { existsSync, statSync } from "node:fs";
 import * as pty from "node-pty";
 import type { TerminalCreateResult } from "../../shared/types";
+import { clamp } from "../../shared/math";
 import { push } from "../ipc/push";
 
 interface ManagedTerminal {
@@ -107,5 +108,5 @@ function resolveShell(): { file: string; args: string[] } {
 
 function clampDimension(value: number, fallback: number): number {
   if (!Number.isFinite(value)) return fallback;
-  return Math.max(2, Math.min(1000, Math.floor(value)));
+  return clamp(Math.floor(value), 2, 1000);
 }

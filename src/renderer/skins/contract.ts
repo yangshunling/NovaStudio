@@ -40,6 +40,9 @@ export const REQUIRED_TOKENS: readonly string[] = [
   "--c-accent-hover",
   "--c-accent-foreground",
   "--c-accent-soft",
+  // 列表 / 导航的选中底色：必须比 accent-soft（光晕、胶囊）明显，
+  // 否则在纯黑/纯白底上几乎看不出哪一项被选中
+  "--c-selection-bg",
   // 语义
   "--c-thinking",
   "--c-thinking-bg",
@@ -78,9 +81,8 @@ export const REQUIRED_TOKENS: readonly string[] = [
   "--c-font-size",
   "--c-font-sans",
   "--c-font-mono",
-  "--c-font-serif",
   "--c-font-display",
-  "--c-serif-tracking",
+  "--c-display-tracking",
   // 圆角
   "--c-radius-sm",
   "--c-radius-md",
@@ -89,6 +91,10 @@ export const REQUIRED_TOKENS: readonly string[] = [
   "--c-radius-2xl",
   "--c-radius-bubble",
   "--c-radius-input",
+  // 形状类圆角（圆形 / 胶囊），与刻度分开
+  "--c-radius-full",
+  // 按钮专用圆角：改按钮只动这一处
+  "--c-btn-radius",
   "--c-progress-radius",
   // 布局
   "--c-layout-sidebar",

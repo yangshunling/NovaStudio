@@ -38,7 +38,7 @@ export function ConfirmDialog() {
       width="sm"
     >
       {message && (
-        <p className="whitespace-pre-line text-body-lg leading-relaxed text-text-secondary">
+        <p className="whitespace-pre-line ui-type-item leading-relaxed text-text-secondary">
           {message}
         </p>
       )}

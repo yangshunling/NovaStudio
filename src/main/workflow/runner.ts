@@ -14,6 +14,7 @@ import { randomUUID } from "crypto";
 import { existsSync } from "fs";
 import { rm, rmdir } from "fs/promises";
 import { dirname, join } from "path";
+import { clamp } from "../../shared/math";
 import { getProvider, listProviders } from "../agents/registry";
 import type { AgentInvocationInfo, PreparedAgentRun } from "../agents/types";
 import type { AgentService, RunOutcome } from "../agents/agent-service";
@@ -43,12 +44,16 @@ import {
   writeJson,
   writeText,
 } from "./artifacts";
-import { GraphValidationError, validateGraph } from "./graph";
+import {
+  GraphValidationError,
+  validateGraph,
+} from "../../shared/workflow-graph";
 import {
   buildExecutionReport,
   type ExecutionReportKnowledgeBase,
 } from "./execution-report";
 import { resolveEmployeeKnowledge } from "../knowledge/runtime";
+import { errorMessage } from "../../shared/error";
 
 /** 单节点输出交给下游时的摘要上限 */
 const UPSTREAM_SUMMARY_LIMIT = 4000;
@@ -75,7 +80,7 @@ function effectiveMaxRetries(node: WorkflowNode): number {
   if (node.config.failureStrategy !== "retry") return 0;
   const raw = Number(node.config.maxRetries);
   if (!Number.isFinite(raw)) return 1;
-  return Math.min(5, Math.max(1, Math.round(raw)));
+  return clamp(Math.round(raw), 1, 5);
 }
 
 /**
@@ -85,7 +90,7 @@ function effectiveMaxRetries(node: WorkflowNode): number {
 function effectiveMaxRevisions(node: WorkflowNode): number {
   const raw = Number(node.config.maxRevisions);
   if (!Number.isFinite(raw)) return 1;
-  return Math.min(3, Math.max(0, Math.round(raw)));
+  return clamp(Math.round(raw), 0, 3);
 }
 
 class CanceledError extends Error {
@@ -188,6 +193,19 @@ export interface WorkflowRunner {
   /** 删除工作流 / 工作区前检查是否有活跃运行 */
   hasActiveRunForWorkflow(workflowId: string): boolean;
   hasActiveRunInWorkspace(workspaceId: string): boolean;
+  /** 某个运行是否正在启动 / 执行 / 删除（含异步校验期间的占位） */
+  isRunBusy(runId: string): boolean;
+  /**
+   * 删除运行 / 工作流 / 工作区期间占位。
+   *
+   * 与 start / resume 共用同一套互斥判断：fn 执行期间，命中相同
+   * workspace / workflow 的启动会被拒绝，命中 runId 的续跑也会被拒绝。
+   * 必须在没有任何 await 的同步路径里调用，否则仍存在竞争窗口。
+   */
+  withMaintenance<T>(
+    lock: { workspaceId?: string; workflowId?: string; runId?: string },
+    fn: () => Promise<T>,
+  ): Promise<T>;
   /** 运行中节点的实时事件快照；节点不在运行时返回 null */
   liveTranscript(
     runId: string,
@@ -239,6 +257,26 @@ export function createWorkflowRunner(deps: WorkflowRunnerDeps): WorkflowRunner {
     string,
     { workspaceId: string; workflowId: string }
   >();
+  /**
+   * 正在删除的运行 id。
+   *
+   * resume() 的占位只存在于 reservations（key 为 runId），删除单次运行
+   * 既不是启动也不是续跑，必须单独占住，否则删除与续跑仍会交错。
+   */
+  const maintenanceRuns = new Set<string>();
+  /** 维护占位的唯一 key 前缀（避免与 runId 冲突） */
+  let maintenanceSeq = 0;
+  /** 应用退出后禁止再启动新运行 / 新续跑 */
+  let shutdownStarted = false;
+
+  /** 运行级互斥：执行中、启动校验中、删除中任一成立 */
+  function isRunBusy(runId: string): boolean {
+    return (
+      activeRuns.has(runId) ||
+      reservations.has(runId) ||
+      maintenanceRuns.has(runId)
+    );
+  }
 
   function workspaceBusy(workspaceId: string): boolean {
     return (
@@ -293,6 +331,9 @@ export function createWorkflowRunner(deps: WorkflowRunnerDeps): WorkflowRunner {
     workflowId: string,
     options: { source?: WorkflowRunSource; triggerId?: string | null } = {},
   ): Promise<WorkflowRun> {
+    if (shutdownStarted) {
+      throw new Error("应用正在退出，无法启动新的工作流");
+    }
     const workflow = db.getWorkflow(workflowId);
     if (!workflow) throw new Error("工作流不存在");
 
@@ -318,6 +359,10 @@ export function createWorkflowRunner(deps: WorkflowRunnerDeps): WorkflowRunner {
       // 先确认执行 Agent 已安装，再创建运行记录；
       // 否则用户会看到一条注定失败的运行记录，排查成本更高。
       await assertAgentReady();
+      // 校验期间应用可能已开始退出：不能再挂一条新的运行
+      if (shutdownStarted) {
+        throw new Error("应用正在退出，无法启动新的工作流");
+      }
 
       /*
        * 员工快照必须放在最后一个 await 之后：
@@ -421,7 +466,7 @@ export function createWorkflowRunner(deps: WorkflowRunnerDeps): WorkflowRunner {
       const run = db.getWorkflowRun(runId)!;
 
       void prepareRunFiles(active).then(() => execute(active)).catch((err) => {
-        finish(active, "failed", messageOf(err));
+        finish(active, "failed", errorMessage(err));
       });
 
       return run;
@@ -429,7 +474,7 @@ export function createWorkflowRunner(deps: WorkflowRunnerDeps): WorkflowRunner {
       // 运行记录已经创建、但启动流程失败：必须落一个终态，
       // 否则这条记录会永远停在“运行中”。
       if (activeAttached) activeRuns.delete(runId);
-      if (runCreated) failStartupRun(runId, messageOf(err));
+      if (runCreated) failStartupRun(runId, errorMessage(err));
       throw err;
     } finally {
       reservations.delete(runId);
@@ -502,10 +547,14 @@ export function createWorkflowRunner(deps: WorkflowRunnerDeps): WorkflowRunner {
     runId: string,
     nodeRunId?: string,
   ): Promise<WorkflowRun> {
+    if (shutdownStarted) {
+      throw new Error("应用正在退出，无法继续运行");
+    }
     const run = db.getWorkflowRun(runId);
     if (!run) throw new Error("运行记录不存在");
-    if (activeRuns.has(runId) || reservations.has(runId)) {
-      throw new Error("该运行正在执行，请等待结束");
+    // 执行中 / 启动校验中 / 删除中的运行都不允许再次续跑
+    if (isRunBusy(runId)) {
+      throw new Error("该运行正在执行或删除，请稍后重试");
     }
     if (run.status === "running" || run.status === "awaiting_approval") {
       throw new Error("该运行正在执行，请等待结束");
@@ -546,6 +595,9 @@ export function createWorkflowRunner(deps: WorkflowRunnerDeps): WorkflowRunner {
     let active: ActiveRun | null = null;
     try {
       await assertAgentReady();
+      if (shutdownStarted) {
+        throw new Error("应用正在退出，无法继续运行");
+      }
 
       const employees = new Map(
         db.listDigitalEmployees().map((employee) => [employee.id, employee]),
@@ -679,11 +731,11 @@ export function createWorkflowRunner(deps: WorkflowRunnerDeps): WorkflowRunner {
 
       void prepareRunFiles(active)
         .then(() => execute(active!))
-        .catch((err) => finish(active!, "failed", messageOf(err)));
+        .catch((err) => finish(active!, "failed", errorMessage(err)));
 
       return db.getWorkflowRun(runId)!;
     } catch (err) {
-      if (active) finish(active, "failed", messageOf(err));
+      if (active) finish(active, "failed", errorMessage(err));
       throw err;
     } finally {
       reservations.delete(runId);
@@ -764,7 +816,7 @@ export function createWorkflowRunner(deps: WorkflowRunnerDeps): WorkflowRunner {
        */
       const task = executeNode(active, node)
         .then((outcome) => ({ node, outcome }))
-        .catch((err) => ({ node, error: messageOf(err) }));
+        .catch((err) => ({ node, error: errorMessage(err) }));
       running.set(node.id, task);
     };
 
@@ -871,6 +923,14 @@ export function createWorkflowRunner(deps: WorkflowRunnerDeps): WorkflowRunner {
 
     const maxRetries = effectiveMaxRetries(node);
     let attempt = initial.attempt || 1;
+    /**
+     * 本次执行内的重试次数。
+     *
+     * attempt 是运行记录里的累计编号（续跑会从历史最大 attempt 继续递增），
+     * 不能直接拿它和 maxRetries 比较 —— 否则续跑后 attempt 恒大于配置值，
+     * 一次都不会重试。重试预算按「本次执行」重新计数。
+     */
+    let retriesUsed = 0;
     let lastError = "";
 
     while (true) {
@@ -987,7 +1047,8 @@ export function createWorkflowRunner(deps: WorkflowRunnerDeps): WorkflowRunner {
       });
 
       // 执行失败按重试策略处理；人工驳回 / 修改耗尽在上面已直接终止
-      if (attempt <= maxRetries) {
+      if (retriesUsed < maxRetries) {
+        retriesUsed += 1;
         updateStatus(initial.id, "retrying", {
           attempt,
           round: nodeRunOf(active, node.id).round,
@@ -1001,7 +1062,8 @@ export function createWorkflowRunner(deps: WorkflowRunnerDeps): WorkflowRunner {
           maxRetries,
           error: lastError,
         });
-        await delay(active, RETRY_BASE_MS * attempt);
+        // 退避按「本次执行的第几次重试」计算，而不是累计 attempt
+        await delay(active, RETRY_BASE_MS * retriesUsed);
         attempt += 1;
         // 必须清空上一轮错误，否则下一轮会跳过执行（只重试等待、不真正运行）
         lastError = "";
@@ -1134,7 +1196,7 @@ export function createWorkflowRunner(deps: WorkflowRunnerDeps): WorkflowRunner {
     try {
       runtimeConfig = provider.describeRuntimeConfig?.() ?? {};
     } catch (err) {
-      runtimeConfig = { "配置读取失败": messageOf(err) };
+      runtimeConfig = { "配置读取失败": errorMessage(err) };
     }
 
     const warnings: string[] = [];
@@ -1489,6 +1551,24 @@ export function createWorkflowRunner(deps: WorkflowRunnerDeps): WorkflowRunner {
       }
 
       /*
+       * CLI 可能在 result 行报告 error_*（api_error / max_turns 等）却仍以
+       * 0 退出（解析层已明确兼容这种输出）。此时 exitCode 无法代表失败，
+       * 必须把运行期错误当作失败处理；有正文时保留成功，避免把可用的
+       * 部分产物直接判死。
+       */
+      if (runtimeError && !result.assistantText?.trim()) {
+        return failedAttempt(
+          runtimeError,
+          false,
+          chain.sessionId,
+          attemptDir,
+          inputPath,
+          outputPath,
+          round,
+        );
+      }
+
+      /*
        * 结果优先取 agent-service 返回的本轮正文：
        * 它来自权威 message_end 块，能精确归属到当前轮。
        * 缺少时再退回累积的 text / delta，兼容不提供部分消息的版本。
@@ -1517,7 +1597,7 @@ export function createWorkflowRunner(deps: WorkflowRunnerDeps): WorkflowRunner {
       // 同时清掉实时快照：错误可能发生在内层 try 之前，不会走它的 finally。
       active.live.delete(nodeRun.id);
 
-      const message = messageOf(err);
+      const message = errorMessage(err);
       reportState.error = message;
       reportState.sessionRef =
         db.getSession(chain.sessionId)?.agentSessionId ??
@@ -1574,7 +1654,7 @@ export function createWorkflowRunner(deps: WorkflowRunnerDeps): WorkflowRunner {
         );
         await ensureDir(attemptDir);
         return failedAttempt(
-          messageOf(err),
+          errorMessage(err),
           false,
           null,
           attemptDir,
@@ -1965,6 +2045,33 @@ export function createWorkflowRunner(deps: WorkflowRunnerDeps): WorkflowRunner {
     return workspaceBusy(workspaceId);
   }
 
+  /**
+   * 删除期间占位。
+   *
+   * 在同步路径里写入 reservation / maintenanceRuns，之后的 start / resume
+   * 都会立即命中「忙」而拒绝，不会出现删除与启动互相穿透的窗口。
+   */
+  function withMaintenance<T>(
+    lock: { workspaceId?: string; workflowId?: string; runId?: string },
+    fn: () => Promise<T>,
+  ): Promise<T> {
+    maintenanceSeq += 1;
+    const key = `maintenance:${maintenanceSeq}`;
+    const locksWorkspace = Boolean(lock.workspaceId || lock.workflowId);
+    if (locksWorkspace) {
+      reservations.set(key, {
+        workspaceId: lock.workspaceId ?? "",
+        workflowId: lock.workflowId ?? "",
+      });
+    }
+    if (lock.runId) maintenanceRuns.add(lock.runId);
+
+    return fn().finally(() => {
+      if (locksWorkspace) reservations.delete(key);
+      if (lock.runId) maintenanceRuns.delete(lock.runId);
+    });
+  }
+
   function liveTranscript(
     runId: string,
     nodeRunId: string,
@@ -1982,6 +2089,8 @@ export function createWorkflowRunner(deps: WorkflowRunnerDeps): WorkflowRunner {
   }
 
   function shutdown(): void {
+    // 先置位：已经进入异步校验的 start / resume 会在下一个检查点退出
+    shutdownStarted = true;
     for (const active of [...activeRuns.values()]) {
       active.canceled = true;
       active.stopping = true;
@@ -2113,11 +2222,10 @@ export function createWorkflowRunner(deps: WorkflowRunnerDeps): WorkflowRunner {
     approve,
     hasActiveRunForWorkflow,
     hasActiveRunInWorkspace,
+    isRunBusy,
+    withMaintenance,
     liveTranscript,
     shutdown,
   };
 }
 
-function messageOf(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
-}

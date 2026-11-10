@@ -10,9 +10,31 @@ import type {
   TextareaHTMLAttributes,
 } from "react";
 
-/** 表单输入框统一外观（input / select / textarea 共用） */
-export const FORM_INPUT_CLASS =
-  "ui-ring w-full rounded-lg bg-input-bg px-inset py-inset text-body text-text placeholder-text-muted outline-none transition-colors focus:border-input-border-focus";
+/**
+ * 输入框外观：按「宽度」与「密度」组合。
+ *
+ * - form：页面表单，13px + 设计 token 内边距；
+ * - compact：工作流编辑器等紧凑面板，14px + 固定内边距。
+ *
+ * 宽度单独控制，避免再出现「先拼 w-full 再用正则删掉」的写法。
+ */
+export function inputClass({
+  width = "full",
+  density = "form",
+}: {
+  width?: "full" | "auto";
+  density?: "form" | "compact";
+} = {}): string {
+  const widthClass = width === "full" ? "w-full" : "";
+  const densityClass =
+    density === "form"
+      ? "px-inset py-inset ui-type-body"
+      : "px-3 py-2 ui-type-item";
+  return `ui-ring rounded-lg bg-input-bg text-text placeholder-text-muted outline-none transition-colors focus:border-input-border-focus ${widthClass} ${densityClass}`.trim();
+}
+
+/** 页面表单的默认输入框（撑满宽度） */
+export const FORM_INPUT_CLASS = inputClass();
 
 /** 列表行内联重命名输入框（与完整表单的 36px 输入框区分） */
 export const INLINE_INPUT_CLASS =
@@ -52,13 +74,13 @@ export function Field({
 }) {
   return (
     <div className={className.trim()}>
-      <div className="mb-1.5 flex shrink-0 items-center gap-1 text-meta font-medium text-text-secondary">
+      <div className="mb-1.5 flex shrink-0 items-center gap-1 ui-type-label text-text-secondary">
         {label}
         {required && <span className="text-error">*</span>}
       </div>
       {children}
       {hint && (
-        <p className="mt-1 shrink-0 text-meta leading-relaxed text-text-muted">
+        <p className="mt-1 shrink-0 ui-type-note leading-relaxed text-text-muted">
           {hint}
         </p>
       )}

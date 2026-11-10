@@ -13,3 +13,15 @@ export function requestRevealMessage(id: string): void {
     new CustomEvent(REVEAL_MESSAGE_EVENT, { detail: { id } }),
   );
 }
+
+/**
+ * 请求把焦点交给当前会话的输入框。
+ *
+ * 输入框的 ref 是 ChatArea 的私有 DOM，不提升到 store；
+ * 会话列表只需要广播「用户点了某个会话」，由 ChatArea 自己决定聚焦时机。
+ */
+export const FOCUS_COMPOSER_EVENT = "nova:focus-composer";
+
+export function requestComposerFocus(): void {
+  window.dispatchEvent(new Event(FOCUS_COMPOSER_EVENT));
+}

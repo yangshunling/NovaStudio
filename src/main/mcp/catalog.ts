@@ -31,6 +31,8 @@ import {
   readClaudeMcpServers,
   writeClaudeMcpServers,
 } from "../agents/claude/config";
+import { errorMessage } from "../../shared/error";
+import { asString } from "../../shared/json";
 
 /** 单文件 / 配置读取上限，防止异常文件拖垮主进程 */
 const MAX_JSON_BYTES = 5_000_000;
@@ -40,10 +42,6 @@ const SOURCE: McpSource = "claude-global";
 // ============================================================================
 // 通用解析
 // ============================================================================
-
-function toText(value: unknown): string {
-  return typeof value === "string" ? value : "";
-}
 
 function toStringArray(value: unknown): string[] {
   if (Array.isArray(value)) return value.map((item) => String(item));
@@ -161,12 +159,12 @@ function parseServerObject(raw: unknown, fallbackName: string): ParsedServer {
     string,
     unknown
   >;
-  const url = toText(value.url);
+  const url = asString(value.url);
   return {
-    name: toText(value.name) || fallbackName,
-    description: toText(value.description),
+    name: asString(value.name) || fallbackName,
+    description: asString(value.description),
     transport: normalizeTransport(value.transport ?? value.type, url),
-    command: toText(value.command),
+    command: asString(value.command),
     args: toStringArray(value.args),
     env: toRecord(value.env ?? value.environment),
     url,
@@ -350,7 +348,7 @@ function commitMcpServer(
   } catch (err) {
     return {
       ok: false,
-      error: err instanceof Error ? err.message : String(err),
+      error: errorMessage(err),
     };
   }
 
@@ -444,7 +442,7 @@ export async function saveMcpDefinition(
   } catch (err) {
     return {
       ok: false,
-      error: `JSON 解析失败：${err instanceof Error ? err.message : String(err)}`,
+      error: `JSON 解析失败：${errorMessage(err)}`,
     };
   }
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
@@ -521,7 +519,7 @@ function collectImportEntries(raw: unknown): Array<[string, unknown]> {
         item && typeof item === "object"
           ? (item as Record<string, unknown>)
           : {};
-      return [toText(value.name) || `mcp-${index + 1}`, item];
+      return [asString(value.name) || `mcp-${index + 1}`, item];
     });
   }
 
@@ -536,7 +534,7 @@ function collectImportEntries(raw: unknown): Array<[string, unknown]> {
     return Object.entries(value.mcpServers as Record<string, unknown>);
   }
 
-  return [[toText(value.name) || "mcp-server", raw]];
+  return [[asString(value.name) || "mcp-server", raw]];
 }
 
 export async function importMcpServers(json: string): Promise<McpImportResult> {
@@ -547,7 +545,7 @@ export async function importMcpServers(json: string): Promise<McpImportResult> {
     return {
       ok: false,
       imported: [],
-      error: `JSON 解析失败：${err instanceof Error ? err.message : String(err)}`,
+      error: `JSON 解析失败：${errorMessage(err)}`,
     };
   }
 
@@ -614,7 +612,7 @@ export async function importMcpFromPath(
     return {
       ok: false,
       imported: [],
-      error: err instanceof Error ? err.message : String(err),
+      error: errorMessage(err),
     };
   }
   return importMcpServers(content);

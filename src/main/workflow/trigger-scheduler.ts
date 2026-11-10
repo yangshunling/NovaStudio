@@ -17,6 +17,7 @@ import * as db from "../db/sqlite";
 import { nextTriggerFireAt } from "../../shared/trigger-schedule";
 import type { WorkflowTrigger } from "../../shared/types";
 import { WorkspaceBusyError, type WorkflowRunner } from "./runner";
+import { errorMessage } from "../../shared/error";
 
 /** 扫描周期（毫秒） */
 const POLL_INTERVAL_MS = 15_000;
@@ -47,6 +48,8 @@ export function createTriggerScheduler(
 ): TriggerScheduler {
   let timer: NodeJS.Timeout | null = null;
   let ticking = false;
+  /** 已停止：退出时正在进行的 drain 不能再启动新的工作流 */
+  let stopped = false;
   /** workflowId → 等待启动的工作流 */
   const pending = new Map<string, PendingWorkflow>();
 
@@ -87,6 +90,8 @@ export function createTriggerScheduler(
     if (pending.size === 0) return;
 
     for (const [workflowId, item] of [...pending]) {
+      // 应用已退出 / 调度器已停止：不再领取新的启动任务
+      if (stopped) return;
       if (!pending.has(workflowId)) continue;
 
       /*
@@ -116,7 +121,7 @@ export function createTriggerScheduler(
         });
         if (cleared) deps.emit(cleared);
       } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
+        const message = errorMessage(err);
         // 用错误类型判断，不依赖文案：文案调整不应改变排队语义
         const workspaceBusy = err instanceof WorkspaceBusyError;
 
@@ -148,7 +153,7 @@ export function createTriggerScheduler(
   }
 
   async function tick(): Promise<void> {
-    if (ticking) return;
+    if (stopped || ticking) return;
     ticking = true;
     try {
       // 先把上一轮排队的工作流送出去（工作区可能已经空闲）
@@ -179,6 +184,7 @@ export function createTriggerScheduler(
   return {
     start(): void {
       if (timer) return;
+      stopped = false;
 
       // 重启后从「现在」重新计算，不追补关闭期间错过的时刻
       const now = Date.now();
@@ -207,9 +213,11 @@ export function createTriggerScheduler(
     },
 
     stop(): void {
-      if (!timer) return;
-      clearTimeout(timer);
-      timer = null;
+      stopped = true;
+      if (timer) {
+        clearTimeout(timer);
+        timer = null;
+      }
       pending.clear();
     },
   };

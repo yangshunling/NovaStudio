@@ -21,13 +21,7 @@
 
 import { useState } from "react";
 import {
-  Check,
-  CircleDashed,
-  Clock,
-  ListChecks,
-  Loader2,
-  Plus,
-} from "lucide-react";
+  Check, CircleDashed, Clock, ListChecks, Plus } from "lucide-react";
 import { useAutomationStore } from "../../stores/automation";
 import { useChatStore } from "../../stores/chat";
 import { Page, PageHeader } from "../ui/Page";
@@ -36,6 +30,7 @@ import { BoardColumn } from "./BoardColumn";
 import { TaskCreateModal } from "./TaskCreateModal";
 import { TaskDetailDrawer } from "./TaskDetailDrawer";
 import type { AutomationTask } from "@shared/types";
+import { Spinner } from "../ui/Spinner";
 
 // ============================================================================
 // 自动化看板主组件
@@ -58,6 +53,14 @@ export function AutomationView() {
   const done = tasks.filter((t) => t.status === "completed");
   // 列头转圈只反映"真的有进程在跑"
   const hasRunning = tasks.some((t) => t.status === "running");
+
+  /*
+   * detailTask 是打开抽屉时的对象快照；任务状态更新只替换 tasks 里的对象。
+   * 直接从最新列表里取同 id 的任务，否则抽屉会永远停在打开时的 running 状态。
+   */
+  const liveDetailTask = detailTask
+    ? (tasks.find((task) => task.id === detailTask.id) ?? detailTask)
+    : null;
 
   return (
     <>
@@ -102,7 +105,7 @@ export function AutomationView() {
             count={running.length}
             icon={
               hasRunning ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
+                <Spinner className="h-4 w-4" />
               ) : (
                 <CircleDashed className="h-3.5 w-3.5" />
               )
@@ -139,7 +142,12 @@ export function AutomationView() {
       {showCreate && <TaskCreateModal onClose={() => setShowCreate(false)} />}
 
       {/* 详情抽屉 */}
-      {detailTask && <TaskDetailDrawer task={detailTask} onClose={() => setDetailTask(null)} />}
+      {liveDetailTask && (
+        <TaskDetailDrawer
+          task={liveDetailTask}
+          onClose={() => setDetailTask(null)}
+        />
+      )}
     </>
   );
 }

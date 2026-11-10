@@ -10,6 +10,7 @@
  */
 
 import type { ToolKind } from "../../shared/types";
+import { TOOL_TARGET_KEYS, readStringField } from "../../shared/tool-input";
 
 export interface ToolDisplay {
   /** 展示分类，宿主据此选图标与配色 */
@@ -34,17 +35,6 @@ const KIND_BY_NAME: Record<string, ToolKind> = {
   sh: "exec",
 };
 
-/** 操作对象候选字段，按优先级排列 */
-const TARGET_KEYS = [
-  "path",
-  "file",
-  "filePath",
-  "file_path",
-  "command",
-  "pattern",
-  "query",
-] as const;
-
 /**
  * 归一化一次工具调用。
  *
@@ -59,10 +49,8 @@ export function describeTool(name: string, input: unknown): ToolDisplay {
 /** 从 input 里取出操作对象原文；取不到则返回空串 */
 function rawTarget(input: unknown): string {
   if (!input || typeof input !== "object") return "";
-  const record = input as Record<string, unknown>;
-  for (const field of TARGET_KEYS) {
-    const value = record[field];
-    if (typeof value === "string" && value) return value;
-  }
-  return "";
+  return readStringField(
+    input as Record<string, unknown>,
+    TOOL_TARGET_KEYS,
+  );
 }

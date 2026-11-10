@@ -15,6 +15,8 @@ import type {
 } from "../../shared/types";
 import * as db from "../db/sqlite";
 import { isInside } from "../utils/paths";
+import { errorMessage } from "../../shared/error";
+import { isMarkdownFile, isTextFile } from "../../shared/file-kinds";
 
 const MAX_TEXT_BYTES = 2 * 1024 * 1024;
 const MAX_EMBED_BYTES = 25 * 1024 * 1024;
@@ -93,18 +95,6 @@ const CODE_LANGUAGES: Record<string, string> = {
   tsv: "tsv",
 };
 
-const TEXT_EXTENSIONS = new Set([
-  ...Object.keys(CODE_LANGUAGES),
-  "txt",
-  "text",
-  "log",
-  "rtf",
-  "lock",
-  "license",
-]);
-
-const MARKDOWN_EXTENSIONS = new Set(["md", "markdown", "mdx"]);
-
 export async function readProjectFile(
   projectId: string,
   relativePath: string,
@@ -163,7 +153,7 @@ export async function readProjectFile(
       };
     }
 
-    const knownText = TEXT_EXTENSIONS.has(extension);
+    const knownText = isTextFile(name);
     if (!knownText && fileStat.size > MAX_TEXT_BYTES) {
       return {
         ok: true,
@@ -182,7 +172,7 @@ export async function readProjectFile(
     }
 
     const content = decodeText(buffer);
-    const kind: FilePreviewKind = MARKDOWN_EXTENSIONS.has(extension)
+    const kind: FilePreviewKind = isMarkdownFile(name)
       ? "markdown"
       : "text";
 
@@ -332,7 +322,7 @@ function resolveMimeType(name: string, extension: string): string {
   if (IMAGE_MIME_TYPES[extension]) return IMAGE_MIME_TYPES[extension];
   if (extension === "pdf") return "application/pdf";
   if (extension === "svg") return "image/svg+xml";
-  if (TEXT_EXTENSIONS.has(extension)) return "text/plain";
+  if (isTextFile(name)) return "text/plain";
   return "application/octet-stream";
 }
 
@@ -354,7 +344,7 @@ function binaryPreview(
 }
 
 function formatFileError(err: unknown): string {
-  const message = err instanceof Error ? err.message : String(err);
+  const message = errorMessage(err);
   if (message.includes("ENOENT")) return "文件不存在";
   if (message.includes("EACCES") || message.includes("EPERM")) return "没有权限读取该文件";
   return message || "读取文件失败";

@@ -5,8 +5,9 @@
  * hover 显示操作按钮（重试 / 删除）；执行中显示旋转图标与「停止」按钮
  */
 
-import { RotateCcw, AlertCircle, Loader2, Square, Clock } from "lucide-react";
+import { RotateCcw, AlertCircle, Square, Clock } from "lucide-react";
 import { ConfirmDeleteButton } from "../ui/ConfirmDeleteButton";
+import { IconButton } from "../ui/IconButton";
 import { AgentPill } from "../ui/AgentPill";
 import { FolderTypeIcon } from "../ui/FolderTypeIcon";
 import { Pill } from "../ui/Pill";
@@ -14,6 +15,7 @@ import { StatusDot } from "../ui/StatusDot";
 import { timeAgo } from "../../lib/utils";
 import type { AutomationTask, Project } from "@shared/types";
 import type { AgentInfo } from "@shared/contracts/agent";
+import { Spinner } from "../ui/Spinner";
 
 export function TaskCard({
   task,
@@ -59,7 +61,7 @@ export function TaskCard({
           className="mt-1.5"
         />
         <p
-          className="line-clamp-2 min-w-0 flex-1 text-body-lg leading-snug text-text"
+          className="line-clamp-2 min-w-0 flex-1 ui-type-item leading-snug text-text"
           title={task.prompt}
         >
           {task.prompt}
@@ -68,14 +70,14 @@ export function TaskCard({
 
       {/* 错误信息（失败时） */}
       {isFailed && task.error && (
-        <div className="mt-2 flex items-center gap-1 rounded bg-error-bg/50 px-2 py-1 text-meta text-error">
+        <div className="mt-2 flex items-center gap-1 rounded-sm bg-error-bg/50 px-2 py-1 ui-type-note text-error">
           <AlertCircle className="h-3.5 w-3.5 shrink-0" />
           <span className="truncate">{task.error}</span>
         </div>
       )}
 
       {/* 项目 + Agent 标签 */}
-      <div className="mt-2.5 flex items-center gap-2 text-caption">
+      <div className="mt-2.5 flex items-center gap-2 ui-type-sub">
         {project && (
           <Pill
             icon={<FolderTypeIcon size={12} />}
@@ -88,7 +90,7 @@ export function TaskCard({
       </div>
 
       {/* 时间 */}
-      <div className="mt-2 flex items-center gap-1 text-caption text-text-muted">
+      <div className="mt-2 flex items-center gap-1 ui-type-sub text-text-muted">
         <Clock className="h-3 w-3" />
         {isRunning && task.startedAt
           ? `执行中 · ${timeAgo(task.startedAt)}`
@@ -109,14 +111,12 @@ export function TaskCard({
           }`}
         >
           {isFailed && (
-            <button
+            <IconButton
+              icon={<RotateCcw className="h-4 w-4" />}
+              label="重试任务"
+              tone="accent"
               onClick={(e) => { e.stopPropagation(); onRetry(); }}
-              title="重试"
-              aria-label="重试任务"
-              className="ui-btn-round ui-icon-action flex h-9 w-9 items-center justify-center rounded-full text-text-muted hover:text-accent"
-            >
-              <RotateCcw className="h-4 w-4" />
-            </button>
+            />
           )}
           <ConfirmDeleteButton onConfirm={onDelete} className="rounded-md" iconSize={16} />
         </div>
@@ -125,15 +125,13 @@ export function TaskCard({
       {/* 执行中：旋转图标 + 停止按钮 */}
       {isRunning && (
         <div className="absolute right-2 top-2 flex items-center gap-1">
-          <Loader2 className="h-4 w-4 animate-spin text-accent" />
-          <button
+          <Spinner className="h-4 w-4 text-accent" />
+          <IconButton
+            icon={<Square className="h-3.5 w-3.5" />}
+            label="停止执行"
+            tone="danger"
             onClick={(e) => { e.stopPropagation(); onStop(); }}
-            title="停止执行"
-            aria-label="停止执行"
-            className="ui-btn-round ui-icon-action flex h-9 w-9 items-center justify-center rounded-full text-text-muted hover:text-error"
-          >
-            <Square className="h-3.5 w-3.5" />
-          </button>
+          />
         </div>
       )}
     </div>

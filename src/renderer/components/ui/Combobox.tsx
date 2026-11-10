@@ -11,6 +11,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Check, ChevronDown } from "lucide-react";
 import { FORM_INPUT_CLASS } from "./Field";
+import { estimateMenuHeight, placePopup } from "../../lib/popup";
+import { useDismissableLayer } from "../../hooks/useDismissableLayer";
 
 export interface ComboboxOption {
   value: string;
@@ -30,11 +32,6 @@ interface ComboboxProps {
   /** 展开下拉时触发，可用于按最新条件刷新候选项 */
   onOpen?: () => void;
   "aria-label"?: string;
-}
-
-/** 估算菜单高度，用于判断向上还是向下展开 */
-function estimateMenuHeight(optionCount: number): number {
-  return Math.min(optionCount * 36 + 12, 320);
 }
 
 export function Combobox({
@@ -74,24 +71,14 @@ export function Combobox({
     const wrapper = wrapperRef.current;
     if (!wrapper) return;
 
-    const rect = wrapper.getBoundingClientRect();
-    const width = Math.max(rect.width, minMenuWidth);
-    const height = estimateMenuHeight(options.length);
-    const spaceBelow = window.innerHeight - rect.bottom;
-    const spaceAbove = rect.top;
-
-    const top =
-      spaceBelow < height + 8 && spaceAbove > spaceBelow
-        ? Math.max(8, rect.top - height - 4)
-        : rect.bottom + 4;
-
     if (resetQuery) setQuery(null);
     setActiveIndex(0);
-    setPosition({
-      left: Math.max(8, Math.min(rect.left, window.innerWidth - width - 8)),
-      top,
-      width,
-    });
+    setPosition(
+      placePopup(wrapper.getBoundingClientRect(), {
+        minWidth: minMenuWidth,
+        estimatedHeight: estimateMenuHeight(options.length),
+      }),
+    );
     setOpen(true);
     onOpen?.();
   };
@@ -108,41 +95,7 @@ export function Combobox({
   };
 
   // 外部点击 / Esc / 滚动 / 窗口缩放时关闭
-  useEffect(() => {
-    if (!open) return;
-
-    const onDown = (event: MouseEvent) => {
-      const target = event.target as Node;
-      if (
-        wrapperRef.current?.contains(target) ||
-        menuRef.current?.contains(target)
-      ) {
-        return;
-      }
-      close();
-    };
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        close();
-        inputRef.current?.focus();
-      }
-    };
-    const onScroll = (event: Event) => {
-      if (menuRef.current?.contains(event.target as Node)) return;
-      close();
-    };
-
-    document.addEventListener("mousedown", onDown);
-    document.addEventListener("keydown", onKey);
-    window.addEventListener("scroll", onScroll, true);
-    window.addEventListener("resize", close);
-    return () => {
-      document.removeEventListener("mousedown", onDown);
-      document.removeEventListener("keydown", onKey);
-      window.removeEventListener("scroll", onScroll, true);
-      window.removeEventListener("resize", close);
-    };
-  }, [open]);
+  useDismissableLayer(open, close, [wrapperRef, menuRef], inputRef);
 
   // 候选列表变化时把高亮项收拢在范围内
   useEffect(() => {
@@ -247,7 +200,7 @@ export function Combobox({
             className="ui-dropdown-in ui-glass-strong ui-ring fixed z-[60] overflow-y-auto rounded-xl p-1.5"
           >
             {visibleOptions.length === 0 ? (
-              <div className="px-2.5 py-2 text-meta text-text-muted">
+              <div className="px-2.5 py-2 ui-type-note text-text-muted">
                 无匹配项，可直接输入自定义值
               </div>
             ) : (
@@ -262,7 +215,7 @@ export function Combobox({
                     aria-selected={selected}
                     onMouseEnter={() => setActiveIndex(index)}
                     onClick={() => pick(option)}
-                    className={`flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left text-meta transition-colors ${
+                    className={`flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left ui-type-note transition-colors ${
                       selected
                         ? "bg-accent-soft font-medium text-accent"
                         : index === activeIndex

@@ -8,6 +8,7 @@
 
 import { nativeTheme } from "electron";
 import type { AppSettings } from "../../../shared/types";
+import { clamp } from "../../../shared/math";
 import * as db from "../../db/sqlite";
 import { handle } from "../register";
 
@@ -57,7 +58,7 @@ function sanitizeSetting<K extends keyof AppSettings>(
     const numeric = Number(value);
     if (!Number.isFinite(numeric)) return undefined;
     const [min, max] = limits;
-    return Math.min(max, Math.max(min, Math.round(numeric))) as AppSettings[K];
+    return clamp(Math.round(numeric), min, max) as AppSettings[K];
   }
 
   // 字符串型设置：空串是合法值（表示「未指定」），只做 trim；

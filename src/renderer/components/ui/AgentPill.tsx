@@ -8,6 +8,7 @@
 
 import { Bot } from "lucide-react";
 import { agentTone, getAgentName } from "../../lib/utils";
+import { Pill } from "./Pill";
 import type { AgentInfo } from "@shared/contracts/agent";
 
 export function AgentPill({
@@ -27,11 +28,13 @@ export function AgentPill({
   const tone = agentTone(agents, agentId);
 
   return (
-    <span
-      className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-meta ${tone.soft} ${tone.fg} ${className}`}
+    <Pill
+      icon={<Bot size={iconSize} className="shrink-0" />}
+      toneClassName={`${tone.soft} ${tone.fg}`}
+      maxWidth={maxWidth}
+      className={className}
     >
-      <Bot size={iconSize} className="shrink-0" />
-      <span className={`truncate ${maxWidth}`}>{getAgentName(agents, agentId)}</span>
-    </span>
+      {getAgentName(agents, agentId)}
+    </Pill>
   );
 }

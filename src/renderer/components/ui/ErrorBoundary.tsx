@@ -40,18 +40,18 @@ export class ErrorBoundary extends Component<Props, State> {
 
     return (
       <div className="flex h-screen w-screen flex-col items-center justify-center gap-4 bg-bg px-8 text-text">
-        <h1 className="text-title font-semibold">界面出现异常</h1>
-        <p className="max-w-lg text-center text-meta text-text-muted">
+        <h1 className="ui-type-title">界面出现异常</h1>
+        <p className="max-w-lg text-center ui-type-note text-text-muted">
           这是界面层的渲染错误，会话与设置数据都保存在主进程，重新加载即可恢复。
         </p>
-        <pre className="max-h-40 max-w-2xl overflow-auto rounded-md border border-error bg-error-bg px-4 py-3 text-caption text-error">
+        <pre className="max-h-40 max-w-2xl overflow-auto rounded-md border border-error bg-error-bg px-4 py-3 ui-type-sub text-error">
           {error.message}
         </pre>
         <div className="flex items-center gap-2">
-          <button className="ui-btn-ghost rounded-full px-4 py-2 text-meta" onClick={this.handleReset}>
+          <button className="ui-btn-ghost px-4 py-2 ui-type-note" onClick={this.handleReset}>
             重试
           </button>
-          <button className="ui-btn-primary rounded-full px-4 py-2 text-meta" onClick={this.handleReload}>
+          <button className="ui-btn-primary px-4 py-2 ui-type-note" onClick={this.handleReload}>
             重新加载
           </button>
         </div>

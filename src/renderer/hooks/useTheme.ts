@@ -14,6 +14,7 @@ import { ipc } from "../lib/ipc";
 import { DEFAULT_SETTINGS } from "@shared/types";
 import type { SkinVariant } from "@shared/contracts/skin";
 import { defaultSkinId, getSkin, hasSkin, skins } from "../skins/registry";
+import { parseJsonSafe } from "@shared/json";
 
 /** 启动缓存键（只缓存皮肤与字号，真值仍在主进程设置里） */
 const CACHE_KEY = "nova-skin";
@@ -35,17 +36,28 @@ interface SkinState {
   setTerminalFontSize: (px: number) => void;
 }
 
+/** 换肤时临时挂在 <html> 上，关闭所有 transition（见 styles/index.css） */
+const THEME_SWITCH_CLASS = "theme-switching";
+
 /**
  * 把皮肤写到 <html data-theme>，CSS 变量据此生效。
  *
  * 同时把皮肤的明暗属性写进 color-scheme：滚动条、原生 <select> 下拉、
  * 输入框光标等浏览器内置控件会据此选择深/浅配色。否则深色皮肤下
  * 这些控件仍是系统浅色外观，与皮肤明显割裂。
+ *
+ * 换肤的一帧内关闭过渡：皮肤只是改 CSS 变量，带 transition-colors 的容器
+ * （工具卡 / 思考卡等）会从旧配色渐变到新配色，而页面其他部分立即切换，
+ * 看起来就像这些框慢半拍。强制样式解析后立刻恢复，过渡只留给真实交互。
  */
 function applyTheme(skin: SkinVariant): void {
   const root = document.documentElement;
+  root.classList.add(THEME_SWITCH_CLASS);
   root.setAttribute("data-theme", skin.id);
   root.style.colorScheme = skin.appearance;
+  // 先让新配色在「禁用过渡」的状态下完成样式解析
+  void root.offsetWidth;
+  root.classList.remove(THEME_SWITCH_CLASS);
   // 原生标题栏 / 系统控件也跟随皮肤明暗（由主进程的 nativeTheme 驱动）
   void ipc.setWindowAppearance(skin.appearance);
 }
@@ -93,11 +105,11 @@ function readCache(): {
   try {
     const raw = localStorage.getItem(CACHE_KEY);
     if (raw) {
-      const parsed = JSON.parse(raw) as {
+      const parsed = parseJsonSafe<{
         theme?: unknown;
         fontSize?: unknown;
         chatFontSize?: unknown;
-      };
+      }>(raw, {});
       const fontSize =
         typeof parsed.fontSize === "number" && parsed.fontSize > 0
           ? parsed.fontSize

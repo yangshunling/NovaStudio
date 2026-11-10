@@ -130,7 +130,7 @@ export function TodoRow({
             onMouseUp={() => setArmed(false)}
             title="拖动调整顺序"
             aria-label="拖动调整顺序"
-            className="pointer-events-none cursor-grab rounded p-0.5 text-text-muted opacity-0 transition-opacity hover:text-text active:cursor-grabbing group-hover:pointer-events-auto group-hover:opacity-100 focus-visible:pointer-events-auto focus-visible:opacity-100"
+            className="pointer-events-none cursor-grab rounded-sm p-0.5 text-text-muted opacity-0 transition-opacity hover:text-text active:cursor-grabbing group-hover:pointer-events-auto group-hover:opacity-100 focus-visible:pointer-events-auto focus-visible:opacity-100"
           >
             <GripVertical className="h-3.5 w-3.5" />
           </button>
@@ -145,7 +145,7 @@ export function TodoRow({
           todo.done ? `取消完成：${todo.title}` : `标记完成：${todo.title}`
         }
         onClick={() => onToggle(todo)}
-        className={`mt-[2px] grid h-[19px] w-[19px] shrink-0 place-items-center rounded-[6px] border transition-all active:scale-90 ${
+        className={`mt-[2px] grid h-[19px] w-[19px] shrink-0 place-items-center rounded-md border transition-all active:scale-90 ${
           todo.done
             ? "border-accent bg-accent text-accent-foreground shadow-[var(--c-shadow-sm)]"
             : "border-text-muted/45 text-transparent hover:border-accent hover:bg-accent-soft hover:text-accent/50"
@@ -164,7 +164,7 @@ export function TodoRow({
               />
             )}
             <span
-              className={`min-w-0 break-words text-body-lg leading-6 ${
+              className={`min-w-0 break-words ui-type-item leading-6 ${
                 todo.done
                   ? "text-text-muted line-through decoration-text-muted/50"
                   : "font-medium text-text"
@@ -176,7 +176,7 @@ export function TodoRow({
 
           {!todo.done && !hideDue && todo.dueAt !== null && (
             <span
-              className={`inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-caption leading-4 ${dueChip}`}
+              className={`inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 ui-type-sub leading-4 ${dueChip}`}
               title={
                 overdue
                   ? `已逾期，原定 ${formatDueLabel(todo.dueAt)}`
@@ -190,7 +190,7 @@ export function TodoRow({
         </div>
 
         {todo.note && (
-          <p className="mt-1 line-clamp-1 text-meta leading-relaxed text-text-muted">
+          <p className="mt-1 line-clamp-1 ui-type-note leading-relaxed text-text-muted">
             {todo.note}
           </p>
         )}
@@ -203,13 +203,13 @@ export function TodoRow({
                 type="button"
                 onClick={() => onTagClick?.(tag)}
                 title={`按标签 #${tag} 筛选`}
-                className="rounded-full bg-surface-hover/80 px-2 py-0.5 text-caption text-text-muted transition-colors hover:bg-accent-soft hover:text-accent"
+                className="rounded-full bg-surface-hover/80 px-2 py-0.5 ui-type-sub text-text-muted transition-colors hover:bg-accent-soft hover:text-accent"
               >
                 #{tag}
               </button>
             ))}
             {todo.done && todo.completedAt !== null && (
-              <span className="inline-flex items-center gap-1 rounded-full bg-surface-hover/80 px-2 py-0.5 text-caption text-text-muted">
+              <span className="inline-flex items-center gap-1 rounded-full bg-surface-hover/80 px-2 py-0.5 ui-type-sub text-text-muted">
                 <Check className="h-3 w-3" />
                 {formatCompletedAt(todo.completedAt)}
               </span>

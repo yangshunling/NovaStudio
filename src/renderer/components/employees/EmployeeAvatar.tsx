@@ -33,7 +33,7 @@ export function EmployeeAvatar({
         />
       ) : initial ? (
         <span
-          className="ui-serif font-semibold text-accent"
+          className="font-semibold text-accent"
           style={{ fontSize: Math.round(size * 0.4) }}
         >
           {initial}

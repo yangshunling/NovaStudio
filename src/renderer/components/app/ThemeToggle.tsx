@@ -7,6 +7,7 @@
 
 import { Moon, Sun } from "lucide-react";
 import { useSkin, useTheme } from "../../hooks/useTheme";
+import { IconButton } from "../ui/IconButton";
 
 export function ThemeToggle() {
   const { currentTheme, setTheme, skins } = useTheme();
@@ -21,15 +22,11 @@ export function ThemeToggle() {
   const label = isDark ? "切换到日间模式" : "切换到夜间模式";
 
   return (
-    <button
-      type="button"
+    <IconButton
+      icon={isDark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+      label={label}
       onClick={() => target && setTheme(target.id)}
       disabled={skins.length < 2}
-      title={label}
-      aria-label={label}
-      className="ui-btn-round ui-icon-action flex h-9 w-9 shrink-0 items-center justify-center rounded-full disabled:cursor-default disabled:opacity-40"
-    >
-      {isDark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
-    </button>
+    />
   );
 }

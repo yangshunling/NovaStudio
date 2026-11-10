@@ -64,6 +64,9 @@ export const ipc = {
     authMode?: AgentAuthMode;
     customHeaders?: string;
   }) => call("agent:models:list", input),
+  checkAgentUpgrade: (agentId: string) =>
+    call("agent:upgrade:check", { agentId }),
+  upgradeAgent: (agentId: string) => call("agent:upgrade:run", { agentId }),
   sendAgent: (sessionId: string, prompt: string): Promise<SendAgentResult> =>
     call("agent:send", { sessionId, prompt }),
   abortAgent: (sessionId: string) => call("agent:abort", { sessionId }),
@@ -119,9 +122,12 @@ export const ipc = {
   createSession: (projectId: string | null, agentId: string) =>
     call("session:create", { projectId, agentId }),
   listSessions: () => call("session:list"),
+  getDefaultCwd: () => call("session:defaultCwd"),
   getSession: (id: string) => call("session:get", { id }),
   renameSession: (id: string, title: string) => call("session:rename", { id, title }),
   deleteSession: (id: string) => call("session:delete", { id }),
+  setSessionPinned: (id: string, pinned: boolean) =>
+    call("session:setPinned", { id, pinned }),
   setSessionProject: (sessionId: string, projectId: string | null) =>
     call("session:setProject", { sessionId, projectId }),
 
@@ -291,6 +297,9 @@ export const ipc = {
     agentDone: (cb: (payload: IpcPushMap["agent:done"]) => void) => on("agent:done", cb),
     agentsDetected: (cb: (payload: IpcPushMap["agents:detected"]) => void) =>
       on("agents:detected", cb),
+    agentUpgradeProgress: (
+      cb: (payload: IpcPushMap["agent:upgrade:progress"]) => void,
+    ) => on("agent:upgrade:progress", cb),
     automationUpdated: (cb: (payload: IpcPushMap["automation:updated"]) => void) =>
       on("automation:updated", cb),
     terminalData: (cb: (payload: IpcPushMap["terminal:data"]) => void) =>

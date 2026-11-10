@@ -13,6 +13,7 @@
 
 import { app } from "electron";
 import type { UpdaterState } from "../shared/types";
+import { clamp } from "../shared/math";
 import { push } from "./ipc/push";
 
 /**
@@ -24,12 +25,9 @@ import { push } from "./ipc/push";
  * 因此这里用默认导入（= module.exports）再解构，运行时才可靠。
  */
 import electronUpdater from "electron-updater";
+import { errorMessage } from "../shared/error";
 
 const { autoUpdater } = electronUpdater;
-
-function toMessage(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
-}
 
 let state: UpdaterState = {
   phase: "idle",
@@ -70,7 +68,7 @@ export async function checkForUpdates(): Promise<UpdaterState> {
   try {
     await autoUpdater.checkForUpdates();
   } catch (err) {
-    setState({ phase: "error", message: toMessage(err) });
+    setState({ phase: "error", message: errorMessage(err) });
   }
   return state;
 }
@@ -81,7 +79,7 @@ export function downloadUpdate(): boolean {
 
   setState({ phase: "downloading", percent: 0, message: null });
   void autoUpdater.downloadUpdate().catch((err) => {
-    setState({ phase: "error", message: toMessage(err) });
+    setState({ phase: "error", message: errorMessage(err) });
   });
   return true;
 }
@@ -135,7 +133,7 @@ export function initUpdater(): void {
   autoUpdater.on("download-progress", (progress) => {
     setState({
       phase: "downloading",
-      percent: Math.max(0, Math.min(100, Math.round(progress.percent))),
+      percent: clamp(Math.round(progress.percent), 0, 100),
     });
   });
 
@@ -149,7 +147,7 @@ export function initUpdater(): void {
   });
 
   autoUpdater.on("error", (err) => {
-    setState({ phase: "error", message: toMessage(err) });
+    setState({ phase: "error", message: errorMessage(err) });
   });
 
   if (!app.isPackaged) {

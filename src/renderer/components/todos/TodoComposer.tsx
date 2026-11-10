@@ -115,10 +115,10 @@ export function TodoComposer({
               ? "在这天记一件事，回车添加"
               : "记一件要做的事，回车添加"
           }
-          className="min-w-0 flex-1 bg-transparent text-body-lg text-text outline-none placeholder-text-muted"
+          className="min-w-0 flex-1 bg-transparent ui-type-item text-text outline-none placeholder-text-muted"
         />
         {!expanded && defaultDueAt !== null && (
-          <span className="shrink-0 rounded-full bg-surface-hover px-2 py-0.5 text-caption text-text-muted">
+          <span className="shrink-0 rounded-full bg-surface-hover px-2 py-0.5 ui-type-sub text-text-muted">
             截止 {formatDateLabel(defaultDueAt)}
           </span>
         )}
@@ -130,7 +130,7 @@ export function TodoComposer({
               ? "收起详细信息"
               : "填写备注 / 优先级 / 截止日期 / 标签"
           }
-          className={`flex h-7 shrink-0 items-center gap-1 rounded-full px-2.5 text-meta transition-colors hover:bg-surface-hover hover:text-text ${
+          className={`flex h-7 shrink-0 items-center gap-1 rounded-full px-2.5 ui-type-note transition-colors hover:bg-surface-hover hover:text-text ${
             expanded ? "text-text" : "text-text-muted"
           }`}
         >
@@ -155,7 +155,7 @@ export function TodoComposer({
 
           <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
             <div className="flex items-center gap-2">
-              <span className="text-meta text-text-muted">优先级</span>
+              <span className="ui-type-note text-text-muted">优先级</span>
               <OptionChips
                 mode="single"
                 items={PRIORITY_OPTIONS}
@@ -164,7 +164,7 @@ export function TodoComposer({
               />
             </div>
             <div className="flex items-center gap-2">
-              <span className="text-meta text-text-muted">截止</span>
+              <span className="ui-type-note text-text-muted">截止</span>
               <div className="w-36">
                 <TextInput
                   type="date"
@@ -186,7 +186,7 @@ export function TodoComposer({
           </div>
 
           <div>
-            <div className="mb-1.5 text-meta font-medium text-text-secondary">
+            <div className="mb-1.5 ui-type-label text-text-secondary">
               标签
             </div>
             <TagInput

@@ -18,6 +18,7 @@ import {
   type Transport,
   type TransportHandlers,
 } from "./transport";
+import { errorMessage } from "../../shared/error";
 
 /** 默认超时：30 分钟（复杂任务需要较长时间；可在设置-通用里自定义） */
 const DEFAULT_TIMEOUT_MS = 30 * 60 * 1000;
@@ -188,7 +189,7 @@ export function startLineRun(
       transport.writeInput(config.stdin);
     }
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
+    const message = errorMessage(err);
     // 启动失败属于失败（不是用户中断），只是不需要再补一条重复的 error
     const diagnostic = `启动失败：${message}`;
     muted = true;

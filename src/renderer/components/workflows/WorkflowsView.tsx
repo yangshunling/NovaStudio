@@ -12,29 +12,20 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { MENU_WIDTH, MenuItem, MenuPanel, MenuSeparator } from "../ui/Menu";
 import {
-  ChevronRight,
-  Copy,
-  Folder,
-  FolderKanban,
-  History,
-  Loader2,
-  PenLine,
-  Play,
-  Plus,
-  SquarePen,
-  Trash2,
-  Workflow as WorkflowIcon,
-  Zap,
-} from "lucide-react";
+  ChevronRight, Copy, Folder, FolderKanban, History, PenLine, Play, Plus, SquarePen, Trash2, Workflow as WorkflowIcon, Zap } from "lucide-react";
 import { ipc } from "../../lib/ipc";
 import { newId, timeAgo, toMessage } from "../../lib/utils";
 import { useLoad } from "../../hooks/useLoad";
+import { useFilteredList } from "../../hooks/useFilteredList";
+import { clampMenuPosition } from "../../lib/popup";
+import { useDismissableLayer } from "../../hooks/useDismissableLayer";
 import { useChatStore } from "../../stores/chat";
 import { useEmployeesStore } from "../../stores/employees";
 import { toast } from "../../stores/toast";
 import { confirmDialog } from "../../stores/confirm";
 import { Dialog, DialogActions } from "../ui/Dialog";
 import { Button } from "../ui/Button";
+import { IconButton } from "../ui/IconButton";
 import { Field, TextArea, TextInput } from "../ui/Field";
 import {
   EmptyBlock,
@@ -68,6 +59,7 @@ import type {
   WorkflowTrigger,
   WorkflowTriggerBinding,
 } from "@shared/types";
+import { Spinner } from "../ui/Spinner";
 
 /** 未归属分组的伪工作区 id；真实工作区 id 都是 uuid，不会冲突 */
 const ORPHAN_ID = "__orphan__";
@@ -182,32 +174,18 @@ export function WorkflowsView() {
   const contextMenuRef = useRef<HTMLDivElement>(null);
 
   // 右键菜单：外部点击 / Esc / 滚动 / 窗口缩放时关闭
-  useEffect(() => {
-    if (!contextMenu) return;
-    const close = () => setContextMenu(null);
-    const onDown = (event: MouseEvent) => {
-      if (!contextMenuRef.current?.contains(event.target as Node)) close();
-    };
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") close();
-    };
-    document.addEventListener("mousedown", onDown);
-    document.addEventListener("keydown", onKey);
-    window.addEventListener("scroll", close, true);
-    window.addEventListener("resize", close);
-    return () => {
-      document.removeEventListener("mousedown", onDown);
-      document.removeEventListener("keydown", onKey);
-      window.removeEventListener("scroll", close, true);
-      window.removeEventListener("resize", close);
-    };
-  }, [contextMenu]);
+  useDismissableLayer(
+    Boolean(contextMenu),
+    () => setContextMenu(null),
+    [contextMenuRef],
+  );
 
   /** 把菜单坐标收拢在视口内 */
-  const menuPosition = (event: React.MouseEvent, height: number) => ({
-    x: Math.max(8, Math.min(event.clientX, window.innerWidth - MENU_WIDTH - 8)),
-    y: Math.max(8, Math.min(event.clientY, window.innerHeight - height - 8)),
-  });
+  const menuPosition = (event: React.MouseEvent, height: number) =>
+    clampMenuPosition(event.clientX, event.clientY, {
+      width: MENU_WIDTH,
+      height,
+    });
 
   const openWorkflowMenu = (workflow: Workflow, event: React.MouseEvent) => {
     event.preventDefault();
@@ -219,9 +197,6 @@ export function WorkflowsView() {
 
   /** 首次骨架：等工作区 / 员工也加载完再展示，避免列表先空后跳 */
   const [storesReady, setStoresReady] = useState(false);
-
-  /** 兼容旧调用点：刷新主数据 */
-  const load = reload;
 
   // 工作区 / 员工由各自 store 提供（已加载则不重复拉取）
   useEffect(() => {
@@ -369,15 +344,10 @@ export function WorkflowsView() {
     );
   }, [workflows, effectiveWorkspaceId, orphanWorkflows]);
 
-  const filtered = useMemo(() => {
-    const keyword = query.trim().toLowerCase();
-    if (!keyword) return selectedWorkflows;
-    return selectedWorkflows.filter((workflow) =>
-      [workflow.name, workflow.description].some((value) =>
-        value.toLowerCase().includes(keyword),
-      ),
-    );
-  }, [selectedWorkflows, query]);
+  const filtered = useFilteredList(selectedWorkflows, query, (workflow) => [
+    workflow.name,
+    workflow.description,
+  ]);
 
   const editing = workflows.find((workflow) => workflow.id === editingId) ?? null;
 
@@ -564,7 +534,7 @@ export function WorkflowsView() {
           // 返回运行记录列表；列表作用域仍然保留
           setRunning(null);
           setRunsRefresh((value) => value + 1);
-          void load();
+          void reload();
         }}
       />
     );
@@ -651,15 +621,12 @@ export function WorkflowsView() {
             <ListPane
               title="工作区"
               action={
-                <button
-                  type="button"
+                <IconButton
+                  icon={<FolderKanban className="h-4 w-4" />}
+                  label="管理工作区"
+                  tone="muted"
                   onClick={manageWorkspaces}
-                  title="管理工作区（新增 / 删除）"
-                  aria-label="管理工作区"
-                  className="ui-btn-round ui-icon-action flex h-9 w-9 items-center justify-center rounded-full text-text-muted transition-colors active:scale-95"
-                >
-                  <FolderKanban className="h-4 w-4" />
-                </button>
+                />
               }
             >
               {workspaceOptions.map((workspace) => {
@@ -682,7 +649,7 @@ export function WorkflowsView() {
                     titleAttr={workspace.cwd}
                     onClick={() => selectWorkspace(workspace.id)}
                     trailing={
-                      <span className="flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-surface-hover px-1.5 font-mono text-caption leading-none text-text-muted">
+                      <span className="flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-surface-hover px-1.5 ui-type-code-sm leading-none text-text-muted">
                         {count}
                       </span>
                     }
@@ -884,8 +851,8 @@ export function WorkflowsView() {
         description="勾选后，触发器到点会自动启动这条工作流。触发器可在左侧「触发器」页面统一创建与编辑，一个触发器也可以绑定多条工作流。"
       >
           {triggerDialogLoading ? (
-            <div className="flex h-40 items-center justify-center gap-2 text-body text-text-muted">
-              <Loader2 className="h-4 w-4 animate-spin" />
+            <div className="flex h-40 items-center justify-center gap-2 ui-type-body text-text-muted">
+              <Spinner className="h-4 w-4" />
               正在加载触发器
             </div>
           ) : allTriggers.length === 0 ? (
@@ -929,16 +896,16 @@ export function WorkflowsView() {
                     />
                     <span className="min-w-0 flex-1">
                       <span className="flex items-center gap-1.5">
-                        <span className="truncate text-body font-medium text-text">
+                        <span className="truncate ui-type-body font-medium text-text">
                           {trigger.title}
                         </span>
                         {!trigger.enabled && (
-                          <span className="shrink-0 rounded-full bg-surface-hover px-2 py-0.5 text-meta text-text-muted">
+                          <span className="shrink-0 rounded-full bg-surface-hover px-2 py-0.5 ui-type-note text-text-muted">
                             已停用
                           </span>
                         )}
                       </span>
-                      <span className="mt-0.5 block truncate text-meta text-text-muted">
+                      <span className="mt-0.5 block truncate ui-type-note text-text-muted">
                         {describeTriggerSchedule(trigger.schedule)}
                         {trigger.description ? ` · ${trigger.description}` : ""}
                       </span>
@@ -1104,7 +1071,7 @@ function WorkflowCard({
         {workflow.description || "暂无说明"}
       </p>
 
-      <div className="mt-3 flex flex-wrap items-center gap-1.5 text-meta text-text-muted">
+      <div className="mt-3 flex flex-wrap items-center gap-1.5 ui-type-note text-text-muted">
         {runMeta && RunIcon && (
           <span
             className={`flex items-center gap-1 rounded-full bg-surface-hover px-2 py-0.5 ${runMeta.className}`}
@@ -1128,7 +1095,7 @@ function WorkflowCard({
       </div>
 
       <div className={CARD_FOOTER}>
-        <span className="min-w-0 truncate text-meta text-text-muted">
+        <span className="min-w-0 truncate ui-type-note text-text-muted">
           {latestRun
             ? `${active ? "本次运行" : "最近运行"} ${timeAgo(latestRun.createdAt)}`
             : "尚未运行"}
@@ -1143,7 +1110,7 @@ function WorkflowCard({
           }}
           icon={
             active ? (
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              <Spinner className="h-3.5 w-3.5" />
             ) : (
               <Play className="h-3.5 w-3.5" />
             )

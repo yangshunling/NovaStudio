@@ -20,16 +20,13 @@
 export const CARD_SHELL =
   "group relative flex h-full min-h-32 min-w-0 flex-col items-stretch overflow-hidden rounded-xl border border-border/70 bg-surface-2/40 p-card text-left shadow-[var(--c-shadow-sm)] transition-all hover:-translate-y-0.5 hover:border-accent/35 hover:bg-surface-2/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 focus-visible:ring-offset-2 focus-visible:ring-offset-bg";
 
-/** 整卡可点击时补上光标（不可点击的卡片不要加） */
-export const CARD_CLICKABLE = "cursor-pointer";
-
 /**
  * 图标容器的色调槽位。
  *
  * 同一类资产始终用同一个色相（技能=紫、MCP=蓝、工作区=琥珀…），
  * 这样一屏卡片不用读标题就能按颜色区分「这是哪一类东西」。
  */
-export const CARD_ICON_TONES = {
+const CARD_ICON_TONES = {
   accent: "bg-accent-soft text-accent",
   violet: "bg-agent-violet/10 text-agent-violet",
   sky: "bg-agent-sky/10 text-agent-sky",
@@ -40,20 +37,17 @@ export const CARD_ICON_TONES = {
 
 export type CardIconTone = keyof typeof CARD_ICON_TONES;
 
-/** 卡片左上角的图标容器（默认强调色，可按资产类型换色调） */
-export const CARD_ICON_TILE = `grid h-11 w-11 shrink-0 place-items-center rounded-xl ${CARD_ICON_TONES.accent}`;
-
-/** 同上，按色调槽位取色 */
+/** 卡片左上角的图标容器，按色调槽位取色 */
 export function cardIconTile(tone: CardIconTone = "accent"): string {
   return `grid h-11 w-11 shrink-0 place-items-center rounded-xl ${CARD_ICON_TONES[tone]}`;
 }
 
 /** 卡片标题 */
-export const CARD_TITLE = "truncate text-title font-semibold text-text";
+export const CARD_TITLE = "ui-type-title truncate text-text";
 
 /** 卡片说明：两行截断，颜色统一为 muted */
 export const CARD_DESCRIPTION =
-  "line-clamp-2 text-body leading-relaxed text-text-muted";
+  "line-clamp-2 ui-type-body leading-relaxed text-text-muted";
 
 /**
  * 卡片底栏：六类资产卡片（员工 / 技能 / MCP / 工作流 / 工作区 / 触发器）
@@ -62,12 +56,8 @@ export const CARD_DESCRIPTION =
 
 /** 只有元信息、没有操作的底栏 */
 export const CARD_META =
-  "mt-auto flex flex-wrap items-center gap-1.5 pt-3 text-meta text-text-muted";
+  "mt-auto flex flex-wrap items-center gap-1.5 pt-3 ui-type-note text-text-muted";
 
 /** 元信息 + 操作按钮的底栏 */
 export const CARD_FOOTER =
-  "mt-auto flex flex-wrap items-center justify-between gap-2 pt-3 text-meta text-text-muted";
-
-/** 底栏左侧的元信息容器（用于 CARD_FOOTER 内） */
-export const CARD_FOOTER_META =
-  "flex min-w-0 flex-wrap items-center gap-1.5";
+  "mt-auto flex flex-wrap items-center justify-between gap-2 pt-3 ui-type-note text-text-muted";

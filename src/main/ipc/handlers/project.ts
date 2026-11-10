@@ -42,11 +42,28 @@ export function registerProjectHandlers(
       throw new Error("该工作区有运行中的工作流，请先终止运行");
     }
 
-    // 工作区 = 项目：会话、工作流、运行记录、产物、配置副本一起清理
-    await deleteWorkspaceData(id, {
-      service,
-      userDataDir: app.getPath("userData"),
-    });
+    /*
+     * 调度器只拾取 pending 任务。这里同步把它们置为失败，避免下面的清理
+     * await 期间轮询器又为这个工作区创建新会话（随后被级联删除）。
+     * 必须在第一个 await 之前完成。
+     */
+    for (const task of db.listAutomationTasks()) {
+      if (task.projectId !== id || task.status !== "pending") continue;
+      db.updateAutomationTask(task.id, {
+        status: "failed",
+        error: "工作区正在删除，任务已取消",
+        completedAt: Date.now(),
+      });
+    }
+
+    // 工作区 = 项目：会话、工作流、运行记录、产物、配置副本一起清理。
+    // 清理期间占住工作区，避免触发器 / 另一个页面在此刻启动工作流。
+    await runner.withMaintenance({ workspaceId: id }, () =>
+      deleteWorkspaceData(id, {
+        service,
+        userDataDir: app.getPath("userData"),
+      }),
+    );
     return true;
   });
 

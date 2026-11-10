@@ -36,12 +36,12 @@ export function EditorBar({
     <div
       className={`${marginClass} flex shrink-0 items-center justify-between gap-2`}
     >
-      <div className="flex min-w-0 flex-1 items-center gap-1.5 text-meta font-medium text-text-secondary">
+      <div className="flex min-w-0 flex-1 items-center gap-1.5 ui-type-label text-text-secondary">
         {label}
       </div>
       <div className="flex min-w-0 shrink-0 items-center gap-2">
         {error && (
-          <span className="truncate text-meta text-error" title={error}>
+          <span className="truncate ui-type-note text-error" title={error}>
             {error}
           </span>
         )}

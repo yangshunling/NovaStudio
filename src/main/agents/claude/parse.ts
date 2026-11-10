@@ -244,6 +244,116 @@ export function mapSystemRecord(obj: {
 }
 
 /**
+ * result 行的 usage / cost / duration → 用量事件。
+ *
+ * Claude Code 在结束行里报告本轮累计用量；旧版本或网关可能缺字段，
+ * 这里统一按 0 处理，全为 0 时不产生事件。
+ */
+/** 非负 token 计数：非法 / 负数 / NaN 一律按 0，避免污染累计值 */
+function countTokens(value: unknown): number {
+  return typeof value === "number" && Number.isFinite(value) && value > 0
+    ? Math.round(value)
+    : 0;
+}
+
+/**
+ * result 行的 modelUsage → 上下文窗口上限。
+ *
+ * Claude Code 在 `modelUsage[<model>].contextWindow` 里报告本次模型真正
+ * 可用的上下文长度（200k / 1M 等）；同一轮可能用到多个模型，取第一个
+ * 有效值即可 —— 宿主只用一个标尺展示占用。
+ */
+function readContextWindow(obj: Record<string, unknown>): number | undefined {
+  const modelUsage = obj.modelUsage;
+  if (!modelUsage || typeof modelUsage !== "object" || Array.isArray(modelUsage)) {
+    return undefined;
+  }
+  for (const entry of Object.values(modelUsage as Record<string, unknown>)) {
+    if (!entry || typeof entry !== "object") continue;
+    const record = entry as Record<string, unknown>;
+    // 兼容 camelCase 与部分网关的 snake_case 写法
+    const value = record.contextWindow ?? record.context_window;
+    if (typeof value === "number" && Number.isFinite(value) && value > 0) {
+      return Math.round(value);
+    }
+  }
+  return undefined;
+}
+
+function mapResultUsage(obj: Record<string, unknown>): AgentEvent | null {
+  const usage = obj.usage;
+  if (!usage || typeof usage !== "object") return null;
+  const record = usage as Record<string, unknown>;
+
+  const inputTokens = countTokens(record.input_tokens);
+  const outputTokens = countTokens(record.output_tokens);
+  const cacheCreationInputTokens = countTokens(record.cache_creation_input_tokens);
+  const cacheReadInputTokens = countTokens(record.cache_read_input_tokens);
+  if (
+    !inputTokens &&
+    !outputTokens &&
+    !cacheCreationInputTokens &&
+    !cacheReadInputTokens
+  ) {
+    return null;
+  }
+
+  const cost = obj.total_cost_usd;
+  const duration = obj.duration_ms;
+  const contextWindow = readContextWindow(obj);
+  return {
+    type: "usage",
+    inputTokens,
+    outputTokens,
+    cacheCreationInputTokens,
+    cacheReadInputTokens,
+    ...(contextWindow ? { contextWindow } : {}),
+    costUsd:
+      typeof cost === "number" && Number.isFinite(cost) && cost >= 0
+        ? cost
+        : undefined,
+    durationMs:
+      typeof duration === "number" && Number.isFinite(duration) && duration >= 0
+        ? duration
+        : undefined,
+  };
+}
+
+/**
+ * assistant 消息自带的 usage → 上下文快照。
+ *
+ * 每条 assistant 消息对应一次 API 调用，它的 `usage` 是这一次调用真正
+ * 送进模型的 prompt 大小（非缓存输入 + 缓存读写），与 result 行的整轮
+ * 汇总是两种口径。上下文占用必须用这里，否则工具循环多的轮次会虚高。
+ */
+function mapContextUsage(message: {
+  usage?: unknown;
+  model?: unknown;
+} | undefined): AgentEvent | null {
+  const usage = message?.usage;
+  if (!usage || typeof usage !== "object") return null;
+  const record = usage as Record<string, unknown>;
+
+  const inputTokens = countTokens(record.input_tokens);
+  const outputTokens = countTokens(record.output_tokens);
+  const cacheCreationInputTokens = countTokens(record.cache_creation_input_tokens);
+  const cacheReadInputTokens = countTokens(record.cache_read_input_tokens);
+  // 三项都为空说明这次调用还没有可用的上下文信息（例如流式尚未结束）
+  if (!inputTokens && !cacheCreationInputTokens && !cacheReadInputTokens) {
+    return null;
+  }
+
+  return {
+    type: "usage",
+    scope: "context",
+    inputTokens,
+    outputTokens,
+    cacheCreationInputTokens,
+    cacheReadInputTokens,
+  };
+}
+
+/**
  * 当前 assistant 消息的累积状态。
  * Claude 的 assistant 事件按 content block 逐条到达、每条只带一个块，
  * 所以要按消息归组：message_start 开一条新消息，随后每条 assistant 追加自己的块。
@@ -348,14 +458,20 @@ function decodeObject(
   // 增量：打字机流式的来源
   if (type === "stream_event") {
     const event = obj.event as
-      | { type?: string; delta?: { type?: string; text?: string; thinking?: string } }
+      | {
+          type?: string;
+          message?: { usage?: unknown; model?: unknown };
+          delta?: { type?: string; text?: string; thinking?: string };
+        }
       | undefined;
     if (!event) return null;
-    // 新消息开始：累积状态归零，随后的 assistant 属于这条新消息
+    // 新消息开始：累积状态归零，随后的 assistant 属于这条新消息。
+    // message_start.message.usage 是这一次 API 调用真正送进模型的
+    // 上下文大小，是上下文占用仪表最可靠的数据源。
     if (event.type === "message_start") {
       buffer.id = null;
       buffer.blocks = [];
-      return null;
+      return mapContextUsage(event.message);
     }
     if (event.type !== "content_block_delta" || !event.delta) return null;
     const delta = event.delta;
@@ -370,7 +486,9 @@ function decodeObject(
   // 再以「累积全集」发 message_end —— 收敛规则会把末尾累积块整段换成这一份，
   // 于是 delta 与完整块不会重复，同一条消息里先到的块也不会被后到的块删掉
   if (type === "assistant") {
-    const message = obj.message as { id?: unknown; content?: unknown } | undefined;
+    const message = obj.message as
+      | { id?: unknown; content?: unknown; usage?: unknown; model?: unknown }
+      | undefined;
 
     // API 错误记录：正文是错误信息。若按普通 assistant 处理，会被当成模型
     // 正常发言展示；这里直接转成 error 事件，并清空累积块避免污染下一条消息。
@@ -385,11 +503,17 @@ function decodeObject(
     // 兜底：万一没收到 message_start，靠 message.id 变化识别新消息
     if (messageId && buffer.id && messageId !== buffer.id) buffer.blocks = [];
     if (messageId) buffer.id = messageId;
+    const contextUsage = mapContextUsage(message);
     const blocks = mapAssistantBlocks(message?.content, names, resolveLineStarts);
-    // 没有可展示的块（例如纯 image 块）：不发事件
-    if (blocks.length === 0) return null;
+    // 没有可展示的块（例如纯 image 块）也要保留上下文快照：它不影响正文，
+    // 但决定了输入区的上下文占用仪表。
+    if (blocks.length === 0) return contextUsage;
     buffer.blocks.push(...blocks);
-    return { type: "message_end", blocks: [...buffer.blocks] };
+    const messageEnd: AgentEvent = {
+      type: "message_end",
+      blocks: [...buffer.blocks],
+    };
+    return contextUsage ? [messageEnd, contextUsage] : messageEnd;
   }
 
   // 工具回执
@@ -424,9 +548,10 @@ function decodeObject(
    *  "errors":["No conversation found with session ID: ..."]}
    */
   if (type === "result") {
+    const usage = mapResultUsage(obj);
     const subtype = typeof obj.subtype === "string" ? obj.subtype : "";
     const isError = obj.is_error === true || subtype.startsWith("error");
-    if (!isError) return null;
+    if (!isError) return usage;
 
     const errors = Array.isArray(obj.errors)
       ? obj.errors.filter((item): item is string => typeof item === "string")
@@ -435,7 +560,9 @@ function decodeObject(
       errors.join("\n").trim() ||
       (typeof obj.result === "string" ? obj.result.trim() : "") ||
       `Agent 执行失败（${subtype || "unknown"}）`;
-    return { type: "error", message };
+    const error: AgentEvent = { type: "error", message };
+    // 失败轮次也可能已经产生了 token 消耗，两者一并上报
+    return usage ? [error, usage] : error;
   }
 
   // system 记录：只取 api_error / informational，其余无内容可展示

@@ -115,11 +115,11 @@ export function AgentSelector({
         title={locked ? "会话已开始，Agent 不可更换" : "选择本次会话使用的 Agent"}
         aria-haspopup="listbox"
         aria-expanded={open}
-        className={`ui-ring flex h-9 shrink-0 items-center gap-1.5 rounded-lg bg-input-bg px-3 text-body text-text-secondary outline-none transition-all ${
+        className={`flex h-8 shrink-0 items-center gap-1.5 rounded-md px-2 ui-type-sub text-text-muted outline-none transition-colors ${
           locked
             ? "cursor-default opacity-70"
-            : "hover:border-input-border-focus hover:text-text"
-        } ${open ? "border-input-border-focus text-text" : ""}`}
+            : "hover:bg-surface-hover hover:text-text"
+        } ${open ? "bg-surface-hover text-text" : ""}`}
       >
         <Bot className={`h-3.5 w-3.5 shrink-0 ${selectedTone.fg}`} />
         <span className="max-w-[120px] truncate font-medium">{label}</span>
@@ -141,11 +141,11 @@ export function AgentSelector({
           className="ui-dropdown-in ui-glass-strong ui-ring absolute bottom-full right-0 z-50 mb-2 w-64 rounded-xl p-1.5"
           style={{ boxShadow: "var(--c-shadow)" }}
         >
-          <li className="px-2.5 pb-1.5 pt-1 text-caption text-text-muted">
+          <li className="px-2.5 pb-1.5 pt-1 ui-type-sub text-text-muted">
             为本次新会话选择 Agent
           </li>
           {agents.length === 0 && (
-            <li className="px-3 py-3 text-meta text-text-muted">未检测到可用的 Agent</li>
+            <li className="px-3 py-3 ui-type-note text-text-muted">未检测到可用的 Agent</li>
           )}
           {agents.map((agent, i) => {
             const active = agent.id === agentId;
@@ -176,10 +176,10 @@ export function AgentSelector({
                     <Bot className="h-4 w-4" />
                   </span>
                   <span className="min-w-0 flex-1">
-                    <span className="block truncate text-body font-medium text-text">
+                    <span className="block truncate ui-type-body font-medium text-text">
                       {agent.displayName}
                     </span>
-                    <span className="flex items-center gap-1.5 text-caption text-text-muted">
+                    <span className="flex items-center gap-1.5 ui-type-sub text-text-muted">
                       {agent.status.installed ? (
                         subtitle(agent)
                       ) : (
@@ -195,7 +195,7 @@ export function AgentSelector({
               </li>
             );
           })}
-          <li className="px-2.5 pt-1.5 text-caption text-text-muted">
+          <li className="px-2.5 pt-1.5 ui-type-sub text-text-muted">
             模型、权限等运行配置继承「Agent 配置」
           </li>
         </ul>

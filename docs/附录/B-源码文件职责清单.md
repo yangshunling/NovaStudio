@@ -130,7 +130,6 @@
 | `workflow/artifacts.ts` | 产物目录命名、`.gitignore`、`.novastudio`、临时运行目录清理 |
 | `workflow/execution-report.ts` | `execution.md` 生成、脱敏、代码围栏、表格转义 |
 | `workflow/cleanup.ts` | 工作流 / 运行 / 工作区级联删除 |
-| `workflow/graph.ts` | `shared/workflow-graph.ts` 的兼容导出 |
 
 ---
 
@@ -148,6 +147,13 @@
 | `shared/trigger-schedule.ts` | 触发规则清洗、下次时间、摘要 |
 | `shared/mcp.ts` | args 拆分、KEY=VALUE 解析 / 格式化 |
 | `shared/text.ts` | 换行归一化 |
+| `shared/file-kinds.ts` | 文本 / Markdown 扩展名判定（主进程与渲染层共用） |
+| `shared/git.ts` | Git 状态字母 / 中文标签 |
+| `shared/time.ts` | 补零、当天 / 本周起点、时分、日期时间、时长 |
+| `shared/math.ts` | `clamp` |
+| `shared/error.ts` | 任意 thrown 值 → 可读信息 |
+| `shared/json.ts` | 安全 JSON 解析与 unknown 收窄 |
+| `shared/tool-input.ts` | 工具输入目标字段约定与取值 |
 
 ---
 
@@ -159,16 +165,19 @@
 | `renderer/App.tsx` | 应用壳、视图切换、启动副作用、全局弹层 |
 | `renderer/env.d.ts` | Vite 类型 |
 | `renderer/index.html` | 渲染层入口 HTML |
+| `renderer/lib/chat-scroll.ts` | 聊天消息定位：滚动 + 落点校正（问题导航 / 载入更早共用） |
 | `renderer/lib/ipc.ts` | IPC 客户端，语义化方法 + 订阅 |
+| `renderer/lib/popup.ts` | 浮层定位：上下翻转、视口收拢、右键菜单坐标 |
 | `renderer/lib/shiki.ts` | Shiki 单例、语言 / 主题预加载 |
 | `renderer/lib/utils.ts` | `newId`、`toMessage`、`truncateText`、`firstText`、`isToolResultError` 等 |
-| `renderer/lib/workflow/format.ts` | 工作流展示格式化 |
 | `renderer/lib/workflow/status.ts` | 节点状态展示配置 |
 | `renderer/hooks/useAgentStream.ts` | 订阅 agent / automation 事件 |
+| `renderer/hooks/useDismissableLayer.ts` | 浮层关闭：外部点击 / Esc / 滚动 / 缩放 |
+| `renderer/hooks/useFilteredList.ts` | 列表关键字筛选 |
 | `renderer/hooks/useLoad.ts` | 通用加载 hook |
 | `renderer/hooks/useTheme.ts` | 皮肤 / 字号状态与 DOM 应用 |
 | `renderer/hooks/useThrottledValue.ts` | 流式值节流 + Markdown 间隔 |
-| `renderer/styles/index.css` | Tailwind、派生字号、`@theme inline` 映射、`ui-*` 原语 |
+| `renderer/styles/index.css` | Tailwind、派生字号、排版角色、`@theme inline` 映射、`ui-*` 原语 |
 | `renderer/stores/chat.ts` | 会话 / 消息 / 流式 / 视图 / 设置弹框 |
 | `renderer/stores/automation.ts` | 任务列表与推送更新 |
 | `renderer/stores/assets.ts` | 资产预加载与刷新 |
@@ -212,6 +221,7 @@
 | `ui/Field.tsx` | 表单行 / 内联输入 |
 | `ui/FileTypeIcon.tsx` | 文件图标 |
 | `ui/FolderTypeIcon.tsx` | 文件夹图标 |
+| `ui/IconButton.tsx` | 圆形图标按钮（尺寸 / 色调 / 禁用统一） |
 | `ui/ListPane.tsx` | 左侧列表栏 |
 | `ui/MarkdownRenderer.tsx` | Markdown + GFM + Shiki |
 | `ui/Menu.tsx` | 右键菜单 |
@@ -259,8 +269,10 @@
 | `chat/AssistantMessageList.tsx` | assistant-ui 适配、part 转换、工具配对、节流 |
 | `chat/MessageList.tsx` | 通用消息渲染（任务中心也用） |
 | `chat/AgentSelector.tsx` | Agent 选择 |
-| `chat/ProjectSelector.tsx` | 工作区绑定 / 解绑 |
-| `chat/FileMention.tsx` | @ 文件提及 hook 与弹窗 |
+| `chat/ProjectSelector.tsx` | 工作区绑定 / 解绑（输入框旁触发器） |
+| `chat/WorkspacePicker.tsx` | `#` 快捷切换工作区：触发、过滤、键盘 |
+| `chat/WorkspaceMenu.tsx` | 工作区菜单唯一实现：条目构建 + 弹窗（两条入口共用） |
+| `chat/MentionPicker.tsx` | @ 引用选择 hook 与弹窗（文件 / 工具 / 技能 / 提示词 / 知识库） |
 
 ### workflows
 
@@ -281,6 +293,7 @@
 | `employees/EmployeesView.tsx` | 员工卡片画廊 |
 | `employees/EmployeeDrawer.tsx` | 员工编辑抽屉 |
 | `employees/EmployeeAvatar.tsx` | 头像 |
+| `employees/AssetBindTab.tsx` | 技能 / MCP / 知识库绑定列表（卡片、开关、孤儿区） |
 | `employees/BindUi.tsx` | 绑定行通用 UI |
 | `employees/mcp/McpTab.tsx` | MCP 绑定页签 |
 | `employees/skills/SkillsTab.tsx` | Skill 绑定页签 |
@@ -329,6 +342,7 @@
 | 文件 | 职责 |
 |---|---|
 | `scripts/verify-skin-tokens.mjs` | 构建后皮肤契约校验 |
+| `scripts/verify-typography.mjs` | 排版守卫：字号档位 / 字体族 / 废弃类扫描 |
 | `scripts/generate-vscode-file-icons.mjs` | 生成 VSCode 图标数据 |
 | `resources/logo.png` | 应用 / 安装包图标 |
 | `resources/banner.svg` | README 横幅 |

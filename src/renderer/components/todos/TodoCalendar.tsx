@@ -13,7 +13,7 @@
 import { useMemo, useState } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import type { TodoItem } from "@shared/types";
-import { startOfDay } from "./todoUtils";
+import { startOfDay } from "@shared/time";
 
 interface TodoCalendarProps {
   todos: TodoItem[];
@@ -107,7 +107,7 @@ export function TodoCalendar({
           >
             <ChevronLeft className="h-4 w-4" />
           </button>
-          <span className="min-w-[92px] text-center text-body font-semibold text-text">
+          <span className="min-w-[92px] text-center ui-type-body font-semibold text-text">
             {monthLabel}
           </span>
           <button
@@ -122,7 +122,7 @@ export function TodoCalendar({
         <button
           type="button"
           onClick={goToday}
-          className="shrink-0 rounded-full bg-surface-hover px-2.5 py-1 text-caption text-text-secondary transition-colors hover:text-accent"
+          className="shrink-0 rounded-full bg-surface-hover px-2.5 py-1 ui-type-sub text-text-secondary transition-colors hover:text-accent"
         >
           今天
         </button>
@@ -130,7 +130,7 @@ export function TodoCalendar({
 
       <div className="mt-3 grid grid-cols-7 text-center">
         {WEEKDAYS.map((day) => (
-          <span key={day} className="pb-1 text-caption text-text-muted">
+          <span key={day} className="pb-1 ui-type-sub text-text-muted">
             {day}
           </span>
         ))}
@@ -177,7 +177,7 @@ export function TodoCalendar({
                 taskCount > 0 ? `，${taskCount} 件任务` : ""
               }`}
               aria-pressed={isSelected}
-              className={`relative mx-auto flex h-8 w-8 items-center justify-center rounded-full text-meta transition-colors ${stateClass}`}
+              className={`relative mx-auto flex h-8 w-8 items-center justify-center rounded-full ui-type-note transition-colors ${stateClass}`}
             >
               {date.getDate()}
               {dot && (
@@ -191,7 +191,7 @@ export function TodoCalendar({
         })}
       </div>
 
-      <p className="mt-3 border-t border-border/60 pt-2.5 text-caption leading-relaxed text-text-muted">
+      <p className="mt-3 border-t border-border/60 pt-2.5 ui-type-sub leading-relaxed text-text-muted">
         圆点表示当天有截止任务；点日期可只看当天。
       </p>
     </section>

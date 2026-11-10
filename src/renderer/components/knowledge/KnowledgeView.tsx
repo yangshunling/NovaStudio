@@ -10,39 +10,15 @@
  * 数字员工在「知识库」标签页里勾选引用，工作流运行时注入给 Agent。
  */
 
+import { useCallback, useEffect, useMemo, useRef, useState, } from "react";
 import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+  MENU_WIDTH, MenuItem, MenuPanel, MenuSeparator, } from "../ui/Menu";
 import {
-  MENU_WIDTH,
-  MenuItem,
-  MenuPanel,
-  MenuSeparator,
-} from "../ui/Menu";
-import {
-  AlertTriangle,
-  ChevronRight,
-  ExternalLink,
-  FileText,
-  Folder,
-  FolderOpen,
-  FolderPlus,
-  Library,
-  Loader2,
-  Pencil,
-  Plus,
-  RefreshCw,
-  Search,
-  Trash2,
-  Upload,
-  Users,
-} from "lucide-react";
+  AlertTriangle, ChevronRight, ExternalLink, FileText, Folder, FolderOpen, FolderPlus, Library, Pencil, Plus, RefreshCw, Search, Trash2, Upload, Users } from "lucide-react";
 import { ipc } from "../../lib/ipc";
 import { formatBytes, isSameText, normalizeNewlines, toMessage } from "../../lib/utils";
+import { clampMenuPosition } from "../../lib/popup";
+import { useDismissableLayer } from "../../hooks/useDismissableLayer";
 import {
   useAssetCatalog,
   useKnowledgeBasesStore,
@@ -54,6 +30,7 @@ import { formatAssetTime } from "../asset/AssetUi";
 import { CodeTextarea, EditorBar } from "../asset/EditorUi";
 import { Field, TextArea, TextInput } from "../ui/Field";
 import { Page, PageBody, PageHeader, PageToolbar } from "../ui/Page";
+import { IconButton } from "../ui/IconButton";
 import { SearchInput } from "../ui/SearchInput";
 import { ListItem, ListPane } from "../ui/ListPane";
 import {
@@ -77,6 +54,8 @@ import type {
   KnowledgeDocument,
   KnowledgeSearchResult,
 } from "@shared/types";
+import { errorMessage } from "@shared/error";
+import { Spinner } from "../ui/Spinner";
 
 // ============================================================================
 // 工具
@@ -205,26 +184,11 @@ export function KnowledgeView() {
   }, [query, scopeAll, selectedId]);
 
   // 右键菜单：外部点击 / Esc / 滚动 / 窗口缩放时关闭
-  useEffect(() => {
-    if (!contextMenu) return;
-    const close = () => setContextMenu(null);
-    const onDown = (event: MouseEvent) => {
-      if (!contextMenuRef.current?.contains(event.target as Node)) close();
-    };
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") close();
-    };
-    document.addEventListener("mousedown", onDown);
-    document.addEventListener("keydown", onKey);
-    window.addEventListener("scroll", close, true);
-    window.addEventListener("resize", close);
-    return () => {
-      document.removeEventListener("mousedown", onDown);
-      document.removeEventListener("keydown", onKey);
-      window.removeEventListener("scroll", close, true);
-      window.removeEventListener("resize", close);
-    };
-  }, [contextMenu]);
+  useDismissableLayer(
+    Boolean(contextMenu),
+    () => setContextMenu(null),
+    [contextMenuRef],
+  );
 
   const selected = bases.find((asset) => asset.id === selectedId) ?? null;
   const searchingNow = query.trim().length > 0;
@@ -260,8 +224,10 @@ export function KnowledgeView() {
     selectBase(asset.id);
     setContextMenu({
       asset,
-      x: Math.max(8, Math.min(event.clientX, window.innerWidth - MENU_WIDTH - 8)),
-      y: Math.max(8, Math.min(event.clientY, window.innerHeight - KB_MENU_HEIGHT - 8)),
+      ...clampMenuPosition(event.clientX, event.clientY, {
+        width: MENU_WIDTH,
+        height: KB_MENU_HEIGHT,
+      }),
     });
   };
 
@@ -367,15 +333,12 @@ export function KnowledgeView() {
               title="知识库"
               count={bases.length}
               action={
-                <button
-                  type="button"
+                <IconButton
+                  icon={<FolderPlus className="h-4 w-4" />}
+                  label="新建知识库"
+                  tone="muted"
                   onClick={() => setCreateOpen(true)}
-                  title="新建知识库"
-                  aria-label="新建知识库"
-                  className="ui-btn-round ui-icon-action flex h-9 w-9 items-center justify-center rounded-full text-text-muted transition-colors active:scale-95"
-                >
-                  <FolderPlus className="h-4 w-4" />
-                </button>
+                />
               }
               footer={
                 <Button
@@ -397,7 +360,7 @@ export function KnowledgeView() {
                   onClick={() => selectBase(asset.id)}
                   onContextMenu={(event) => openBaseMenu(asset, event)}
                   trailing={
-                    <span className="flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-surface-hover px-1.5 font-mono text-caption leading-none text-text-muted">
+                    <span className="flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-surface-hover px-1.5 ui-type-code-sm leading-none text-text-muted">
                       {asset.documentCount}
                     </span>
                   }
@@ -414,14 +377,14 @@ export function KnowledgeView() {
                 badge={
                   selected ? (
                     <>
-                      <span className="shrink-0 rounded-full bg-surface-hover px-2 py-0.5 font-mono text-meta text-text-muted">
+                      <span className="shrink-0 rounded-full bg-surface-hover px-2 py-0.5 ui-type-code text-text-muted">
                         {selected.documentCount} 个 ·{" "}
                         {formatBytes(selected.totalBytes)}
                       </span>
                       {(usageCount.get(selected.id) ?? 0) > 0 && (
                         <span
                           title="启用该知识库的数字员工数"
-                          className="flex shrink-0 items-center gap-1 rounded-full bg-success/10 px-2 py-0.5 text-meta text-success"
+                          className="flex shrink-0 items-center gap-1 rounded-full bg-success/10 px-2 py-0.5 ui-type-note text-success"
                         >
                           <Users className="h-3 w-3" />
                           {usageCount.get(selected.id)} 位员工
@@ -445,7 +408,7 @@ export function KnowledgeView() {
                       disabled={!selected || uploading}
                       icon={
                         uploading ? (
-                          <Loader2 className="h-4 w-4 animate-spin" />
+                          <Spinner className="h-4 w-4" />
                         ) : (
                           <Upload className="h-4 w-4" />
                         )
@@ -459,11 +422,11 @@ export function KnowledgeView() {
 
               {/* 面包屑 + 检索 */}
               <PageToolbar>
-                <div className="flex min-w-0 flex-1 items-center gap-1 text-meta text-text-muted">
+                <div className="flex min-w-0 flex-1 items-center gap-1 ui-type-note text-text-muted">
                   <button
                     type="button"
                     onClick={() => setSubPath("")}
-                    className={`truncate rounded px-1.5 py-0.5 transition-colors hover:bg-surface-hover hover:text-text ${
+                    className={`truncate rounded-sm px-1.5 py-0.5 transition-colors hover:bg-surface-hover hover:text-text ${
                       crumbs.length === 0 ? "text-text" : ""
                     }`}
                   >
@@ -478,7 +441,7 @@ export function KnowledgeView() {
                         <button
                           type="button"
                           onClick={() => setSubPath(path)}
-                          className={`truncate rounded px-1.5 py-0.5 transition-colors hover:bg-surface-hover hover:text-text ${
+                          className={`truncate rounded-sm px-1.5 py-0.5 transition-colors hover:bg-surface-hover hover:text-text ${
                             active ? "text-text" : ""
                           }`}
                         >
@@ -498,7 +461,7 @@ export function KnowledgeView() {
                         ? "当前检索全部知识库，点击切换为仅当前知识库"
                         : "当前仅检索当前知识库，点击切换为全部知识库"
                     }
-                    className={`flex items-center gap-1 rounded-full border px-2.5 py-1 text-caption transition-colors ${
+                    className={`flex items-center gap-1 rounded-full border px-2.5 py-1 ui-type-sub transition-colors ${
                       scopeAll
                         ? "border-accent/30 bg-accent-soft font-medium text-accent"
                         : "border-border/60 bg-surface-2/40 text-text-secondary hover:border-border hover:text-text"
@@ -516,17 +479,16 @@ export function KnowledgeView() {
                     }
                   />
 
-                  <button
-                    type="button"
+                  <IconButton
+                    icon={
+                      <RefreshCw
+                        className={`h-4 w-4 ${docsLoading ? "animate-spin" : ""}`}
+                      />
+                    }
+                    label="刷新文档列表"
+                    tone="muted"
                     onClick={() => void refresh()}
-                    title="刷新"
-                    aria-label="刷新文档列表"
-                    className="ui-btn-round ui-icon-action flex h-9 w-9 items-center justify-center rounded-full text-text-muted transition-colors active:scale-95"
-                  >
-                    <RefreshCw
-                      className={`h-4 w-4 ${docsLoading ? "animate-spin" : ""}`}
-                    />
-                  </button>
+                  />
                 </div>
               </PageToolbar>
 
@@ -543,8 +505,8 @@ export function KnowledgeView() {
                     }
                   />
                 ) : docsLoading ? (
-                  <div className="flex h-60 items-center justify-center gap-2 text-body text-text-muted">
-                    <Loader2 className="h-4 w-4 animate-spin" />
+                  <div className="flex h-60 items-center justify-center gap-2 ui-type-body text-text-muted">
+                    <Spinner className="h-4 w-4" />
                     正在加载文档
                   </div>
                 ) : docsError ? (
@@ -556,7 +518,7 @@ export function KnowledgeView() {
                   />
                 ) : (
                   <div className="overflow-hidden rounded-xl border border-border/60 bg-surface-2/40 shadow-[var(--c-shadow-sm)]">
-                    <div className="sticky top-0 z-10 grid grid-cols-[28px_minmax(0,1fr)_90px_130px_36px] items-center gap-3 border-b border-border/60 bg-surface-2/85 px-3.5 py-2.5 text-caption font-semibold text-text-muted backdrop-blur-sm">
+                    <div className="sticky top-0 z-10 grid grid-cols-[28px_minmax(0,1fr)_90px_130px_36px] items-center gap-3 border-b border-border/60 bg-surface-2/85 px-3.5 py-2.5 ui-type-sub font-semibold text-text-muted backdrop-blur-sm">
                       <input
                         type="checkbox"
                         checked={allSelected}
@@ -586,7 +548,7 @@ export function KnowledgeView() {
                           key={document.relativePath}
                           className={`ui-cv-row group grid grid-cols-[28px_minmax(0,1fr)_90px_130px_36px] items-center gap-3 border-b border-border/40 px-3.5 py-2.5 transition-colors last:border-b-0 ${
                             checked
-                              ? "bg-accent-soft/50"
+                              ? "bg-selected"
                               : "hover:bg-surface-hover/50"
                           }`}
                         >
@@ -629,7 +591,7 @@ export function KnowledgeView() {
                             ) : (
                               <FileTypeIcon name={document.name} size={16} />
                             )}
-                            <span className="truncate text-body text-text">
+                            <span className="truncate ui-type-body text-text">
                               {document.name}
                             </span>
                             {document.isDirectory && (
@@ -649,10 +611,10 @@ export function KnowledgeView() {
                             )}
                           </button>
 
-                          <span className="text-right font-mono text-meta text-text-muted">
+                          <span className="text-right ui-type-code text-text-muted">
                             {document.isDirectory ? "文件夹" : formatBytes(document.size)}
                           </span>
-                          <span className="text-right text-meta text-text-muted">
+                          <span className="text-right ui-type-note text-text-muted">
                             {document.isDirectory
                               ? "—"
                               : formatAssetTime(document.updatedAt)}
@@ -677,7 +639,7 @@ export function KnowledgeView() {
               {/* 批量操作条 */}
               {selectedPaths.size > 0 && !searchingNow && (
                 <div className="flex shrink-0 items-center justify-between gap-3 border-t border-border bg-surface-2/40 px-card py-2">
-                  <span className="text-meta text-text-secondary">
+                  <span className="ui-type-note text-text-secondary">
                     已选 {selectedPaths.size} 项
                   </span>
                   <div className="flex items-center gap-2">
@@ -691,7 +653,7 @@ export function KnowledgeView() {
                     <button
                       type="button"
                       onClick={() => void handleDeleteDocuments([...selectedPaths])}
-                      className="flex items-center gap-1.5 rounded-lg border border-error/25 bg-error-bg px-3 py-1.5 text-meta font-medium text-error transition-colors hover:bg-error/10"
+                      className="flex items-center gap-1.5 rounded-lg border border-error/25 bg-error-bg px-3 py-1.5 ui-type-label text-error transition-colors hover:bg-error/10"
                     >
                       <Trash2 className="h-3.5 w-3.5" />
                       删除
@@ -817,8 +779,8 @@ function SearchResults({
 }) {
   if (searching && !result) {
     return (
-      <div className="flex h-60 items-center justify-center gap-2 text-body text-text-muted">
-        <Loader2 className="h-4 w-4 animate-spin" />
+      <div className="flex h-60 items-center justify-center gap-2 ui-type-body text-text-muted">
+        <Spinner className="h-4 w-4" />
         正在检索
       </div>
     );
@@ -837,7 +799,7 @@ function SearchResults({
 
   return (
     <div className="space-y-2">
-      <div className="flex items-center gap-2 px-1 pb-1 text-meta text-text-muted">
+      <div className="flex items-center gap-2 px-1 pb-1 ui-type-note text-text-muted">
         <span>
           找到 {result.total} 条结果
           {result.total >= 50 ? "（最多显示 50 条）" : ""}
@@ -845,7 +807,7 @@ function SearchResults({
         {result.degraded && (
           <span
             title="检索词过短，已使用逐字匹配"
-            className="rounded-full bg-agent-amber/10 px-2 py-0.5 text-caption text-agent-amber"
+            className="rounded-full bg-agent-amber/10 px-2 py-0.5 ui-type-sub text-agent-amber"
           >
             短词匹配
           </span>
@@ -862,19 +824,19 @@ function SearchResults({
           <FileTypeIcon name={hit.relativePath} size={20} className="mt-0.5 shrink-0" />
           <div className="min-w-0 flex-1">
             <div className="flex min-w-0 items-center gap-2">
-              <span className="truncate text-body-lg font-medium text-text">
+              <span className="truncate ui-type-item font-medium text-text">
                 {hit.relativePath.split("/").pop()}
               </span>
               {showKbName && (
-                <span className="shrink-0 rounded-full bg-accent-soft px-2 py-0.5 text-caption text-accent">
+                <span className="shrink-0 rounded-full bg-accent-soft px-2 py-0.5 ui-type-sub text-accent">
                   {hit.kbName}
                 </span>
               )}
-              <span className="truncate text-caption text-text-muted">
+              <span className="truncate ui-type-sub text-text-muted">
                 {hit.relativePath}
               </span>
             </div>
-            <p className="mt-1 line-clamp-2 text-body leading-relaxed text-text-secondary">
+            <p className="mt-1 line-clamp-2 ui-type-body leading-relaxed text-text-secondary">
               <HighlightedSnippet text={hit.snippet} />
             </p>
           </div>
@@ -904,7 +866,7 @@ function HighlightedSnippet({ text }: { text: string }) {
         return highlighted ? (
           <mark
             key={index}
-            className="rounded bg-accent-soft px-0.5 font-medium text-accent"
+            className="rounded-sm bg-accent-soft px-0.5 font-medium text-accent"
           >
             {part}
           </mark>
@@ -970,7 +932,7 @@ function KnowledgePreview({
       })
       .catch((err) => {
         if (!cancelled) {
-          setError(err instanceof Error ? err.message : String(err));
+          setError(errorMessage(err));
         }
       })
       .finally(() => {
@@ -1012,10 +974,10 @@ function KnowledgePreview({
       <DrawerHeader>
         <FileTypeIcon name={name} size={20} className="shrink-0" />
         <div className="min-w-0 flex-1">
-          <div className="truncate text-title font-semibold text-text">
+          <div className="truncate ui-type-title text-text">
             {name}
           </div>
-          <div className="truncate font-mono text-caption text-text-muted">
+          <div className="truncate ui-type-code-sm text-text-muted">
             {relativePath}
             {meta ? ` · ${formatBytes(meta.size)}` : ""}
           </div>
@@ -1036,17 +998,17 @@ function KnowledgePreview({
 
       <DrawerBody className="flex flex-col">
         {loading ? (
-          <div className="flex h-40 items-center justify-center gap-2 text-body text-text-muted">
-            <Loader2 className="h-4 w-4 animate-spin" />
+          <div className="flex h-40 items-center justify-center gap-2 ui-type-body text-text-muted">
+            <Spinner className="h-4 w-4" />
             正在读取文档
           </div>
         ) : error ? (
-          <div className="flex items-start gap-2 rounded-lg border border-error/40 bg-error-bg p-3 text-body text-error">
+          <div className="flex items-start gap-2 rounded-lg border border-error/40 bg-error-bg p-3 ui-type-body text-error">
             <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
             {error}
           </div>
         ) : !textual ? (
-          <div className="flex items-start gap-2 rounded-lg border border-border bg-surface-2/40 p-3 text-body text-text-secondary">
+          <div className="flex items-start gap-2 rounded-lg border border-border bg-surface-2/40 p-3 ui-type-body text-text-secondary">
             <FileText className="mt-0.5 h-4 w-4 shrink-0 text-text-muted" />
             <div>
               这是非文本格式，无法在 Nova 内预览或编辑。请使用右上角「用系统程序打开」查看，
@@ -1056,7 +1018,7 @@ function KnowledgePreview({
         ) : (
           <div className="flex min-h-0 flex-1 flex-col">
             {meta?.truncated && (
-              <div className="mb-2 shrink-0 rounded-lg border border-border bg-surface-2/40 p-3 text-meta text-text-muted">
+              <div className="mb-2 shrink-0 rounded-lg border border-border bg-surface-2/40 p-3 ui-type-note text-text-muted">
                 文档超过 2MB，这里只展示前 2MB 内容，已禁止在 Nova 内保存；
                 完整内容请用系统程序打开。
               </div>
@@ -1129,7 +1091,7 @@ function KnowledgeFormModal({
       toast.success(mode === "create" ? "知识库已创建" : "知识库已保存");
       await onSaved(result.asset);
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(errorMessage(err));
     } finally {
       setBusy(false);
     }
@@ -1182,7 +1144,7 @@ function KnowledgeFormModal({
       </div>
 
       {error && (
-        <p className="mt-3 rounded-lg border border-error/40 bg-error-bg p-2.5 text-meta text-error">
+        <p className="mt-3 rounded-lg border border-error/40 bg-error-bg p-2.5 ui-type-note text-error">
           {error}
         </p>
       )}
@@ -1242,7 +1204,7 @@ function FolderFormModal({
       }
       await onCreated();
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(errorMessage(err));
     } finally {
       setBusy(false);
     }
@@ -1265,7 +1227,7 @@ function FolderFormModal({
         }}
         placeholder="例如：规范"
       />
-      {error && <p className="mt-2 text-meta text-error">{error}</p>}
+      {error && <p className="mt-2 ui-type-note text-error">{error}</p>}
 
       <DialogActions>
         <Button onClick={onClose}>取消</Button>

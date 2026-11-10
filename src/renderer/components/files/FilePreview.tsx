@@ -7,14 +7,7 @@
 
 import { useEffect, useState } from "react";
 import {
-  AlertCircle,
-  ExternalLink,
-  Eye,
-  FileCode2,
-  Loader2,
-  RotateCw,
-  X,
-} from "lucide-react";
+  AlertCircle, ExternalLink, Eye, FileCode2, RotateCw, X } from "lucide-react";
 import type {
   FilePreview as FilePreviewData,
 } from "@shared/types";
@@ -25,9 +18,11 @@ import { formatBytes, stripPreTag } from "../../lib/utils";
 import { MarkdownRenderer } from "../ui/MarkdownRenderer";
 import { Button } from "../ui/Button";
 import { FileTypeIcon } from "../ui/FileTypeIcon";
+import { IconButton } from "../ui/IconButton";
 import { PageHeader } from "../ui/Page";
 import { SegmentedTabs } from "../ui/SegmentedTabs";
 import type { FileTab } from "../../stores/fileViewer";
+import { Spinner } from "../ui/Spinner";
 
 export function FilePreview({
   tab,
@@ -92,7 +87,7 @@ export function FilePreview({
         actions={
           <>
             {file && (
-              <span className="mr-1 hidden text-meta text-text-muted sm:inline">
+              <span className="mr-1 hidden ui-type-note text-text-muted sm:inline">
                 {formatBytes(file.size)}
                 {file.truncated ? " · 已截断" : ""}
               </span>
@@ -117,41 +112,32 @@ export function FilePreview({
                 ]}
               />
             )}
-            <button
-              type="button"
+            <IconButton
+              icon={<RotateCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />}
+              label="重新读取文件"
+              tone="muted"
               onClick={() => setReloadKey((value) => value + 1)}
-              title="重新读取文件"
-              aria-label="重新读取文件"
-              className="ui-btn-round ui-icon-action flex h-9 w-9 items-center justify-center rounded-full text-text-muted"
-            >
-              <RotateCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
-            </button>
-            <button
-              type="button"
+            />
+            <IconButton
+              icon={<ExternalLink className="h-4 w-4" />}
+              label="用系统默认程序打开"
+              tone="muted"
               onClick={openExternal}
-              title="用系统默认程序打开"
-              aria-label="用系统默认程序打开"
-              className="ui-btn-round ui-icon-action flex h-9 w-9 items-center justify-center rounded-full text-text-muted"
-            >
-              <ExternalLink className="h-4 w-4" />
-            </button>
+            />
             {onClose && (
-              <button
-                type="button"
+              <IconButton
+                icon={<X className="h-4 w-4" />}
+                label="关闭预览"
+                tone="muted"
                 onClick={onClose}
-                title="关闭预览"
-                aria-label="关闭预览"
-                className="ui-btn-round ui-icon-action flex h-9 w-9 items-center justify-center rounded-full text-text-muted"
-              >
-                <X className="h-4 w-4" />
-              </button>
+              />
             )}
           </>
         }
       />
 
       {externalError && (
-        <div className="shrink-0 border-b border-error/30 bg-error-bg px-4 py-2 text-meta text-error">
+        <div className="shrink-0 border-b border-error/30 bg-error-bg px-4 py-2 ui-type-note text-error">
           {externalError}
         </div>
       )}
@@ -159,7 +145,7 @@ export function FilePreview({
       <div className="min-h-0 flex-1 overflow-hidden">
         {loading ? (
           <PreviewState
-            icon={<Loader2 className="h-6 w-6 animate-spin" />}
+            icon={<Spinner className="h-6 w-6" />}
             title="正在读取文件"
           />
         ) : error ? (
@@ -243,11 +229,11 @@ function CodePreview({ code, language }: { code: string; language: string }) {
     <div className="h-full overflow-auto p-4">
       {highlighted ? (
         <pre
-          className="min-h-full whitespace-pre font-mono text-meta leading-relaxed"
+          className="min-h-full whitespace-pre ui-type-code leading-relaxed"
           dangerouslySetInnerHTML={{ __html: highlighted }}
         />
       ) : (
-        <pre className="min-h-full whitespace-pre font-mono text-meta leading-relaxed text-text-secondary">
+        <pre className="min-h-full whitespace-pre ui-type-code leading-relaxed text-text-secondary">
           <code>{code}</code>
         </pre>
       )}
@@ -269,8 +255,8 @@ function PreviewState({
   return (
     <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center text-text-muted">
       <span className="opacity-45">{icon}</span>
-      <p className="text-body-lg text-text-secondary">{title}</p>
-      {detail && <p className="max-w-md text-meta">{detail}</p>}
+      <p className="ui-type-item text-text-secondary">{title}</p>
+      {detail && <p className="max-w-md ui-type-note">{detail}</p>}
       {action}
     </div>
   );

@@ -34,12 +34,14 @@ import { createDecoder, createStreamDecoder, extractSessionId } from "./parse";
 import { createLineStartsResolver } from "./file-lines";
 import { prepareClaudeWorkflowRun } from "./prepare";
 import { getClaudeSettingsView } from "./settings";
-import type { AgentModelEntry } from "../../../shared/contracts/agent";
+import { formatModelEntry } from "./models";
+import { checkClaudeUpgrade, upgradeClaude } from "./upgrade";
 import {
   deleteSession as deleteSessionFile,
   fileVersion,
   readHistory as readHistoryFile,
 } from "./sessions";
+import { errorMessage } from "../../../shared/error";
 
 const BIN = "claude";
 
@@ -68,18 +70,14 @@ function writeSystemPromptFile(prompt: string): {
   };
 }
 
-/** 模型配置 → 展示用 ID：`deepseek-flash` + `1M` → `deepseek-flash[1M]` */
-function formatModelEntry(entry: AgentModelEntry): string {
-  const name = entry.name.trim();
-  if (!name) return "";
-  const context = entry.context.trim();
-  return context ? `${name}[${context}]` : name;
-}
-
 export const provider: AgentProvider = {
   manifest,
 
   detect: () => probeVersion(BIN),
+
+  checkUpgrade: () => checkClaudeUpgrade(),
+
+  upgrade: (onProgress) => upgradeClaude(onProgress),
 
   configInfo() {
     const configPath =
@@ -121,7 +119,7 @@ export const provider: AgentProvider = {
       return config;
     } catch (err) {
       return {
-        "配置读取失败": err instanceof Error ? err.message : String(err),
+        "配置读取失败": errorMessage(err),
       };
     }
   },

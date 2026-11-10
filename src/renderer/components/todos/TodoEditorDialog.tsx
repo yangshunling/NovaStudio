@@ -132,7 +132,7 @@ export function TodoEditorDialog({
         </div>
 
         <div>
-          <div className="mb-1.5 text-meta font-medium text-text-secondary">
+          <div className="mb-1.5 ui-type-label text-text-secondary">
             标签
           </div>
           <TagInput
@@ -143,7 +143,7 @@ export function TodoEditorDialog({
         </div>
 
         {todo && (
-          <p className="text-caption text-text-muted">
+          <p className="ui-type-sub text-text-muted">
             创建于 {formatDateLabel(todo.createdAt)}
           </p>
         )}

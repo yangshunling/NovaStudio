@@ -45,6 +45,8 @@
   --c-accent-hover: #0860ca;
   --c-accent-foreground: #ffffff;
   --c-accent-soft: rgba(9, 105, 218, 0.08);
+  /* 选中底色：白底上 8% 几乎不可见，这里单独给到 13% */
+  --c-selection-bg: rgba(9, 105, 218, 0.13);
 
   /* === 语义色 === */
   --c-thinking: #6e7781;
@@ -83,12 +85,11 @@
   --c-page-shadow: none;
   --c-page-inset: 0;
 
-  /* === 字体：衬线类降级为无衬线，去掉字距 === */
-  --c-font-serif: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
-  --c-serif-tracking: 0;
+  /* === 字体：展示字体保持衬线；字距归零，避免大字号下发散 === */
+  --c-display-tracking: 0;
 
   /* === 圆角：气泡与其他组件统一 === */
-  --c-radius-bubble: 12px;
+  /* 圆角刻度统一在 _base.css，皮肤不再单独声明 */
 
   /* === 主按钮（纯色、扁平） === */
   --c-btn-primary-bg: #0969da;

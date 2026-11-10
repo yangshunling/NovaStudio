@@ -97,10 +97,20 @@ export function registerWorkflowRunHandlers(
     if (run.status === "running" || run.status === "awaiting_approval") {
       throw new Error("该运行正在执行，请先终止");
     }
-    return deleteRunData(runId, {
-      service,
-      userDataDir: app.getPath("userData"),
-    });
+    /*
+     * 状态字段在「续跑校验」完成前仍是 failed/interrupted。这里必须再查
+     * 运行器占位，否则删除会与正在启动的续跑交错（表被删、进程还在写）。
+     * 占位与删除在同一同步路径完成，之后 resume 会立即被拒绝。
+     */
+    if (runner.isRunBusy(runId)) {
+      throw new Error("该运行正在启动或删除，请稍后重试");
+    }
+    return runner.withMaintenance({ runId }, () =>
+      deleteRunData(runId, {
+        service,
+        userDataDir: app.getPath("userData"),
+      }),
+    );
   });
 
   handle("workflow:run:cancel", ({ runId }) => runner.cancel(runId));

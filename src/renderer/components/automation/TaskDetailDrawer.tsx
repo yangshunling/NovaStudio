@@ -7,7 +7,7 @@
  */
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import { Loader2 } from "lucide-react";
+
 import { MessageGroup } from "../chat/MessageList";
 import {
   Drawer,
@@ -22,6 +22,7 @@ import { ipc } from "../../lib/ipc";
 import { timeAgo } from "../../lib/utils";
 import { useChatStore } from "../../stores/chat";
 import type { AutomationTask, Message } from "@shared/types";
+import { Spinner } from "../ui/Spinner";
 
 export function TaskDetailDrawer({ task, onClose }: { task: AutomationTask; onClose: () => void }) {
   const projects = useChatStore((s) => s.projects);
@@ -54,6 +55,9 @@ export function TaskDetailDrawer({ task, onClose }: { task: AutomationTask; onCl
     try {
       const session = await ipc.getSession(sessionId);
       setHistoryMessages(session?.messages ?? []);
+    } catch (err) {
+      // 读取失败保留空态，但不能产生未处理的 Promise rejection
+      console.warn("[automation] 任务执行记录读取失败：", err);
     } finally {
       setLoading(false);
     }
@@ -86,9 +90,9 @@ export function TaskDetailDrawer({ task, onClose }: { task: AutomationTask; onCl
             : task.status === "failed" ? "bg-error"
             : "bg-accent animate-pulse"
           }`} />
-          <span className="truncate text-body-lg font-medium text-text">任务执行详情</span>
+          <span className="truncate ui-type-item font-medium text-text">任务执行详情</span>
           {isRunning && (
-            <span className="text-meta text-accent">实时</span>
+            <span className="ui-type-note text-accent">实时</span>
           )}
         </div>
         <DrawerCloseButton onClose={onClose} />
@@ -96,8 +100,8 @@ export function TaskDetailDrawer({ task, onClose }: { task: AutomationTask; onCl
 
       {/* 任务元信息 */}
       <div className="shrink-0 border-b border-border px-section py-card">
-          <p className="mb-2.5 text-body-lg leading-relaxed text-text">{task.prompt}</p>
-          <div className="flex flex-wrap items-center gap-2 text-caption">
+          <p className="mb-2.5 ui-type-item leading-relaxed text-text">{task.prompt}</p>
+          <div className="flex flex-wrap items-center gap-2 ui-type-sub">
             {project && (
               <span className="inline-flex items-center gap-1 rounded-full bg-surface-hover px-2 py-0.5 text-text-muted">
                 <FolderTypeIcon size={12} />
@@ -122,12 +126,12 @@ export function TaskDetailDrawer({ task, onClose }: { task: AutomationTask; onCl
       {/* 执行记录 */}
       <DrawerBody ref={scrollRef}>
           {!isRunning && loading ? (
-            <div className="flex items-center gap-2 py-8 text-body-lg text-text-muted">
-              <Loader2 className="h-4 w-4 animate-spin" />
+            <div className="flex items-center gap-2 py-8 ui-type-item text-text-muted">
+              <Spinner className="h-4 w-4" />
               加载中…
             </div>
           ) : messages.length === 0 ? (
-            <div className="py-8 text-center text-body-lg text-text-muted">
+            <div className="py-8 text-center ui-type-item text-text-muted">
               {sessionId ? "暂无执行记录" : "任务尚未执行或未创建会话"}
             </div>
           ) : (

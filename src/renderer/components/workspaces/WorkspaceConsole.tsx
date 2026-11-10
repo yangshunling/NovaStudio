@@ -23,7 +23,10 @@ import type {
 } from "@shared/git";
 import { ipc } from "../../lib/ipc";
 import { toMessage } from "../../lib/utils";
+import { clampMenuPosition } from "../../lib/popup";
+import { useDismissableLayer } from "../../hooks/useDismissableLayer";
 import { PageHeader } from "../ui/Page";
+import { IconButton } from "../ui/IconButton";
 import { SegmentedTabs } from "../ui/SegmentedTabs";
 import {
   MENU_WIDTH,
@@ -119,26 +122,7 @@ export function WorkspaceConsole({
     };
   }, [project.id, gitTick]);
 
-  useEffect(() => {
-    if (!menu) return;
-    const close = () => setMenu(null);
-    const onDown = (event: MouseEvent) => {
-      if (!menuRef.current?.contains(event.target as Node)) close();
-    };
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") close();
-    };
-    document.addEventListener("mousedown", onDown);
-    document.addEventListener("keydown", onKey);
-    window.addEventListener("scroll", close, true);
-    window.addEventListener("resize", close);
-    return () => {
-      document.removeEventListener("mousedown", onDown);
-      document.removeEventListener("keydown", onKey);
-      window.removeEventListener("scroll", close, true);
-      window.removeEventListener("resize", close);
-    };
-  }, [menu]);
+  useDismissableLayer(Boolean(menu), () => setMenu(null), [menuRef]);
 
   const changes = changeCount(git);
 
@@ -160,10 +144,12 @@ export function WorkspaceConsole({
 
   const openMenu = (event: React.MouseEvent) => {
     event.stopPropagation();
-    setMenu({
-      x: Math.max(8, Math.min(event.clientX, window.innerWidth - MENU_WIDTH - 8)),
-      y: Math.max(8, Math.min(event.clientY, window.innerHeight - 180)),
-    });
+    setMenu(
+      clampMenuPosition(event.clientX, event.clientY, {
+        width: MENU_WIDTH,
+        height: 180,
+      }),
+    );
   };
 
   return (
@@ -179,47 +165,38 @@ export function WorkspaceConsole({
                 type="button"
                 onClick={() => onTabChange("git")}
                 title="查看 Git 状态 / 切换分支"
-                className="flex h-9 max-w-56 items-center gap-1.5 rounded-full border border-border/60 bg-surface-2/50 px-3 text-meta text-text-secondary transition-colors hover:border-accent/35 hover:text-text"
+                className="flex h-9 max-w-56 items-center gap-1.5 rounded-full border border-border/60 bg-surface-2/50 px-3 ui-type-note text-text-secondary transition-colors hover:border-accent/35 hover:text-text"
               >
                 <GitBranch className="h-3.5 w-3.5 shrink-0 text-accent" />
                 <span className="min-w-0 truncate font-mono">
                   {git.branch ?? "HEAD"}
                 </span>
                 {changes > 0 && (
-                  <span className="flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-agent-amber/10 px-1.5 font-mono text-caption leading-none text-agent-amber">
+                  <span className="flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-agent-amber/10 px-1.5 ui-type-code-sm leading-none text-agent-amber">
                     {changes}
                   </span>
                 )}
               </button>
             )}
 
-            <button
-              type="button"
+            <IconButton
+              icon={<SquareTerminal className="h-4 w-4" />}
+              label="在此工作区打开终端"
+              tone="muted"
               onClick={onOpenTerminal}
-              title="在此工作区打开终端"
-              aria-label="打开终端"
-              className="ui-btn-round ui-icon-action flex h-9 w-9 items-center justify-center rounded-full text-text-muted"
-            >
-              <SquareTerminal className="h-4 w-4" />
-            </button>
-            <button
-              type="button"
+            />
+            <IconButton
+              icon={<FolderOpen className="h-4 w-4" />}
+              label="在文件管理器中打开"
+              tone="muted"
               onClick={onOpenFolder}
-              title="在文件管理器中打开"
-              aria-label="打开工作区目录"
-              className="ui-btn-round ui-icon-action flex h-9 w-9 items-center justify-center rounded-full text-text-muted"
-            >
-              <FolderOpen className="h-4 w-4" />
-            </button>
-            <button
-              type="button"
+            />
+            <IconButton
+              icon={<MoreHorizontal className="h-4 w-4" />}
+              label="更多操作"
+              tone="muted"
               onClick={openMenu}
-              title="更多操作"
-              aria-label="更多操作"
-              className="ui-btn-round ui-icon-action flex h-9 w-9 items-center justify-center rounded-full text-text-muted"
-            >
-              <MoreHorizontal className="h-4 w-4" />
-            </button>
+            />
           </>
         }
       />

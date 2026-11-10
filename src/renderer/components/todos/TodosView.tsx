@@ -39,12 +39,11 @@ import {
   groupTodos,
   isOverdue,
   sortTodos,
-  startOfDay,
-  weekdayShort,
   type DueBucket,
   type TodoFilter,
   type TodoSort,
 } from "./todoUtils";
+import { startOfDay, weekdayShort } from "@shared/time";
 
 const VIEW_TABS: { id: TodoFilter; label: string }[] = [
   { id: "pending", label: "未完成" },
@@ -456,23 +455,23 @@ export function TodosView() {
                 <div className="relative flex flex-wrap items-end justify-between gap-x-8 gap-y-4">
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-baseline gap-x-2.5 gap-y-1">
-                      <h2 className="text-hero font-semibold tracking-tight text-text">
+                      <h2 className="ui-type-hero font-semibold tracking-tight text-text">
                         {dateLabel}
                       </h2>
-                      <span className="rounded-full bg-surface-hover px-2 py-0.5 text-caption font-medium text-text-secondary">
+                      <span className="rounded-full bg-surface-hover px-2 py-0.5 ui-type-sub font-medium text-text-secondary">
                         {weekdayLabel}
                       </span>
                       {selectedDate !== null && (
                         <button
                           type="button"
                           onClick={() => setSelectedDate(null)}
-                          className="text-caption text-accent transition-colors hover:text-accent-hover"
+                          className="ui-type-sub text-accent transition-colors hover:text-accent-hover"
                         >
                           回到全部
                         </button>
                       )}
                     </div>
-                    <p className="mt-2 max-w-md text-body leading-relaxed text-text-secondary">
+                    <p className="mt-2 max-w-md ui-type-body leading-relaxed text-text-secondary">
                       {summary}
                     </p>
                   </div>
@@ -480,10 +479,10 @@ export function TodosView() {
                   {meterTotal > 0 && (
                     <div className="hidden w-44 shrink-0 sm:block">
                       <div className="flex items-baseline justify-between">
-                        <span className="text-caption text-text-muted">
+                        <span className="ui-type-sub text-text-muted">
                           {meterLabel}
                         </span>
-                        <span className="text-meta font-semibold tabular-nums text-text">
+                        <span className="ui-type-note font-semibold tabular-nums text-text">
                           {progress}%
                         </span>
                       </div>
@@ -493,7 +492,7 @@ export function TodosView() {
                           style={{ width: `${progress}%` }}
                         />
                       </div>
-                      <div className="mt-1.5 text-caption tabular-nums text-text-muted">
+                      <div className="mt-1.5 ui-type-sub tabular-nums text-text-muted">
                         {meterDone} / {meterTotal} 件已完成
                       </div>
                     </div>
@@ -532,7 +531,7 @@ export function TodosView() {
                         value={sort}
                         onChange={(value) => setSort(value as TodoSort)}
                         options={SORT_OPTIONS}
-                        className="text-meta text-text-secondary"
+                        className="ui-type-note text-text-secondary"
                         minMenuWidth={160}
                         aria-label="排序方式"
                       />
@@ -561,7 +560,7 @@ export function TodosView() {
                   {/* 标签筛选 */}
                   {allTags.length > 0 && (
                     <div className="mt-3 flex flex-wrap items-center gap-1.5">
-                      <span className="mr-1 inline-flex items-center gap-1 text-caption text-text-muted">
+                      <span className="mr-1 inline-flex items-center gap-1 ui-type-sub text-text-muted">
                         <Tag className="h-3 w-3" />
                         标签
                       </span>
@@ -572,7 +571,7 @@ export function TodosView() {
                             key={tag}
                             type="button"
                             onClick={() => toggleTagFilter(tag)}
-                            className={`rounded-full border px-2.5 py-0.5 text-caption transition-colors ${
+                            className={`rounded-full border px-2.5 py-0.5 ui-type-sub transition-colors ${
                               active
                                 ? "border-accent/30 bg-accent-soft font-medium text-accent"
                                 : "border-border/60 bg-surface-2/40 text-text-muted hover:border-border hover:text-text"
@@ -586,7 +585,7 @@ export function TodosView() {
                         <button
                           type="button"
                           onClick={() => setActiveTags([])}
-                          className="ml-1 text-caption text-text-muted underline underline-offset-2 transition-colors hover:text-text"
+                          className="ml-1 ui-type-sub text-text-muted underline underline-offset-2 transition-colors hover:text-text"
                         >
                           清除
                         </button>
@@ -612,7 +611,7 @@ export function TodosView() {
                                     setQuery("");
                                     setActiveTags([]);
                                   }}
-                                  className="text-meta text-accent hover:underline"
+                                  className="ui-type-note text-accent hover:underline"
                                 >
                                   清除筛选
                                 </button>
@@ -621,7 +620,7 @@ export function TodosView() {
                                 <button
                                   type="button"
                                   onClick={() => setSelectedDate(null)}
-                                  className="text-meta text-accent hover:underline"
+                                  className="ui-type-note text-accent hover:underline"
                                 >
                                   回到全部
                                 </button>
@@ -731,8 +730,8 @@ function TodoGroupCard({
     <section className="overflow-hidden rounded-xl border border-border/60 bg-surface-2/40 shadow-[var(--c-shadow-sm)]">
       <header className="flex items-center gap-2 border-b border-border/60 bg-surface-hover/35 px-4 py-2.5">
         <span aria-hidden className={`h-1.5 w-1.5 rounded-full ${dot}`} />
-        <h3 className={`text-meta font-semibold ${labelTone}`}>{label}</h3>
-        <span className="rounded-full bg-surface-hover px-1.5 text-caption tabular-nums text-text-muted">
+        <h3 className={`ui-type-note font-semibold ${labelTone}`}>{label}</h3>
+        <span className="rounded-full bg-surface-hover px-1.5 ui-type-sub tabular-nums text-text-muted">
           {count}
         </span>
       </header>

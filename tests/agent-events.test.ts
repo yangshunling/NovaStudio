@@ -67,3 +67,44 @@ test("完整 text 块始终新建段落", () => {
   content = appendEvent(content, { type: "text", content: "第二段" });
   assert.equal(content.length, 2);
 });
+
+test("message_end 之间的 usage 元数据不会打断收敛（正文不重复）", () => {
+  let content: AgentEvent[] = [];
+  const usage: AgentEvent = {
+    type: "usage",
+    inputTokens: 120,
+    outputTokens: 30,
+    cacheCreationInputTokens: 0,
+    cacheReadInputTokens: 0,
+    scope: "context",
+    contextWindow: 200000,
+  };
+
+  // 同一条消息先到正文块，再到 tool_call 块；两次 message_end 之间夹着一次 usage
+  content = appendEvent(content, {
+    type: "message_end",
+    blocks: [{ type: "text", content: "先说明一下" }],
+  });
+  content = appendEvent(content, usage);
+  content = appendEvent(content, {
+    type: "message_end",
+    blocks: [
+      { type: "text", content: "先说明一下" },
+      {
+        type: "tool_call",
+        callId: "t1",
+        name: "Read",
+        input: {},
+        kind: "read",
+        target: "a.ts",
+      },
+    ],
+  });
+
+  assert.deepEqual(
+    content.filter((event) => event.type === "text"),
+    [{ type: "text", content: "先说明一下" }],
+  );
+  // usage 仍然保留（用量统计要用），只是不再挡在累积块后面
+  assert.equal(content.filter((event) => event.type === "usage").length, 1);
+});

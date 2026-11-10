@@ -6,7 +6,7 @@
  */
 
 import { useEffect, useState } from "react";
-import { Folder, FolderKanban, FolderPlus, Loader2 } from "lucide-react";
+import { Folder, FolderKanban, FolderPlus } from "lucide-react";
 import type { Project } from "@shared/types";
 import { ipc } from "../../lib/ipc";
 import { toMessage } from "../../lib/utils";
@@ -18,8 +18,10 @@ import { confirmDialog } from "../../stores/confirm";
 import { EmptyState, LoadingState } from "../ui/EmptyState";
 import { Page } from "../ui/Page";
 import { Button } from "../ui/Button";
+import { IconButton } from "../ui/IconButton";
 import { ListItem } from "../ui/ListPane";
 import { WorkspaceConsole, type WorkspaceTab } from "./WorkspaceConsole";
+import { Spinner } from "../ui/Spinner";
 
 /**
  * 路径比较：只用于「这个目录是不是已经登记过」的友好提示。
@@ -213,27 +215,26 @@ export function WorkspacesView() {
         <aside className="flex w-[var(--c-layout-session-list)] shrink-0 flex-col border-r border-border bg-[var(--c-panel-bg)] shadow-[var(--c-shadow-sm)]">
           <div className="flex h-[var(--c-layout-header)] shrink-0 items-center justify-between gap-2 border-b border-border px-4">
             <div className="flex min-w-0 items-center gap-2">
-              <p className="truncate text-meta font-semibold tracking-wide text-text-muted">
+              <p className="truncate ui-type-note font-semibold tracking-wide text-text-muted">
                 工作区
               </p>
-              <span className="flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-surface-hover px-1.5 font-mono text-caption leading-none text-text-muted">
+              <span className="flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-surface-hover px-1.5 ui-type-code-sm leading-none text-text-muted">
                 {projects.length}
               </span>
             </div>
-            <button
-              type="button"
-              onClick={() => void createWorkspace()}
+            <IconButton
+              icon={
+                creating ? (
+                  <Spinner className="h-4 w-4" />
+                ) : (
+                  <FolderPlus className="h-4 w-4" />
+                )
+              }
+              label="新建工作区"
+              tone="muted"
               disabled={creating}
-              title="新建工作区"
-              aria-label="新建工作区"
-              className="ui-btn-round ui-icon-action flex h-9 w-9 items-center justify-center rounded-full text-text-muted transition-colors active:scale-95 disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              {creating ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <FolderPlus className="h-4 w-4" />
-              )}
-            </button>
+              onClick={() => void createWorkspace()}
+            />
           </div>
 
           <div className="min-h-0 flex-1 space-y-1 overflow-y-auto px-2.5 pb-4 pt-3">
@@ -247,7 +248,7 @@ export function WorkspacesView() {
             ))}
           </div>
 
-          <div className="shrink-0 border-t border-border px-3 py-2 text-caption text-text-muted">
+          <div className="shrink-0 border-t border-border px-3 py-2 ui-type-sub text-text-muted">
             {projects.length} 个工作区
           </div>
         </aside>

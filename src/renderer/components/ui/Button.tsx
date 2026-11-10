@@ -9,8 +9,9 @@
  */
 
 import { forwardRef } from "react";
-import { Loader2 } from "lucide-react";
+
 import type { ButtonHTMLAttributes, ReactNode } from "react";
+import { Spinner } from "./Spinner";
 
 export type ButtonVariant =
   | "primary"
@@ -62,7 +63,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
       } ${className}`.trim()}
       {...rest}
     >
-      {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : icon}
+      {loading ? <Spinner className="h-4 w-4" /> : icon}
       {children}
     </button>
   );

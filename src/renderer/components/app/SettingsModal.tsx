@@ -18,6 +18,7 @@ import {
   type AppInfo,
   type UpdaterState,
 } from "@shared/types";
+import { clamp } from "@shared/math";
 
 // ============================================================================
 // 文字大小
@@ -37,12 +38,12 @@ function FontSizeRow({
 }) {
   return (
     <div className="flex items-center gap-2">
-      <span className="w-20 shrink-0 text-meta text-text-muted">{label}</span>
+      <span className="w-20 shrink-0 ui-type-note text-text-muted">{label}</span>
       {FONT_SIZE_OPTIONS.map((size) => (
         <button
           key={size}
           onClick={() => onChange(size)}
-          className={`rounded-md border px-3 py-1.5 text-meta transition-colors ${
+          className={`rounded-md border px-3 py-1.5 ui-type-note transition-colors ${
             value === size
               ? "border-accent bg-accent-soft text-accent"
               : "border-border text-text-secondary hover:border-border-strong hover:text-text"
@@ -60,8 +61,8 @@ function FontSizeControl() {
 
   return (
     <div className="mb-7">
-      <h3 className="text-body font-semibold text-text">文字大小</h3>
-      <p className="mt-1 mb-3 text-meta text-text-muted">
+      <h3 className="ui-type-body font-semibold text-text">文字大小</h3>
+      <p className="mt-1 mb-3 ui-type-note text-text-muted">
         全局字号是整套界面的缩放基准；聊天记录可单独调整，文件预览与工作区文件跟随全局字号。
       </p>
       <div className="space-y-3">
@@ -84,17 +85,17 @@ function TerminalFontSizeControl() {
 
   return (
     <div className="mb-7">
-      <h3 className="text-body font-semibold text-text">终端</h3>
-      <p className="mt-1 mb-3 text-meta text-text-muted">
+      <h3 className="ui-type-body font-semibold text-text">终端</h3>
+      <p className="mt-1 mb-3 ui-type-note text-text-muted">
         终端字号独立于界面字号，修改后立即生效；字体固定使用系统等宽字体。
       </p>
       <div className="flex flex-wrap items-center gap-2">
-        <span className="w-20 shrink-0 text-meta text-text-muted">字号</span>
+        <span className="w-20 shrink-0 ui-type-note text-text-muted">字号</span>
         {TERMINAL_FONT_SIZE_OPTIONS.map((size) => (
           <button
             key={size}
             onClick={() => setTerminalFontSize(size)}
-            className={`rounded-md border px-3 py-1.5 text-meta transition-colors ${
+            className={`rounded-md border px-3 py-1.5 ui-type-note transition-colors ${
               terminalFontSize === size
                 ? "border-accent bg-accent-soft text-accent"
                 : "border-border text-text-secondary hover:border-border-strong hover:text-text"
@@ -134,14 +135,14 @@ function ConcurrencyControl() {
 
   return (
     <div>
-      <h3 className="text-body font-semibold text-text">自动化并发数</h3>
-      <p className="mt-1 mb-3 text-meta text-text-muted">
+      <h3 className="ui-type-body font-semibold text-text">自动化并发数</h3>
+      <p className="mt-1 mb-3 ui-type-note text-text-muted">
         自动化看板同一时间最多执行的任务数，默认 {DEFAULT_SETTINGS.automationConcurrency}，修改后立即生效。
       </p>
       <Select
         value={String(value)}
         onChange={(next) => handleChange(Number(next))}
-        className="ui-ring w-40 rounded-lg bg-input-bg px-inset py-inset text-body text-text"
+        className="ui-ring w-40 rounded-lg bg-input-bg px-inset py-inset ui-type-body text-text"
         minMenuWidth={160}
         options={CONCURRENCY_OPTIONS.map((n) => ({
           value: String(n),
@@ -181,7 +182,7 @@ function PollIntervalControl() {
     const n = Math.floor(Number(draft));
     // 低于下限也夹到下限，与输入框提示“允许的区间”保持一致
     const next = Number.isFinite(n)
-      ? Math.min(POLL_INTERVAL_MAX, Math.max(POLL_INTERVAL_MIN, n))
+      ? clamp(n, POLL_INTERVAL_MIN, POLL_INTERVAL_MAX)
       : saved.current;
     saved.current = next;
     setDraft(String(next));
@@ -190,8 +191,8 @@ function PollIntervalControl() {
 
   return (
     <div className="mt-7">
-      <h3 className="text-body font-semibold text-text">看板扫描周期</h3>
-      <p className="mt-1 mb-3 text-meta text-text-muted">
+      <h3 className="ui-type-body font-semibold text-text">看板扫描周期</h3>
+      <p className="mt-1 mb-3 ui-type-note text-text-muted">
         自动化看板扫描待执行任务的间隔时间（秒），默认{" "}
         {DEFAULT_SETTINGS.automationPollIntervalSec} 秒，修改后下一周期即生效。间隔过短会增加性能开销。
       </p>
@@ -206,9 +207,9 @@ function PollIntervalControl() {
           onKeyDown={(e) => {
             if (e.key === "Enter") e.currentTarget.blur();
           }}
-          className="ui-ring w-32 rounded-lg bg-input-bg px-inset py-inset text-body-lg text-text outline-none"
+          className="ui-ring w-32 rounded-lg bg-input-bg px-inset py-inset ui-type-item text-text outline-none"
         />
-        <span className="text-body text-text-muted">秒</span>
+        <span className="ui-type-body text-text-muted">秒</span>
       </div>
     </div>
   );
@@ -242,7 +243,7 @@ function TimeoutControl() {
   const commit = () => {
     const n = Math.floor(Number(draft));
     const next = Number.isFinite(n)
-      ? Math.min(TIMEOUT_MAX, Math.max(TIMEOUT_MIN, n))
+      ? clamp(n, TIMEOUT_MIN, TIMEOUT_MAX)
       : saved.current;
     saved.current = next;
     setDraft(String(next));
@@ -251,8 +252,8 @@ function TimeoutControl() {
 
   return (
     <div className="mt-7">
-      <h3 className="text-body font-semibold text-text">单次运行超时</h3>
-      <p className="mt-1 mb-3 text-meta text-text-muted">
+      <h3 className="ui-type-body font-semibold text-text">单次运行超时</h3>
+      <p className="mt-1 mb-3 ui-type-note text-text-muted">
         Agent 单次执行的最长时间（分钟），超过后会被中断并记为失败，默认{" "}
         {DEFAULT_SETTINGS.agentTimeoutMinutes} 分钟。
       </p>
@@ -267,9 +268,9 @@ function TimeoutControl() {
           onKeyDown={(e) => {
             if (e.key === "Enter") e.currentTarget.blur();
           }}
-          className="ui-ring w-32 rounded-lg bg-input-bg px-inset py-inset text-body-lg text-text outline-none"
+          className="ui-ring w-32 rounded-lg bg-input-bg px-inset py-inset ui-type-item text-text outline-none"
         />
-        <span className="text-body text-text-muted">分钟</span>
+        <span className="ui-type-body text-text-muted">分钟</span>
       </div>
     </div>
   );
@@ -281,11 +282,11 @@ function TimeoutControl() {
 
 /** 更新按钮的统一样式：次要操作 */
 const UPDATE_BUTTON_CLASS =
-  "rounded-md border border-border px-3 py-1.5 text-meta text-text-secondary transition-colors hover:border-border-strong hover:text-text";
+  "rounded-md border border-border px-3 py-1.5 ui-type-note text-text-secondary transition-colors hover:border-border-strong hover:text-text";
 
 /** 更新按钮的统一样式：主操作 */
 const UPDATE_PRIMARY_BUTTON_CLASS =
-  "rounded-md border border-accent bg-accent-soft px-3 py-1.5 text-meta text-accent transition-colors hover:bg-accent-soft/70";
+  "rounded-md border border-accent bg-accent-soft px-3 py-1.5 ui-type-note text-accent transition-colors hover:bg-accent-soft/70";
 
 function UpdateControl() {
   const [state, setState] = useState<UpdaterState | null>(null);
@@ -321,8 +322,8 @@ function UpdateControl() {
   if (!state) {
     return (
       <div>
-        <h3 className="text-body font-semibold text-text">应用更新</h3>
-        <p className="mt-1 text-meta text-text-muted">正在读取更新状态…</p>
+        <h3 className="ui-type-body font-semibold text-text">应用更新</h3>
+        <p className="mt-1 ui-type-note text-text-muted">正在读取更新状态…</p>
       </div>
     );
   }
@@ -331,21 +332,21 @@ function UpdateControl() {
 
   return (
     <div>
-      <h3 className="text-body font-semibold text-text">应用更新</h3>
-      <p className="mt-1 mb-3 text-meta text-text-muted">
+      <h3 className="ui-type-body font-semibold text-text">应用更新</h3>
+      <p className="mt-1 mb-3 ui-type-note text-text-muted">
         {supported
           ? "更新通过 GitHub Releases 分发，下载完成后可自行选择何时重启安装。"
           : "开发模式下不可用，打包安装后生效。"}
       </p>
 
       {phase === "checking" && (
-        <p className="text-body text-text-secondary">正在检查更新…</p>
+        <p className="ui-type-body text-text-secondary">正在检查更新…</p>
       )}
       {phase === "up-to-date" && (
-        <p className="text-body text-text-secondary">已是最新版本。</p>
+        <p className="ui-type-body text-text-secondary">已是最新版本。</p>
       )}
       {phase === "available" && (
-        <p className="text-body text-text-secondary">
+        <p className="ui-type-body text-text-secondary">
           发现新版本{" "}
           <span className="font-semibold text-text">v{version}</span>，可以立即下载。
         </p>
@@ -358,21 +359,21 @@ function UpdateControl() {
               style={{ width: `${percent}%` }}
             />
           </div>
-          <p className="mt-2 text-meta text-text-muted">
+          <p className="mt-2 ui-type-note text-text-muted">
             正在下载更新… {percent}%
           </p>
         </div>
       )}
       {phase === "downloaded" && (
-        <p className="text-body text-text-secondary">
+        <p className="ui-type-body text-text-secondary">
           v{version} 已下载完成，重启应用即可完成安装。
         </p>
       )}
       {phase === "error" && (
-        <p className="text-body text-error">{message ?? "检查更新失败。"}</p>
+        <p className="ui-type-body text-error">{message ?? "检查更新失败。"}</p>
       )}
       {phase === "idle" && message && (
-        <p className="text-meta text-text-muted">{message}</p>
+        <p className="ui-type-note text-text-muted">{message}</p>
       )}
 
       <div className="mt-3 flex items-center gap-2">
@@ -430,8 +431,8 @@ function platformLabel(platform: string): string {
 function InfoRow({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex items-center justify-between gap-4 border-b border-border py-2.5 last:border-b-0">
-      <span className="text-meta text-text-muted">{label}</span>
-      <span className="select-text text-meta text-text-secondary">{value}</span>
+      <span className="ui-type-note text-text-muted">{label}</span>
+      <span className="select-text ui-type-note text-text-secondary">{value}</span>
     </div>
   );
 }
@@ -449,8 +450,8 @@ function AboutPanel() {
   return (
     <div className="mx-auto max-w-2xl">
       <div className="mb-6">
-        <h2 className="text-heading font-semibold text-text">关于</h2>
-        <p className="mt-1 text-body text-text-muted">
+        <h2 className="ui-type-heading text-text">关于</h2>
+        <p className="mt-1 ui-type-body text-text-muted">
           产品信息、运行环境与版本更新。
         </p>
       </div>
@@ -463,8 +464,8 @@ function AboutPanel() {
           className="h-14 w-14 shrink-0 rounded-xl object-cover"
         />
         <div className="min-w-0">
-          <p className="text-body-lg font-semibold text-text">Nova Studio</p>
-          <p className="mt-0.5 text-meta text-text-muted">
+          <p className="ui-type-item font-semibold text-text">Nova Studio</p>
+          <p className="mt-0.5 ui-type-note text-text-muted">
             AI 智能体 CLI 的桌面 GUI 客户端
           </p>
         </div>
@@ -495,8 +496,8 @@ function GeneralPanel() {
   return (
     <div className="mx-auto max-w-2xl">
       <div className="mb-6">
-        <h2 className="text-heading font-semibold text-text">通用</h2>
-        <p className="mt-1 text-body text-text-muted">界面、自动化等通用设置，修改后立即生效。</p>
+        <h2 className="ui-type-heading text-text">通用</h2>
+        <p className="mt-1 ui-type-body text-text-muted">界面、自动化等通用设置，修改后立即生效。</p>
       </div>
 
       <FontSizeControl />
@@ -551,7 +552,7 @@ export function SettingsModal() {
       <div className="flex flex-1 overflow-hidden">
         {/* 左侧菜单 */}
         <aside className="flex w-[var(--c-layout-menu)] shrink-0 flex-col gap-1 border-r border-border bg-surface-2/40 p-2.5">
-          <p className="px-2 pb-1.5 pt-1 text-caption font-semibold text-text-muted">
+          <p className="px-2 pb-1.5 pt-1 ui-type-sub font-semibold text-text-muted">
             设置
           </p>
           {SETTINGS_SECTIONS.map(({ id, label, Icon }) => {
@@ -562,9 +563,9 @@ export function SettingsModal() {
                 type="button"
                 onClick={() => setSection(id)}
                 aria-current={active ? "page" : undefined}
-                className={`relative flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-body font-medium transition-colors ${
+                className={`relative flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 ui-type-body font-medium transition-colors ${
                   active
-                    ? "bg-accent-soft text-accent"
+                    ? "bg-selected text-accent"
                     : "text-text-secondary hover:bg-surface-hover hover:text-text"
                 }`}
               >

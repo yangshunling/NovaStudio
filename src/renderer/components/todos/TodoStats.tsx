@@ -54,8 +54,8 @@ export function TodoStats({ todos }: { todos: TodoItem[] }) {
   return (
     <section className="rounded-2xl border border-border/60 bg-surface-2/40 p-4 shadow-[var(--c-shadow-sm)]">
       <div className="flex items-baseline justify-between">
-        <h3 className="text-meta font-semibold text-text-secondary">完成情况</h3>
-        <span className="text-caption tabular-nums text-text-muted">
+        <h3 className="ui-type-note font-semibold text-text-secondary">完成情况</h3>
+        <span className="ui-type-sub tabular-nums text-text-muted">
           共 {stats.total} 件
         </span>
       </div>
@@ -92,19 +92,19 @@ export function TodoStats({ todos }: { todos: TodoItem[] }) {
             <span className="text-title font-semibold tabular-nums text-text">
               {Math.round(stats.rate * 100)}%
             </span>
-            <span className="text-caption text-text-muted">完成率</span>
+            <span className="ui-type-sub text-text-muted">完成率</span>
           </div>
         </div>
 
         <div className="min-w-0">
-          <div className="text-caption text-text-muted">累计完成</div>
+          <div className="ui-type-sub text-text-muted">累计完成</div>
           <div className="mt-0.5 text-heading font-semibold tabular-nums text-text">
             {stats.done}
-            <span className="ml-0.5 text-meta font-normal text-text-muted">
+            <span className="ml-0.5 ui-type-note font-normal text-text-muted">
               件
             </span>
           </div>
-          <div className="mt-1 text-caption text-text-muted">
+          <div className="mt-1 ui-type-sub text-text-muted">
             还剩 {stats.pending} 件
           </div>
         </div>
@@ -123,10 +123,10 @@ export function TodoStats({ todos }: { todos: TodoItem[] }) {
 
       <div className="mt-4 border-t border-border/60 pt-3.5">
         <div className="flex items-baseline justify-between">
-          <span className="text-meta font-medium text-text-secondary">
+          <span className="ui-type-label text-text-secondary">
             最近 7 天
           </span>
-          <span className="text-caption tabular-nums text-text-muted">
+          <span className="ui-type-sub tabular-nums text-text-muted">
             完成 {stats.weekDone} 件
           </span>
         </div>
@@ -161,7 +161,7 @@ export function TodoStats({ todos }: { todos: TodoItem[] }) {
                   />
                 </div>
                 <span
-                  className={`text-caption ${
+                  className={`ui-type-sub ${
                     day.isToday
                       ? "font-semibold text-accent"
                       : "text-text-muted"
@@ -191,7 +191,7 @@ function Metric({
 }) {
   return (
     <div className="rounded-lg border border-border/60 bg-surface/60 px-2.5 py-2">
-      <div className="text-caption text-text-muted">{label}</div>
+      <div className="ui-type-sub text-text-muted">{label}</div>
       <div
         className={`mt-0.5 text-title font-semibold tabular-nums ${
           tone === "error" ? "text-error" : "text-text"
@@ -199,7 +199,7 @@ function Metric({
       >
         {value}
         {suffix && (
-          <span className="ml-0.5 text-caption font-normal text-text-muted">
+          <span className="ml-0.5 ui-type-sub font-normal text-text-muted">
             {suffix}
           </span>
         )}

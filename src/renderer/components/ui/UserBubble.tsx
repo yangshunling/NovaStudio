@@ -8,8 +8,13 @@
 import type { ReactNode } from "react";
 
 export function UserBubble({ children }: { children: ReactNode }) {
+  /*
+   * 输入框是 textarea，换行与连续空格都原样保留；这里必须显式声明
+   * whitespace-pre-wrap，否则 HTML 默认的 white-space: normal 会把
+   * 换行折叠成空格、整段消息挤成一行。break-words 兜住超长无空格串。
+   */
   return (
-    <div className="max-w-[80%] rounded-2xl rounded-br-sm border border-border-strong bg-bubble-user px-4 py-2.5 text-body-lg text-bubble-user-text shadow-[var(--c-shadow-sm)]">
+    <div className="max-w-[80%] whitespace-pre-wrap break-words rounded-2xl rounded-br-sm border border-border-strong bg-bubble-user px-4 py-2.5 ui-type-item text-bubble-user-text shadow-[var(--c-shadow-sm)]">
       {children}
     </div>
   );

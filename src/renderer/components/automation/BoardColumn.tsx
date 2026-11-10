@@ -11,6 +11,7 @@ import { Plus } from "lucide-react";
 import type { ReactNode } from "react";
 import { TaskCard } from "./TaskCard";
 import { EmptyState } from "../ui/EmptyState";
+import { IconButton } from "../ui/IconButton";
 import type { AutomationTask, Project } from "@shared/types";
 import type { AgentInfo } from "@shared/contracts/agent";
 
@@ -49,20 +50,18 @@ export function BoardColumn({
       <div className="board-col-head flex h-12 shrink-0 items-center justify-between border-b border-border/60 px-3.5">
         <div className="board-col-accent flex min-w-0 items-center gap-2">
           {icon}
-          <span className="truncate text-body font-semibold">{title}</span>
-          <span className="board-col-badge shrink-0 rounded-full px-2 py-0.5 text-meta font-mono leading-none">
+          <span className="truncate ui-type-body font-semibold">{title}</span>
+          <span className="board-col-badge shrink-0 rounded-full px-2 py-0.5 ui-type-code leading-none">
             {count}
           </span>
         </div>
         {onAdd && (
-          <button
+          <IconButton
+            icon={<Plus className="h-4 w-4" />}
+            label="新建任务"
+            size="sm"
             onClick={onAdd}
-            title="新建任务"
-            aria-label="新建任务"
-            className="ui-btn-round ui-icon-action flex h-8 w-8 shrink-0 items-center justify-center rounded-full"
-          >
-            <Plus className="h-4 w-4" />
-          </button>
+          />
         )}
       </div>
 
@@ -76,7 +75,7 @@ export function BoardColumn({
               className="flex w-full flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-border bg-surface/40 py-10 text-text-muted transition-colors hover:border-accent/40 hover:bg-accent-soft/30 hover:text-accent"
             >
               <Plus className="h-5 w-5" />
-              <span className="text-meta">{emptyHint}</span>
+              <span className="ui-type-note">{emptyHint}</span>
             </button>
           ) : (
             <EmptyState size="compact" icon={icon} title={emptyHint} />

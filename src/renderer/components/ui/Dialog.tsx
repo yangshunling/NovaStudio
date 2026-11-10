@@ -69,7 +69,7 @@ export function Dialog({
           className={headerClassName ?? "mb-4"}
         />
         {description && (
-          <p className="mb-4 text-body leading-relaxed text-text-muted">
+          <p className="mb-4 ui-type-body leading-relaxed text-text-muted">
             {description}
           </p>
         )}

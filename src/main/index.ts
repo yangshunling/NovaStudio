@@ -25,6 +25,8 @@ import { purgeStaleWorkflowRuntimes } from "./workflow/artifacts";
 import { migrateLegacyAssets } from "./migration/legacy-assets";
 import { syncKnowledgeIndex } from "./knowledge/catalog";
 import { initUpdater } from "./updater";
+import { purgeStaleTempDirs } from "./utils/fs";
+import { errorMessage } from "../shared/error";
 
 let mainWindow: BrowserWindow | null = null;
 /** 退出清理只执行一次：before-quit 与 will-quit 都可能被触发 */
@@ -129,6 +131,8 @@ function createWindow(): BrowserWindow {
 /** 启动主流程：数据库 → 迁移 → 窗口 → IPC → 后台清理/索引 */
 async function bootstrap(): Promise<void> {
   initDatabase();
+  // 上次异常退出可能留下含系统提示词的临时目录（员工 / 知识库内容），先清掉
+  purgeStaleTempDirs("novastudio-system-");
   await migrateLegacyAssets();
 
   // 先清理异常退出遗留的运行时目录（可能含凭证副本），再开放 IPC：
@@ -147,7 +151,7 @@ async function bootstrap(): Promise<void> {
   void syncKnowledgeIndex().catch((err) => {
     console.warn(
       "[knowledge] 启动索引失败：",
-      err instanceof Error ? err.message : String(err),
+      errorMessage(err),
     );
   });
 }
@@ -189,7 +193,7 @@ if (!app.requestSingleInstanceLock()) {
     .whenReady()
     .then(bootstrap)
     .catch((err) => {
-      const message = err instanceof Error ? err.message : String(err);
+      const message = errorMessage(err);
       console.error("[nova] 启动失败：", err);
       dialog.showErrorBox("Nova Studio 启动失败", message);
       app.quit();

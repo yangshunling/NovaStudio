@@ -7,6 +7,7 @@
 import type { AgentEvent } from "@shared/types";
 import type { AgentInfo, AgentTone } from "@shared/contracts/agent";
 import { normalizeNewlines } from "@shared/text";
+import { errorMessage } from "@shared/error";
 
 /** 生成随机 ID（crypto.randomUUID 包装） */
 export function newId(): string {
@@ -60,12 +61,6 @@ export function timeAgo(ts: number): string {
   if (h < 24) return `${h}小时前`;
   const d = Math.floor(h / 24);
   return `${d}天前`;
-}
-
-/** 截断长文本，超过 max 显示前 max 字符 + 省略号 */
-export function truncateHead(s: string, max: number): string {
-  const t = s.replace(/\s+/g, " ").trim();
-  return t.length > max ? t.slice(0, max) + "…" : t;
 }
 
 /** 截断长文本，超过 max 追加折叠提示（主要用于代码/输出展示） */
@@ -146,13 +141,8 @@ function stripIpcWrapper(message: string): string {
 }
 
 export function toMessage(err: unknown, fallback = "发生未知错误"): string {
-  if (err instanceof Error) return stripIpcWrapper(err.message) || fallback;
-  if (typeof err === "string") return stripIpcWrapper(err) || fallback;
   if (err == null) return fallback;
-  try {
-    const s = String(err);
-    return s === "[object Object]" ? fallback : s;
-  } catch {
-    return fallback;
-  }
+  const message = errorMessage(err);
+  if (!message || message === "[object Object]") return fallback;
+  return stripIpcWrapper(message) || fallback;
 }

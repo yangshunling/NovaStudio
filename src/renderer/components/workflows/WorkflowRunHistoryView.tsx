@@ -19,9 +19,10 @@ import { Button } from "../ui/Button";
 import { EmptyState, ErrorState, LoadingState } from "../ui/EmptyState";
 import { Page } from "../ui/Page";
 import { SegmentedTabs } from "../ui/SegmentedTabs";
-import { formatDateTime, formatDuration } from "../../lib/workflow/format";
+import { formatDateTime, formatDuration } from "@shared/time";
 import { ACTIVE_RUN_STATUSES, RUN_STATUS } from "../../lib/workflow/status";
 import type { WorkflowRun } from "@shared/types";
+import { errorMessage } from "@shared/error";
 
 export function WorkflowRunHistoryView({
   title,
@@ -64,7 +65,7 @@ export function WorkflowRunHistoryView({
       setError(null);
       loadErrorReported.current = false;
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
+      const message = errorMessage(err);
       // 首屏没有数据才整页错误；已有数据时保留快照，只轻提示
       if (runsRef.current.length === 0) {
         setError(message);
@@ -110,7 +111,7 @@ export function WorkflowRunHistoryView({
       const next = await ipc.startWorkflowRun(run.workflowId);
       onOpenRun(next.id, next.workflowId);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : String(err), 5000);
+      toast.error(errorMessage(err), 5000);
     } finally {
       setBusyRunId(null);
     }
@@ -134,7 +135,7 @@ export function WorkflowRunHistoryView({
       await load();
       toast.success("运行记录已删除");
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : String(err), 5000);
+      toast.error(errorMessage(err), 5000);
     } finally {
       setBusyRunId(null);
     }
@@ -163,11 +164,11 @@ export function WorkflowRunHistoryView({
 
           <span className="h-5 w-px shrink-0 bg-border" />
 
-          <p className="ui-serif min-w-0 truncate text-title font-semibold tracking-wide text-text-secondary">
+          <p className="ui-type-title min-w-0 truncate text-text-secondary">
             {title}
           </p>
 
-          <span className="shrink-0 rounded-full bg-surface-hover px-2.5 py-1 font-mono text-meta text-text-muted">
+          <span className="shrink-0 rounded-full bg-surface-hover px-2.5 py-1 ui-type-code text-text-muted">
             共 {runs.length} 次执行
           </span>
 
@@ -218,18 +219,18 @@ export function WorkflowRunHistoryView({
                     { id: "succeeded", label: "成功" },
                   ] as const}
                 />
-                <span className="ml-auto font-mono text-caption text-text-muted">
+                <span className="ml-auto ui-type-code-sm text-text-muted">
                   {visibleRuns.length} / {runs.length}
                 </span>
               </div>
 
               {visibleRuns.length === 0 ? (
-                <p className="py-12 text-center text-body text-text-muted">
+                <p className="py-12 text-center ui-type-body text-text-muted">
                   没有匹配的运行记录
                 </p>
               ) : (
                 <div className="overflow-hidden rounded-xl border border-border">
-                  <div className="flex items-center gap-3 border-b border-border bg-surface-hover/50 px-4 py-2.5 text-meta font-medium text-text-muted">
+                  <div className="flex items-center gap-3 border-b border-border bg-surface-hover/50 px-4 py-2.5 ui-type-label text-text-muted">
                     <span className="w-24 shrink-0">状态</span>
                     <span className="min-w-0 flex-1">工作流 / 来源 / 标识</span>
                     <span className="w-44 shrink-0 text-right">操作</span>
@@ -257,7 +258,7 @@ export function WorkflowRunHistoryView({
                     className="ui-cv-row flex w-full cursor-pointer items-start gap-3 border-b border-border px-4 py-3 text-left transition-colors last:border-b-0 hover:bg-surface-hover"
                   >
                     <span
-                      className={`flex w-24 shrink-0 items-center gap-1.5 pt-0.5 text-meta font-medium ${meta.className}`}
+                      className={`flex w-24 shrink-0 items-center gap-1.5 pt-0.5 ui-type-label ${meta.className}`}
                     >
                       <Icon
                         className={`h-3.5 w-3.5 shrink-0 ${active ? "animate-spin" : ""}`}
@@ -267,11 +268,11 @@ export function WorkflowRunHistoryView({
 
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5">
-                        <span className="min-w-0 truncate text-body font-medium text-text">
+                        <span className="min-w-0 truncate ui-type-body font-medium text-text">
                           {run.workflowName}
                         </span>
                         <span
-                          className={`shrink-0 rounded-full px-2 py-0.5 text-caption ${
+                          className={`shrink-0 rounded-full px-2 py-0.5 ui-type-sub ${
                             run.source === "trigger"
                               ? "bg-accent-soft text-accent"
                               : "bg-surface-hover text-text-muted"
@@ -281,26 +282,26 @@ export function WorkflowRunHistoryView({
                         </span>
                         {run.source === "trigger" && run.triggerId && (
                           <span
-                            className="font-mono text-caption text-text-muted"
+                            className="ui-type-code-sm text-text-muted"
                             title={run.triggerId}
                           >
                             {run.triggerId.slice(0, 8)}
                           </span>
                         )}
-                        <span className="font-mono text-caption text-text-muted">
+                        <span className="ui-type-code-sm text-text-muted">
                           {formatDateTime(startedAt)}
                         </span>
-                        <span className="text-caption text-text-muted">→</span>
-                        <span className="font-mono text-caption text-text-muted">
+                        <span className="ui-type-sub text-text-muted">→</span>
+                        <span className="ui-type-code-sm text-text-muted">
                           {formatDateTime(run.finishedAt)}
                         </span>
-                        <span className="font-mono text-caption text-text-secondary">
+                        <span className="ui-type-code-sm text-text-secondary">
                           {formatDuration(run.startedAt, run.finishedAt, Date.now())}
                         </span>
                       </div>
 
                       {/* 两个唯一标识始终完整展示，便于和产物目录 / 数据库对账 */}
-                      <div className="mt-1 flex flex-col gap-0.5 font-mono text-caption text-text-muted">
+                      <div className="mt-1 flex flex-col gap-0.5 ui-type-code-sm text-text-muted">
                         <span className="break-all" title="工作流 ID">
                           工作流 ID：{run.workflowId}
                         </span>
@@ -310,7 +311,7 @@ export function WorkflowRunHistoryView({
                       </div>
                       {run.error && (
                         <p
-                          className="mt-1 truncate text-caption text-error"
+                          className="mt-1 truncate ui-type-sub text-error"
                           title={run.error}
                         >
                           {run.error}
@@ -338,11 +339,11 @@ export function WorkflowRunHistoryView({
                           void removeRun(run);
                         }}
                         disabled={active || busyRunId !== null}
-                        className="flex h-7 items-center rounded-full px-2.5 text-meta font-medium text-error transition-colors hover:bg-error-bg active:scale-95 disabled:opacity-40"
+                        className="flex h-7 items-center rounded-full px-2.5 ui-type-label text-error transition-colors hover:bg-error-bg active:scale-95 disabled:opacity-40"
                       >
                         删除
                       </button>
-                      <span className="flex items-center gap-1 text-meta font-medium text-accent">
+                      <span className="flex items-center gap-1 ui-type-label text-accent">
                         详情
                         <ChevronRight className="h-3.5 w-3.5" />
                       </span>

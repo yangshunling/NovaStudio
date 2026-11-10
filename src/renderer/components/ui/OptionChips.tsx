@@ -76,14 +76,14 @@ export function OptionChips(props: OptionChipsProps) {
 
   const chipClass = (active: boolean) =>
     variant === "pill"
-      ? `rounded-full text-meta transition-colors ${
+      ? `rounded-full ui-type-note transition-colors ${
           size === "sm" ? "px-2.5 py-1" : "px-3 py-1.5"
         } ${
           active
             ? "bg-accent-soft font-medium text-accent"
             : "bg-surface-2/40 text-text-secondary hover:bg-surface-hover hover:text-text"
         }`
-      : `flex-1 rounded-lg px-3 py-2 text-body font-medium transition-colors ${
+      : `flex-1 rounded-lg px-3 py-2 ui-type-body font-medium transition-colors ${
           active
             ? "bg-accent-soft text-accent shadow-[var(--c-shadow-sm)]"
             : "bg-surface-2/40 text-text-secondary hover:bg-surface-hover hover:text-text"
@@ -113,7 +113,7 @@ export function OptionChips(props: OptionChipsProps) {
           </button>
         );
       })}
-      {trailing && <span className="ml-auto text-meta text-text-muted">{trailing}</span>}
+      {trailing && <span className="ml-auto ui-type-note text-text-muted">{trailing}</span>}
     </div>
   );
 }

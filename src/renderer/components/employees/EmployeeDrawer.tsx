@@ -38,6 +38,7 @@ import { McpTab } from "./mcp/McpTab";
 import { SkillsTab } from "./skills/SkillsTab";
 import { Toggle } from "../ui/Toggle";
 import type { DigitalEmployee, DigitalEmployeeDraft } from "@shared/types";
+import { errorMessage } from "@shared/error";
 
 // ============================================================================
 // 常量与类型
@@ -143,7 +144,7 @@ export function EmployeeDrawer({
       await onSaved();
       onClose();
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(errorMessage(err));
       setSaving(false);
     }
   };
@@ -163,7 +164,7 @@ export function EmployeeDrawer({
       await onSaved();
       onClose();
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(errorMessage(err));
     }
   };
 
@@ -182,16 +183,16 @@ export function EmployeeDrawer({
         <EmployeeAvatar employee={draft} size={40} />
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
-            <span className="truncate text-body-lg font-semibold text-text">
+            <span className="truncate ui-type-item font-semibold text-text">
               {draft.name.trim() || (employee ? "未命名员工" : "新建数字员工")}
             </span>
             {!draft.enabled && (
-              <span className="shrink-0 rounded-full bg-surface-hover px-2 py-0.5 text-meta text-text-muted">
+              <span className="shrink-0 rounded-full bg-surface-hover px-2 py-0.5 ui-type-note text-text-muted">
                 已停用
               </span>
             )}
           </div>
-          <div className="truncate text-caption text-text-muted">
+          <div className="truncate ui-type-sub text-text-muted">
             {draft.role.trim() || "数字员工"}
           </div>
         </div>
@@ -264,7 +265,7 @@ export function EmployeeDrawer({
           </div>
           <div className="flex min-w-0 items-center gap-2">
             {error && (
-              <span className="max-w-56 truncate text-caption text-error" title={error}>
+              <span className="max-w-56 truncate ui-type-sub text-error" title={error}>
                 {error}
               </span>
             )}
@@ -328,14 +329,14 @@ function ProfileTab({
               <button
                 type="button"
                 onClick={() => update({ avatar: null })}
-                className="flex items-center gap-1.5 rounded-lg px-2.5 py-2 text-meta text-text-muted transition-colors hover:bg-surface-hover hover:text-error"
+                className="flex items-center gap-1.5 rounded-lg px-2.5 py-2 ui-type-note text-text-muted transition-colors hover:bg-surface-hover hover:text-error"
               >
                 <Eraser className="h-3.5 w-3.5" />
                 移除
               </button>
             )}
           </div>
-          <p className="mt-1.5 text-caption leading-relaxed text-text-muted">
+          <p className="mt-1.5 ui-type-sub leading-relaxed text-text-muted">
             建议使用正方形图片，上传后会自动裁剪为 256×256。
           </p>
         </div>
@@ -372,17 +373,17 @@ function ProfileTab({
           placeholder={
             "例如：\n你是一名资深产品分析师。\n- 先澄清目标，再给出结论\n- 输出结构化、可执行的分析"
           }
-          className={`${INPUT_CLASS} min-h-[240px] resize-y font-mono text-meta leading-relaxed`}
+          className={`${INPUT_CLASS} min-h-[240px] resize-y ui-type-code leading-relaxed`}
         />
       </Field>
-      <div className="-mt-2 text-right text-caption text-text-muted">
+      <div className="-mt-2 text-right ui-type-sub text-text-muted">
         {draft.systemPrompt.length} 字符
       </div>
 
       <div className="flex items-center justify-between gap-3 rounded-lg bg-surface-2/40 px-3 py-2.5">
         <div>
-          <div className="text-body font-medium text-text">启用状态</div>
-          <div className="mt-0.5 text-meta text-text-muted">
+          <div className="ui-type-body font-medium text-text">启用状态</div>
+          <div className="mt-0.5 ui-type-note text-text-muted">
             停用后仍保留配置，但不会出现在可分配列表中。
           </div>
         </div>

@@ -10,22 +10,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import type { LucideIcon } from "lucide-react";
-import {
-  AlertCircle,
-  Bot,
-  Copy,
-  Eye,
-  EyeOff,
-  FolderOpen,
-  KeyRound,
-  Loader2,
-  RefreshCw,
-  RotateCw,
-  Save,
-  ShieldCheck,
-  Sparkles,
-  Terminal,
-} from "lucide-react";
+import { AlertCircle, ArrowUpCircle, Bot, Copy, Eye, EyeOff, FolderOpen, KeyRound, RefreshCw, RotateCw, Save, ShieldCheck, Sparkles, Terminal } from "lucide-react";
 import {
   AGENT_MODEL_ALIASES,
   type AgentInfo,
@@ -34,6 +19,7 @@ import {
   type AgentModelOption,
   type AgentSettingsDraft,
   type AgentSettingsView,
+  type AgentUpgradeCheck,
 } from "@shared/contracts/agent";
 import { ipc } from "../../lib/ipc";
 import { toMessage } from "../../lib/utils";
@@ -41,15 +27,16 @@ import { useChatStore } from "../../stores/chat";
 import { toast } from "../../stores/toast";
 import { Button } from "../ui/Button";
 import { Combobox } from "../ui/Combobox";
-import { Field, FORM_INPUT_CLASS } from "../ui/Field";
+import { Field, FORM_INPUT_CLASS, inputClass } from "../ui/Field";
 import { Select } from "../ui/Select";
 import { Page, PageHeader } from "../ui/Page";
 import { EmptyState } from "../ui/EmptyState";
+import { Spinner } from "../ui/Spinner";
 
 const CLAUDE_ID = "claude";
 
-/** 模型名 / 上下文并排输入：去掉表单默认的 w-full，避免上下文框把模型名挤没 */
-const SPLIT_INPUT_CLASS = FORM_INPUT_CLASS.replace(/\bw-full\b/, "").trim();
+/** 模型名 / 上下文并排输入：不撑满宽度，避免上下文框把模型名挤没 */
+const SPLIT_INPUT_CLASS = inputClass({ width: "auto" });
 
 /** 别名来自共享契约：设置读写与 UI 共用同一份槽位列表 */
 const MODEL_ALIASES: ReadonlyArray<{
@@ -93,6 +80,7 @@ const SECTION_NAV = [
   { id: "connection", label: "连接配置" },
   { id: "models", label: "模型配置" },
   { id: "permission", label: "默认权限" },
+  { id: "upgrade", label: "版本升级" },
   { id: "file", label: "配置文件" },
 ] as const;
 type SectionId = (typeof SECTION_NAV)[number]["id"];
@@ -142,6 +130,12 @@ export function AgentsView() {
   /** 右侧配置区：滚动容器 + 当前分区 */
   const contentRef = useRef<HTMLDivElement>(null);
   const [activeSection, setActiveSection] = useState<SectionId>("connection");
+  /** 版本升级：检测结果、执行状态与实时日志 */
+  const [upgradeCheck, setUpgradeCheck] = useState<AgentUpgradeCheck | null>(null);
+  const [checkingUpgrade, setCheckingUpgrade] = useState(false);
+  const [upgrading, setUpgrading] = useState(false);
+  const [upgradeLog, setUpgradeLog] = useState("");
+  const [upgradeError, setUpgradeError] = useState<string | null>(null);
 
   const scrollToSection = (id: SectionId) => {
     document
@@ -327,6 +321,106 @@ export function AgentsView() {
     }
   };
 
+  /**
+   * 检查最新版本。
+   *
+   * notify=false 用于页面打开时的静默检查；用户手动点击时再弹 toast，
+   * 避免每次进入 Agent 配置都被“已是最新”打扰。
+   */
+  const checkUpgrade = useCallback(async (notify = false) => {
+    setCheckingUpgrade(true);
+    setUpgradeError(null);
+    try {
+      const result = await ipc.checkAgentUpgrade(CLAUDE_ID);
+      setUpgradeCheck(result);
+      if (notify) {
+        if (result.error) {
+          toast.info(result.error);
+        } else if (result.updateAvailable) {
+          toast.info(
+            `发现新版本 ${result.latestVersion}，当前 ${result.installedVersion}`,
+          );
+        } else {
+          toast.success(
+            `Claude Code 已是最新版本（${result.installedVersion ?? "未知"}）`,
+          );
+        }
+      }
+    } catch (err) {
+      const message = toMessage(err);
+      setUpgradeCheck(null);
+      setUpgradeError(message);
+      if (notify) toast.error(message);
+    } finally {
+      setCheckingUpgrade(false);
+    }
+  }, []);
+
+  // 选中 Claude Code 且已安装时自动检查一次；升级后版本变化会再次触发
+  useEffect(() => {
+    if (selected?.id !== CLAUDE_ID || !selected.status.installed) {
+      setUpgradeCheck(null);
+      setUpgradeError(null);
+      return;
+    }
+    void checkUpgrade();
+  }, [
+    selected?.id,
+    selected?.status.installed,
+    selected?.status.version,
+    checkUpgrade,
+  ]);
+
+  // 升级命令的实时输出（npm 进度等已由主进程去掉控制序列）
+  useEffect(
+    () =>
+      ipc.on.agentUpgradeProgress(({ agentId, chunk }) => {
+        if (agentId !== CLAUDE_ID) return;
+        setUpgradeLog((prev) => (prev + chunk).slice(-12_000));
+      }),
+    [],
+  );
+
+  /** 执行升级：完成后刷新 Agent 状态并重新检查版本 */
+  const handleUpgrade = async () => {
+    if (upgrading) return;
+    setUpgrading(true);
+    setUpgradeError(null);
+    setUpgradeLog("");
+    try {
+      const result = await ipc.upgradeAgent(CLAUDE_ID);
+      if (result.output) setUpgradeLog(result.output);
+
+      if (result.ok) {
+        toast.success(
+          result.previousVersion &&
+            result.version &&
+            result.previousVersion !== result.version
+            ? `Claude Code 已从 ${result.previousVersion} 升级到 ${result.version}`
+            : "Claude Code 已是最新版本",
+        );
+      } else {
+        const message = result.error ?? "升级失败";
+        setUpgradeError(message);
+        toast.error(message);
+      }
+
+      // 状态刷新失败不应把一次成功的升级误报成失败
+      try {
+        await detectAgents();
+      } catch {
+        // 下次进入页面或手动检测时会重新拉取
+      }
+      await checkUpgrade();
+    } catch (err) {
+      const message = toMessage(err);
+      setUpgradeError(message);
+      toast.error(message);
+    } finally {
+      setUpgrading(false);
+    }
+  };
+
   const handleCopyInstall = async () => {
     if (!selected?.installCommand) return;
     try {
@@ -427,13 +521,34 @@ export function AgentsView() {
         : current,
     );
 
+  const upgradeStatus = useMemo(() => {
+    if (!selected?.status.installed) {
+      return "未检测到 Claude Code，安装后可检查更新。";
+    }
+    if (upgradeError) return upgradeError;
+    if (checkingUpgrade && !upgradeCheck) return "正在检查最新版本…";
+    if (!upgradeCheck) return "尚未检查最新版本。";
+    if (upgradeCheck.error) return upgradeCheck.error;
+    if (upgradeCheck.updateAvailable) {
+      return `发现新版本 ${upgradeCheck.latestVersion}，当前 ${upgradeCheck.installedVersion}。`;
+    }
+    return `已是最新版本（${upgradeCheck.installedVersion ?? "未知"}）。`;
+  }, [selected?.status.installed, upgradeError, checkingUpgrade, upgradeCheck]);
+
+  // 已确认是最新版本时禁用；检测失败（error 有值）仍允许尝试升级
+  const upgradeDisabled =
+    !selected?.status.installed ||
+    upgrading ||
+    checkingUpgrade ||
+    Boolean(upgradeCheck && !upgradeCheck.updateAvailable && !upgradeCheck.error);
+
   return (
     <Page>
       <PageHeader
         title="Agent 配置"
         badge={
           dirty ? (
-            <span className="rounded-full bg-accent-soft px-2 py-0.5 text-meta font-medium text-accent">
+            <span className="rounded-full bg-accent-soft px-2 py-0.5 ui-type-label text-accent">
               有未保存的修改
             </span>
           ) : (
@@ -489,15 +604,15 @@ export function AgentsView() {
       <div className="flex min-h-0 flex-1">
           <aside className="flex w-60 shrink-0 flex-col overflow-y-auto border-r border-border bg-surface-2/40 p-3">
             <div className="flex items-center justify-between px-1 pb-2">
-              <span className="text-meta font-semibold tracking-wide text-text-muted">
+              <span className="ui-type-note font-semibold tracking-wide text-text-muted">
                 已检测到的 Agent
               </span>
-              <span className="rounded-full bg-surface-hover px-1.5 text-caption tabular-nums text-text-muted">
+              <span className="rounded-full bg-surface-hover px-1.5 ui-type-sub tabular-nums text-text-muted">
                 {agents.length}
               </span>
             </div>
             {agents.length === 0 ? (
-              <p className="px-1 py-3 text-caption leading-relaxed text-text-muted">
+              <p className="px-1 py-3 ui-type-sub leading-relaxed text-text-muted">
                 尚未检测到 Claude Code。请先安装 Claude Code。
               </p>
             ) : (
@@ -510,15 +625,6 @@ export function AgentsView() {
                 />
               ))
             )}
-
-            <div className="mt-4 rounded-lg border border-border/60 bg-surface-2/40 p-3 text-caption leading-relaxed text-text-muted">
-              <p className="mb-1 font-medium text-text-secondary">共享配置</p>
-              Nova 直接编辑 Claude Code 的本机配置：写入{" "}
-              <code className="font-mono">~/.claude/settings.json</code>，
-              MCP 写入 <code className="font-mono">~/.claude.json</code>，
-              Skill 写入 <code className="font-mono">~/.claude/skills</code>。
-              CLI 终端和 Nova 使用同一份配置。
-            </div>
           </aside>
 
           <section className="flex min-w-0 flex-1 flex-col overflow-hidden">
@@ -531,15 +637,15 @@ export function AgentsView() {
                 {!selected ? (
                   <EmptyAgent />
                 ) : loading ? (
-                  <div className="flex h-60 items-center justify-center gap-2 text-body text-text-muted">
-                    <Loader2 className="h-4 w-4 animate-spin" />
+                  <div className="flex h-60 items-center justify-center gap-2 ui-type-body text-text-muted">
+                    <Spinner className="h-4 w-4" />
                     正在读取 Claude 本机配置
                   </div>
                 ) : loadError ? (
                   <div className="mx-auto flex max-w-md flex-col items-center gap-3 py-20 text-center">
                     <AlertCircle className="h-6 w-6 text-error" />
-                    <p className="text-body text-error">{loadError}</p>
-                    <p className="text-meta text-text-muted">
+                    <p className="ui-type-body text-error">{loadError}</p>
+                    <p className="ui-type-note text-text-muted">
                       请先修复 ~/.claude/settings.json 后重试。
                     </p>
                     <Button variant="ghost" size="sm" onClick={handleReload}>
@@ -571,7 +677,7 @@ export function AgentsView() {
                             key={item.id}
                             type="button"
                             onClick={() => scrollToSection(item.id)}
-                            className={`rounded-lg px-3 py-1.5 text-meta font-medium transition-colors ${
+                            className={`rounded-lg px-3 py-1.5 ui-type-label transition-colors ${
                               active
                                 ? "bg-surface text-text shadow-[var(--c-shadow-sm)]"
                                 : "text-text-muted hover:text-text"
@@ -677,7 +783,7 @@ export function AgentsView() {
                       action={
                         <span
                           title="按基础模型名去重"
-                          className="shrink-0 rounded-full bg-accent-soft px-2 py-0.5 text-meta font-medium text-accent"
+                          className="shrink-0 rounded-full bg-accent-soft px-2 py-0.5 ui-type-label text-accent"
                         >
                           已配置 {liveModelCount} 个模型
                         </span>
@@ -719,7 +825,7 @@ export function AgentsView() {
                             </Field>
                           ))}
                         </div>
-                        <p className="text-caption leading-relaxed text-text-muted">
+                        <p className="ui-type-sub leading-relaxed text-text-muted">
                           模型名写入 <code className="font-mono">_MODEL_NAME</code>；
                           上下文会追加到 <code className="font-mono">_MODEL</code>，
                           例如 <code className="font-mono">deepseek-flash[1M]</code>。
@@ -748,16 +854,90 @@ export function AgentsView() {
                     </SectionCard>
 
                     <SectionCard
+                      id="agent-upgrade"
+                      title="版本升级"
+                      description="从 npm 获取最新版本号，优先用 Claude Code 自带的 update 命令升级；未生效时回退到 npm 全局安装。"
+                      icon={ArrowUpCircle}
+                      action={
+                        upgradeCheck?.updateAvailable ? (
+                          <span className="shrink-0 rounded-full bg-accent-soft px-2 py-0.5 ui-type-label text-accent">
+                            可升级到 {upgradeCheck.latestVersion}
+                          </span>
+                        ) : undefined
+                      }
+                    >
+                      <div className="space-y-4">
+                        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                          <VersionTile
+                            label="当前版本"
+                            value={selected.status.version ?? "未知"}
+                          />
+                          <VersionTile
+                            label="最新版本"
+                            value={
+                              checkingUpgrade
+                                ? "检查中…"
+                                : upgradeCheck?.latestVersion ?? "未知"
+                            }
+                          />
+                        </div>
+
+                        <p className="ui-type-sub leading-relaxed text-text-muted">
+                          {upgradeStatus}
+                        </p>
+
+                        <div className="flex flex-wrap items-center gap-2">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="rounded-full"
+                            icon={
+                              <RefreshCw
+                                className={`h-3.5 w-3.5 ${
+                                  checkingUpgrade ? "animate-spin" : ""
+                                }`}
+                              />
+                            }
+                            onClick={() => void checkUpgrade(true)}
+                            disabled={checkingUpgrade || upgrading}
+                          >
+                            检查更新
+                          </Button>
+                          <Button
+                            variant="primary"
+                            size="sm"
+                            className="rounded-full"
+                            loading={upgrading}
+                            icon={<ArrowUpCircle className="h-3.5 w-3.5" />}
+                            onClick={() => void handleUpgrade()}
+                            disabled={upgradeDisabled}
+                          >
+                            升级到最新版本
+                          </Button>
+                          <span className="ui-type-sub text-text-muted">
+                            升级期间请勿关闭 Nova。
+                          </span>
+                        </div>
+
+                        {(upgrading || upgradeLog) && (
+                          <pre className="max-h-52 overflow-auto whitespace-pre-wrap break-all rounded-lg border border-border/60 bg-input-bg px-3 py-2 ui-type-code leading-relaxed text-text-secondary">
+                            {upgradeLog || "正在升级…"}
+                          </pre>
+                        )}
+                      </div>
+                    </SectionCard>
+
+                    <SectionCard
                       id="agent-file"
                       title="配置文件"
                       description="Claude Code 与 Nova 共用同一份本机配置；保存后会直接写回该文件。"
                       icon={FolderOpen}
                     >
-                      <div className="flex flex-wrap items-center gap-2 rounded-lg border border-border/60 bg-input-bg px-3 py-2.5 text-caption text-text-muted">
+                      <div className="flex flex-wrap items-center gap-2 rounded-lg border border-border/60 bg-input-bg px-3 py-2.5 ui-type-sub text-text-muted">
                         <FolderOpen className="h-3.5 w-3.5 shrink-0" />
                         <span
                           title={settings.settingsPath}
-                          className="min-w-0 flex-1 break-all font-mono text-caption leading-relaxed"
+                          className="min-w-0 flex-1 break-all ui-type-code-sm leading-relaxed"
                         >
                           {settings.settingsPath}
                         </span>
@@ -765,17 +945,17 @@ export function AgentsView() {
                           type="button"
                           onClick={handleOpenConfig}
                           disabled={opening}
-                          className="flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-meta text-accent transition-colors hover:bg-accent-soft disabled:opacity-50"
+                          className="flex shrink-0 items-center gap-1 rounded-md px-2 py-1 ui-type-note text-accent transition-colors hover:bg-accent-soft disabled:opacity-50"
                         >
                           {opening ? (
-                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            <Spinner className="h-3.5 w-3.5" />
                           ) : (
                             <FolderOpen className="h-3.5 w-3.5" />
                           )}
                           <span className="text-accent">打开所在目录</span>
                         </button>
                       </div>
-                      <p className="mt-2 text-caption leading-relaxed text-text-muted">
+                      <p className="mt-2 ui-type-sub leading-relaxed text-text-muted">
                         {settings.exists
                           ? "修改会直接写回该文件；Claude CLI 与 Nova 共用同一份配置。"
                           : "配置文件尚未创建，保存后会自动生成。"}
@@ -826,11 +1006,11 @@ function AgentStatusCard({
           </span>
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
-              <h2 className="truncate text-heading font-semibold tracking-tight text-text">
+              <h2 className="truncate ui-type-heading tracking-tight text-text">
                 {agent.displayName}
               </h2>
               <span
-                className={`rounded-full px-2 py-0.5 text-caption font-medium ${
+                className={`rounded-full px-2 py-0.5 ui-type-sub font-medium ${
                   agent.status.installed
                     ? "bg-success/10 text-success"
                     : "bg-error-bg text-error"
@@ -839,7 +1019,7 @@ function AgentStatusCard({
                 {agent.status.installed ? "已安装" : "未安装"}
               </span>
             </div>
-            <p className="mt-0.5 truncate text-meta text-text-muted">
+            <p className="mt-0.5 truncate ui-type-note text-text-muted">
               {agent.status.version ? `版本 ${agent.status.version} · ` : ""}
               配置与 Claude CLI 共用
             </p>
@@ -875,9 +1055,9 @@ function StatusMetric({
 }) {
   return (
     <div className="min-w-0">
-      <div className="text-caption text-text-muted">{label}</div>
+      <div className="ui-type-sub text-text-muted">{label}</div>
       <div
-        className={`mt-0.5 max-w-[150px] truncate text-body font-medium ${
+        className={`mt-0.5 max-w-[150px] truncate ui-type-body font-medium ${
           tone === "success"
             ? "text-success"
             : tone === "muted"
@@ -885,6 +1065,20 @@ function StatusMetric({
               : "text-text"
         }`}
         title={value}
+      >
+        {value}
+      </div>
+    </div>
+  );
+}
+
+function VersionTile({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-lg border border-border/60 bg-input-bg px-3 py-2.5">
+      <div className="ui-type-sub text-text-muted">{label}</div>
+      <div
+        title={value}
+        className="mt-0.5 truncate font-mono text-body font-medium tabular-nums text-text"
       >
         {value}
       </div>
@@ -918,9 +1112,9 @@ function SectionCard({
             <Icon className="h-4 w-4" />
           </span>
           <div className="min-w-0">
-            <h2 className="text-body font-semibold text-text">{title}</h2>
+            <h2 className="ui-type-body font-semibold text-text">{title}</h2>
             {description && (
-              <p className="mt-0.5 text-meta leading-relaxed text-text-muted">
+              <p className="mt-0.5 ui-type-note leading-relaxed text-text-muted">
                 {description}
               </p>
             )}
@@ -949,28 +1143,28 @@ function InstallCard({
       <div className="flex items-start gap-2">
         <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-error" />
         <div className="min-w-0 flex-1">
-          <h2 className="text-body font-semibold text-text">
+          <h2 className="ui-type-body font-semibold text-text">
             未检测到 {agent.displayName}
           </h2>
-          <p className="mt-1 text-meta leading-relaxed text-text-secondary">
+          <p className="mt-1 ui-type-note leading-relaxed text-text-secondary">
             请先在终端执行安装命令，安装完成后回到这里点击「检测 Agent」。
           </p>
           {agent.installCommand ? (
             <div className="mt-2 flex items-center gap-2 rounded-lg border border-border bg-input-bg px-inset py-2">
-              <code className="min-w-0 flex-1 truncate font-mono text-meta text-text">
+              <code className="min-w-0 flex-1 truncate ui-type-code text-text">
                 {agent.installCommand}
               </code>
               <button
                 type="button"
                 onClick={onCopy}
-                className="flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-meta text-accent transition-colors hover:bg-accent-soft"
+                className="flex shrink-0 items-center gap-1 rounded-md px-2 py-1 ui-type-note text-accent transition-colors hover:bg-accent-soft"
               >
                 <Copy className="h-3.5 w-3.5" />
                 复制
               </button>
             </div>
           ) : (
-            <p className="mt-2 text-meta text-text-muted">
+            <p className="mt-2 ui-type-note text-text-muted">
               请参考该 Agent 的官方文档完成安装。
             </p>
           )}
@@ -989,7 +1183,7 @@ function InstallCard({
             >
               检测 Agent
             </Button>
-            <span className="text-caption text-text-muted">
+            <span className="ui-type-sub text-text-muted">
               若已安装仍检测不到，请重启 Nova 以刷新 PATH。
             </span>
           </div>
@@ -1014,7 +1208,7 @@ function AgentListItem({
       onClick={onClick}
       className={`relative mb-1 flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left transition-colors ${
         active
-          ? "bg-accent-soft/60 text-text"
+          ? "bg-selected text-text"
           : "text-text-secondary hover:bg-surface-hover/70 hover:text-text"
       }`}
     >
@@ -1033,7 +1227,7 @@ function AgentListItem({
       </span>
       <span className="min-w-0 flex-1">
         <span
-          className={`block truncate text-body-lg leading-5 ${
+          className={`block truncate ui-type-item leading-5 ${
             active ? "font-medium" : ""
           }`}
         >
@@ -1041,7 +1235,7 @@ function AgentListItem({
         </span>
         <span className="mt-0.5 flex min-w-0 items-center gap-1.5">
           <span
-            className={`flex h-4 shrink-0 items-center rounded-full px-1.5 text-caption font-medium leading-none ${
+            className={`flex h-4 shrink-0 items-center rounded-full px-1.5 ui-type-sub font-medium leading-none ${
               agent.status.installed
                 ? "bg-success/10 text-success"
                 : "bg-error-bg text-error"
@@ -1050,7 +1244,7 @@ function AgentListItem({
             {agent.status.installed ? "已安装" : "未安装"}
           </span>
           {agent.status.installed && agent.status.version && (
-            <span className="min-w-0 truncate text-caption text-text-muted">
+            <span className="min-w-0 truncate ui-type-sub text-text-muted">
               {agent.status.version}
             </span>
           )}

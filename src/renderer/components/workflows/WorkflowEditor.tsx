@@ -70,18 +70,20 @@ import type {
   WorkflowRunDetail,
   WorkflowRunStatus,
 } from "@shared/types";
+import { clamp } from "@shared/math";
+import { errorMessage } from "@shared/error";
+import { inputClass } from "../ui/Field";
 
-const INPUT_CLASS =
-  "ui-ring w-full rounded-lg bg-input-bg px-3 py-2 text-body-lg text-text placeholder-text-muted outline-none transition-colors focus:border-input-border-focus";
+const INPUT_CLASS = inputClass({ density: "compact" });
 
 /**
- * 数字小输入框：视觉与 INPUT_CLASS 一致，但**不含 w-full**。
- *
- * 若直接拼 `${INPUT_CLASS} w-16`，Tailwind 产物里 .w-full 排在 .w-16 之后，
- * 实际生效的是 w-full；再叠加 shrink-0 就会把输入框撑出父容器。
+ * 数字小输入框：视觉与 INPUT_CLASS 一致，但不撑满宽度。
+ * 宽度在生成类名时就已排除 w-full，不依赖 Tailwind 的产出顺序。
  */
-const COMPACT_INPUT_CLASS =
-  "ui-ring rounded-lg bg-input-bg px-3 py-2 text-center text-body-lg text-text outline-none transition-colors focus:border-input-border-focus";
+const COMPACT_INPUT_CLASS = `${inputClass({
+  width: "auto",
+  density: "compact",
+})} text-center`;
 
 const COL_W = 300;
 const ROW_H = 160;
@@ -139,8 +141,8 @@ const REVIEW_OPTIONS: ReadonlyArray<{
   },
 ];
 
-const LABEL_CLASS = "mb-1.5 block text-meta font-medium text-text-secondary";
-const SECTION_TITLE_CLASS = "mb-2 text-body font-semibold text-text";
+const LABEL_CLASS = "mb-1.5 block ui-type-label text-text-secondary";
+const SECTION_TITLE_CLASS = "mb-2 ui-type-body font-semibold text-text";
 
 /** 从节点当前占位里找一个空槽，避免新增节点互相压住 */
 function freePosition(nodes: WorkflowNode[]): { x: number; y: number } {
@@ -226,14 +228,14 @@ export function WorkflowEditor({
   // 名称输入框按实际文字宽度伸缩，让「未保存」徽标紧贴名称
   const nameMeasureRef = useRef<HTMLSpanElement>(null);
   const [nameWidth, setNameWidth] = useState(() =>
-    Math.min(384, Math.max(64, name.length * 16 + 2)),
+    clamp(name.length * 16 + 2, 64, 384),
   );
 
   useLayoutEffect(() => {
     const el = nameMeasureRef.current;
     if (!el) return;
     setNameWidth(
-      Math.min(384, Math.max(64, Math.ceil(el.getBoundingClientRect().width) + 2)),
+      clamp(Math.ceil(el.getBoundingClientRect().width) + 2, 64, 384),
     );
   }, [name]);
 
@@ -258,7 +260,7 @@ export function WorkflowEditor({
         return { issues: err.issues, warnings: err.warnings };
       }
       return {
-        issues: [err instanceof Error ? err.message : String(err)],
+        issues: [errorMessage(err)],
         warnings: [] as string[],
       };
     }
@@ -511,7 +513,7 @@ export function WorkflowEditor({
       setDirty(false);
       return updated;
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(errorMessage(err));
       return null;
     } finally {
       setSaving(false);
@@ -642,7 +644,7 @@ export function WorkflowEditor({
       setDebugDetail(null);
       setDebugRunId(run.id);
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
+      const message = errorMessage(err);
       setError(message);
       toast.error(message, 6000);
     } finally {
@@ -670,7 +672,7 @@ export function WorkflowEditor({
         toast.error("该审核已失效：运行可能已结束或在别处处理过", 5000);
       }
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : String(err));
+      toast.error(errorMessage(err));
     } finally {
       setDebugBusy(false);
     }
@@ -682,7 +684,7 @@ export function WorkflowEditor({
     try {
       await ipc.cancelWorkflowRun(debugRunId);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : String(err));
+      toast.error(errorMessage(err));
     } finally {
       setDebugBusy(false);
     }
@@ -792,7 +794,7 @@ export function WorkflowEditor({
             <span
               ref={nameMeasureRef}
               aria-hidden
-              className="ui-serif pointer-events-none invisible absolute whitespace-pre text-title font-semibold tracking-wide"
+              className="ui-type-title pointer-events-none invisible absolute whitespace-pre"
             >
               {name || "未命名工作流"}
             </span>
@@ -805,13 +807,13 @@ export function WorkflowEditor({
               }}
               placeholder="未命名工作流"
               style={{ width: nameWidth }}
-              className="ui-serif min-w-0 bg-transparent text-title font-semibold tracking-wide text-text outline-none placeholder:text-text-muted"
+              className="ui-type-title min-w-0 bg-transparent text-text outline-none placeholder:text-text-muted"
             />
 
             {dirty && (
               <span
                 title="改动尚未保存，按 Ctrl/Cmd + S 保存"
-                className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-accent/30 bg-accent-soft px-2 py-0.5 text-meta font-medium text-accent"
+                className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-accent/30 bg-accent-soft px-2 py-0.5 ui-type-label text-accent"
               >
                 <span className="h-1.5 w-1.5 rounded-full bg-accent" />
                 未保存
@@ -831,7 +833,7 @@ export function WorkflowEditor({
                 setDirty(true);
               }}
               title="工作区决定运行目录与产物位置；切换后对下一次运行生效"
-              className="ui-ring h-8 shrink-0 rounded-lg bg-input-bg px-2.5 text-meta text-text transition-colors focus:border-input-border-focus"
+              className="ui-ring h-8 shrink-0 rounded-lg bg-input-bg px-2.5 ui-type-note text-text transition-colors focus:border-input-border-focus"
               options={[
                 { value: "", label: "未归属 · 选择工作区…" },
                 ...workspaces.map((item) => ({
@@ -841,7 +843,7 @@ export function WorkflowEditor({
               ]}
             />
           ) : (
-            <span className="shrink-0 text-meta text-error">
+            <span className="shrink-0 ui-type-note text-error">
               未归属 · 请先创建工作区
             </span>
           )}
@@ -849,7 +851,7 @@ export function WorkflowEditor({
           <div className="min-w-0 flex-1" />
 
           {error && (
-            <span className="truncate text-meta text-error" title={error}>
+            <span className="truncate ui-type-note text-error" title={error}>
               {error}
             </span>
           )}
@@ -932,7 +934,7 @@ export function WorkflowEditor({
           {/* 左侧：节点面板 + 数字员工 */}
           <aside className="flex w-[280px] shrink-0 flex-col border-r border-border bg-[var(--c-panel-bg)]">
             <div className="p-4">
-              <p className="mb-3 px-1 text-meta font-semibold tracking-wide text-text-muted">
+              <p className="mb-3 px-1 ui-type-note font-semibold tracking-wide text-text-muted">
                 节点
               </p>
               <div className="space-y-2">
@@ -962,16 +964,16 @@ export function WorkflowEditor({
 
             <div className="flex min-h-0 flex-1 flex-col border-t border-border">
               <div className="flex items-center justify-between px-4 pb-2 pt-4">
-                <p className="text-meta font-semibold tracking-wide text-text-muted">
+                <p className="ui-type-note font-semibold tracking-wide text-text-muted">
                   数字员工
                 </p>
-                <span className="rounded-full bg-surface-hover px-2 py-0.5 font-mono text-caption text-text-muted">
+                <span className="rounded-full bg-surface-hover px-2 py-0.5 ui-type-code-sm text-text-muted">
                   {employees.length}
                 </span>
               </div>
               <div className="min-h-0 flex-1 space-y-1 overflow-y-auto px-3 pb-4">
                 {employees.length === 0 ? (
-                  <p className="px-1.5 py-2 text-meta leading-relaxed text-text-muted">
+                  <p className="px-1.5 py-2 ui-type-note leading-relaxed text-text-muted">
                     还没有数字员工。先到左侧「数字员工」创建，再回来点击加入工作流。
                   </p>
                 ) : (
@@ -985,10 +987,10 @@ export function WorkflowEditor({
                     >
                       <EmployeeAvatar employee={employee} size={32} />
                       <span className="min-w-0 flex-1">
-                        <span className="block truncate text-body-lg text-text">
+                        <span className="block truncate ui-type-item text-text">
                           {employee.name}
                         </span>
-                        <span className="block truncate text-meta text-text-muted">
+                        <span className="block truncate ui-type-note text-text-muted">
                           {employee.role || "未设置职位"}
                         </span>
                       </span>
@@ -1091,8 +1093,8 @@ function PaletteItem({
         {icon}
       </span>
       <span className="min-w-0 flex-1">
-        <span className="block text-body-lg font-medium text-text">{title}</span>
-        <span className="block truncate text-meta text-text-muted">
+        <span className="block ui-type-item font-medium text-text">{title}</span>
+        <span className="block truncate ui-type-note text-text-muted">
           {description}
         </span>
       </span>
@@ -1148,10 +1150,10 @@ function NodeInspector({
           )}
         </span>
         <div className="min-w-0 flex-1">
-          <p className="truncate text-body-lg font-semibold text-text">
+          <p className="truncate ui-type-item font-semibold text-text">
             {typeLabel}
           </p>
-          <p className="truncate text-meta text-text-muted">
+          <p className="truncate ui-type-note text-text-muted">
             {node.name || "未命名节点"}
           </p>
         </div>
@@ -1192,7 +1194,7 @@ function NodeInspector({
             />
 
             {!employee && (
-              <p className="mt-2 rounded-lg bg-error-bg px-3 py-2 text-meta text-error">
+              <p className="mt-2 rounded-lg bg-error-bg px-3 py-2 ui-type-note text-error">
                 尚未绑定数字员工，该节点无法执行。
               </p>
             )}
@@ -1209,7 +1211,7 @@ function NodeInspector({
               placeholder="输入该节点要执行的任务…"
               className={`${INPUT_CLASS} resize-none cursor-text leading-relaxed`}
             />
-            <p className="mt-2 text-meta leading-relaxed text-text-muted">
+            <p className="mt-2 ui-type-note leading-relaxed text-text-muted">
               节点执行时会把任务详情交给所选数字员工。例如：基于上一步结论，梳理需要修改的文件。
             </p>
           </div>
@@ -1224,7 +1226,7 @@ function NodeInspector({
                 onPatch(node.id, {}, { failureStrategy: value })
               }
             />
-            <p className="mt-2 text-meta leading-relaxed text-text-muted">
+            <p className="mt-2 ui-type-note leading-relaxed text-text-muted">
               {
                 FAILURE_OPTIONS.find(
                   (item) => item.value === node.config.failureStrategy,
@@ -1236,7 +1238,7 @@ function NodeInspector({
               <div className="mt-3 flex items-center justify-between rounded-lg bg-surface-hover/60 px-3 py-2">
                 <label
                   htmlFor={`retries-${node.id}`}
-                  className="text-meta text-text-secondary"
+                  className="ui-type-note text-text-secondary"
                 >
                   最大重试次数
                 </label>
@@ -1256,7 +1258,7 @@ function NodeInspector({
                     }}
                     className={`${COMPACT_INPUT_CLASS} w-16 shrink-0`}
                   />
-                  <span className="text-meta text-text-muted">次</span>
+                  <span className="ui-type-note text-text-muted">次</span>
                 </div>
               </div>
             )}
@@ -1270,7 +1272,7 @@ function NodeInspector({
               options={REVIEW_OPTIONS}
               onChange={(value) => onPatch(node.id, {}, { reviewMode: value })}
             />
-            <p className="mt-2 text-meta leading-relaxed text-text-muted">
+            <p className="mt-2 ui-type-note leading-relaxed text-text-muted">
               {
                 REVIEW_OPTIONS.find(
                   (item) => item.value === node.config.reviewMode,
@@ -1282,7 +1284,7 @@ function NodeInspector({
               <div className="mt-3 flex items-center justify-between rounded-lg bg-surface-hover/60 px-3 py-2">
                 <label
                   htmlFor={`revisions-${node.id}`}
-                  className="text-meta text-text-secondary"
+                  className="ui-type-note text-text-secondary"
                 >
                   最大修改轮数
                 </label>
@@ -1302,14 +1304,14 @@ function NodeInspector({
                     }}
                     className={`${COMPACT_INPUT_CLASS} w-16 shrink-0`}
                   />
-                  <span className="text-meta text-text-muted">轮</span>
+                  <span className="ui-type-note text-text-muted">轮</span>
                 </div>
               </div>
             )}
           </div>
         </>
       ) : (
-        <p className="mt-4 rounded-lg bg-surface-hover/60 px-3 py-2.5 text-meta leading-relaxed text-text-muted">
+        <p className="mt-4 rounded-lg bg-surface-hover/60 px-3 py-2.5 ui-type-note leading-relaxed text-text-muted">
           该节点只标示流程起止，不参与执行。
         </p>
       )}
@@ -1317,7 +1319,7 @@ function NodeInspector({
       <button
         type="button"
         onClick={() => onDelete(node.id)}
-        className="mt-4 flex items-center justify-center gap-2 rounded-lg border border-error/25 bg-error-bg px-3 py-2 text-body font-medium text-error transition-colors hover:bg-error/10 active:scale-[0.99]"
+        className="mt-4 flex items-center justify-center gap-2 rounded-lg border border-error/25 bg-error-bg px-3 py-2 ui-type-body font-medium text-error transition-colors hover:bg-error/10 active:scale-[0.99]"
       >
         <Trash2 className="h-4 w-4" />
         删除节点
@@ -1355,7 +1357,7 @@ function Segmented<T extends string>({
             type="button"
             onClick={() => onChange(option.value)}
             aria-pressed={active}
-            className={`flex items-center justify-center gap-1.5 rounded-lg px-2 py-2 text-body font-medium transition-all active:scale-[0.98] ${
+            className={`flex items-center justify-center gap-1.5 rounded-lg px-2 py-2 ui-type-body font-medium transition-all active:scale-[0.98] ${
               active
                 ? "bg-surface text-accent shadow-[var(--c-shadow-sm)]"
                 : "text-text-muted hover:bg-surface/60 hover:text-text"
@@ -1402,7 +1404,7 @@ function ValidationBanner({
           <Info className="h-4 w-4 shrink-0 text-text-muted" />
         )}
         <span
-          className={`min-w-0 flex-1 truncate text-meta font-medium ${
+          className={`min-w-0 flex-1 truncate ui-type-label ${
             hasErrors ? "text-error" : "text-text-secondary"
           }`}
         >
@@ -1413,13 +1415,13 @@ function ValidationBanner({
             ? `，另有 ${warnings.length} 条提示`
             : ""}
         </span>
-        <span className="shrink-0 text-caption text-text-muted">
+        <span className="shrink-0 ui-type-sub text-text-muted">
           {expanded ? "收起" : "查看"}
         </span>
       </button>
 
       {expanded && (
-        <ul className="mt-2 max-h-40 list-disc space-y-1 overflow-y-auto pl-9 text-meta leading-relaxed">
+        <ul className="mt-2 max-h-40 list-disc space-y-1 overflow-y-auto pl-9 ui-type-note leading-relaxed">
           {issues.map((issue, index) => (
             <li key={`issue-${index}`} className="text-error">
               {issue}

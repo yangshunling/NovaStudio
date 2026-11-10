@@ -53,7 +53,7 @@ export function ToolDiffView({ changes }: { changes: FileChange[] }) {
           )}
           <div className="max-h-80 overflow-auto">
             {/* 不要纵向内边距：底色块贴着卡片上下沿，暗色下才不会出现黑边 */}
-            <div className="w-max min-w-full font-mono text-meta leading-6">
+            <div className="w-max min-w-full ui-type-code leading-6">
               {change.lines.map((line, lineIndex) => (
                 <DiffRow
                   key={lineIndex}

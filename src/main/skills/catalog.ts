@@ -28,6 +28,7 @@ import type {
   SkillOrigin,
   SkillWriteResult,
 } from "../../shared/types";
+import { errorMessage } from "../../shared/error";
 
 /** Claude Code 全局技能目录：Nova 新增/导入的目标 */
 function claudeSkillsDir(): string {
@@ -250,7 +251,7 @@ async function scanRoot(
       }
     } catch (err) {
       problems.push(
-        `SKILL.md 读取失败：${err instanceof Error ? err.message : String(err)}`,
+        `SKILL.md 读取失败：${errorMessage(err)}`,
       );
       valid = false;
     }
@@ -433,7 +434,7 @@ export async function importSkillsFromPath(
     return {
       ok: false,
       imported: [],
-      error: err instanceof Error ? err.message : String(err),
+      error: errorMessage(err),
     };
   }
 

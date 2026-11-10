@@ -31,6 +31,14 @@ export function registerSessionHandlers(service: AgentService): void {
 
   handle("session:list", () => db.listSessions());
 
+  /**
+   * 未绑定工作区时真正使用的目录。
+   * 与 session:create 的回退链保持一致：设置里的 defaultCwd → 用户主目录。
+   */
+  handle("session:defaultCwd", () =>
+    service.resolveCwd(db.getSetting("defaultCwd"), homedir()),
+  );
+
   /** 详情：元数据 + provider 回放的历史 */
   handle("session:get", ({ id }) => service.getSessionWithHistory(id));
 
@@ -39,6 +47,13 @@ export function registerSessionHandlers(service: AgentService): void {
     if (!next) throw new Error("会话标题不能为空");
     if (next.length > 120) throw new Error("会话标题不能超过 120 个字符");
     db.setSessionTitle(id, next);
+    return true;
+  });
+
+  /** 置顶是浏览偏好，只改 pinned_at，不触碰 updated_at 与 Agent 上下文 */
+  handle("session:setPinned", ({ id, pinned }) => {
+    if (!db.getSession(id)) return false;
+    db.setSessionPinned(id, pinned);
     return true;
   });
 
@@ -58,6 +73,15 @@ export function registerSessionHandlers(service: AgentService): void {
   handle("session:setProject", ({ sessionId, projectId }) => {
     const session = db.getSession(sessionId);
     if (!session) return null;
+
+    /*
+     * 渲染层的 streaming 状态不是权威来源（刷新 / DevTools reload 后会丢）。
+     * 运行中切换目录会改写 cwd 与 agentSessionId，而运行收尾又会把旧引用
+     * 写回，导致「提示已重置上下文，实际没有」——必须在主进程拦住。
+     */
+    if (service.isRunning(sessionId)) {
+      throw new Error("会话正在运行，请先停止再切换工作区");
+    }
 
     const project = projectId ? db.getProject(projectId) : null;
     if (projectId && !project) throw new Error("项目不存在");

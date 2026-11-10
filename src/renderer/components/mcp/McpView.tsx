@@ -27,6 +27,7 @@ import {
 import { ipc } from "../../lib/ipc";
 import { dirName, toMessage } from "../../lib/utils";
 import { useAssetCatalog, useMcpServersStore } from "../../stores/assets";
+import { useFilteredList } from "../../hooks/useFilteredList";
 import { toast } from "../../stores/toast";
 import { confirmDialog } from "../../stores/confirm";
 import { countUsage, useEmployeesStore } from "../../stores/employees";
@@ -35,6 +36,7 @@ import { CodeTextarea, EditorBar } from "../asset/EditorUi";
 import { Field, TextArea, FORM_INPUT_CLASS as INPUT_CLASS } from "../ui/Field";
 import { Dialog, DialogActions } from "../ui/Dialog";
 import { Button } from "../ui/Button";
+import { IconButton } from "../ui/IconButton";
 import {
   EmptyState,
   ErrorState,
@@ -106,15 +108,11 @@ export function McpView() {
     [employees],
   );
 
-  const filtered = useMemo(() => {
-    const keyword = query.trim().toLowerCase();
-    if (!keyword) return servers;
-    return servers.filter((server) =>
-      [server.name, server.slug, server.description].some((value) =>
-        value.toLowerCase().includes(keyword),
-      ),
-    );
-  }, [servers, query]);
+  const filtered = useFilteredList(servers, query, (server) => [
+    server.name,
+    server.slug,
+    server.description,
+  ]);
 
   const active =
     drawer?.mode === "view"
@@ -137,15 +135,11 @@ export function McpView() {
               placeholder="搜索名称 / 描述"
             />
 
-            <button
-              type="button"
+            <IconButton
+              icon={<RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />}
+              label="重新扫描 MCP 配置"
               onClick={reload}
-              title="重新扫描 MCP 配置"
-              aria-label="重新扫描 MCP 配置"
-              className="ui-btn-round ui-icon-action flex h-9 w-9 shrink-0 items-center justify-center rounded-full"
-            >
-              <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
-            </button>
+            />
 
             <Button
               onClick={() => setImportOpen(true)}
@@ -248,7 +242,7 @@ function McpCard({
         <div className="min-w-0 flex-1 overflow-hidden">
           <h3 className={CARD_TITLE}>{server.name}</h3>
           <p
-            className="mt-0.5 truncate font-mono text-caption text-text-muted"
+            className="mt-0.5 truncate ui-type-code-sm text-text-muted"
             title={endpoint}
           >
             {endpoint || "未配置启动命令"}
@@ -262,7 +256,7 @@ function McpCard({
       </p>
 
       <div className={CARD_META}>
-        <span className={`rounded-full px-2 py-0.5 text-meta ${MCP_TRANSPORT_CLASS[server.transport]}`}>
+        <span className={`rounded-full px-2 py-0.5 ui-type-note ${MCP_TRANSPORT_CLASS[server.transport]}`}>
           {MCP_TRANSPORT_LABEL[server.transport]}
         </span>
         {server.hasSecrets && (
@@ -280,7 +274,7 @@ function McpCard({
             {usage} 位员工
           </Tag>
         )}
-        <span className="ml-auto shrink-0 text-caption tabular-nums text-text-muted">
+        <span className="ml-auto shrink-0 ui-type-sub tabular-nums text-text-muted">
           {formatAssetTime(server.updatedAt)}
         </span>
       </div>
@@ -397,16 +391,16 @@ function McpDrawer({
         <Server className="h-5 w-5 shrink-0 text-accent" />
         <div className="min-w-0 flex-1">
           <div className="flex min-w-0 items-center gap-2">
-            <span className="truncate text-title font-semibold text-text">{title}</span>
+            <span className="truncate ui-type-title text-text">{title}</span>
             {server && (
               <span
-                className={`shrink-0 rounded-full px-2 py-0.5 text-caption ${MCP_TRANSPORT_CLASS[server.transport]}`}
+                className={`shrink-0 rounded-full px-2 py-0.5 ui-type-sub ${MCP_TRANSPORT_CLASS[server.transport]}`}
               >
                 {MCP_TRANSPORT_LABEL[server.transport]}
               </span>
             )}
           </div>
-          <div className="truncate text-meta text-text-muted">{fileName}</div>
+          <div className="truncate ui-type-note text-text-muted">{fileName}</div>
         </div>
         <DrawerCloseButton onClose={onClose} />
       </DrawerHeader>
@@ -420,7 +414,7 @@ function McpDrawer({
             >
               <div className="flex items-start gap-2">
                 <AlertTriangle className={`mt-0.5 h-4 w-4 shrink-0 ${server.valid ? "text-agent-amber" : "text-error"}`} />
-                <ul className="space-y-0.5 text-body leading-relaxed text-text-secondary">
+                <ul className="space-y-0.5 ui-type-body leading-relaxed text-text-secondary">
                   {server.problems.map((problem) => (
                     <li key={problem}>{problem}</li>
                   ))}
@@ -431,7 +425,7 @@ function McpDrawer({
 
           {/* 元信息 */}
           {server && (
-            <div className="grid shrink-0 grid-cols-2 gap-3 text-meta">
+            <div className="grid shrink-0 grid-cols-2 gap-3 ui-type-note">
               <Meta label="配置文件" value={server.path} mono />
               <Meta label="最近更新" value={formatAssetTime(server.updatedAt)} />
               <Meta
@@ -470,7 +464,7 @@ function McpDrawer({
               </Field>
 
               <div className="flex min-h-0 flex-1 flex-col">
-                <div className="mb-1.5 flex shrink-0 items-center gap-1.5 text-meta font-medium text-text-secondary">
+                <div className="mb-1.5 flex shrink-0 items-center gap-1.5 ui-type-label text-text-secondary">
                   <FileJson className="h-4 w-4" />
                   mcpServers[&quot;{name.trim() || "name"}&quot;]
                 </div>
@@ -589,7 +583,7 @@ function ImportMcpModal({
         onChange={(event) => setJson(event.target.value)}
         rows={10}
         placeholder={'{\n  "mcpServers": {\n    "filesystem": {\n      "command": "npx",\n      "args": ["-y", "@modelcontextprotocol/server-filesystem", "E:\\\\Project"]\n    }\n  }\n}'}
-        className="resize-y font-mono text-meta"
+        className="resize-y ui-type-code"
       />
 
       <DialogActions className="justify-between">

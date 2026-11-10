@@ -6,7 +6,7 @@
  * 列表只负责概览与搜索，避免把大量配置项堆在卡片上。
  */
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   ChevronRight,
   Library,
@@ -16,6 +16,7 @@ import {
   Users,
 } from "lucide-react";
 import { useEmployeesStore } from "../../stores/employees";
+import { useFilteredList } from "../../hooks/useFilteredList";
 import {
   EmptyState,
   ErrorState,
@@ -51,15 +52,11 @@ export function EmployeesView() {
     void load();
   }, [load]);
 
-  const filtered = useMemo(() => {
-    const keyword = query.trim().toLowerCase();
-    if (!keyword) return employees;
-    return employees.filter((employee) =>
-      [employee.name, employee.role, employee.systemPrompt].some((value) =>
-        value.toLowerCase().includes(keyword),
-      ),
-    );
-  }, [employees, query]);
+  const filtered = useFilteredList(employees, query, (employee) => [
+    employee.name,
+    employee.role,
+    employee.systemPrompt,
+  ]);
 
   const openCreate = () => setEditing(null);
 
@@ -166,7 +163,7 @@ function EmployeeCard({
           <div className="flex min-w-0 items-center gap-2">
             <h3 className={CARD_TITLE}>{employee.name}</h3>
             <span
-              className={`shrink-0 rounded-full px-1.5 py-0.5 text-caption font-medium ${
+              className={`shrink-0 rounded-full px-1.5 py-0.5 ui-type-sub font-medium ${
                 employee.enabled
                   ? "bg-success/10 text-success"
                   : "bg-surface-hover text-text-muted"
@@ -175,7 +172,7 @@ function EmployeeCard({
               {employee.enabled ? "已启用" : "已停用"}
             </span>
           </div>
-          <p className="mt-0.5 truncate text-meta text-text-muted">
+          <p className="mt-0.5 truncate ui-type-note text-text-muted">
             {employee.role || "未设置职位"}
           </p>
         </div>

@@ -6,7 +6,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ChevronRight, FolderOpen, Loader2, X } from "lucide-react";
+import { ChevronRight, FolderOpen, X } from "lucide-react";
 import type { FileEntry, GitStatusKind, Project } from "@shared/types";
 import type { GitStatusDetail } from "@shared/git";
 import type { FileTab } from "../../stores/fileViewer";
@@ -17,6 +17,7 @@ import { FileTypeIcon } from "../ui/FileTypeIcon";
 import { FolderTypeIcon } from "../ui/FolderTypeIcon";
 import { FilePreview } from "../files/FilePreview";
 import { displayStatus, GIT_STATUS_META } from "./gitUi";
+import { Spinner } from "../ui/Spinner";
 
 export interface FilesRequest {
   nonce: number;
@@ -183,7 +184,7 @@ export function FilesTab({ project, git, request, revision }: FilesTabProps) {
         <div className="flex w-[340px] shrink-0 flex-col border-r border-border">
           <div className="min-h-0 flex-1 overflow-y-auto p-1.5">
             {treeError ? (
-              <div className="m-2 rounded-lg border border-error/25 bg-error-bg px-2.5 py-2 text-caption text-error">
+              <div className="m-2 rounded-lg border border-error/25 bg-error-bg px-2.5 py-2 ui-type-sub text-error">
                 {treeError}
                 <button
                   type="button"
@@ -195,7 +196,7 @@ export function FilesTab({ project, git, request, revision }: FilesTabProps) {
               </div>
             ) : loadingPaths.has("") ? (
               <div className="flex h-40 items-center justify-center text-text-muted">
-                <Loader2 className="h-5 w-5 animate-spin" />
+                <Spinner className="h-5 w-5" />
               </div>
             ) : rootItems.length === 0 ? (
               <EmptyState size="compact" title="空目录" />
@@ -314,7 +315,7 @@ function TreeNode({
           type="button"
           onClick={() => onToggle(entry)}
           title={entry.relativePath}
-          className="flex h-7 w-full items-center gap-1.5 rounded pr-1.5 text-left text-body text-text-secondary transition-colors hover:bg-surface-hover hover:text-text"
+          className="flex h-7 w-full items-center gap-1.5 rounded-sm pr-1.5 text-left ui-type-body text-text-secondary transition-colors hover:bg-surface-hover hover:text-text"
           style={{ paddingLeft: 8 + depth * 14 }}
         >
           <ChevronRight
@@ -327,13 +328,13 @@ function TreeNode({
           {directoryChangeCount > 0 && (
             <span
               title={`${directoryChangeCount} 个文件有变更`}
-              className="shrink-0 rounded-full bg-agent-amber/10 px-1.5 font-mono text-caption leading-4 text-agent-amber"
+              className="shrink-0 rounded-full bg-agent-amber/10 px-1.5 ui-type-code-sm leading-4 text-agent-amber"
             >
               {directoryChangeCount}
             </span>
           )}
           {loading && (
-            <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-text-muted" />
+            <Spinner className="h-3.5 w-3.5 shrink-0 text-text-muted" />
           )}
         </button>
 
@@ -361,7 +362,7 @@ function TreeNode({
       type="button"
       onClick={() => onOpen(entry.relativePath, entry.name)}
       title={entry.relativePath}
-      className={`flex h-7 w-full items-center gap-1.5 rounded pr-1.5 text-left text-body transition-colors hover:bg-surface-hover hover:text-text ${
+      className={`flex h-7 w-full items-center gap-1.5 rounded-sm pr-1.5 text-left ui-type-body transition-colors hover:bg-surface-hover hover:text-text ${
         statusMeta ? "text-text" : "text-text-secondary"
       }`}
       style={{ paddingLeft: 30 + depth * 14 }}
@@ -374,7 +375,7 @@ function TreeNode({
       {statusMeta && (
         <span
           title={statusMeta.text}
-          className={`shrink-0 rounded-full px-1.5 text-caption font-medium leading-4 ${statusMeta.badge}`}
+          className={`shrink-0 rounded-full px-1.5 ui-type-sub font-medium leading-4 ${statusMeta.badge}`}
         >
           {statusMeta.label}
         </span>
@@ -409,7 +410,7 @@ function PreviewTabs({
         return (
           <span
             key={tab.id}
-            className={`flex h-7 max-w-52 shrink-0 items-center gap-1 rounded px-2 text-meta ${
+            className={`flex h-7 max-w-52 shrink-0 items-center gap-1 rounded-sm px-2 ui-type-note ${
               active
                 ? "bg-surface-active text-text"
                 : "text-text-muted hover:bg-surface-hover hover:text-text"
@@ -428,7 +429,7 @@ function PreviewTabs({
               onClick={() => onClose(tab.id)}
               title="关闭"
               aria-label={`关闭 ${tab.name}`}
-              className="shrink-0 rounded p-0.5 hover:bg-surface-hover"
+              className="shrink-0 rounded-sm p-0.5 hover:bg-surface-hover"
             >
               <X className="h-3 w-3" />
             </button>
@@ -438,7 +439,7 @@ function PreviewTabs({
       <button
         type="button"
         onClick={onCloseAll}
-        className="ml-auto shrink-0 px-1.5 text-caption text-text-muted hover:text-text"
+        className="ml-auto shrink-0 px-1.5 ui-type-sub text-text-muted hover:text-text"
       >
         全部关闭
       </button>

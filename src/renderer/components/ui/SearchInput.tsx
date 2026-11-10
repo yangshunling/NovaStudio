@@ -35,7 +35,7 @@ export function SearchInput({
   const md = size === "md";
   return (
     <div
-      className={`ui-ring flex items-center gap-1.5 rounded-full bg-input-bg text-text ${
+      className={`ui-ring flex items-center gap-1.5 rounded-input bg-input-bg text-text ${
         md ? "h-9 px-3.5" : "h-8 px-3"
       } ${widthClass ?? (md ? "w-64" : "w-52")} ${className}`.trim()}
     >
@@ -47,7 +47,7 @@ export function SearchInput({
         onChange={(event) => onChange(event.target.value)}
         placeholder={placeholder}
         className={`min-w-0 flex-1 bg-transparent outline-none placeholder-text-muted ${
-          md ? "text-body" : "text-meta"
+          md ? "ui-type-body" : "ui-type-note"
         }`}
       />
       {value !== "" && (

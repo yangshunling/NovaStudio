@@ -10,6 +10,7 @@ import {
   resolveProjectFile,
 } from "../../files/access";
 import { handle } from "../register";
+import { errorMessage } from "../../../shared/error";
 
 export function registerFileHandlers(): void {
   handle("file:read", ({ projectId, relativePath }) =>
@@ -30,7 +31,7 @@ export function registerFileHandlers(): void {
       } catch (err) {
         return {
           ok: false,
-          error: err instanceof Error ? err.message : String(err),
+          error: errorMessage(err),
         };
       }
     },

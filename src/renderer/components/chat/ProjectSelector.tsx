@@ -1,104 +1,70 @@
 /**
- * 项目绑定器 — 输入框旁的工作目录选择器
+ * 工作区绑定器 — 输入框旁的工作目录选择器
  *
  * 项目不再作为会话的前置层级：新建会话后，用户在这里按需把会话绑定到一个
  * 本地文件夹。绑定后 Agent 在该目录运行，@ 提及与右侧工作区文件树也以它为根。
  *
  * 交互：
- *   - 点击触发器 → 向上展开项目列表（输入框在底部，向下没有空间）
- *   - 选中项目 = 绑定；「不使用项目」= 解绑，回到默认目录
+ *   - 点击触发器 → 向上展开工作区列表（输入框在底部，向下没有空间）
+ *   - 选中工作区 = 绑定；「不使用工作区」= 解绑，回到默认目录
  *   - 工作区的新增 / 删除统一在「工作区」页面完成，这里只读取并选用
  *   - 已有消息的会话切换目录会重置 Agent 上下文（本地历史仍保留），执行前二次确认
+ *
+ * 列表与输入框里的 `#` 快捷切换共用 WorkspaceMenuPanel，保证两条入口的
+ * 条目、排序与样式完全一致。
  */
 
-import { useEffect, useRef, useState } from "react";
-import {
-  Check,
-  ChevronDown,
-  Folder,
-  FolderCog,
-  FolderMinus,
-  SquareTerminal,
-} from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { ChevronDown, Folder } from "lucide-react";
 import { useChatStore } from "../../stores/chat";
-import { useFileViewerStore } from "../../stores/fileViewer";
-import { useTerminalStore } from "../../stores/terminal";
 import { toast } from "../../stores/toast";
-import { confirmDialog } from "../../stores/confirm";
-
-const MENU_WIDTH = 288;
-
-/** 项目副标题只保留末尾两级目录，避免长路径把行撑乱 */
-function shortPath(cwd: string): string {
-  const parts = cwd.split(/[\\/]/).filter(Boolean);
-  if (parts.length <= 2) return cwd;
-  return `…/${parts.slice(-2).join("/")}`;
-}
+import {
+  switchWorkspace,
+  WORKSPACE_RUNNING_HINT,
+} from "../../lib/workspace-switch";
+import {
+  buildWorkspaceItems,
+  useWorkspaceDefaultCwd,
+  WorkspaceMenuPanel,
+} from "./WorkspaceMenu";
 
 export function ProjectSelector() {
   const projects = useChatStore((s) => s.projects);
   const currentProjectId = useChatStore((s) => s.currentProjectId);
-  const currentSessionId = useChatStore((s) => s.currentSessionId);
-  const sessions = useChatStore((s) => s.sessions);
-  // 当前会话在视图里的消息数：比 sessions 里的 messageCount 更新，
-  // 用于判断切换目录是否会影响正在进行的上下文
-  const messageCount = useChatStore(
-    (s) => s.messagesBySession[s.currentSessionId ?? ""]?.length ?? 0,
-  );
-  const bindProject = useChatStore((s) => s.bindProject);
   const setViewMode = useChatStore((s) => s.setViewMode);
-  const openTerminal = useTerminalStore((s) => s.open);
+  const defaultCwd = useWorkspaceDefaultCwd();
 
   const [open, setOpen] = useState(false);
+  /** 键盘导航的当前高亮项 */
+  const [hoverIdx, setHoverIdx] = useState(0);
   const rootRef = useRef<HTMLDivElement>(null);
+  const itemRefs = useRef<(HTMLElement | null)[]>([]);
 
   const currentProject = projects.find((p) => p.id === currentProjectId);
-  const currentSession = sessions.find((s) => s.id === currentSessionId);
-  const hasContext =
-    messageCount > 0 || (currentSession?.messageCount ?? 0) > 0;
+  /** 当前会话正在跑 Agent：运行中切换工作区会被主进程拒绝，这里提前拦住 */
+  const streaming = useChatStore((s) =>
+    s.currentSessionId ? !!s.streamingBySession[s.currentSessionId] : false,
+  );
 
-  // 展开时：外部点击 / Esc 关闭
+  // 运行开始时收起已展开的菜单，避免在其中选到一半被拒绝
   useEffect(() => {
-    if (!open) return;
-    const onDown = (e: MouseEvent) => {
-      if (!rootRef.current?.contains(e.target as Node)) setOpen(false);
-    };
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setOpen(false);
-    };
-    document.addEventListener("mousedown", onDown);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("mousedown", onDown);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [open]);
+    if (streaming) setOpen(false);
+  }, [streaming]);
+
+  /**
+   * 菜单项顺序与 `#` 快捷切换完全一致：
+   * 解绑（可选）→ 各工作区 → 管理工作区。
+   * 键盘高亮与点击共用同一份索引，避免两套顺序漂移。
+   */
+  const menuItems = useMemo(
+    () => buildWorkspaceItems({ projects, currentProjectId, defaultCwd }),
+    [projects, currentProjectId, defaultCwd],
+  );
 
   /** 绑定 / 切换 / 解绑。已开始的会话换目录前确认上下文重置 */
   const choose = async (projectId: string | null) => {
     setOpen(false);
-    if (projectId === currentProjectId) return;
-
-    if (currentSessionId && hasContext) {
-      const target = projectId
-        ? projects.find((p) => p.id === projectId)?.name ?? "所选工作区"
-        : "默认目录";
-      const confirmed = await confirmDialog({
-        title: `将当前会话的工作目录切换到「${target}」？`,
-        message: [
-          "会话已经产生消息，切换目录会重置 Agent 的上下文（开启新对话记忆）。",
-          "本地历史消息仍会保留，此操作不会删除任何记录。",
-        ].join("\n"),
-        confirmLabel: "切换目录",
-      });
-      if (!confirmed) return;
-    }
-
-    try {
-      await bindProject(projectId);
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : String(err));
-    }
+    await switchWorkspace(projectId);
   };
 
   /** 工作区的登记与删除统一在「工作区」页面完成 */
@@ -107,29 +73,107 @@ export function ProjectSelector() {
     setViewMode("workspaces");
   };
 
+  /** 打开时把高亮定位到当前绑定项，没有则从第一项开始 */
+  const openMenu = () => {
+    const index = menuItems.findIndex(
+      (item) => item.kind === "project" && item.id === currentProjectId,
+    );
+    setHoverIdx(index >= 0 ? index : 0);
+    setOpen(true);
+  };
+
+  /** 执行当前高亮项 */
+  const activate = (index: number) => {
+    const item = menuItems[index];
+    if (!item) return;
+    if (item.kind === "manage") manageWorkspaces();
+    else void choose(item.id);
+  };
+  // 键盘监听只注册一次，但每次渲染都要拿到最新的 activate（项目列表可能变化）
+  const activateRef = useRef(activate);
+  activateRef.current = activate;
+
+  // 展开时：外部点击关闭；↑↓ / Enter / Esc 键盘导航
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => {
+      if (!rootRef.current?.contains(e.target as Node)) setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setOpen(false);
+        return;
+      }
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        setHoverIdx((i) => Math.min(i + 1, menuItems.length - 1));
+        return;
+      }
+      if (e.key === "ArrowUp") {
+        e.preventDefault();
+        setHoverIdx((i) => Math.max(i - 1, 0));
+        return;
+      }
+      if (e.key === "Enter") {
+        // 阻止聚焦在触发器上的按钮再触发一次 click（否则会先执行再切回关闭）
+        e.preventDefault();
+        activateRef.current(hoverIdx);
+      }
+    };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open, menuItems.length, hoverIdx]);
+
+  // 高亮项滚入可视区
+  useEffect(() => {
+    if (open) itemRefs.current[hoverIdx]?.scrollIntoView({ block: "nearest" });
+  }, [hoverIdx, open]);
+
   return (
     <div ref={rootRef} className="relative shrink-0">
       {/* 触发器：绑定后显示项目名，未绑定显示引导文案 */}
       <button
         type="button"
-        onClick={() => setOpen((o) => !o)}
+        aria-disabled={streaming}
+        onClick={() => {
+          // 不用 disabled：禁用按钮在部分浏览器里连 title 提示都不显示，
+          // 点一下给出 5 秒的明确原因，比灰掉却无法解释更清楚。
+          if (streaming) {
+            toast.error(WORKSPACE_RUNNING_HINT, 5000);
+            return;
+          }
+          if (open) setOpen(false);
+          else openMenu();
+        }}
+        onKeyDown={(e) => {
+          if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+            e.preventDefault();
+            if (!streaming && !open) openMenu();
+          }
+        }}
         title={
-          currentProject
-            ? `工作目录：${currentProject.cwd}`
-            : "为本次会话指定一个工作区（可选）"
+          streaming
+            ? "Agent 正在运行，本轮结束后才能切换工作区"
+            : currentProject
+              ? `工作目录：${currentProject.cwd}`
+              : "为本次会话指定一个工作区（可选）"
         }
         aria-haspopup="menu"
         aria-expanded={open}
-        className={`ui-ring flex h-9 shrink-0 items-center gap-1.5 rounded-lg bg-input-bg px-3 text-body text-text-secondary outline-none transition-all hover:border-input-border-focus hover:text-text ${
-          open ? "border-input-border-focus text-text" : ""
-        }`}
+        className={`flex h-8 shrink-0 items-center gap-1.5 rounded-md px-2 ui-type-note text-text-muted outline-none transition-colors hover:bg-surface-hover hover:text-text ${
+          open ? "bg-surface-hover text-text" : ""
+        } ${streaming ? "cursor-not-allowed opacity-60" : ""}`}
       >
         <Folder
           className={`h-3.5 w-3.5 shrink-0 ${
             currentProject ? "text-accent" : "text-text-muted"
           }`}
         />
-        <span className="max-w-[120px] truncate font-medium">
+        <span className="max-w-[120px] truncate font-medium text-text">
           {currentProject?.name ?? "指定工作区"}
         </span>
         <ChevronDown
@@ -139,132 +183,19 @@ export function ProjectSelector() {
         />
       </button>
 
-      {/* 下拉面板：向上展开 */}
       {open && (
-        <div
-          role="menu"
-          className="ui-dropdown-in ui-glass-strong ui-ring absolute bottom-full right-0 z-50 mb-2 rounded-xl p-1.5"
-          style={{ width: MENU_WIDTH, boxShadow: "var(--c-shadow)" }}
-        >
-          <div className="px-2.5 pb-1 pt-1">
-            <div className="text-caption font-medium text-text-muted">工作目录</div>
-            <div className="mt-0.5 text-caption leading-relaxed text-text-muted/80">
-              Agent 在此目录运行，@ 提及与文件树都以它为根
-            </div>
-          </div>
-
-          <div className="ui-scroll-hidden max-h-64 overflow-y-auto">
-            {currentProject && (
-              <button
-                type="button"
-                onClick={() => void choose(null)}
-                className="flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left text-text-secondary transition-colors hover:bg-surface-hover hover:text-text"
-              >
-                <span className="flex size-avatar shrink-0 items-center justify-center rounded-md bg-surface-hover text-text-muted">
-                  <FolderMinus className="h-4 w-4" />
-                </span>
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate text-body font-medium">
-                    不使用工作区
-                  </span>
-                  <span className="block truncate text-caption text-text-muted">
-                    在默认目录中运行
-                  </span>
-                </span>
-              </button>
-            )}
-
-            {projects.length === 0 ? (
-              <div className="px-3 py-3 text-meta leading-relaxed text-text-muted">
-                还没有工作区。先到「工作区」页面登记一个本地目录，再在这里选用。
-              </div>
-            ) : (
-              projects.map((project) => {
-                const active = project.id === currentProjectId;
-                return (
-                  <div
-                    key={project.id}
-                    role="menuitem"
-                    tabIndex={0}
-                    onClick={() => void choose(project.id)}
-                    onKeyDown={(e) => {
-                      // 忽略来自内部终端按钮的冒泡，避免误触绑定
-                      if (e.target !== e.currentTarget) return;
-                      if (e.key === "Enter" || e.key === " ") {
-                        e.preventDefault();
-                        void choose(project.id);
-                      }
-                    }}
-                    title={project.cwd}
-                    className={`group/proj flex cursor-pointer items-center gap-2.5 rounded-lg px-2.5 py-2 text-left transition-colors ${
-                      active
-                        ? "bg-surface-active text-text"
-                        : "text-text-secondary hover:bg-surface-hover hover:text-text"
-                    }`}
-                  >
-                    <span
-                      className={`flex size-avatar shrink-0 items-center justify-center rounded-md ${
-                        active
-                          ? "bg-accent-soft text-accent"
-                          : "bg-surface-hover text-text-muted"
-                      }`}
-                    >
-                      <Folder className="h-4 w-4" />
-                    </span>
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate text-body font-medium">
-                        {project.name}
-                      </span>
-                      <span className="block truncate font-mono text-caption text-text-muted">
-                        {shortPath(project.cwd)}
-                      </span>
-                    </span>
-                    {active && (
-                      <Check className="h-4 w-4 shrink-0 text-accent" />
-                    )}
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setOpen(false);
-                        const id = openTerminal({
-                          workspaceId: project.id,
-                          cwd: project.cwd,
-                          name: project.name,
-                        });
-                        useFileViewerStore.getState().activateTab(id);
-                        setViewMode("chat");
-                      }}
-                      title="在此工作区打开终端"
-                      aria-label="在此工作区打开终端"
-                      className="shrink-0 rounded-md p-1 text-text-muted opacity-0 transition-all hover:bg-surface-active hover:text-text focus-visible:opacity-100 group-hover/proj:opacity-100 group-focus-within/proj:opacity-100"
-                    >
-                      <SquareTerminal className="h-3.5 w-3.5" />
-                    </button>
-                  </div>
-                );
-              })
-            )}
-          </div>
-
-          <div className="my-1 h-px bg-border" />
-
-          <button
-            type="button"
-            onClick={manageWorkspaces}
-            className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-body text-text-secondary transition-colors hover:bg-surface-hover hover:text-text"
-          >
-            <span className="flex size-avatar shrink-0 items-center justify-center rounded-md bg-accent-soft text-accent">
-              <FolderCog className="h-4 w-4" />
-            </span>
-            <span className="min-w-0 flex-1">
-              <span className="block truncate font-medium">管理工作区…</span>
-              <span className="block truncate text-caption text-text-muted">
-                在工作区页面新增 / 删除目录
-              </span>
-            </span>
-          </button>
-        </div>
+        <WorkspaceMenuPanel
+          align="right"
+          items={menuItems}
+          hoverIdx={hoverIdx}
+          emptyHint="还没有工作区，先到「工作区」页面登记一个本地目录。"
+          onHover={setHoverIdx}
+          onSelect={(item) => {
+            if (item.kind === "manage") manageWorkspaces();
+            else void choose(item.id);
+          }}
+          itemRefs={itemRefs}
+        />
       )}
     </div>
   );

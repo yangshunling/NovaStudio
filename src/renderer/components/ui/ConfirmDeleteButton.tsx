@@ -6,6 +6,7 @@
 
 import { useState, useEffect } from "react";
 import { Trash2, Check } from "lucide-react";
+import { IconButton } from "./IconButton";
 
 interface ConfirmDeleteButtonProps {
   onConfirm: () => void;
@@ -31,36 +32,31 @@ export function ConfirmDeleteButton({
     return () => clearTimeout(t);
   }, [confirming, timeoutMs]);
 
-  const baseClass = `ui-btn-round ui-icon-action flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-colors ${className}`;
-
   if (confirming) {
     return (
-      <button
+      <IconButton
+        icon={<Check size={iconSize} />}
+        label="确认删除"
         onClick={(e) => {
           e.stopPropagation();
           setConfirming(false);
           onConfirm();
         }}
-        title="确认删除"
-        aria-label="确认删除"
-        className={`${baseClass} text-error hover:bg-error-bg`}
-      >
-        <Check size={iconSize} />
-      </button>
+        className={`text-error hover:bg-error-bg ${className}`.trim()}
+      />
     );
   }
 
   return (
-    <button
+    <IconButton
+      icon={<Trash2 size={iconSize} />}
+      label={title}
+      tone="danger"
       onClick={(e) => {
         e.stopPropagation();
         setConfirming(true);
       }}
-      title={title}
-      aria-label={title}
-      className={`${baseClass} text-text-muted hover:bg-error-bg hover:text-error`}
-    >
-      <Trash2 size={iconSize} />
-    </button>
+      className={className}
+    />
   );
 }

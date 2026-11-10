@@ -59,6 +59,8 @@ import type {
   AgentModelOption,
   AgentSettingsDraft,
   AgentSettingsView,
+  AgentUpgradeCheck,
+  AgentUpgradeResult,
 } from "./agent";
 import type {
   GitBranchInfo,
@@ -103,6 +105,16 @@ export interface IpcInvokeMap {
       },
     ];
     result: AgentModelOption[];
+  };
+  /** 检查 Agent 是否有新版本；无副作用 */
+  "agent:upgrade:check": {
+    args: [{ agentId: string }];
+    result: AgentUpgradeCheck;
+  };
+  /** 升级 Agent 到最新版本；过程文本经 agent:upgrade:progress 推送 */
+  "agent:upgrade:run": {
+    args: [{ agentId: string }];
+    result: AgentUpgradeResult;
   };
   /** 统一发送：主进程按会话是否已有会话引用决定新建 / 恢复 */
   "agent:send": {
@@ -207,6 +219,11 @@ export interface IpcInvokeMap {
   "session:get": { args: [{ id: string }]; result: Session | null };
   "session:rename": { args: [{ id: string; title: string }]; result: boolean };
   "session:delete": { args: [{ id: string }]; result: boolean };
+  /** 置顶 / 取消置顶会话；不改变 updated_at，不影响时间分组 */
+  "session:setPinned": {
+    args: [{ id: string; pinned: boolean }];
+    result: boolean;
+  };
   /**
    * 绑定 / 切换 / 解绑会话的项目（工作目录）。
    * 会话已有 Agent 上下文时切换目录会清空 CLI 会话引用，开启新上下文。
@@ -215,6 +232,8 @@ export interface IpcInvokeMap {
     args: [{ sessionId: string; projectId: string | null }];
     result: Session | null;
   };
+  /** 未绑定工作区时实际使用的默认目录（供选择器展示具体路径） */
+  "session:defaultCwd": { args: []; result: string };
 
   /** 原生目录选择器 */
   "dialog:pickDirectory": { args: []; result: string | null };
@@ -470,6 +489,8 @@ export interface IpcPushMap {
   "agent:event": { sessionId: string; event: AgentEvent };
   "agent:done": { sessionId: string; exitCode: number; duration: number };
   "agents:detected": AgentInfo[];
+  /** 升级过程输出（已去除终端控制序列），供设置页实时展示 */
+  "agent:upgrade:progress": { agentId: string; chunk: string };
   /** 自动化任务状态变更（轮询器拾取 / 完成 / 失败时触发） */
   "automation:updated": AutomationTask;
   "terminal:data": TerminalDataPayload;

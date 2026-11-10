@@ -7,24 +7,22 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  ChevronRight,
-  GitBranch,
-  Loader2,
-  PanelRightClose,
-  RefreshCw,
-} from "lucide-react";
+  ChevronRight, GitBranch, PanelRightClose, RefreshCw } from "lucide-react";
 import { ipc } from "../../lib/ipc";
 import { useChatStore } from "../../stores/chat";
 import { useFileViewerStore } from "../../stores/fileViewer";
 import { FileTypeIcon } from "../ui/FileTypeIcon";
 import { FolderTypeIcon } from "../ui/FolderTypeIcon";
 import { PageHeader, PageToolbar } from "../ui/Page";
+import { IconButton } from "../ui/IconButton";
 import type {
   FileEntry,
   GitStatusKind,
   GitStatusSummary,
   Project,
 } from "@shared/types";
+import { clamp } from "@shared/math";
+import { Spinner } from "../ui/Spinner";
 
 const WORKSPACE_WIDTH_KEY = "nova-workspace-width";
 const DEFAULT_WORKSPACE_WIDTH = 320;
@@ -32,7 +30,7 @@ const MIN_WORKSPACE_WIDTH = 240;
 const MAX_WORKSPACE_WIDTH = 560;
 
 function clampWidth(width: number): number {
-  return Math.min(MAX_WORKSPACE_WIDTH, Math.max(MIN_WORKSPACE_WIDTH, width));
+  return clamp(width, MIN_WORKSPACE_WIDTH, MAX_WORKSPACE_WIDTH);
 }
 
 function readStoredWidth(): number | null {
@@ -441,34 +439,30 @@ export function WorkspacePanel({
           subtitle={cwd || "尚未选择工作区"}
           actions={
             <>
-              <button
-                type="button"
-                onClick={() => setReloadKey((value) => value + 1)}
+              <IconButton
+                icon={
+                  <RefreshCw
+                    className={`h-4 w-4 ${isLoadingRoot ? "animate-spin" : ""}`}
+                  />
+                }
+                label="刷新文件"
+                tone="muted"
                 disabled={!hasWorkspace || isLoadingRoot}
-                title="刷新文件"
-                aria-label="刷新文件"
-                className="ui-btn-round ui-icon-action flex h-9 w-9 items-center justify-center rounded-full text-text-muted disabled:cursor-not-allowed disabled:opacity-40"
-              >
-                <RefreshCw
-                  className={`h-4 w-4 ${isLoadingRoot ? "animate-spin" : ""}`}
-                />
-              </button>
-              <button
-                type="button"
+                onClick={() => setReloadKey((value) => value + 1)}
+              />
+              <IconButton
+                icon={<PanelRightClose className="h-4 w-4" />}
+                label="收起工作区"
+                tone="muted"
                 onClick={() => setShowWorkspace(false)}
-                title="收起工作区"
-                aria-label="收起工作区"
-                className="ui-btn-round ui-icon-action flex h-9 w-9 items-center justify-center rounded-full text-text-muted"
-              >
-                <PanelRightClose className="h-4 w-4" />
-              </button>
+              />
             </>
           }
         />
 
         <PageToolbar className="justify-between">
           <div className="flex min-w-0 items-center gap-2">
-            <span className="shrink-0 text-caption font-medium text-text-muted">
+            <span className="shrink-0 ui-type-sub font-medium text-text-muted">
               工作区文件
             </span>
             {gitStatus?.available && gitStatus.branch && (
@@ -481,7 +475,7 @@ export function WorkspacePanel({
               </span>
             )}
           </div>
-          <span className="font-mono text-caption text-text-muted">
+          <span className="ui-type-code-sm text-text-muted">
             {gitChangeCount > 0
               ? `${gitChangeCount} 变更`
               : rootItems.length > 0
@@ -495,7 +489,7 @@ export function WorkspacePanel({
             <PanelEmpty icon={<FolderTypeIcon size={28} />} text="选择工作区后查看文件" />
           ) : isLoadingRoot ? (
             <PanelEmpty
-              icon={<Loader2 className="h-6 w-6 animate-spin" />}
+              icon={<Spinner className="h-6 w-6" />}
               text="正在读取工作区"
             />
           ) : error ? (
@@ -530,7 +524,7 @@ function PanelEmpty({ icon, text }: { icon: React.ReactNode; text: string }) {
   return (
     <div className="flex h-48 flex-col items-center justify-center gap-2 text-center text-text-muted">
       <span className="opacity-40">{icon}</span>
-      <span className="px-6 text-meta">{text}</span>
+      <span className="px-6 ui-type-note">{text}</span>
     </div>
   );
 }
@@ -631,7 +625,7 @@ function TreeNode({
   const fileTabId = `${projectId}:${entry.relativePath}`;
   const isActiveFile = !entry.isDirectory && activeTabId === fileTabId;
   const rowClass =
-    "ui-cv-row flex h-7 w-full items-center gap-1.5 rounded pr-1.5 text-left text-body transition-colors";
+    "ui-cv-row flex h-7 w-full items-center gap-1.5 rounded-sm pr-1.5 text-left ui-type-body transition-colors";
 
   return (
     <div>
@@ -653,12 +647,12 @@ function TreeNode({
           {directoryStatus && (
             <span
               title={`${directoryStatus.count} 个文件有变更`}
-              className="shrink-0 rounded-full bg-agent-amber/10 px-1.5 font-mono text-caption leading-4 text-agent-amber"
+              className="shrink-0 rounded-full bg-agent-amber/10 px-1.5 ui-type-code-sm leading-4 text-agent-amber"
             >
               {directoryStatus.count}
             </span>
           )}
-          {loading && <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-text-muted" />}
+          {loading && <Spinner className="h-3.5 w-3.5 shrink-0 text-text-muted" />}
         </button>
       ) : (
         <button
@@ -683,7 +677,7 @@ function TreeNode({
           {statusMeta && (
             <span
               title={status}
-              className={`shrink-0 rounded-full px-1.5 text-caption font-medium leading-4 ${statusMeta.badge}`}
+              className={`shrink-0 rounded-full px-1.5 ui-type-sub font-medium leading-4 ${statusMeta.badge}`}
             >
               {statusMeta.label}
             </span>

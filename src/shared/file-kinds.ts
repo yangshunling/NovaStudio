@@ -17,6 +17,7 @@ const TEXT_EXTENSIONS = new Set([
   "txt",
   "text",
   "log",
+  "rtf",
   "rst",
   "adoc",
   "org",

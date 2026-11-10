@@ -20,41 +20,58 @@
  */
 
 :where([data-theme]) {
-  /* === 字体栈（字体族本身由皮肤/族决定） ===
+  /* === 字体栈 ===
    *
-   * 不打包字体文件（离线优先、控制安装包体积），因此按「优先本机高质量字体 →
-   * 各平台系统字体 → 中文字体」排列。显式写入中文回退，避免不同 Windows /
-   * macOS 版本把同一段文字渲染成完全不同的字形与行高。
+   * 不打包字体文件（离线优先、控制安装包体积），也不指定第三方字体：
+   * 全部界面文字使用系统默认字体，字形随各平台原生渲染。
+   *
+   * 只有三个族，与排版角色一一对应：
+   *   sans    —— 全部界面文字（标题 / 正文 / 标签 / 辅助），system-ui
+   *   mono    —— 路径 / ID / 命令 / 代码，系统等宽字体
+   *   display —— 仅侧栏品牌刊头「Work is Agentic」使用的人文衬线
+   * 除此之外任何标题或正文都不使用衬线；皮肤若想统一，覆盖 display 即可。
    */
   --c-font-size: 13px;
   --c-font-sans:
-    "Inter", "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system,
-    "PingFang SC", "Microsoft YaHei UI", "Microsoft YaHei", "Noto Sans SC",
-    sans-serif;
+    system-ui, -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei UI",
+    "Microsoft YaHei", sans-serif;
   --c-font-mono:
-    "JetBrains Mono", "Cascadia Code", "Cascadia Mono", "SF Mono", Menlo,
-    Consolas, "Microsoft YaHei UI", monospace;
-  /* 展示字体：仅用于品牌刊头这类少量装饰性文字。
+    ui-monospace, "Cascadia Mono", Consolas, "Microsoft YaHei UI", monospace;
+  /* 品牌专用：只有 .ui-type-brand（Sidebar 刊头）引用。
    * 采用系统人文衬线（真斜体）；中文回退到宋体系，保持「刊头」气质。 */
   --c-font-display:
     "Palatino Linotype", Palatino, "Book Antiqua", Georgia, "Times New Roman",
     "Songti SC", "Noto Serif CJK SC", "SimSun", serif;
 
-  /* === 圆角：全站统一为同一个圆润弧度 ===
+  /* === 圆角刻度 ===
    *
-   * rounded-sm / md / lg / xl / 2xl 全部映射到这个值，避免同类组件
-   * 因为用了不同工具类而出现深浅不一的圆角。
-   * 圆形头像、状态点、胶囊按钮仍使用 rounded-full（那是形状，不是背景弧度）。
+   * 只有这五级，按「元素多大」选，不按心情选：
+   *   sm  4px  行内代码、极小勾选框
+   *   md  6px  菜单项、图标按钮、标签、小控件
+   *   lg  8px  输入框、列表行、普通按钮
+   *   xl 12px  卡片、浮层、页面容器、工作流节点
+   *   2xl 12px 弹窗、空状态、消息气泡（与 xl 同值：大容器保持同一弧度）
+   *
+   * 组件里只允许写 rounded-sm / md / lg / xl / 2xl；
+   * 需要「圆形」时用 rounded-full（那是形状，不参与刻度）。
+   * 改尺寸只改本文件，不要在组件里写 rounded-[6px] 这类任意值。
    */
-  --c-radius-sm: 12px;
-  --c-radius-md: 12px;
-  --c-radius-lg: 12px;
+  --c-radius-sm: 4px;
+  --c-radius-md: 6px;
+  --c-radius-lg: 8px;
   --c-radius-xl: 12px;
   --c-radius-2xl: 12px;
-  --c-radius-input: 12px;
+
+  /* 语义别名：输入框跟随 lg，气泡跟随 2xl，按钮单独留一个口子 */
+  --c-radius-input: var(--c-radius-lg);
+  --c-radius-bubble: var(--c-radius-2xl);
+  --c-btn-radius: var(--c-radius-lg);
+
+  /* 形状类圆角：头像、状态点、开关、徽标、端口等真正的圆形/胶囊 */
+  --c-radius-full: 999px;
 
   /* 历史回放进度条的圆角（形状，与具体皮肤无关） */
-  --c-progress-radius: 999px;
+  --c-progress-radius: var(--c-radius-full);
 
   /* === 表面 ===
    * 列表侧栏（会话 / 工作区）的底色；皮肤可覆盖，

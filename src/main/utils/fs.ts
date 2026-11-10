@@ -3,17 +3,43 @@
  */
 
 import {
+  readdirSync,
   renameSync,
   rmSync,
   writeFileSync,
 } from "fs";
 import { open, rename, rm, stat, writeFile } from "fs/promises";
+import { tmpdir } from "os";
+import { join } from "path";
 import { normalizeNewlines } from "../../shared/text";
+import { errorMessage } from "../../shared/error";
 
 /** cp 过滤：不复制 VCS 元数据与系统垃圾文件 */
 export function copyFilter(source: string): boolean {
   const name = source.split(/[\\/]/).pop() ?? source;
   return name !== ".git" && name !== ".DS_Store";
+}
+
+/**
+ * 启动时清理上一次进程遗留的临时目录。
+ *
+ * 只按前缀匹配，避免动到其它应用的临时文件；被占用的目录留给下次启动。
+ */
+export function purgeStaleTempDirs(prefix: string): void {
+  let entries: string[];
+  try {
+    entries = readdirSync(tmpdir());
+  } catch {
+    return;
+  }
+  for (const name of entries) {
+    if (!name.startsWith(prefix)) continue;
+    try {
+      rmSync(join(tmpdir(), name), { recursive: true, force: true });
+    } catch {
+      // 文件仍被占用：保留，下次启动再清
+    }
+  }
 }
 
 export interface TextFileSnapshot {
@@ -80,7 +106,7 @@ export async function writeTextFileLimited(
     await writeFileAtomic(path, content);
     return { ok: true };
   } catch (err) {
-    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    return { ok: false, error: errorMessage(err) };
   }
 }
 
@@ -108,11 +134,27 @@ export async function readTextFileLimited(
     const length = Math.min(info.size, limit);
     const handle = await open(path, "r");
     try {
+      /*
+       * read 允许只返回部分字节（网络盘、文件被截短、并发写入等）。
+       * 必须循环读到 EOF，否则 buffer 尾部会保留 0 填充：小文件会被
+       * 误判成二进制，大文件正文末尾会混入 NUL。
+       */
       const buffer = Buffer.alloc(length);
-      await handle.read(buffer, 0, length, 0);
-      const binary = buffer.subarray(0, 8192).includes(0);
+      let offset = 0;
+      while (offset < length) {
+        const { bytesRead } = await handle.read(
+          buffer,
+          offset,
+          length - offset,
+          offset,
+        );
+        if (bytesRead === 0) break;
+        offset += bytesRead;
+      }
+      const data = buffer.subarray(0, offset);
+      const binary = data.subarray(0, 8192).includes(0);
       return {
-        content: binary ? "" : normalizeNewlines(buffer.toString("utf8")),
+        content: binary ? "" : normalizeNewlines(data.toString("utf8")),
         size: info.size,
         updatedAt: info.mtimeMs,
         truncated: info.size > limit,

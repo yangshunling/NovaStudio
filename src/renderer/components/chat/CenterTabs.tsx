@@ -21,7 +21,7 @@ export function CenterTabs() {
   if (tabs.length === 0 && terminals.length === 0) return null;
 
   const chipClass = (active: boolean) =>
-    `flex h-7 shrink-0 items-center gap-1.5 rounded px-2.5 text-meta transition-colors ${
+    `flex h-7 shrink-0 items-center gap-1.5 rounded-sm px-2.5 ui-type-note transition-colors ${
       active
         ? "bg-surface-active text-text"
         : "text-text-secondary hover:bg-surface-hover hover:text-text"
@@ -72,7 +72,7 @@ export function CenterTabs() {
           return (
             <div
               key={tab.id}
-              className={`group flex h-7 max-w-52 min-w-0 shrink-0 items-center rounded transition-colors ${
+              className={`group flex h-7 max-w-52 min-w-0 shrink-0 items-center rounded-sm transition-colors ${
                 active
                   ? "bg-surface-active text-text"
                   : "text-text-secondary hover:bg-surface-hover hover:text-text"
@@ -85,14 +85,14 @@ export function CenterTabs() {
                 className="flex min-w-0 flex-1 items-center gap-1.5 px-2 text-left"
               >
                 <FileTypeIcon name={tab.name} size={14} />
-                <span className="truncate text-meta">{tab.name}</span>
+                <span className="truncate ui-type-note">{tab.name}</span>
               </button>
               <button
                 type="button"
                 onClick={() => closeFileTab(tab.id)}
                 title={`关闭 ${tab.name}`}
                 aria-label={`关闭 ${tab.name}`}
-                className="mr-1 rounded p-0.5 text-text-muted opacity-0 transition-opacity hover:bg-surface-hover hover:text-text group-hover:opacity-100 group-focus-within:opacity-100"
+                className="mr-1 rounded-sm p-0.5 text-text-muted opacity-0 transition-opacity hover:bg-surface-hover hover:text-text group-hover:opacity-100 group-focus-within:opacity-100"
               >
                 <X className="h-3.5 w-3.5" />
               </button>
@@ -105,7 +105,7 @@ export function CenterTabs() {
           return (
             <div
               key={tab.id}
-              className={`group flex h-7 max-w-52 min-w-0 shrink-0 items-center rounded transition-colors ${
+              className={`group flex h-7 max-w-52 min-w-0 shrink-0 items-center rounded-sm transition-colors ${
                 active
                   ? "bg-surface-active text-text"
                   : "text-text-secondary hover:bg-surface-hover hover:text-text"
@@ -118,14 +118,14 @@ export function CenterTabs() {
                 className="flex min-w-0 flex-1 items-center gap-1.5 px-2 text-left"
               >
                 <SquareTerminal className="h-3.5 w-3.5 shrink-0" />
-                <span className="truncate text-meta">{tab.name}</span>
+                <span className="truncate ui-type-note">{tab.name}</span>
               </button>
               <button
                 type="button"
                 onClick={() => closeTerminalTab(tab.id)}
                 title={`关闭 ${tab.name}`}
                 aria-label={`关闭 ${tab.name}`}
-                className="mr-1 rounded p-0.5 text-text-muted opacity-0 transition-opacity hover:bg-surface-hover hover:text-text group-hover:opacity-100 group-focus-within:opacity-100"
+                className="mr-1 rounded-sm p-0.5 text-text-muted opacity-0 transition-opacity hover:bg-surface-hover hover:text-text group-hover:opacity-100 group-focus-within:opacity-100"
               >
                 <X className="h-3.5 w-3.5" />
               </button>

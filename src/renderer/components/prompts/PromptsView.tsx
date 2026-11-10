@@ -1,14 +1,13 @@
 /**
  * 提示词 — 常用提示词库
  *
- * 左：可搜索 / 按标签筛选的提示词列表（最近修改优先）
- * 右：编辑器（标题 / 标签 / 正文），支持复制正文与 Ctrl/⌘+S 保存
+ * 左：提示词列表（最近修改优先）
+ * 右：编辑器（标题 / 正文），支持复制正文与 Ctrl/⌘+S 保存
  *
  * 这是一个独立功能：只依赖一张 prompts 表，不与会话 / 工作流耦合。
  */
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import type { ReactNode } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   ClipboardCopy,
   MessageSquare,
@@ -24,7 +23,7 @@ import { confirmDialog } from "../../stores/confirm";
 import { ListItem, ListPane } from "../ui/ListPane";
 import { Page, PageBody, PageHeader } from "../ui/Page";
 import { Button } from "../ui/Button";
-import { SearchInput } from "../ui/SearchInput";
+import { IconButton } from "../ui/IconButton";
 import {
   EmptyState,
   ErrorState,
@@ -32,7 +31,6 @@ import {
 } from "../ui/EmptyState";
 import { Field, TextArea, TextInput } from "../ui/Field";
 import { ConfirmDeleteButton } from "../ui/ConfirmDeleteButton";
-import { TagInput } from "../todos/TagInput";
 import { formatAssetTime } from "../asset/AssetUi";
 import type { PromptDraft, PromptItem } from "@shared/types";
 
@@ -40,7 +38,6 @@ import type { PromptDraft, PromptItem } from "@shared/types";
 const EMPTY_DRAFT: PromptDraft = {
   title: "",
   content: "",
-  tags: [],
   favorite: false,
 };
 
@@ -49,14 +46,8 @@ function toDraft(item: PromptItem): PromptDraft {
   return {
     title: item.title,
     content: item.content,
-    tags: [...item.tags],
     favorite: item.favorite,
   };
-}
-
-/** 标签顺序也算改动 */
-function sameTags(a: string[], b: string[]): boolean {
-  return a.length === b.length && a.every((tag, index) => tag === b[index]);
 }
 
 /** 列表里展示的摘要：正文第一个非空行 */
@@ -69,9 +60,6 @@ export function PromptsView() {
   const [items, setItems] = useState<PromptItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-
-  const [query, setQuery] = useState("");
-  const [tagFilter, setTagFilter] = useState<string | null>(null);
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
@@ -105,28 +93,6 @@ export function PromptsView() {
 
   const selected = items.find((item) => item.id === selectedId) ?? null;
 
-  const allTags = useMemo(() => {
-    const seen = new Map<string, string>();
-    for (const item of items) {
-      for (const tag of item.tags) {
-        const key = tag.toLowerCase();
-        if (!seen.has(key)) seen.set(key, tag);
-      }
-    }
-    return [...seen.values()].sort((a, b) => a.localeCompare(b, "zh-CN"));
-  }, [items]);
-
-  const filtered = useMemo(() => {
-    const keyword = query.trim().toLowerCase();
-    return items.filter((item) => {
-      if (tagFilter && !item.tags.includes(tagFilter)) return false;
-      if (!keyword) return true;
-      return [item.title, item.content, item.tags.join(" ")].some((value) =>
-        value.toLowerCase().includes(keyword),
-      );
-    });
-  }, [items, query, tagFilter]);
-
   const startCreate = () => {
     setCreating(true);
     setSelectedId(null);
@@ -140,11 +106,9 @@ export function PromptsView() {
   };
 
   const dirty = creating
-    ? form.title !== "" || form.content !== "" || form.tags.length > 0
+    ? form.title !== "" || form.content !== ""
     : !!selected &&
-      (form.title !== selected.title ||
-        form.content !== selected.content ||
-        !sameTags(form.tags, selected.tags));
+      (form.title !== selected.title || form.content !== selected.content);
 
   const canSave =
     dirty && !saving && form.title.trim() !== "" && form.content.trim() !== "";
@@ -236,15 +200,12 @@ export function PromptsView() {
             title="提示词"
             count={items.length}
             action={
-              <button
-                type="button"
+              <IconButton
+                icon={<Plus className="h-4 w-4" />}
+                label="新建提示词"
+                tone="muted"
                 onClick={startCreate}
-                title="新建提示词"
-                aria-label="新建提示词"
-                className="ui-btn-round ui-icon-action flex h-9 w-9 items-center justify-center rounded-full text-text-muted transition-colors active:scale-95"
-              >
-                <Plus className="h-4 w-4" />
-              </button>
+              />
             }
             footer={
               <Button
@@ -256,57 +217,19 @@ export function PromptsView() {
               </Button>
             }
           >
-            <div className="pb-1">
-              <SearchInput
-                size="sm"
-                widthClass="w-full"
-                value={query}
-                onChange={setQuery}
-                placeholder="搜索标题 / 正文 / 标签"
-              />
-            </div>
-
-            {allTags.length > 0 && (
-              <div className="flex flex-wrap gap-1 pb-1">
-                <TagChip
-                  active={tagFilter === null}
-                  onClick={() => setTagFilter(null)}
-                >
-                  全部
-                </TagChip>
-                {allTags.map((tag) => (
-                  <TagChip
-                    key={tag}
-                    active={tagFilter === tag}
-                    onClick={() =>
-                      setTagFilter((current) => (current === tag ? null : tag))
-                    }
-                  >
-                    #{tag}
-                  </TagChip>
-                ))}
-              </div>
-            )}
-
-            {filtered.length === 0 ? (
+            {items.length === 0 ? (
               <EmptyState
                 size="compact"
-                title={items.length === 0 ? "还没有提示词" : "没有匹配的提示词"}
-                description={
-                  items.length === 0
-                    ? "把常用的提示词存进来，随用随取。"
-                    : undefined
-                }
+                title="还没有提示词"
+                description="把常用的提示词存进来，随用随取。"
                 action={
-                  items.length === 0 ? (
-                    <Button size="sm" onClick={startCreate}>
-                      新建提示词
-                    </Button>
-                  ) : undefined
+                  <Button size="sm" onClick={startCreate}>
+                    新建提示词
+                  </Button>
                 }
               />
             ) : (
-              filtered.map((item) => (
+              items.map((item) => (
                 <ListItem
                   key={item.id}
                   active={!creating && item.id === selectedId}
@@ -394,21 +317,6 @@ export function PromptsView() {
                     </Field>
 
                     <Field
-                      label="标签"
-                      hint="用于左侧筛选，最多 8 个；输入后按回车确认"
-                      className="shrink-0"
-                    >
-                      <TagInput
-                        value={form.tags}
-                        suggestions={allTags}
-                        onChange={(tags) =>
-                          setForm((current) => ({ ...current, tags }))
-                        }
-                        placeholder="输入标签后回车"
-                      />
-                    </Field>
-
-                    <Field
                       label="提示词正文"
                       required
                       className="flex min-h-0 flex-1 flex-col"
@@ -427,7 +335,7 @@ export function PromptsView() {
                       />
                     </Field>
 
-                    <div className="-mt-2 flex shrink-0 items-center justify-between text-meta text-text-muted">
+                    <div className="-mt-2 flex shrink-0 items-center justify-between ui-type-note text-text-muted">
                       <span>{form.content.length} 字符</span>
                       <span>Ctrl / ⌘ + S 保存</span>
                     </div>
@@ -444,37 +352,12 @@ export function PromptsView() {
   );
 }
 
-/** 标签筛选 chip */
-function TagChip({
-  active,
-  onClick,
-  children,
-}: {
-  active: boolean;
-  onClick: () => void;
-  children: ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`rounded-full border px-2 py-0.5 text-caption transition-colors ${
-        active
-          ? "border-accent/30 bg-accent-soft font-medium text-accent"
-          : "border-border/60 bg-surface-2/40 text-text-secondary hover:border-border hover:text-text"
-      }`}
-    >
-      {children}
-    </button>
-  );
-}
-
 function EmptyPrompt({ onCreate }: { onCreate: () => void }) {
   return (
     <EmptyState
       icon={<MessageSquareText />}
       title="管理常用提示词"
-      description="把反复使用的提示词集中存下来，需要时一键复制。支持标题与标签。"
+      description="把反复使用的提示词集中存下来，需要时一键复制。"
       action={
         <Button
           variant="primary"

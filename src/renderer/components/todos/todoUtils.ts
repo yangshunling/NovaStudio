@@ -6,14 +6,21 @@
  */
 
 import type { TodoItem, TodoPriority } from "@shared/types";
+import {
+  DAY_MS,
+  formatHm,
+  isSameDay,
+  pad2,
+  startOfDay,
+  startOfWeek,
+  WEEKDAY_LABELS,
+} from "@shared/time";
 
 export type TodoFilter = "all" | "pending" | "done";
 export type TodoSort = "manual" | "due" | "priority" | "created";
 export type DueBucket = "overdue" | "today" | "week" | "later" | "none";
 
-const DAY = 24 * 60 * 60 * 1000;
-
-export const DUE_BUCKET_ORDER: DueBucket[] = [
+const DUE_BUCKET_ORDER: DueBucket[] = [
   "overdue",
   "today",
   "week",
@@ -21,7 +28,7 @@ export const DUE_BUCKET_ORDER: DueBucket[] = [
   "none",
 ];
 
-export const DUE_BUCKET_LABEL: Record<DueBucket, string> = {
+const DUE_BUCKET_LABEL: Record<DueBucket, string> = {
   overdue: "已逾期",
   today: "今天",
   week: "本周",
@@ -54,32 +61,9 @@ export const SORT_OPTIONS: { value: TodoSort; label: string }[] = [
   { value: "created", label: "按创建时间" },
 ];
 
-/** 本地时区当天 0 点 */
-export function startOfDay(ts: number): number {
-  const date = new Date(ts);
-  date.setHours(0, 0, 0, 0);
-  return date.getTime();
-}
-
-/** 本周开始 = 本周一 0 点（周一为一周起点） */
-export function startOfWeek(ts: number): number {
-  const today = startOfDay(ts);
-  const weekday = (new Date(today).getDay() + 6) % 7; // 周一 = 0
-  return today - weekday * DAY;
-}
-
 /** 本周结束 = 下一个周一 0 点 */
 function endOfWeek(now: number): number {
-  return startOfWeek(now) + 7 * DAY;
-}
-
-export function sameDay(a: number, b: number): boolean {
-  return startOfDay(a) === startOfDay(b);
-}
-
-/** 周几的单字标签：周一 / 周日 */
-export function weekdayShort(ts: number): string {
-  return `周${"日一二三四五六"[new Date(ts).getDay()]}`;
+  return startOfWeek(now) + 7 * DAY_MS;
 }
 
 /**
@@ -93,16 +77,16 @@ export function completionStreak(todos: TodoItem[], now = Date.now()): number {
       .map((item) => startOfDay(item.completedAt!)),
   );
   let cursor = startOfDay(now);
-  if (!days.has(cursor)) cursor -= DAY;
+  if (!days.has(cursor)) cursor -= DAY_MS;
   let streak = 0;
   while (days.has(cursor)) {
     streak += 1;
-    cursor -= DAY;
+    cursor -= DAY_MS;
   }
   return streak;
 }
 
-export interface CompletionDay {
+interface CompletionDay {
   ts: number;
   /** 周几单字，用于柱状图标签 */
   label: string;
@@ -124,10 +108,10 @@ export function completionSeries(
     counts.set(key, (counts.get(key) ?? 0) + 1);
   }
   return Array.from({ length: days }, (_, index) => {
-    const ts = today - (days - 1 - index) * DAY;
+    const ts = today - (days - 1 - index) * DAY_MS;
     return {
       ts,
-      label: "日一二三四五六"[new Date(ts).getDay()],
+      label: WEEKDAY_LABELS[new Date(ts).getDay()],
       count: counts.get(ts) ?? 0,
       isToday: ts === today,
     };
@@ -138,7 +122,7 @@ export function dueBucket(dueAt: number | null, now = Date.now()): DueBucket {
   if (dueAt === null) return "none";
   const today = startOfDay(now);
   if (dueAt < today) return "overdue";
-  if (dueAt < today + DAY) return "today";
+  if (dueAt < today + DAY_MS) return "today";
   if (dueAt < endOfWeek(now)) return "week";
   return "later";
 }
@@ -150,14 +134,14 @@ export function isOverdue(item: TodoItem, now = Date.now()): boolean {
 /** 行内截止日期文案：今天 / 明天 / 昨天 / 周四 / 8月12日 / 2027年1月3日 */
 export function formatDueLabel(dueAt: number, now = Date.now()): string {
   const today = startOfDay(now);
-  const diffDays = Math.round((startOfDay(dueAt) - today) / DAY);
+  const diffDays = Math.round((startOfDay(dueAt) - today) / DAY_MS);
   if (diffDays === 0) return "今天";
   if (diffDays === 1) return "明天";
   if (diffDays === -1) return "昨天";
 
   const date = new Date(dueAt);
   if (dueAt >= today && dueAt < endOfWeek(now)) {
-    return `周${"日一二三四五六"[date.getDay()]}`;
+    return `周${WEEKDAY_LABELS[date.getDay()]}`;
   }
   const prefix =
     date.getFullYear() === new Date(now).getFullYear()
@@ -178,11 +162,7 @@ export function formatDateLabel(ts: number, now = Date.now()): string {
 
 /** 完成时间文案：今天 14:20 / 8月12日 */
 export function formatCompletedAt(ts: number, now = Date.now()): string {
-  const date = new Date(ts);
-  const time = `${String(date.getHours()).padStart(2, "0")}:${String(
-    date.getMinutes(),
-  ).padStart(2, "0")}`;
-  if (startOfDay(ts) === startOfDay(now)) return `今天 ${time}`;
+  if (isSameDay(ts, now)) return `今天 ${formatHm(ts)}`;
   return formatDueLabel(ts, now);
 }
 
@@ -225,7 +205,7 @@ export function sortTodos(items: TodoItem[], sort: TodoSort): TodoItem[] {
   }
 }
 
-export interface TodoGroup {
+interface TodoGroup {
   bucket: DueBucket;
   label: string;
   items: TodoItem[];
@@ -272,10 +252,9 @@ export function collectTags(items: TodoItem[]): string[] {
 export function toDateInputValue(ts: number | null): string {
   if (ts === null) return "";
   const date = new Date(ts);
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(
-    2,
-    "0",
-  )}-${String(date.getDate()).padStart(2, "0")}`;
+  return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(
+    date.getDate(),
+  )}`;
 }
 
 /** <input type="date"> 的值 → 当天 0 点时间戳 */

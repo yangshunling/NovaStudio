@@ -40,11 +40,16 @@ export function registerWorkflowHandlers(
     const workflow = db.getWorkflow(id);
     if (!workflow) return false;
 
-    // 运行记录、节点会话、产物目录、配置副本一并删除
-    await deleteWorkflowData(workflow, {
-      service,
-      userDataDir: app.getPath("userData"),
-    });
+    // 运行记录、节点会话、产物目录、配置副本一并删除。
+    // 占住工作区与工作流，防止清理期间被触发器 / 另一页面重新启动。
+    await runner.withMaintenance(
+      { workspaceId: workflow.workspaceId, workflowId: workflow.id },
+      () =>
+        deleteWorkflowData(workflow, {
+          service,
+          userDataDir: app.getPath("userData"),
+        }),
+    );
     return true;
   });
 }

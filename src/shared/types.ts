@@ -80,6 +80,34 @@ export type AgentEvent =
    * 与 error 分开，避免把「运行仍在继续」的提示渲染成红色失败。
    */
   | { type: "warning"; message: string }
+  /**
+   * 本轮运行的 token 用量（CLI 在结束行里报告）。
+   * 只承载可展示的计数，不参与正文收敛。
+   */
+  | {
+      type: "usage";
+      /** 非缓存输入 token */
+      inputTokens: number;
+      /** 输出 token */
+      outputTokens: number;
+      /** 写入缓存（cache creation）的 token */
+      cacheCreationInputTokens: number;
+      /** 从缓存读取的 token */
+      cacheReadInputTokens: number;
+      /**
+       * 事件口径。
+       * - 缺省：result 行的整轮汇总，用于累计消耗与费用；
+       * - "context"：单次 API 调用的上下文快照，用于上下文窗口占用。
+       *   两者不能混用：整轮汇总是多次 API 调用的累加，直接当上下文会高估。
+       */
+      scope?: "context";
+      /** 上下文窗口上限（来自 CLI 的 modelUsage.contextWindow） */
+      contextWindow?: number;
+      /** 本轮费用（美元）；CLI 未报告时为空 */
+      costUsd?: number;
+      /** 本轮耗时（毫秒）；CLI 未报告时为空 */
+      durationMs?: number;
+    }
   | { type: "done" }
   | { type: "message_end"; blocks: AgentEvent[] };
 
@@ -130,6 +158,11 @@ export interface Session {
   updatedAt: number;
   /** 消息数（仅索引用，正文不入库；UI 展示历史时由 provider 回放） */
   messageCount?: number;
+  /**
+   * 置顶时间；null / 未设置表示未置顶。
+   * 只影响列表排序，不改变 updatedAt，因此不会打乱「今天 / 昨天 / 更早」。
+   */
+  pinnedAt?: number | null;
   /** 仅 session:get 时由 provider 回放填充；listSessions 返回空数组 */
   messages?: Message[];
   /**
@@ -989,8 +1022,6 @@ export interface PromptItem {
   id: string;
   title: string;
   content: string;
-  /** 自定义标签，用于筛选 */
-  tags: string[];
   /** 收藏的提示词排在列表最前面 */
   favorite: boolean;
   createdAt: number;
@@ -1001,7 +1032,6 @@ export interface PromptItem {
 export interface PromptDraft {
   title: string;
   content: string;
-  tags: string[];
   favorite: boolean;
 }
 

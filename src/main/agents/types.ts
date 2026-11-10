@@ -16,7 +16,12 @@ import type {
   Message,
   SessionOptions,
 } from "../../shared/types";
-import type { AgentManifest, AgentStatus } from "../../shared/contracts/agent";
+import type {
+  AgentManifest,
+  AgentStatus,
+  AgentUpgradeCheck,
+  AgentUpgradeResult,
+} from "../../shared/contracts/agent";
 
 /**
  * 一次子进程调用的精确信息。
@@ -151,6 +156,18 @@ export interface AgentProvider {
 
   /** 检测本机是否安装 */
   detect(): Promise<AgentStatus>;
+
+  /**
+   * 检查是否有新版本。
+   * 缺省表示该 Agent 不支持版本检测，UI 不展示升级入口。
+   */
+  checkUpgrade?(): Promise<AgentUpgradeCheck>;
+
+  /**
+   * 升级到最新版本；过程文本通过 onProgress 增量回调。
+   * 缺省表示该 Agent 不支持由宿主升级。
+   */
+  upgrade?(onProgress?: (chunk: string) => void): Promise<AgentUpgradeResult>;
 
   /** 本机配置位置；缺省表示该 Agent 没有可展示的固定路径 */
   configInfo?(): AgentConfigLocation;

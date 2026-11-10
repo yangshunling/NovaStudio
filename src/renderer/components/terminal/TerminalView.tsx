@@ -19,16 +19,17 @@ import "@xterm/xterm/css/xterm.css";
 import { useTerminalStore, type TerminalSession } from "../../stores/terminal";
 import { ipc } from "../../lib/ipc";
 import { newId } from "../../lib/utils";
+import { clamp } from "@shared/math";
 import { useSkin, useThemeStore } from "../../hooks/useTheme";
 import { Button } from "../ui/Button";
 import { PageHeader } from "../ui/Page";
+import { IconButton } from "../ui/IconButton";
 
 /**
  * 终端默认使用操作系统自带的等宽字体。
  *
- * 不再跟随皮肤里的 --c-font-mono：那是给代码块用的开发字体
- * （JetBrains Mono / Cascadia Code…），装了这些字体的机器上终端会
- * 变成非系统字体，且各平台观感不一致。
+ * 不跟随皮肤里的 --c-font-mono：代码块的字号与终端单元格度量不同，
+ * 终端需要自己声明字体，才能保证各平台列宽与行高一致。
  */
 const SYSTEM_MONO_FONT =
   'ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace';
@@ -37,7 +38,7 @@ const SYSTEM_MONO_FONT =
 function clampTerminalFontSize(size: number): number {
   const px = Math.round(size);
   if (!Number.isFinite(px) || px <= 0) return 15;
-  return Math.min(40, Math.max(8, px));
+  return clamp(px, 8, 40);
 }
 
 export function TerminalView({
@@ -248,7 +249,7 @@ export function TerminalView({
         actions={
           exited !== null ? (
             <>
-              <span className="text-meta text-text-muted">
+              <span className="ui-type-note text-text-muted">
                 {exited === -1 ? "启动失败" : `终端已退出（${exited}）`}
               </span>
               <Button
@@ -284,22 +285,20 @@ function WorkspaceToggleButton({
   onToggle: () => void;
 }) {
   return (
-    <button
-      type="button"
-      onClick={onToggle}
-      title={showWorkspace ? "隐藏工作区文件" : "显示工作区文件"}
-      aria-label={showWorkspace ? "隐藏工作区文件" : "显示工作区文件"}
+    <IconButton
+      icon={
+        showWorkspace ? (
+          <PanelRightClose className="h-4 w-4" />
+        ) : (
+          <PanelRightOpen className="h-4 w-4" />
+        )
+      }
+      label={showWorkspace ? "隐藏工作区文件" : "显示工作区文件"}
+      size="icon"
       aria-pressed={showWorkspace}
-      className={`ui-btn-round ui-icon-action flex size-icon-btn shrink-0 items-center justify-center rounded-full ${
-        showWorkspace ? "text-accent" : ""
-      }`}
-    >
-      {showWorkspace ? (
-        <PanelRightClose className="h-4 w-4" />
-      ) : (
-        <PanelRightOpen className="h-4 w-4" />
-      )}
-    </button>
+      className={showWorkspace ? "text-accent" : ""}
+      onClick={onToggle}
+    />
   );
 }
 

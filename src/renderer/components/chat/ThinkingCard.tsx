@@ -9,8 +9,9 @@
  */
 
 import { useEffect, useRef, useState } from "react";
-import { Brain, Check, ChevronRight, Loader2 } from "lucide-react";
+import { Brain, Check, ChevronRight } from "lucide-react";
 import { MarkdownRenderer } from "../ui/MarkdownRenderer";
+import { Spinner } from "../ui/Spinner";
 
 export function ThinkingCard({
   text,
@@ -41,7 +42,7 @@ export function ThinkingCard({
 
   return (
     <div
-      className={`ui-cv-block w-full overflow-hidden rounded-xl border transition-colors ${
+      className={`w-full overflow-hidden rounded-xl border transition-colors ${
         running
           ? "border-accent/25 bg-accent-soft/15"
           : "border-border/60 bg-surface-2/40"
@@ -60,20 +61,20 @@ export function ThinkingCard({
           <Brain className="h-3 w-3" />
         </span>
 
-        <span className="min-w-0 flex-1 text-meta font-medium text-text">
+        <span className="min-w-0 flex-1 ui-type-label text-text">
           思考过程
         </span>
 
         <span className="flex shrink-0 items-center gap-2">
           <span
-            className={`inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-caption ${
+            className={`inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 ui-type-sub ${
               running
                 ? "bg-accent-soft text-accent"
                 : "bg-success/10 text-success"
             }`}
           >
             {running ? (
-              <Loader2 className="h-3 w-3 animate-spin" />
+              <Spinner className="h-3 w-3" />
             ) : (
               <Check className="h-3 w-3" />
             )}
@@ -91,7 +92,7 @@ export function ThinkingCard({
         <div
           ref={bodyRef}
           onScroll={handleBodyScroll}
-          className="max-h-60 overflow-auto border-t border-border/60 bg-surface/50 p-3 text-meta leading-relaxed text-text-secondary"
+          className="max-h-60 overflow-auto border-t border-border/60 bg-surface/50 p-3 ui-type-note leading-relaxed text-text-secondary"
         >
           <MarkdownRenderer content={text} streaming={running} />
         </div>

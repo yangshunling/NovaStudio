@@ -22,6 +22,13 @@ import {
 } from "../agents/claude/config";
 import { DATA_DIR } from "../utils/paths";
 import { copyFilter } from "../utils/fs";
+import { errorMessage } from "../../shared/error";
+import {
+  asString,
+  asStringArray,
+  asStringRecord,
+  parseJsonSafe,
+} from "../../shared/json";
 
 const LEGACY_MCP_DIR = join(DATA_DIR, "mcp");
 const LEGACY_SKILLS_DIR = join(DATA_DIR, "skills");
@@ -38,23 +45,6 @@ interface LegacyMcpPayload {
   headers?: unknown;
 }
 
-function asString(value: unknown): string {
-  return typeof value === "string" ? value : "";
-}
-
-function asStringArray(value: unknown): string[] {
-  return Array.isArray(value) ? value.map(String) : [];
-}
-
-function asRecord(value: unknown): Record<string, string> {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
-  const result: Record<string, string> = {};
-  for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
-    if (typeof item === "string") result[key] = item;
-  }
-  return result;
-}
-
 function toClaudeServer(payload: LegacyMcpPayload): Record<string, unknown> | null {
   const command = asString(payload.command);
   const url = asString(payload.url);
@@ -64,14 +54,14 @@ function toClaudeServer(payload: LegacyMcpPayload): Record<string, unknown> | nu
     return {
       command,
       args: asStringArray(payload.args),
-      env: asRecord(payload.env),
+      env: asStringRecord(payload.env),
     };
   }
   if (url) {
     return {
       type: transport === "sse" ? "sse" : "http",
       url,
-      headers: asRecord(payload.headers),
+      headers: asStringRecord(payload.headers),
     };
   }
   return null;
@@ -100,12 +90,12 @@ async function migrateMcp(): Promise<{
     const slug = fileName.replace(/\.json$/i, "");
     const path = join(LEGACY_MCP_DIR, fileName);
 
-    let payload: LegacyMcpPayload;
-    try {
-      payload = JSON.parse(await readFile(path, "utf8")) as LegacyMcpPayload;
-    } catch {
-      continue;
-    }
+    const raw = await readFile(path, "utf8").catch(() => null);
+    const payload =
+      raw === null
+        ? null
+        : parseJsonSafe<LegacyMcpPayload | null>(raw, null);
+    if (!payload) continue;
 
     const name = asString(payload.name).trim() || slug;
     if (Object.prototype.hasOwnProperty.call(servers, name)) {
@@ -262,7 +252,7 @@ export async function migrateLegacyAssets(): Promise<void> {
   } catch (err) {
     console.warn(
       "[migration] legacy asset migration failed:",
-      err instanceof Error ? err.message : String(err),
+      errorMessage(err),
     );
   }
 }

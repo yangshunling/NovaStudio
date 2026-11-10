@@ -37,7 +37,7 @@ export function BindAction({
       type="button"
       onClick={onRemove}
       title="从员工中移除"
-      className="flex shrink-0 items-center gap-1 rounded-lg border border-error/25 bg-error-bg px-2.5 py-1.5 text-meta font-medium text-error transition-colors hover:bg-error/10"
+      className="flex shrink-0 items-center gap-1 rounded-lg border border-error/25 bg-error-bg px-2.5 py-1.5 ui-type-label text-error transition-colors hover:bg-error/10"
     >
       <Trash2 className="h-3 w-3" />
       移除

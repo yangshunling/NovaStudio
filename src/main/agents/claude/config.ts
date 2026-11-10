@@ -8,10 +8,11 @@
  * 本模块只提供路径与 JSON 读写，不保存任何 Nova 私有副本。
  */
 
-import { existsSync, mkdirSync, readFileSync } from "fs";
+import { existsSync, readFileSync } from "fs";
 import { homedir } from "os";
-import { dirname, join } from "path";
+import { join } from "path";
 import { writeFileAtomicSync } from "../../utils/fs";
+import { parseJsonSafe } from "../../../shared/json";
 
 /** 是否是 Anthropic 官方端点（空值按官方处理，与 Claude CLI 默认行为一致） */
 export function isOfficialBaseUrl(baseUrl: string): boolean {
@@ -62,14 +63,10 @@ export interface ClaudeUserConfig {
 
 function readJsonObject(path: string): ClaudeUserConfig | null {
   if (!existsSync(path)) return null;
-  try {
-    const parsed: unknown = JSON.parse(readFileSync(path, "utf8"));
-    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
-      ? (parsed as ClaudeUserConfig)
-      : null;
-  } catch {
-    return null;
-  }
+  const parsed = parseJsonSafe<unknown>(readFileSync(path, "utf8"), null);
+  return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+    ? (parsed as ClaudeUserConfig)
+    : null;
 }
 
 /** 读取 `~/.claude.json`；文件不存在或格式错误时返回 null */
@@ -113,11 +110,3 @@ export function writeClaudeMcpServers(
   writeFileAtomicSync(path, `${JSON.stringify(config, null, 2)}\n`);
 }
 
-/** 确保配置目录存在（用于写入前） */
-export function ensureClaudeConfigDir(): void {
-  const dir = dirname(claudeSettingsPath());
-  if (!existsSync(dir)) {
-    // 只创建 Claude 配置根目录；具体文件由 Claude CLI 自己维护
-    mkdirSync(dir, { recursive: true });
-  }
-}

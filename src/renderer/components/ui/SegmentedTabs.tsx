@@ -53,7 +53,7 @@ export function SegmentedTabs<T extends string>({
               compact
                 ? "gap-1 rounded-md px-2 py-1"
                 : "gap-1.5 rounded-lg px-3 py-1.5"
-            } text-meta font-medium transition-colors ${
+            } ui-type-label transition-colors ${
               active
                 ? "bg-surface text-text shadow-[var(--c-shadow-sm)]"
                 : "text-text-muted hover:text-text"
@@ -62,7 +62,7 @@ export function SegmentedTabs<T extends string>({
             {option.icon}
             {option.label}
             {typeof option.count === "number" && (
-              <span className="rounded-full bg-surface-hover px-1.5 text-caption">
+              <span className="rounded-full bg-surface-hover px-1.5 ui-type-sub">
                 {option.count}
               </span>
             )}

@@ -42,6 +42,26 @@ export function registerAgentHandlers(service: AgentService): void {
     },
   );
 
+  /** 检查 Agent 是否有新版本（不修改本机安装） */
+  handle("agent:upgrade:check", ({ agentId }) => {
+    const provider = getProvider(agentId);
+    if (!provider?.checkUpgrade) {
+      throw new Error(`该 Agent 不支持升级检测：${agentId}`);
+    }
+    return provider.checkUpgrade();
+  });
+
+  /** 升级 Agent 到最新版本；输出实时推送到设置页 */
+  handle("agent:upgrade:run", async ({ agentId }) => {
+    const provider = getProvider(agentId);
+    if (!provider?.upgrade) {
+      throw new Error(`该 Agent 不支持升级：${agentId}`);
+    }
+    return provider.upgrade((chunk) =>
+      push("agent:upgrade:progress", { agentId, chunk }),
+    );
+  });
+
   /** 打开某个 Agent 的本机配置目录 */
   handle("agent:openConfigDir", async ({ agentId }) => {
     const provider = getProvider(agentId);

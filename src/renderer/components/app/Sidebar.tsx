@@ -29,7 +29,7 @@ import {
 import { ThemeToggle } from "./ThemeToggle";
 
 /** 导航项字号 */
-const FONT_BODY = "text-body-lg";
+const FONT_BODY = "ui-type-item";
 
 export function Sidebar() {
   const viewMode = useChatStore((s) => s.viewMode);
@@ -127,7 +127,7 @@ export function Sidebar() {
   const itemClass = (active: boolean) =>
     `relative flex w-full items-center gap-2 rounded-lg px-2.5 py-2 ${FONT_BODY} transition-colors ${
       active
-        ? "bg-accent-soft/60 font-medium text-text before:absolute before:left-0 before:top-1/2 before:h-5 before:w-[2px] before:-translate-y-1/2 before:rounded-full before:bg-accent"
+        ? "bg-selected font-medium text-text before:absolute before:left-0 before:top-1/2 before:h-5 before:w-[2px] before:-translate-y-1/2 before:rounded-full before:bg-accent"
         : "text-text-secondary hover:bg-surface-hover/70 hover:text-text"
     }`;
 
@@ -141,7 +141,7 @@ export function Sidebar() {
         {/* 刊头式座右铭：斜体衬线引子 + 正体粗字主词，单行排布。
             高端感来自真实斜体、字重对比与留白，不用渐变 / 光晕 / 装饰。 */}
         <div className="relative flex min-w-0 items-center">
-          <span className="select-none whitespace-nowrap font-display text-hero leading-none tracking-tight text-text">
+          <span className="ui-type-brand select-none whitespace-nowrap leading-none tracking-tight text-text">
             <span className="font-normal italic text-text-secondary">Work is</span>{" "}
             <span className="font-bold">Agentic</span>
           </span>
@@ -153,7 +153,7 @@ export function Sidebar() {
       <div className="min-h-0 flex-1 overflow-y-auto">
         {/* 个人分组 */}
         <div className="px-3 pt-3 pb-1">
-        <span className="px-1 text-meta font-semibold tracking-wide text-text-muted">个人</span>
+        <span className="px-1 ui-type-note font-semibold tracking-wide text-text-muted">个人</span>
       </div>
       <div className="space-y-1 px-2.5 pb-2">
         <button
@@ -174,7 +174,7 @@ export function Sidebar() {
           {pendingTodos > 0 && (
             <span
               title={`${pendingTodos} 件待办未完成`}
-              className="ml-auto shrink-0 rounded-full bg-accent-soft px-2 py-0.5 text-meta font-medium text-accent"
+              className="ml-auto shrink-0 rounded-full bg-accent-soft px-2 py-0.5 ui-type-label text-accent"
             >
               {pendingTodos}
             </span>
@@ -184,7 +184,7 @@ export function Sidebar() {
 
       {/* 工程分组 */}
       <div className="px-3 pt-4 pb-1">
-        <span className="px-1 text-meta font-semibold tracking-wide text-text-muted">工程</span>
+        <span className="px-1 ui-type-note font-semibold tracking-wide text-text-muted">工程</span>
       </div>
       <div className="space-y-1 px-2.5 pb-2">
         <button
@@ -201,7 +201,7 @@ export function Sidebar() {
                   ? `${awaitingCount} 个运行等待审核`
                   : `${activeRuns.length} 个工作流正在运行`
               }
-              className={`ml-auto shrink-0 rounded-full px-2 py-0.5 text-meta font-medium ${
+              className={`ml-auto shrink-0 rounded-full px-2 py-0.5 ui-type-label ${
                 awaitingCount > 0
                   ? "bg-accent-soft text-accent"
                   : "bg-surface-hover text-text-muted"
@@ -239,7 +239,7 @@ export function Sidebar() {
 
       {/* 资产分组 */}
       <div className="px-3 pt-4 pb-1">
-        <span className="px-1 text-meta font-semibold tracking-wide text-text-muted">资产</span>
+        <span className="px-1 ui-type-note font-semibold tracking-wide text-text-muted">资产</span>
       </div>
       <div className="space-y-1 px-2.5 pb-2">
         <button
@@ -286,7 +286,7 @@ export function Sidebar() {
 
       {/* 运行时分组 */}
       <div className="px-3 pt-4 pb-1">
-        <span className="px-1 text-meta font-semibold tracking-wide text-text-muted">
+        <span className="px-1 ui-type-note font-semibold tracking-wide text-text-muted">
           运行时
         </span>
       </div>
@@ -315,7 +315,7 @@ export function Sidebar() {
           <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-accent-soft text-accent">
             <Settings className="h-4 w-4" />
           </span>
-          <span className="min-w-0 flex-1 truncate text-body font-medium text-text">
+          <span className="min-w-0 flex-1 truncate ui-type-body font-medium text-text">
             设置
           </span>
           <ChevronRight className="h-4 w-4 shrink-0 text-text-muted transition-transform group-hover:translate-x-0.5" />

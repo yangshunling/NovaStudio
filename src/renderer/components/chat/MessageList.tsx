@@ -109,7 +109,7 @@ function ToolGroupBlock({ group }: { group: ToolGroup }) {
 function StandaloneResultBlock({ item }: { item: StandaloneResult }) {
   const hasError = isToolResultError(item.ev);
   return (
-    <div className="mb-1.5 flex items-center gap-2 rounded-lg border border-border/60 bg-surface-2/40 px-3 py-1.5 text-meta text-text-muted">
+    <div className="mb-1.5 flex items-center gap-2 rounded-lg border border-border/60 bg-surface-2/40 px-3 py-1.5 ui-type-note text-text-muted">
       <span
         className={`inline-block h-1.5 w-1.5 rounded-full ${
           hasError ? "bg-error" : "bg-success"
@@ -136,7 +136,7 @@ function EventBlock({ event }: { event: AgentEvent }) {
 
     case "error":
       return (
-        <div className="mb-2 flex items-start gap-2.5 rounded-xl border border-error/30 bg-error-bg/70 px-3.5 py-2.5 text-body text-error">
+        <div className="mb-2 flex items-start gap-2.5 rounded-xl border border-error/30 bg-error-bg/70 px-3.5 py-2.5 ui-type-body text-error">
           <Bug className="mt-0.5 h-4 w-4 shrink-0" />
           <span className="min-w-0">{event.message}</span>
         </div>
@@ -145,7 +145,7 @@ function EventBlock({ event }: { event: AgentEvent }) {
     // 非致命提示：运行仍在继续，用中性底 + 警示图标与致命错误区分开
     case "warning":
       return (
-        <div className="mb-2 flex items-start gap-2.5 rounded-xl border border-border/60 bg-surface-2/40 px-3.5 py-2.5 text-body text-text-secondary">
+        <div className="mb-2 flex items-start gap-2.5 rounded-xl border border-border/60 bg-surface-2/40 px-3.5 py-2.5 ui-type-body text-text-secondary">
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-text-muted" />
           <span className="min-w-0">{event.message}</span>
         </div>
@@ -154,11 +154,15 @@ function EventBlock({ event }: { event: AgentEvent }) {
     case "text":
       return (
         <div className="mb-2">
-          <div className="ui-cv-block w-full">
+          <div className="w-full">
             <MarkdownRenderer content={event.content} />
           </div>
         </div>
       );
+
+    case "usage":
+      // 用量只在运行记录里保留，不在每条消息末尾展示
+      return null;
 
     case "done":
       return null;

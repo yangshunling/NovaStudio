@@ -283,8 +283,12 @@ export function createDecoder() {
 ### 5.1 存储位置
 
 ```
-~/.claude/projects/<cwd 转义名>/<session-uuid>.jsonl
+<CLAUDE_CONFIG_DIR 或 ~/.claude>/projects/<cwd 转义名>/<session-uuid>.jsonl
 ```
+
+> 宿主进程设置了 `CLAUDE_CONFIG_DIR` 时，CLI 与历史回放 / 删除必须使用
+> 同一个根目录；`sessions.ts` 通过 `claudeConfigDir()` 解析，不能硬编码
+> `~/.claude`。
 
 工作流节点使用独立配置目录时：
 

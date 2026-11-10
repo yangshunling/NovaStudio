@@ -29,12 +29,37 @@ function isAccumulatedBlock(event: AgentEvent): boolean {
   );
 }
 
+/**
+ * 旁路事件：不参与正文，但不能打断 message_end 的收敛扫描。
+ *
+ * `usage` 是纯元数据（上下文快照 / 本轮用量），渲染层会把它过滤掉；
+ * 它却会被追加进 content。若扫描碰到它就停下，前一次 message_end 写入的
+ * 累积块就留在原地，本次 message_end 再把它们整段追加一遍 —— 正文重复。
+ */
+function isTransparentEvent(event: AgentEvent): boolean {
+  return event.type === "usage";
+}
+
 export function appendEvent(content: AgentEvent[], event: AgentEvent): AgentEvent[] {
   // 整轮权威块：替换末尾连续的累积块，保留更早的块与 tool_result / error
   if (event.type === "message_end") {
+    // 尾部可能夹着 usage：先摘出来，替换完累积块再原样放回末尾
+    const passthrough: AgentEvent[] = [];
     let start = content.length;
-    while (start > 0 && isAccumulatedBlock(content[start - 1])) start--;
-    return [...content.slice(0, start), ...event.blocks];
+    while (start > 0) {
+      const prev = content[start - 1];
+      if (isAccumulatedBlock(prev)) {
+        start--;
+        continue;
+      }
+      if (isTransparentEvent(prev)) {
+        passthrough.unshift(prev);
+        start--;
+        continue;
+      }
+      break;
+    }
+    return [...content.slice(0, start), ...event.blocks, ...passthrough];
   }
 
   // 增量：追加到当前进行中的同类型块

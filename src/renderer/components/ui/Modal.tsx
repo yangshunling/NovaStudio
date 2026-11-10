@@ -138,7 +138,7 @@ export function ModalHeader({ title, onClose, className = "mb-4" }: ModalHeaderP
     <div className={`flex items-center justify-between ${className}`}>
       <h2
         id={titleId}
-        className="ui-serif text-title font-semibold text-text"
+        className="ui-type-title text-text"
       >
         {title}
       </h2>

@@ -40,6 +40,8 @@
   --c-accent-hover: #388bfd;
   --c-accent-foreground: #ffffff;
   --c-accent-soft: rgba(56, 139, 253, 0.15);
+  /* 选中底色：纯黑底上 15% 几乎不可见，这里单独给到 24% */
+  --c-selection-bg: rgba(47, 129, 247, 0.24);
 
   /* === 语义色 === */
   --c-thinking: #a3a3a3;
@@ -73,12 +75,11 @@
   --c-shadow: 0 8px 24px rgba(0, 0, 0, 0.5), 0 2px 6px rgba(0, 0, 0, 0.4);
   --c-shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.4);
 
-  /* === 字体：衬线类降级为无衬线，去掉字距 === */
-  --c-font-serif: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
-  --c-serif-tracking: 0;
+  /* === 字体：展示字体保持衬线；字距归零，避免大字号下发散 === */
+  --c-display-tracking: 0;
 
   /* === 圆角：气泡与其他组件统一 === */
-  --c-radius-bubble: 12px;
+  /* 圆角刻度统一在 _base.css，皮肤不再单独声明 */
 
   /* === 主按钮（纯色、扁平） === */
   --c-btn-primary-bg: #2f81f7;
@@ -113,8 +114,11 @@
   /* === 列表侧栏（会话 / 工作区）：保持纯黑 === */
   --c-panel-bg: #000000;
 
-  /* === 主纸面：比画布略亮一点的近黑，形成层次 === */
-  --c-page-bg: #050505;
+  /* === 主纸面：与画布同为纯黑 ===
+   * 曾经是 #050505，想着「比画布亮一点形成纸面」，但 5/255 的差异
+   * 既构不成层次，又让内容区在一圈纯黑里显出一块灰。要么彻底同色，
+   * 要么明确抬起并配边界 —— 这里选择同色，界面只保留一个黑。 */
+  --c-page-bg: #000000;
   --c-page-shadow: none;
   --c-page-inset: 0;
 

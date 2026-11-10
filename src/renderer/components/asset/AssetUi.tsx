@@ -29,7 +29,7 @@ export function Tag({
   return (
     <span
       title={title}
-      className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-meta ${TAG_TONE_CLASS[tone]}`}
+      className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 ui-type-note ${TAG_TONE_CLASS[tone]}`}
     >
       {Icon && <Icon className="h-3 w-3" />}
       {children}
@@ -48,10 +48,10 @@ export function Meta({
 }) {
   return (
     <div className="min-w-0">
-      <div className="text-meta text-text-muted">{label}</div>
+      <div className="ui-type-note text-text-muted">{label}</div>
       <div
-        className={`mt-0.5 text-body text-text-secondary ${
-          mono ? "truncate font-mono text-meta" : "break-words"
+        className={`mt-0.5 ui-type-body text-text-secondary ${
+          mono ? "truncate ui-type-code" : "break-words"
         }`}
         title={value}
       >

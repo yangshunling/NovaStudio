@@ -84,6 +84,8 @@
   --color-accent-hover: var(--c-accent-hover);
   --color-accent-foreground: var(--c-accent-foreground);
   --color-accent-soft: var(--c-accent-soft);
+  /* 列表 / 导航选中底色（bg-selected） */
+  --color-selected: var(--c-selection-bg);
 
   /* 语义色 */
   --color-thinking: var(--c-thinking);
@@ -121,8 +123,7 @@
   /* 字体族 */
   --font-sans: var(--c-font-sans);
   --font-mono: var(--c-font-mono);
-  --font-serif: var(--c-font-serif);
-  --font-display: var(--c-font-display);
+  /* 不暴露 font-display 工具类：展示衬线只允许由 .ui-type-brand 使用 */
 
   /* 字号量表：text-micro / text-caption / text-meta / text-body / ... */
   --text-micro: var(--c-font-size-micro);
@@ -141,6 +142,8 @@
   --radius-lg: var(--c-radius-lg);
   --radius-xl: var(--c-radius-xl);
   --radius-2xl: var(--c-radius-2xl);
+  /* 让输入框可以用 rounded-input，而不是写任意值 */
+  --radius-input: var(--c-radius-input);
 
   /* 间距与控件尺寸：接入 Tailwind 的 --spacing-* 命名空间，
    * 于是 p-inset / px-inset / gap-card / size-avatar 这类工具类会引用 token，
@@ -180,6 +183,20 @@ body {
   text-rendering: optimizeLegibility;
 }
 
+/* === 换肤期间禁用过渡 ===
+ *
+ * 皮肤只切换 <html data-theme> 上的 CSS 变量。带 transition-colors 的容器
+ * （工具卡 / 思考卡 / 列表行）会从旧配色渐变到新配色，而背景、正文等
+ * 立即切换，视觉上就成了「这些框慢半拍」。applyTheme 在换肤的一帧内挂上
+ * theme-switching，强制样式解析后立即摘掉：换肤是全局瞬时状态，不是交互反馈。
+ */
+.theme-switching,
+.theme-switching *,
+.theme-switching *::before,
+.theme-switching *::after {
+  transition: none !important;
+}
+
 /* === 键盘焦点（全局兜底） ===
  *
  * 组件里大量 `outline-none` 是为了去掉鼠标点击时的系统描边，但键盘用户因此
@@ -215,20 +232,23 @@ body {
   }
 }
 
-/* === 滚动条 === */
+/* === 滚动条 ===
+ *
+ * 全站隐藏滚动条，但保留滚动能力（滚轮 / 触控板 / 键盘 / 拖动内容）。
+ * 好处是面板与对话区不再被滚动条槽切掉一条边，纯白 / 纯黑表面能完整铺满；
+ * 代价是失去「这里可以滚动」的静态提示，因此列表与消息区的留白要足够。
+ *
+ * 同时声明标准属性与 WebKit 伪元素：Electron 走 WebKit 分支，
+ * 标准属性则避免将来切换内核时滚动条重新出现。
+ */
+* {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
 ::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
-}
-::-webkit-scrollbar-track {
-  background: transparent;
-}
-::-webkit-scrollbar-thumb {
-  background: var(--c-scrollbar);
-  border-radius: var(--radius-sm);
-}
-::-webkit-scrollbar-thumb:hover {
-  background: var(--c-scrollbar-hover);
+  width: 0;
+  height: 0;
+  display: none;
 }
 
 /* 隐藏滚动条但保留滚动能力：侧栏这类「滚动只是兜底」的容器用它，
@@ -288,7 +308,8 @@ body {
   gap: 6px;
   height: 36px;
   padding: 0 var(--c-space-card);
-  border-radius: 999px;
+  /* 按钮圆角独立成 token：不再固定为胶囊 */
+  border-radius: var(--c-btn-radius);
   font-size: var(--c-font-size-body);
   font-weight: 500;
   white-space: nowrap;
@@ -450,21 +471,20 @@ body {
 }
 
 /* ============================================================================
- * 长列表 / 长消息的离屏渲染优化
+ * 长列表的离屏渲染优化
  *
  * content-visibility:auto 让浏览器跳过离屏元素的布局与绘制。它不会跳过
  * React 渲染，因此这是「廉价虚拟化」而不是完整窗口化：适合会话 / 文档 /
  * 文件 / 运行记录这类可能上千行的列表，能明显降低滚动与首屏的浏览器侧开销。
- * 元素进入视口后会换回真实高度，不改变最终布局。
+ *
+ * 只能用在「不按绝对位置导航」的列表上。离屏元素在进入视口前只用
+ * contain-intrinsic-size 占位，真实高度差异会让后续元素的位置整体偏移；
+ * 聊天消息区因此**禁止**使用本类 —— 问题导航要求跳转落点精确，
+ * 聊天区靠 AssistantMessageList 的窗口化（只挂载最近 N 条）控制成本。
  * ========================================================================== */
 .ui-cv-row {
   content-visibility: auto;
   contain-intrinsic-size: auto 44px;
-}
-
-.ui-cv-block {
-  content-visibility: auto;
-  contain-intrinsic-size: auto 64px;
 }
 
 /* 助手正文气泡 */
@@ -499,10 +519,86 @@ body {
   right: calc(-1 * (var(--c-size-avatar) + 10px));
 }
 
-/* 衬线装饰文本（品牌 / 章节标题 / 空态） */
-.ui-serif {
-  font-family: var(--c-font-serif);
-  letter-spacing: var(--c-serif-tracking);
+/* ============================================================================
+ * 排版角色
+ *
+ * 组件只选角色，不直接拼「字号 + 字族」。角色是排版的单一入口：
+ * 换字号 / 换字族只改这里，不必逐页改类名。
+ * 行高与字重仍由工具类决定（prose 固定 1.65，label 固定 500），
+ * 这样迁移角色时不会意外改变既有排版节奏。
+ *
+ * 字族约定：所有界面文字使用系统默认 sans（继承即可），
+ * 正文档位（body/item/note/label/sub/micro）只声明字号；
+ * prose / code / title / heading / display / hero / brand 显式声明字族。
+ * **展示衬线（--c-font-display）只属于 brand**，供侧栏刊头使用；
+ * 标题、正文、Markdown 一律走系统默认字体。
+ *
+ * 本文件未分层，角色类会覆盖 Tailwind utilities 层的同名字号工具类，
+ * 因此字号不要再和 text-* 混写（颜色仍用 text-* 颜色类）。
+ * 字族工具类（font-*）可与正文档位组合；code / title / heading / display /
+ * hero / brand 已内置字族，不要再叠加 font-mono。
+ *
+ * 内容区（Markdown）自带完整标题层级，额外使用 heading / display 角色；
+ * 页头、弹窗、空态等页面骨架只用 title / body / label / sub。
+ * ============================================================================ */
+.ui-type-prose {
+  font-family: var(--c-font-sans);
+  font-size: var(--c-font-size-body-lg);
+  line-height: 1.65;
+}
+.ui-type-body {
+  font-size: var(--c-font-size-body);
+}
+/* 单行大正文：列表项标题、用户气泡、输入框。比正文大 1 档，不设行高 */
+.ui-type-item {
+  font-size: var(--c-font-size-body-lg);
+}
+.ui-type-note {
+  font-size: var(--c-font-size-meta);
+}
+.ui-type-label {
+  font-size: var(--c-font-size-meta);
+  font-weight: 500;
+}
+.ui-type-sub {
+  font-size: var(--c-font-size-caption);
+}
+.ui-type-micro {
+  font-size: var(--c-font-size-micro);
+}
+.ui-type-code {
+  font-family: var(--c-font-mono);
+  font-size: var(--c-font-size-meta);
+}
+.ui-type-code-sm {
+  font-family: var(--c-font-mono);
+  font-size: var(--c-font-size-caption);
+}
+.ui-type-title {
+  font-family: var(--c-font-sans);
+  font-size: var(--c-font-size-title);
+  font-weight: 600;
+  letter-spacing: var(--c-display-tracking);
+}
+.ui-type-heading {
+  font-family: var(--c-font-sans);
+  font-size: var(--c-font-size-heading);
+  font-weight: 600;
+}
+.ui-type-display {
+  font-family: var(--c-font-sans);
+  font-size: var(--c-font-size-display);
+  font-weight: 700;
+}
+/* 页面大字：与品牌同字号，但走系统默认字体 */
+.ui-type-hero {
+  font-family: var(--c-font-sans);
+  font-size: var(--c-font-size-hero);
+}
+/* 唯一使用展示衬线的角色：侧栏品牌刊头 */
+.ui-type-brand {
+  font-family: var(--c-font-display);
+  font-size: var(--c-font-size-hero);
 }
 
 /* ============================================================================
@@ -648,35 +744,50 @@ body {
  * 流光动画（流式状态指示器）
  * ============================================================================ */
 .shimmer {
-  /* 静止段保持中性灰，高光段用全站唯一的强调蓝：
-     光带经过时有一个明确的色相变化，而不是只在灰度里微调。 */
-  background: linear-gradient(
-    90deg,
-    var(--c-text-muted) 0%,
-    var(--c-text-secondary) 38%,
-    var(--c-accent) 50%,
-    var(--c-text-secondary) 62%,
-    var(--c-text-muted) 100%
+  /* 整句只由两种颜色构成：
+     1) 文字本体 —— 纯白；
+     2) 流光 —— 一种亮蓝（直接取强调色，不再压暗）。
+     渐变用 oklab 插值：白与蓝在中间过渡时不会经过发闷的脏色，
+     蓝色像「经过」文字，而不是贴上去的一条色带。 */
+  --shimmer-text: #ffffff;
+  --shimmer-color: var(--c-accent);
+  background-image: linear-gradient(
+    90deg in oklab,
+    var(--shimmer-text) 0%,
+    var(--shimmer-text) 34%,
+    var(--shimmer-color) 50%,
+    var(--shimmer-text) 66%,
+    var(--shimmer-text) 100%
   );
-  background-size: 250% 100%;
-  animation: shimmer var(--c-motion-loop) linear infinite;
+  /* 200% = 一块 tile 正好两倍容器宽；位移取整块（3 个 tile）后，
+     循环首尾相位完全相同，接缝处不会「跳一下」；渐变两端同色，
+     横向拼接也看不出接缝。 */
+  background-size: 200% 100%;
+  background-repeat: repeat-x;
+  animation: shimmer calc(var(--c-motion-loop) * 1.5) linear infinite;
   -webkit-background-clip: text;
   background-clip: text;
   -webkit-text-fill-color: transparent;
 }
 
-/* 「正在工作」文案的流光：略快于默认循环，但保持线性匀速，
-   让光带缓慢经过，读起来像呼吸而不是闪烁。 */
+/* 白底主题下纯白文字会看不见，回退为正文色；夜色主题保持纯白 */
+[data-theme="classic-day"] .shimmer {
+  --shimmer-text: var(--c-text);
+}
+
+/* 「正在工作」文案：略快于默认循环，但仍是平缓的匀速划过（约 2.6s / 周期） */
 .shimmer-fast {
-  animation-duration: calc(var(--c-motion-loop) * 0.85);
+  animation-duration: calc(var(--c-motion-loop) * 1.3);
 }
 
 @keyframes shimmer {
-  0% {
-    background-position: 200% 0;
+  /* 100% → -500% 的位移量正好等于 3 个 tile（6 倍容器宽），
+     是整块平移，所以循环首尾无缝、匀速，不会出现回跳。 */
+  from {
+    background-position: 100% 0;
   }
-  100% {
-    background-position: -200% 0;
+  to {
+    background-position: -500% 0;
   }
 }
 
@@ -825,8 +936,8 @@ body {
 .nova-markdown th {
   background: var(--c-accent-soft);
   border-color: var(--c-ring-border) !important;
-  font-family: var(--c-font-serif);
-  letter-spacing: var(--c-serif-tracking);
+  font-family: var(--c-font-sans);
+  letter-spacing: var(--c-display-tracking);
 }
 .nova-markdown blockquote {
   border-left: 2px solid var(--c-accent);
@@ -1009,7 +1120,7 @@ body {
   margin-top: 8px;
 }
 .wf-node-chip {
-  border-radius: 999px;
+  border-radius: var(--c-radius-full);
   background: var(--c-surface-hover);
   padding: 2px 8px;
   font-size: var(--c-font-size-meta);
@@ -1028,7 +1139,7 @@ body {
   height: 12px;
   margin-top: -6px;
   border: 2px solid var(--c-border-strong);
-  border-radius: 999px;
+  border-radius: var(--c-radius-full);
   background: var(--c-surface-2);
   cursor: crosshair;
   z-index: 2;
@@ -1074,7 +1185,7 @@ body {
   height: 22px;
   transform: translate(-50%, -50%);
   border: 1px solid var(--c-border-strong);
-  border-radius: 999px;
+  border-radius: var(--c-radius-full);
   background: var(--c-surface-2);
   color: var(--c-text-muted);
   box-shadow: var(--c-shadow-sm);
@@ -1096,7 +1207,7 @@ body {
   height: 14px;
   transform: translate(-50%, -50%);
   border: 2px solid var(--c-accent);
-  border-radius: 999px;
+  border-radius: var(--c-radius-full);
   background: var(--c-surface-2);
   box-shadow: 0 0 0 4px var(--c-accent-soft);
   cursor: crosshair;

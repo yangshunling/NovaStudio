@@ -11,6 +11,8 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Check, ChevronDown } from "lucide-react";
+import { estimateMenuHeight, placePopup } from "../../lib/popup";
+import { useDismissableLayer } from "../../hooks/useDismissableLayer";
 
 export interface SelectOption {
   value: string;
@@ -30,11 +32,6 @@ interface SelectProps {
   minMenuWidth?: number;
   title?: string;
   "aria-label"?: string;
-}
-
-/** 估算菜单高度，用于判断向上还是向下展开 */
-function estimateMenuHeight(optionCount: number): number {
-  return Math.min(optionCount * 36 + 12, 320);
 }
 
 export function Select({
@@ -67,60 +64,17 @@ export function Select({
     if (!trigger) return;
 
     const rect = trigger.getBoundingClientRect();
-    const width = Math.max(rect.width, minMenuWidth);
-    const height = estimateMenuHeight(options.length);
-    const spaceBelow = window.innerHeight - rect.bottom;
-    const spaceAbove = rect.top;
-
-    // 下方放不下且上方空间更大时向上展开
-    const top =
-      spaceBelow < height + 8 && spaceAbove > spaceBelow
-        ? Math.max(8, rect.top - height - 4)
-        : rect.bottom + 4;
-
-    setPosition({
-      left: Math.max(8, Math.min(rect.left, window.innerWidth - width - 8)),
-      top,
-      width,
-    });
+    setPosition(
+      placePopup(rect, {
+        minWidth: minMenuWidth,
+        estimatedHeight: estimateMenuHeight(options.length),
+      }),
+    );
     setOpen(true);
   };
 
   // 外部点击 / Esc / 滚动 / 窗口缩放时关闭
-  useEffect(() => {
-    if (!open) return;
-
-    const close = () => setOpen(false);
-    const onDown = (event: MouseEvent) => {
-      const target = event.target as Node;
-      if (menuRef.current?.contains(target) || triggerRef.current?.contains(target)) {
-        return;
-      }
-      close();
-    };
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        close();
-        triggerRef.current?.focus();
-      }
-    };
-    // 只响应菜单外部的滚动，菜单自身的选项列表滚动不关闭
-    const onScroll = (event: Event) => {
-      if (menuRef.current?.contains(event.target as Node)) return;
-      close();
-    };
-
-    document.addEventListener("mousedown", onDown);
-    document.addEventListener("keydown", onKey);
-    window.addEventListener("scroll", onScroll, true);
-    window.addEventListener("resize", close);
-    return () => {
-      document.removeEventListener("mousedown", onDown);
-      document.removeEventListener("keydown", onKey);
-      window.removeEventListener("scroll", onScroll, true);
-      window.removeEventListener("resize", close);
-    };
-  }, [open]);
+  useDismissableLayer(open, () => setOpen(false), [menuRef, triggerRef], triggerRef);
 
   // 展开后把焦点放到当前选项，方便直接用方向键切换
   useEffect(() => {
@@ -218,7 +172,7 @@ export function Select({
             className="ui-dropdown-in ui-glass-strong ui-ring fixed z-[60] overflow-y-auto rounded-xl p-1.5"
           >
             {options.length === 0 ? (
-              <div className="px-2.5 py-2 text-meta text-text-muted">
+              <div className="px-2.5 py-2 ui-type-note text-text-muted">
                 暂无可选项
               </div>
             ) : (
@@ -232,7 +186,7 @@ export function Select({
                     aria-selected={active}
                     disabled={option.disabled}
                     onClick={() => pick(option)}
-                    className={`flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left text-meta transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
+                    className={`flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left ui-type-note transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
                       active
                         ? "bg-accent-soft font-medium text-accent"
                         : "text-text-secondary hover:bg-surface-hover hover:text-text"

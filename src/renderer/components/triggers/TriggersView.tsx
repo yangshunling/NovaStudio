@@ -22,8 +22,14 @@ import {
 } from "lucide-react";
 import { ipc } from "../../lib/ipc";
 import { toMessage } from "../../lib/utils";
+import { formatHm, isSameDay, pad2 } from "@shared/time";
 import { useLoad } from "../../hooks/useLoad";
-import { EmptyBlock, ErrorState, LoadingState } from "../ui/EmptyState";
+import {
+  EmptyBlock,
+  EmptyState,
+  ErrorState,
+  LoadingState,
+} from "../ui/EmptyState";
 import { Page, PageBody, PageHeader } from "../ui/Page";
 import { OptionChips } from "../ui/OptionChips";
 import { toast } from "../../stores/toast";
@@ -310,7 +316,7 @@ export function TriggersView() {
                   key={workflow.id}
                   className={`flex cursor-pointer items-center gap-2.5 rounded-lg border px-3 py-2.5 transition-colors ${
                     selected
-                      ? "border-accent/50 bg-accent-soft/40"
+                      ? "border-accent/50 bg-selected"
                       : "border-border bg-surface-2/40 hover:bg-surface-hover"
                   }`}
                 >
@@ -322,11 +328,11 @@ export function TriggersView() {
                     style={{ accentColor: "var(--c-accent)" }}
                   />
                   <span className="min-w-0 flex-1">
-                    <span className="block truncate text-body font-medium text-text">
+                    <span className="block truncate ui-type-body font-medium text-text">
                       {workflow.name}
                     </span>
                     {workflow.description && (
-                      <span className="mt-0.5 block truncate text-meta text-text-muted">
+                      <span className="mt-0.5 block truncate ui-type-note text-text-muted">
                         {workflow.description}
                       </span>
                     )}
@@ -397,7 +403,7 @@ function TriggerCard({
         <div className="min-w-0 flex-1">
           <div className="flex items-start justify-between gap-2">
             <h3
-              className={`truncate text-body-lg font-semibold ${
+              className={`truncate ui-type-item font-semibold ${
                 enabled ? "text-text" : "text-text-secondary"
               }`}
               title={trigger.title}
@@ -410,7 +416,7 @@ function TriggerCard({
               label={`启用触发器 ${trigger.title}`}
             />
           </div>
-          <p className="mt-1 line-clamp-2 text-meta leading-relaxed text-text-muted">
+          <p className="mt-1 line-clamp-2 ui-type-note leading-relaxed text-text-muted">
             {trigger.description || "暂无说明"}
           </p>
         </div>
@@ -419,14 +425,14 @@ function TriggerCard({
       {/* 调度信息：规则 + 下次执行 + 状态 */}
       <div className="mx-4 rounded-lg border border-border/60 bg-surface/60 p-3">
         <div className="flex items-center justify-between gap-2">
-          <span className="flex min-w-0 items-center gap-1.5 text-meta font-medium text-text-secondary">
+          <span className="flex min-w-0 items-center gap-1.5 ui-type-label text-text-secondary">
             <AlarmClock className="h-3.5 w-3.5 shrink-0 text-accent" />
             <span className="truncate">
               {describeTriggerSchedule(trigger.schedule)}
             </span>
           </span>
           <span
-            className={`shrink-0 rounded-full px-2 py-0.5 text-caption font-medium ${
+            className={`shrink-0 rounded-full px-2 py-0.5 ui-type-sub font-medium ${
               enabled
                 ? "bg-accent-soft text-accent"
                 : "bg-surface-hover text-text-muted"
@@ -435,7 +441,7 @@ function TriggerCard({
             {enabled ? "启用中" : "已停用"}
           </span>
         </div>
-        <div className="mt-2 flex items-center gap-1.5 text-caption text-text-muted">
+        <div className="mt-2 flex items-center gap-1.5 ui-type-sub text-text-muted">
           <Clock className="h-3 w-3 shrink-0" />
           {enabled
             ? `下次执行 ${formatFireTime(trigger.nextFireAt) ?? "待计算"}`
@@ -445,7 +451,7 @@ function TriggerCard({
 
       {trigger.lastError && (
         <p
-          className="mx-4 mt-2 line-clamp-2 break-words rounded-lg bg-error-bg px-2.5 py-1.5 text-meta leading-relaxed text-error"
+          className="mx-4 mt-2 line-clamp-2 break-words rounded-lg bg-error-bg px-2.5 py-1.5 ui-type-note leading-relaxed text-error"
           title={trigger.lastError}
         >
           最近一次触发失败：{trigger.lastError}
@@ -460,26 +466,26 @@ function TriggerCard({
             {workflowNames.slice(0, 3).map((name) => (
               <span
                 key={name}
-                className="max-w-[140px] truncate rounded-full bg-surface-hover px-2 py-0.5 text-caption text-text-secondary"
+                className="max-w-[140px] truncate rounded-full bg-surface-hover px-2 py-0.5 ui-type-sub text-text-secondary"
                 title={name}
               >
                 {name}
               </span>
             ))}
             {workflowNames.length > 3 && (
-              <span className="text-caption text-text-muted">
+              <span className="ui-type-sub text-text-muted">
                 +{workflowNames.length - 3}
               </span>
             )}
           </>
         ) : (
-          <span className="text-caption text-text-muted">尚未绑定工作流</span>
+          <span className="ui-type-sub text-text-muted">尚未绑定工作流</span>
         )}
       </div>
 
       <div className="mt-auto px-4 pb-4 pt-3">
         <div className="flex items-center justify-between gap-2 border-t border-border/60 pt-2.5">
-          <span className="min-w-0 truncate text-caption text-text-muted">
+          <span className="min-w-0 truncate ui-type-sub text-text-muted">
             {trigger.lastFiredAt !== null
               ? `上次触发 ${formatFireTime(trigger.lastFiredAt)}`
               : "从未触发"}
@@ -649,7 +655,7 @@ function TriggerDialog({
           </Field>
 
           <div>
-            <div className="mb-1.5 text-meta font-medium text-text-secondary">
+            <div className="mb-1.5 ui-type-label text-text-secondary">
               定时方式
             </div>
             <OptionChips
@@ -662,7 +668,7 @@ function TriggerDialog({
               selected={kind}
               onSelect={(id) => setKind(id as ScheduleKind)}
             />
-            <p className="mt-1 text-meta text-text-muted">{kindHint}</p>
+            <p className="mt-1 ui-type-note text-text-muted">{kindHint}</p>
           </div>
 
           {kind === "interval" ? (
@@ -682,7 +688,7 @@ function TriggerDialog({
                     }
                   />
                 </div>
-                <span className="text-body text-text-muted">分钟</span>
+                <span className="ui-type-body text-text-muted">分钟</span>
               </div>
               <OptionChips
                 mode="single"
@@ -700,7 +706,7 @@ function TriggerDialog({
             <>
               {kind === "weekly" && (
                 <div>
-                  <div className="mb-1.5 text-meta font-medium text-text-secondary">
+                  <div className="mb-1.5 ui-type-label text-text-secondary">
                     星期
                   </div>
                   <OptionChips
@@ -714,7 +720,7 @@ function TriggerDialog({
                     onToggle={(id) => toggleWeekday(Number(id))}
                   />
                   {weekdays.length === 0 && (
-                    <p className="mt-1 text-meta text-error">
+                    <p className="mt-1 ui-type-note text-error">
                       至少选择一天
                     </p>
                   )}
@@ -735,8 +741,8 @@ function TriggerDialog({
 
           <div className="flex items-center justify-between rounded-lg bg-surface-2/40 px-3 py-2.5">
             <div className="min-w-0">
-              <p className="text-body font-medium text-text">启用触发器</p>
-              <p className="mt-0.5 text-meta text-text-muted">
+              <p className="ui-type-body font-medium text-text">启用触发器</p>
+              <p className="mt-0.5 ui-type-note text-text-muted">
                 停用后保留配置，但不会自动启动工作流
               </p>
             </div>
@@ -747,7 +753,7 @@ function TriggerDialog({
             />
           </div>
 
-          <div className="flex items-center gap-1.5 rounded-lg bg-accent-soft/40 px-3 py-2 text-meta text-text-secondary">
+          <div className="flex items-center gap-1.5 rounded-lg bg-accent-soft/40 px-3 py-2 ui-type-note text-text-secondary">
             <Repeat className="h-3.5 w-3.5 shrink-0 text-accent" />
             将按「{describeTriggerSchedule(schedule)}」触发
           </div>
@@ -792,71 +798,52 @@ function EmptyTriggers({ onCreate }: { onCreate: () => void }) {
   ];
 
   return (
-    <div className="flex min-h-[68vh] items-center justify-center">
-      <div className="relative w-full max-w-[680px] overflow-hidden rounded-2xl border border-border/60 bg-surface-2/40 p-8 text-center shadow-[var(--c-shadow-sm)]">
-        <span
-          aria-hidden
-          className="pointer-events-none absolute inset-x-10 top-0 h-px bg-accent/30"
-        />
-
-        <div className="relative">
-          <div className="mx-auto grid h-14 w-14 place-items-center rounded-2xl bg-accent text-accent-foreground shadow-[var(--c-shadow-sm)]">
-            <Zap className="h-6 w-6" />
-          </div>
-          <h2 className="mt-5 text-heading font-semibold tracking-tight text-text">
-            让工作流按时自己跑起来
-          </h2>
-          <p className="mx-auto mt-2 max-w-md text-body leading-relaxed text-text-secondary">
-            设置每天几点、每周哪几天或每隔多久触发，再把工作流绑上去；到点后自动启动。
-          </p>
-
-          <div className="mt-6 grid grid-cols-1 gap-2.5 text-left sm:grid-cols-3">
-            {steps.map(({ icon: Icon, title, description }) => (
-              <div
-                key={title}
-                className="rounded-lg border border-border/60 bg-surface/60 p-3"
-              >
-                <span className="grid h-8 w-8 place-items-center rounded-lg bg-accent-soft text-accent">
-                  <Icon className="h-4 w-4" />
-                </span>
-                <p className="mt-2 text-meta font-medium text-text">{title}</p>
-                <p className="mt-0.5 text-caption leading-relaxed text-text-muted">
-                  {description}
-                </p>
-              </div>
-            ))}
-          </div>
-
-          <Button
-            variant="primary"
-            onClick={onCreate}
-            icon={<Plus className="h-4 w-4" />}
-            className="mt-6"
+    <EmptyState
+      icon={<Zap />}
+      title="让工作流按时自己跑起来"
+      description="设置每天几点、每周哪几天或每隔多久触发，再把工作流绑上去；到点后自动启动。"
+      action={
+        <Button
+          variant="primary"
+          onClick={onCreate}
+          icon={<Plus className="h-4 w-4" />}
+        >
+          新建触发器
+        </Button>
+      }
+    >
+      <div className="mt-6 grid grid-cols-1 gap-2.5 text-left sm:grid-cols-3">
+        {steps.map(({ icon: Icon, title, description }) => (
+          <div
+            key={title}
+            className="rounded-lg border border-border/60 bg-surface/60 p-3"
           >
-            新建触发器
-          </Button>
-        </div>
+            <span className="grid h-8 w-8 place-items-center rounded-lg bg-accent-soft text-accent">
+              <Icon className="h-4 w-4" />
+            </span>
+            <p className="mt-2 ui-type-label text-text">{title}</p>
+            <p className="mt-0.5 ui-type-sub leading-relaxed text-text-muted">
+              {description}
+            </p>
+          </div>
+        ))}
       </div>
-    </div>
+    </EmptyState>
   );
 }
 
 /** 把时间戳格式化为「今天 / 明天 HH:mm」或「MM-DD HH:mm」 */
-export function formatFireTime(timestamp: number | null): string | null {
+function formatFireTime(timestamp: number | null): string | null {
   if (timestamp === null) return null;
-  const date = new Date(timestamp);
-  const now = new Date();
-  const clock = `${String(date.getHours()).padStart(2, "0")}:${String(
-    date.getMinutes(),
-  ).padStart(2, "0")}`;
+  const clock = formatHm(timestamp);
+  const now = Date.now();
 
-  if (date.toDateString() === now.toDateString()) return `今天 ${clock}`;
+  if (isSameDay(timestamp, now)) return `今天 ${clock}`;
 
   const tomorrow = new Date(now);
-  tomorrow.setDate(now.getDate() + 1);
-  if (date.toDateString() === tomorrow.toDateString()) return `明天 ${clock}`;
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  if (isSameDay(timestamp, tomorrow.getTime())) return `明天 ${clock}`;
 
-  return `${String(date.getMonth() + 1).padStart(2, "0")}-${String(
-    date.getDate(),
-  ).padStart(2, "0")} ${clock}`;
+  const date = new Date(timestamp);
+  return `${pad2(date.getMonth() + 1)}-${pad2(date.getDate())} ${clock}`;
 }

@@ -21,6 +21,7 @@ import { getProvider, listProviders } from "../agents/registry";
 import { isResumeFailure } from "../agents/resume-error";
 import type { AgentInvocationInfo, RunSession } from "../agents/types";
 import * as db from "../db/sqlite";
+import { errorMessage } from "../../shared/error";
 
 /** 事件发射器，由 IPC 层注入（负责批量聚合与窗口推送） */
 export type Emit = <C extends IpcPushChannel>(channel: C, payload: IpcPushMap[C]) => void;
@@ -96,6 +97,8 @@ export interface AgentService {
   run(params: RunParams): Promise<RunOutcome>;
   /** 中断指定会话；返回是否确实有运行中的会话 */
   abort(sessionId: string): boolean;
+  /** 指定会话是否仍有运行中的 Agent 进程（含尚未完成落库的收尾阶段） */
+  isRunning(sessionId: string): boolean;
   /** 取会话元数据 + 回放历史 */
   getSessionWithHistory(sessionId: string): Promise<Session | null>;
   /**
@@ -324,7 +327,11 @@ export function createAgentService(emit: Emit): AgentService {
        * 如果直接开始写新消息，后续 getSessionWithHistory 只会返回新消息，
        * 旧对话在界面上会“消失”。因此在第一次运行前把 CLI 历史导入本地。
        */
-      if (!db.hasSessionMessages(sessionId) && session.agentSessionId) {
+      if (
+        !db.hasSessionMessages(sessionId) &&
+        !db.isSessionHistoryComplete(sessionId) &&
+        session.agentSessionId
+      ) {
         const history = await readHistoryCached(session);
         if (history.length > 0) db.importSessionMessages(sessionId, history);
       }
@@ -376,7 +383,7 @@ export function createAgentService(emit: Emit): AgentService {
       } catch (err) {
         // provider 在拉起进程前失败（临时文件、配置投影等）
         return {
-          ...failed(err instanceof Error ? err.message : String(err)),
+          ...failed(errorMessage(err)),
           userMessageId,
         };
       }
@@ -471,6 +478,10 @@ export function createAgentService(emit: Emit): AgentService {
         }
         running.delete(sessionId);
       }
+    },
+
+    isRunning(sessionId: string): boolean {
+      return running.has(sessionId);
     },
 
     abort(sessionId: string): boolean {

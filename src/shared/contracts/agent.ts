@@ -67,6 +67,37 @@ export interface AgentStatus {
 }
 
 /**
+ * 一次升级检测结果。
+ *
+ * 检测失败不应阻止升级：`error` 有值时 UI 仍可展示 `installedVersion`，
+ * 并允许用户直接尝试升级（由 CLI 自己判断是否有新版本）。
+ */
+export interface AgentUpgradeCheck {
+  /** 当前安装版本；未安装时为空 */
+  installedVersion?: string;
+  /** 能获取到的最新版本；获取失败时为空 */
+  latestVersion?: string;
+  /** 已安装且确实存在更新的版本 */
+  updateAvailable: boolean;
+  /** 版本来源说明（如 npm registry） */
+  source?: string;
+  /** 检查失败原因 */
+  error?: string;
+}
+
+/** 一次升级操作的结果 */
+export interface AgentUpgradeResult {
+  ok: boolean;
+  /** 升级前版本 */
+  previousVersion?: string;
+  /** 升级后探测到的版本 */
+  version?: string;
+  /** 升级命令输出（已截断，用于排查失败原因） */
+  output?: string;
+  error?: string;
+}
+
+/**
  * manifest + status + 本机配置信息的合并视图，UI 只消费这一个结构。
  */
 export interface AgentInfo extends AgentManifest {

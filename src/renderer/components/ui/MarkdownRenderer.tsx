@@ -101,7 +101,7 @@ function MarkdownImage({
     return (
       <span
         title={src}
-        className="my-2 inline-flex items-center rounded border border-border bg-surface px-2 py-1 text-caption text-text-muted"
+        className="ui-type-sub my-2 inline-flex items-center rounded-sm border border-border bg-surface px-2 py-1 text-text-muted"
       >
         图片无法加载：{alt || src}
       </span>
@@ -156,7 +156,7 @@ function CodeBlock({ code, lang }: { code: string; lang: string }) {
   if (highlighted) {
     return (
       <pre
-        className="my-2 overflow-x-auto rounded-lg border border-border p-3 text-meta"
+        className="ui-type-code my-2 overflow-x-auto rounded-lg border border-border p-3"
         dangerouslySetInnerHTML={{ __html: highlighted }}
       />
     );
@@ -164,7 +164,7 @@ function CodeBlock({ code, lang }: { code: string; lang: string }) {
 
   // Fallback：高亮器未就绪时的纯文本显示
   return (
-    <pre className="my-2 overflow-x-auto rounded-lg border border-border bg-surface p-3 text-meta text-text-secondary">
+    <pre className="ui-type-code my-2 overflow-x-auto rounded-lg border border-border bg-surface p-3 text-text-secondary">
       <code>{code}</code>
     </pre>
   );
@@ -173,7 +173,7 @@ function CodeBlock({ code, lang }: { code: string; lang: string }) {
 /** 内联代码 */
 function InlineCode({ children }: { children: React.ReactNode }) {
   return (
-    <code className="rounded bg-surface-hover px-1.5 py-0.5 text-meta font-mono text-text">
+    <code className="ui-type-code rounded-sm bg-surface-hover px-1.5 py-0.5 text-text">
       {children}
     </code>
   );
@@ -205,9 +205,9 @@ const MARKDOWN_COMPONENTS: Components = {
   },
 
   // 自定义元素样式
-  h1: ({ children }) => <h1 className="ui-serif mb-3 mt-4 text-display font-bold text-text">{children}</h1>,
-  h2: ({ children }) => <h2 className="ui-serif mb-2 mt-3 text-heading font-bold text-text">{children}</h2>,
-  h3: ({ children }) => <h3 className="ui-serif mb-2 mt-3 text-body-lg font-bold text-text">{children}</h3>,
+  h1: ({ children }) => <h1 className="ui-type-display mb-3 mt-4 text-text">{children}</h1>,
+  h2: ({ children }) => <h2 className="ui-type-heading mb-2 mt-3 text-text">{children}</h2>,
+  h3: ({ children }) => <h3 className="mb-2 mt-3 text-body-lg font-bold text-text">{children}</h3>,
 
   p: ({ children }) => <p className="mb-2 leading-relaxed">{children}</p>,
 
@@ -230,7 +230,7 @@ const MARKDOWN_COMPONENTS: Components = {
   ),
 
   table: ({ children }) => (
-    <table className="mb-2 border-collapse border border-border text-meta">
+    <table className="ui-type-note mb-2 border-collapse border border-border">
       {children}
     </table>
   ),
@@ -291,7 +291,7 @@ function MarkdownRendererImpl({
   return (
     <MarkdownImageContext.Provider value={imageContext}>
       <MarkdownStreamingContext.Provider value={streaming}>
-      <div className="nova-markdown text-body-lg leading-relaxed text-text">
+      <div className="nova-markdown ui-type-prose text-text">
       <ReactMarkdown
         remarkPlugins={REMARK_PLUGINS}
         rehypePlugins={rehypePlugins}

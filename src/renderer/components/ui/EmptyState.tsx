@@ -14,6 +14,7 @@
 
 import type { ReactNode } from "react";
 import { Search } from "lucide-react";
+import { Spinner } from "./Spinner";
 
 type EmptyStateSize = "default" | "compact";
 
@@ -25,6 +26,8 @@ interface EmptyStateProps {
   description?: ReactNode;
   /** 主操作按钮 */
   action?: ReactNode;
+  /** 说明与操作之间的自定义内容（如三步引导） */
+  children?: ReactNode;
   size?: EmptyStateSize;
   className?: string;
 }
@@ -34,6 +37,7 @@ export function EmptyState({
   title,
   description,
   action,
+  children,
   size = "default",
   className = "",
 }: EmptyStateProps) {
@@ -50,9 +54,9 @@ export function EmptyState({
             {icon}
           </div>
         )}
-        <h2 className="text-body text-text-secondary">{title}</h2>
+        <h2 className="ui-type-body text-text-secondary">{title}</h2>
         {description && (
-          <p className="max-w-md text-meta leading-relaxed text-text-muted">
+          <p className="ui-type-note max-w-md leading-relaxed text-text-muted">
             {description}
           </p>
         )}
@@ -82,15 +86,17 @@ export function EmptyState({
             </div>
           )}
 
-          <h2 className="mt-5 text-heading font-semibold tracking-tight text-text">
+          <h2 className="ui-type-heading mt-5 tracking-tight text-text">
             {title}
           </h2>
 
           {description && (
-            <p className="mt-2 max-w-md text-body leading-relaxed text-text-secondary">
+            <p className="ui-type-body mt-2 max-w-md leading-relaxed text-text-secondary">
               {description}
             </p>
           )}
+
+          {children}
 
           {action && <div className="mt-6">{action}</div>}
         </div>
@@ -126,7 +132,7 @@ export function FilterEmpty({
           <button
             type="button"
             onClick={onClear}
-            className="text-meta text-accent hover:underline"
+            className="ui-type-note text-accent hover:underline"
           >
             {clearLabel}
           </button>
@@ -181,30 +187,10 @@ export function LoadingState({
   return (
     <div
       className={`flex items-center justify-center gap-2 text-text-muted ${
-        compact ? "h-40 text-meta" : "h-60 text-body"
+        compact ? "h-40 ui-type-note" : "h-60 ui-type-body"
       } ${className}`.trim()}
     >
-      <svg
-        className="h-4 w-4 animate-spin"
-        viewBox="0 0 24 24"
-        fill="none"
-        aria-hidden="true"
-      >
-        <circle
-          cx="12"
-          cy="12"
-          r="9"
-          stroke="currentColor"
-          strokeWidth="3"
-          className="opacity-25"
-        />
-        <path
-          d="M21 12a9 9 0 0 0-9-9"
-          stroke="currentColor"
-          strokeWidth="3"
-          strokeLinecap="round"
-        />
-      </svg>
+      <Spinner className="h-4 w-4" />
       {text}
     </div>
   );
@@ -233,7 +219,7 @@ export function ErrorState({
         compact ? "py-10" : "py-20"
       } ${className}`.trim()}
     >
-      <p className={`${compact ? "text-meta" : "text-body"} text-error`}>
+      <p className={`${compact ? "ui-type-note" : "ui-type-body"} text-error`}>
         {message}
       </p>
       {onRetry && (

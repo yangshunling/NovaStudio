@@ -52,6 +52,8 @@ import type {
   WorkflowTriggerDraft,
 } from "../../shared/types";
 import { normalizeTriggerSchedule } from "../../shared/trigger-schedule";
+import { clamp } from "../../shared/math";
+import { parseJsonArray } from "../../shared/json";
 import { DB_PATH, ensureDataDirs } from "../utils/paths";
 
 let db: Database.Database | null = null;
@@ -116,6 +118,8 @@ export function initDatabase(): void {
       -- 本地 messages 是否已经覆盖完整历史。
       -- 0 表示会话可能还有 CLI 侧历史未被导入，下一次运行前会先补全。
       history_complete INTEGER NOT NULL DEFAULT 0,
+      -- 置顶时间；NULL 表示未置顶。只影响列表顺序，不改 updated_at。
+      pinned_at INTEGER,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL
     );
@@ -348,6 +352,7 @@ export function initDatabase(): void {
   migrateSessionsConfigDir();
   migrateSessionsSource();
   migrateSessionsHistoryComplete();
+  migrateSessionsPinnedAt();
   // 先清理旧版占位项目，再让工作区迁移把空归属的工作流挂到有效项目上
   migrateLegacyInboxProject();
   migrateWorkflowWorkspace();
@@ -555,6 +560,14 @@ function migrateSessionsMessageCount(): void {
   const cols = prepare("PRAGMA table_info(sessions)").all() as { name: string }[];
   if (!cols.some((c) => c.name === "message_count")) {
     db!.exec("ALTER TABLE sessions ADD COLUMN message_count INTEGER NOT NULL DEFAULT 0");
+  }
+}
+
+/** 检测并给 sessions 表补 pinned_at 列（会话置顶） */
+function migrateSessionsPinnedAt(): void {
+  const cols = prepare("PRAGMA table_info(sessions)").all() as { name: string }[];
+  if (!cols.some((c) => c.name === "pinned_at")) {
+    db!.exec("ALTER TABLE sessions ADD COLUMN pinned_at INTEGER");
   }
 }
 
@@ -827,6 +840,7 @@ export function createSession(
     createdAt: now,
     updatedAt: now,
     messageCount: 0,
+    pinnedAt: null,
     messages: [],
   };
 }
@@ -878,6 +892,17 @@ export function setSessionTitle(sessionId: string, title: string): void {
   prepare("UPDATE sessions SET title = ?, updated_at = ? WHERE id = ?").run(
     title,
     Date.now(),
+    sessionId,
+  );
+}
+
+/**
+ * 置顶 / 取消置顶会话。
+ * 不改 updated_at：置顶是浏览偏好，不应把会话重新算进「今天」或改变排序时间。
+ */
+export function setSessionPinned(sessionId: string, pinned: boolean): void {
+  prepare("UPDATE sessions SET pinned_at = ? WHERE id = ?").run(
+    pinned ? Date.now() : null,
     sessionId,
   );
 }
@@ -946,6 +971,14 @@ export function importSessionMessages(
   })();
 }
 
+/** 本地 messages 是否已经覆盖该会话的完整历史 */
+export function isSessionHistoryComplete(sessionId: string): boolean {
+  const row = prepare(
+    "SELECT history_complete FROM sessions WHERE id = ?",
+  ).get(sessionId) as { history_complete?: number } | undefined;
+  return row?.history_complete === 1;
+}
+
 /** 标记会话的本地消息已经覆盖完整历史 */
 export function markSessionHistoryComplete(sessionId: string): void {
   prepare(
@@ -988,6 +1021,7 @@ function rowToSession(row: any): Session {
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     messageCount: row.message_count ?? 0,
+    pinnedAt: row.pinned_at ?? null,
     messages: [],
   };
 }
@@ -1034,16 +1068,6 @@ export function deleteSession(id: string): void {
 // ============================================================================
 // 数字员工操作
 // ============================================================================
-
-/** JSON 列的安全解析：损坏或形状不对时退回空数组，不阻断读取 */
-function parseJsonArray<T>(raw: string): T[] {
-  try {
-    const value = JSON.parse(raw);
-    return Array.isArray(value) ? (value as T[]) : [];
-  } catch {
-    return [];
-  }
-}
 
 /**
  * 员工技能归一化。
@@ -1518,7 +1542,7 @@ function normalizeWorkflowNode(raw: any, index: number): WorkflowNode {
           : 1,
       maxRevisions:
         typeof config.maxRevisions === "number"
-          ? Math.min(3, Math.max(0, Math.round(config.maxRevisions)))
+          ? clamp(Math.round(config.maxRevisions), 0, 3)
           : 1,
       reviewMode: config.reviewMode === "manual" ? "manual" : "auto",
     },
@@ -2526,21 +2550,15 @@ export function countPendingTodos(): number {
 // 提示词
 // ============================================================================
 
+/**
+ * tags_json 列仍保留在表里（历史数据不丢），但界面已移除标签功能，
+ * 因此不再读取，也不再写入。
+ */
 function rowToPrompt(row: any): PromptItem {
-  let tags: string[] = [];
-  try {
-    const parsed: unknown = JSON.parse(row.tags_json);
-    if (Array.isArray(parsed)) {
-      tags = parsed.filter((tag): tag is string => typeof tag === "string");
-    }
-  } catch {
-    // 损坏的标签按空数组处理，不影响正文
-  }
   return {
     id: row.id,
     title: row.title,
     content: row.content ?? "",
-    tags,
     favorite: row.favorite === 1,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -2569,32 +2587,17 @@ export function createPrompt(draft: PromptDraft): PromptItem {
   const id = randomUUID();
   const now = Date.now();
   prepare(
-    "INSERT INTO prompts (id, title, content, tags_json, favorite, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-  ).run(
-    id,
-    draft.title,
-    draft.content,
-    JSON.stringify(draft.tags),
-    draft.favorite ? 1 : 0,
-    now,
-    now,
-  );
+    "INSERT INTO prompts (id, title, content, favorite, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+  ).run(id, draft.title, draft.content, draft.favorite ? 1 : 0, now, now);
   return getPrompt(id)!;
 }
 
 export function updatePrompt(id: string, draft: PromptDraft): PromptItem | null {
   const info = db!
     .prepare(
-      "UPDATE prompts SET title = ?, content = ?, tags_json = ?, favorite = ?, updated_at = ? WHERE id = ?",
+      "UPDATE prompts SET title = ?, content = ?, favorite = ?, updated_at = ? WHERE id = ?",
     )
-    .run(
-      draft.title,
-      draft.content,
-      JSON.stringify(draft.tags),
-      draft.favorite ? 1 : 0,
-      Date.now(),
-      id,
-    );
+    .run(draft.title, draft.content, draft.favorite ? 1 : 0, Date.now(), id);
   return info.changes > 0 ? getPrompt(id) : null;
 }
 

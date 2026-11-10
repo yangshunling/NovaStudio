@@ -36,11 +36,11 @@ export function ListPane({
     >
       <div className="flex h-[var(--c-layout-header)] shrink-0 items-center justify-between gap-2 border-b border-border px-4">
         <div className="flex min-w-0 items-center gap-2">
-          <p className="truncate text-meta font-semibold tracking-wide text-text-muted">
+          <p className="ui-type-label truncate tracking-wide text-text-muted">
             {title}
           </p>
           {count !== undefined && (
-            <span className="flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-surface-hover px-1.5 font-mono text-caption leading-none text-text-muted">
+            <span className="flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-surface-hover px-1.5 ui-type-code-sm leading-none text-text-muted">
               {count}
             </span>
           )}
@@ -91,7 +91,7 @@ export function ListItem({
     <div
       className={`ui-cv-row relative flex w-full items-center rounded-lg transition-colors ${
         active
-          ? "bg-accent-soft/60 text-text"
+          ? "bg-selected text-text"
           : "text-text-secondary hover:bg-surface-hover/70 hover:text-text"
       }`}
     >
@@ -124,7 +124,7 @@ export function ListItem({
 
         <span className="min-w-0 flex-1">
           <span
-            className={`block truncate text-body-lg leading-5 ${
+            className={`block truncate ui-type-item leading-5 ${
               active ? "font-medium" : ""
             }`}
           >
@@ -132,9 +132,9 @@ export function ListItem({
           </span>
           {subtitle !== undefined && subtitle !== null && (
             <span
-              className={`block truncate text-caption text-text-muted ${
-                monoSubtitle ? "font-mono" : ""
-              }`}
+              className={`block truncate ${
+                monoSubtitle ? "ui-type-code-sm" : "ui-type-sub"
+              } text-text-muted`}
             >
               {subtitle}
             </span>

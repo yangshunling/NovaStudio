@@ -18,6 +18,7 @@ import {
   AssistantRuntimeProvider,
   MessagePrimitive,
   ThreadPrimitive,
+  useAuiState,
   useExternalStoreRuntime,
   useMessagePartReasoning,
   useMessagePartText,
@@ -34,12 +35,15 @@ import {
   AlertTriangle,
 } from "lucide-react";
 import type { AgentEvent, Message, ToolKind, ToolResultImage } from "@shared/types";
+import { clamp } from "@shared/math";
+import { TOOL_TARGET_KEYS, readStringField } from "@shared/tool-input";
 import {
   selectCurrentMessages,
   selectEffectiveAgentId,
   useChatStore,
 } from "../../stores/chat";
 import { REVEAL_MESSAGE_EVENT } from "../../lib/chat-events";
+import { CHAT_VIEWPORT_ID, scrollToMessage } from "../../lib/chat-scroll";
 import { MarkdownRenderer } from "../ui/MarkdownRenderer";
 import { AgentAvatar, NovaAvatar } from "../ui/MessageAvatar";
 import { UserBubble } from "../ui/UserBubble";
@@ -76,7 +80,6 @@ const SUGGESTIONS = [
 const INITIAL_MESSAGE_WINDOW = 120;
 /** 每次「载入更早」增加多少条 */
 const LOAD_EARLIER_STEP = 80;
-const VIEWPORT_ID = "chat-viewport";
 
 export function AssistantMessageList({
   onSuggestion,
@@ -108,7 +111,7 @@ export function AssistantMessageList({
 
   const total = messages.length;
   // 会话切换后的第一帧可能还用着上一个会话的 windowStart，先夹紧避免越界
-  const start = Math.min(windowStart, Math.max(0, total - 1));
+  const start = clamp(windowStart, 0, total - 1);
   const visibleMessages = useMemo(
     () => messages.slice(start),
     [messages, start],
@@ -127,20 +130,6 @@ export function AssistantMessageList({
     setWindowStart(Math.max(0, messages.length - INITIAL_MESSAGE_WINDOW));
   }, [currentSessionId, messages.length]);
 
-  const scrollToMessage = useCallback((id: string) => {
-    const viewport = document.getElementById(VIEWPORT_ID);
-    const element = viewport?.querySelector<HTMLElement>(
-      `[data-message-id="${id}"]`,
-    );
-    if (!viewport || !element) return;
-    const top =
-      element.getBoundingClientRect().top -
-      viewport.getBoundingClientRect().top +
-      viewport.scrollTop -
-      16;
-    viewport.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
-  }, []);
-
   // 问题导航请求查看一条可能尚未挂载的消息
   const revealStateRef = useRef({ messages, start });
   revealStateRef.current = { messages, start };
@@ -154,7 +143,13 @@ export function AssistantMessageList({
       if (index < 0) return;
 
       if (index >= current.start) {
-        scrollToMessage(id);
+        // 会话刚切换 / 历史刚到达时，DOM 可能还差一两帧，重试而不是直接放弃
+        let attempts = 0;
+        const attempt = () => {
+          if (scrollToMessage(id)) return;
+          if (attempts++ < 5) requestAnimationFrame(attempt);
+        };
+        requestAnimationFrame(attempt);
         return;
       }
 
@@ -165,29 +160,37 @@ export function AssistantMessageList({
 
     window.addEventListener(REVEAL_MESSAGE_EVENT, onReveal);
     return () => window.removeEventListener(REVEAL_MESSAGE_EVENT, onReveal);
-  }, [scrollToMessage]);
+  }, []);
 
-  // 展开后滚动到目标消息（等 assistant-ui 完成一次渲染）
+  // 展开后滚动到目标消息。DOM 可能晚一两帧才提交（assistant-ui 再渲染），
+  // 因此重试几帧；滚动本身带落点校正，见 lib/chat-scroll。
   useEffect(() => {
     const id = revealIdRef.current;
     if (!id) return;
     revealIdRef.current = null;
-    requestAnimationFrame(() => scrollToMessage(id));
-  }, [start, scrollToMessage]);
+    let attempts = 0;
+    let frame = 0;
+    const attempt = () => {
+      if (scrollToMessage(id)) return;
+      if (attempts++ < 5) frame = requestAnimationFrame(attempt);
+    };
+    frame = requestAnimationFrame(attempt);
+    return () => cancelAnimationFrame(frame);
+  }, [start]);
 
   // 前插更早消息后抵消高度差，保持用户当前阅读位置
   useLayoutEffect(() => {
     const previousHeight = prependHeightRef.current;
     if (previousHeight === null) return;
     prependHeightRef.current = null;
-    const viewport = document.getElementById(VIEWPORT_ID);
+    const viewport = document.getElementById(CHAT_VIEWPORT_ID);
     if (!viewport) return;
     viewport.scrollTop += viewport.scrollHeight - previousHeight;
   }, [start]);
 
   const loadEarlier = () => {
     if (start <= 0) return;
-    const viewport = document.getElementById(VIEWPORT_ID);
+    const viewport = document.getElementById(CHAT_VIEWPORT_ID);
     prependHeightRef.current = viewport?.scrollHeight ?? null;
     setWindowStart((current) => Math.max(0, current - LOAD_EARLIER_STEP));
   };
@@ -217,7 +220,7 @@ export function AssistantMessageList({
     <AssistantRuntimeProvider runtime={runtime}>
       <ThreadPrimitive.Root className="relative h-full">
         <ThreadPrimitive.Viewport
-          id={VIEWPORT_ID}
+          id={CHAT_VIEWPORT_ID}
           className="ui-chat-scale ui-chat-gutter h-full overflow-y-auto py-4"
         >
           {start > 0 && (
@@ -225,7 +228,7 @@ export function AssistantMessageList({
               <button
                 type="button"
                 onClick={loadEarlier}
-                className="rounded-full border border-border/60 bg-surface-2/40 px-3 py-1 text-meta text-text-secondary transition-colors hover:border-accent/40 hover:text-accent"
+                className="rounded-full border border-border/60 bg-surface-2/40 px-3 py-1 ui-type-note text-text-secondary transition-colors hover:border-accent/40 hover:text-accent"
               >
                 载入更早的 {Math.min(start, LOAD_EARLIER_STEP)} 条消息
               </button>
@@ -266,7 +269,7 @@ function ThreadEmpty({
         <div className="history-progress">
           <div className="history-progress-bar" />
         </div>
-        <p className="ui-serif text-body tracking-wide text-text-secondary">
+        <p className="ui-type-body tracking-wide text-text-secondary">
           历史记录正在恢复中
         </p>
       </div>
@@ -287,10 +290,10 @@ function ThreadEmpty({
             <Sparkles className="h-6 w-6" />
           </div>
 
-          <h1 className="mt-5 text-heading font-semibold tracking-tight text-text">
+          <h1 className="mt-5 ui-type-heading tracking-tight text-text">
             {project ? `在「${project.name}」中开始对话` : "有什么可以帮你？"}
           </h1>
-          <p className="mt-2 max-w-md text-body leading-relaxed text-text-secondary">
+          <p className="mt-2 max-w-md ui-type-body leading-relaxed text-text-secondary">
             {project
               ? "描述任务，或从下面的示例开始。Nova 会在当前工作目录中读取和改动文件。"
               : "描述你的任务，或从下面的示例开始。需要读写本地文件时，在输入框旁指定工作区。"}
@@ -303,7 +306,7 @@ function ThreadEmpty({
                   key={label}
                   type="button"
                   onClick={() => onSuggestion(prompt)}
-                  className="flex items-center gap-1.5 rounded-full border border-border/60 bg-surface/80 px-3 py-1.5 text-meta text-text-secondary shadow-[var(--c-shadow-sm)] transition-colors hover:border-accent/40 hover:bg-accent-soft hover:text-accent"
+                  className="flex items-center gap-1.5 rounded-full border border-border/60 bg-surface/80 px-3 py-1.5 ui-type-note text-text-secondary shadow-[var(--c-shadow-sm)] transition-colors hover:border-accent/40 hover:bg-accent-soft hover:text-accent"
                 >
                   <Icon className="h-3.5 w-3.5" />
                   {label}
@@ -312,7 +315,7 @@ function ThreadEmpty({
             </div>
           )}
 
-          <p className="mt-6 text-caption text-text-muted">
+          <p className="mt-6 ui-type-sub text-text-muted">
             Enter 发送 · Shift + Enter 换行
           </p>
         </div>
@@ -340,6 +343,12 @@ function UserTextPart() {
 function AssistantMessage() {
   const agents = useChatStore((s) => s.agents);
   const agentId = useChatStore(selectEffectiveAgentId);
+  /*
+   * 用消息级状态而不是某个 part 的状态：思考 / 调工具 / 写正文都算「在跑」。
+   * 挂在 part 上时，只要当前正在产出思考块，正文 part 就处于完成态，
+   * 提示语会时隐时现。消息级状态在整个回复结束前一直为 running。
+   */
+  const running = useAuiState((s) => s.message.status?.type === "running");
 
   return (
     <MessagePrimitive.Root className="relative mx-auto mb-4 max-w-[var(--c-layout-content)] last:mb-0">
@@ -364,8 +373,22 @@ function AssistantMessage() {
             tools: { Fallback: ToolPart },
           }}
         />
+        {/* 固定在整条回复末尾：不论是思考、工具调用还是正文流式，只要没结束就一直在 */}
+        {running && <WorkingIndicator />}
       </div>
     </MessagePrimitive.Root>
+  );
+}
+
+/** 「Nova is working...」——回复进行中的常驻状态提示 */
+function WorkingIndicator() {
+  return (
+    <div className="flex items-center" role="status">
+      {/* 整句流光：让「正在工作」这件事在字面上持续流动 */}
+      <span className="shimmer shimmer-fast ui-type-body italic tracking-wide">
+        Nova is working...
+      </span>
+    </div>
   );
 }
 
@@ -388,16 +411,8 @@ function AnswerPart() {
 
   // 助手正文不再套气泡外框：正文直接落在内容列上，与输入框左右对齐
   return (
-    <div className="ui-cv-block w-full text-text">
+    <div className="w-full text-text">
       <MarkdownRenderer content={text} streaming={running} />
-      {running && (
-        <div className="mt-2 flex items-center">
-          {/* 整句流光：让「正在工作」这件事在字面上持续流动 */}
-          <span className="shimmer shimmer-fast ui-serif text-body italic tracking-wide">
-            Nova is working...
-          </span>
-        </div>
-      )}
     </div>
   );
 }
@@ -451,7 +466,7 @@ function ToolPart(props: ToolCallMessagePartProps) {
 
 function ErrorPart(props: DataMessagePartProps<{ message: string }>) {
   return (
-    <div className="flex items-start gap-2.5 rounded-xl border border-error/30 bg-error-bg/70 px-3.5 py-2.5 text-body text-error">
+    <div className="flex items-start gap-2.5 rounded-xl border border-error/30 bg-error-bg/70 px-3.5 py-2.5 ui-type-body text-error">
       <Bug className="mt-0.5 h-4 w-4 shrink-0" />
       <span className="min-w-0">{props.data.message}</span>
     </div>
@@ -460,7 +475,7 @@ function ErrorPart(props: DataMessagePartProps<{ message: string }>) {
 
 function WarningPart(props: DataMessagePartProps<{ message: string }>) {
   return (
-    <div className="flex items-start gap-2.5 rounded-xl border border-border/60 bg-surface-2/40 px-3.5 py-2.5 text-body text-text-secondary">
+    <div className="flex items-start gap-2.5 rounded-xl border border-border/60 bg-surface-2/40 px-3.5 py-2.5 ui-type-body text-text-secondary">
       <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-text-muted" />
       <span className="min-w-0">{props.data.message}</span>
     </div>
@@ -638,12 +653,10 @@ function readNovaToolMetadata(
 
 function readToolTarget(args: unknown): string {
   if (!args || typeof args !== "object") return "";
-  const record = args as Record<string, unknown>;
-  for (const key of ["path", "file", "filePath", "file_path", "command", "pattern", "query"]) {
-    const value = record[key];
-    if (typeof value === "string" && value) return value;
-  }
-  return "";
+  return readStringField(
+    args as Record<string, unknown>,
+    TOOL_TARGET_KEYS,
+  );
 }
 
 /** tool-call part 的 result 里携带的工具输出图片 */

@@ -27,6 +27,7 @@ import type {
   WorkflowNode,
   WorkflowNodeRunStatus,
 } from "@shared/types";
+import { clamp } from "@shared/math";
 import { NODE_STATUS } from "../../lib/workflow/status";
 import { EmployeeAvatar } from "../employees/EmployeeAvatar";
 
@@ -349,7 +350,7 @@ export function WorkflowCanvas({
 
   const setZoom = (next: number, sx: number, sy: number) => {
     const v = viewRef.current;
-    const k = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, next));
+    const k = clamp(next, MIN_ZOOM, MAX_ZOOM);
     setView({
       k,
       x: sx - (sx - v.x) * (k / v.k),
@@ -476,7 +477,7 @@ export function WorkflowCanvas({
     >
       {/* 居中容器负责定位，胶囊自身不再做 translate —— 避免半像素位移让文字发虚 */}
       <div className="pointer-events-none absolute inset-x-0 top-3 z-10 flex justify-center px-4">
-        <span className="ui-ring rounded-full bg-bg px-4 py-2 text-body leading-none text-text-secondary">
+        <span className="ui-ring rounded-full bg-bg px-4 py-2 ui-type-body leading-none text-text-secondary">
           拖拽节点移动 · Shift/Ctrl 点击多选 · 右侧圆点连线 · 选中连线可删除或改连 · 滚轮缩放
         </span>
       </div>
@@ -640,7 +641,7 @@ export function WorkflowCanvas({
 
       {nodes.length === 0 && (
         <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center">
-          <p className="rounded-xl border border-dashed border-border px-6 py-4 text-body-lg text-text-muted">
+          <p className="rounded-xl border border-dashed border-border px-6 py-4 ui-type-item text-text-muted">
             从左侧点击「节点」或数字员工，开始编排
           </p>
         </div>
@@ -674,7 +675,7 @@ export function WorkflowCanvas({
         >
           <Maximize2 className="h-4 w-4" />
         </button>
-        <span className="px-2 font-mono text-meta text-text-muted">
+        <span className="px-2 ui-type-code text-text-muted">
           {Math.round(view.k * 100)}%
         </span>
       </div>

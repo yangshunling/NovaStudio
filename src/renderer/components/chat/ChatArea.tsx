@@ -9,7 +9,7 @@
  * - 助手正文为描边圆角卡片（外观由皮肤 token 决定）
  */
 
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef } from "react";
 import {
   NEW_SESSION_DRAFT_KEY,
   useChatStore,
@@ -22,18 +22,44 @@ import {
   MessageSquare,
   PanelRightClose,
   PanelRightOpen,
+  Sparkles,
+  Wrench,
+  Library,
   X,
 } from "lucide-react";
 import { AgentSelector } from "./AgentSelector";
 import { ProjectSelector } from "./ProjectSelector";
-import { useFileMention, FileMentionPopup } from "./FileMention";
+import {
+  useMention,
+  MentionPopup,
+  type MentionReference,
+} from "./MentionPicker";
 import { AssistantMessageList } from "./AssistantMessageList";
-import { PromptPicker } from "./PromptPicker";
+import { ContextGauge } from "./ContextGauge";
+import { useWorkspacePicker } from "./WorkspacePicker";
+import { WorkspaceMenuPanel } from "./WorkspaceMenu";
 import { QuestionNav } from "./QuestionNav";
 import { FileTypeIcon } from "../ui/FileTypeIcon";
 import { PageHeader } from "../ui/Page";
+import { IconButton } from "../ui/IconButton";
 import { toast } from "../../stores/toast";
 import { toMessage } from "../../lib/utils";
+import { htmlToPlainText, normalizeLineBreaks } from "../../lib/paste-text";
+import { FOCUS_COMPOSER_EVENT } from "../../lib/chat-events";
+
+/** 引用标签的图标：文件按扩展名，其余按引用类型 */
+function ReferenceIcon({ reference }: { reference: MentionReference }) {
+  switch (reference.category) {
+    case "file":
+      return <FileTypeIcon name={reference.name} size={13} />;
+    case "tool":
+      return <Wrench className="h-3.5 w-3.5" />;
+    case "skill":
+      return <Sparkles className="h-3.5 w-3.5" />;
+    case "knowledge":
+      return <Library className="h-3.5 w-3.5" />;
+  }
+}
 
 // ============================================================================
 // 对话主区域
@@ -47,6 +73,12 @@ export function ChatArea({ embedded = false }: { embedded?: boolean } = {}) {
   const sessions = useChatStore((s) => s.sessions);
   const currentProjectId = useChatStore((s) => s.currentProjectId);
   const currentSessionId = useChatStore((s) => s.currentSessionId);
+  /** 当前会话的上下文占用；切换会话 / 每轮 usage 到达时自动更新 */
+  const usage = useChatStore((s) =>
+    s.currentSessionId
+      ? (s.usageBySession[s.currentSessionId] ?? null)
+      : null,
+  );
 
   const currentProject = projects.find((p) => p.id === currentProjectId);
   const currentSession = sessions.find((s) => s.id === currentSessionId);
@@ -81,6 +113,26 @@ export function ChatArea({ embedded = false }: { embedded?: boolean } = {}) {
   const pendingPrompt = useChatStore((s) => s.pendingPrompt);
   const consumePendingPrompt = useChatStore((s) => s.consumePendingPrompt);
 
+  /*
+   * 点击左侧会话时，把焦点交还输入框。
+   *
+   * 输入框常驻挂载，autoFocus 只在首次挂载生效，切换会话不会再次聚焦；
+   * 这里监听会话列表广播的意图事件，等标签切换完成后再落焦点。
+   */
+  useEffect(() => {
+    const focusComposer = () => {
+      requestAnimationFrame(() => {
+        const textarea = textareaRef.current;
+        // 文件预览 / 终端标签可能仍盖在对话区上：不可见时不抢焦点
+        if (!textarea || textarea.offsetParent === null) return;
+        textarea.focus({ preventScroll: true });
+      });
+    };
+    window.addEventListener(FOCUS_COMPOSER_EVENT, focusComposer);
+    return () =>
+      window.removeEventListener(FOCUS_COMPOSER_EVENT, focusComposer);
+  }, []);
+
   /** 把提示词正文接到现有草稿后面，并把光标移到末尾 */
   const appendToInput = useCallback(
     (content: string) => {
@@ -108,24 +160,98 @@ export function ChatArea({ embedded = false }: { embedded?: boolean } = {}) {
     if (content) appendToInput(content);
   }, [pendingPrompt, consumePendingPrompt, appendToInput]);
 
-  const fileMention = useFileMention({
+  /**
+   * 输入框随内容自动增高。
+   *
+   * textarea 的 rows={1} 只决定初始高度，多行内容（例如带格式的提示词）
+   * 会被压在一行里只露出第一行。这里按 scrollHeight 撑开，最大高度由
+   * CSS 的 max-h-48 限制，超过后在框内滚动。
+   */
+  useLayoutEffect(() => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+    textarea.style.height = "auto";
+    // 隐藏状态下量不到内容高度，退回 CSS 的 min-height
+    textarea.style.height =
+      textarea.scrollHeight > 0 ? `${textarea.scrollHeight}px` : "";
+  }, [input]);
+
+  const mention = useMention({
     draftKey,
     projectId: currentProject?.id ?? "",
     input,
     setInput,
     textareaRef,
   });
+  /** `#` 快捷切换工作区；与 `@` 共用同一个输入框和弹窗位置 */
+  const workspacePicker = useWorkspacePicker({
+    draftKey,
+    input,
+    setInput,
+    textareaRef,
+  });
+  /**
+   * 粘贴时还原富文本的段落结构。
+   *
+   * textarea 只认剪贴板里的 text/plain；从网页 / Word 复制时，纯文本可能
+   * 被拼成一行（换行只存在于 HTML 的 <p>/<br> 里），或使用 \v 之类
+   * 非标准换行符。这里在需要时改用 HTML 重建文本，再交给输入框。
+   */
+  const handlePaste = (event: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const clipboard = event.clipboardData;
+    const plain = clipboard.getData("text/plain");
+    const html = clipboard.getData("text/html");
+    const normalized = normalizeLineBreaks(plain);
+
+    let text: string | null = null;
+    if (normalized !== plain && normalized.includes("\n")) {
+      // Word 的软换行 / Unicode 行分隔符：先规整成普通换行
+      text = normalized;
+    } else if (html && !plain.includes("\n")) {
+      // 纯文本没有换行时才用 HTML 重建，避免覆盖浏览器已经正确的粘贴结果
+      const converted = htmlToPlainText(html);
+      if (converted.includes("\n")) text = converted;
+    }
+    if (!text) return;
+
+    event.preventDefault();
+    try {
+      if (document.execCommand("insertText", false, text)) return;
+    } catch {
+      // 命令不可用 / 被禁用时走下面的手工插入
+    }
+
+    // execCommand 不可用时的兜底：手动替换选区并恢复光标
+    const textarea = event.currentTarget;
+    const start = textarea.selectionStart ?? 0;
+    const end = textarea.selectionEnd ?? 0;
+    const next =
+      textarea.value.slice(0, start) + text + textarea.value.slice(end);
+    setInput(next);
+    requestAnimationFrame(() => {
+      textarea.focus();
+      const caret = start + text.length;
+      textarea.setSelectionRange(caret, caret);
+    });
+  };
+
+  /** 占位提示用独立的一行文本渲染：textarea 原生 placeholder 会自动折行 */
+  const placeholder = currentProject
+    ? "输入消息，@ 引用内容，# 切换工作区，Enter 发送，Shift+Enter 换行"
+    : "描述任务，@ 引用内容，# 切换工作区，Enter 发送，Shift+Enter 换行";
+
   const handleSend = () => {
     const trimmed = input.trim();
-    const references = fileMention.references;
+    const references = mention.references;
     // 流式中再次提交会被主进程拒绝，但仍清空了输入框：这里直接短路
     if ((!trimmed && references.length === 0) || isStreaming) return;
+    // 引用说明各自成行：除文件 @path 外都是完整句子，挤在一行里会连成一片
     const referenceText = references
-      .map((entry) => `@${entry.relativePath}`)
-      .join(" ");
-    const prompt = [trimmed, referenceText].filter(Boolean).join(" ");
+      .map((reference) => reference.promptText)
+      .join("\n");
+    const prompt = [trimmed, referenceText].filter(Boolean).join("\n");
     setInput("");
-    fileMention.clearReferences();
+    mention.clearReferences();
     // 会话创建 / Agent 缺失等前置失败不会进入消息流：把输入还给用户并提示
     void sendMessage(prompt).catch((err) => {
       setInput(trimmed);
@@ -149,22 +275,20 @@ export function ChatArea({ embedded = false }: { embedded?: boolean } = {}) {
           title={currentSession?.title ?? "新会话"}
           subtitle={currentProject?.cwd}
           actions={
-            <button
-              type="button"
-              onClick={() => setShowWorkspace(!showWorkspace)}
-              title={showWorkspace ? "隐藏工作区文件" : "显示工作区文件"}
-              aria-label={showWorkspace ? "隐藏工作区文件" : "显示工作区文件"}
+            <IconButton
+              icon={
+                showWorkspace ? (
+                  <PanelRightClose className="h-4 w-4" />
+                ) : (
+                  <PanelRightOpen className="h-4 w-4" />
+                )
+              }
+              label={showWorkspace ? "隐藏工作区文件" : "显示工作区文件"}
+              size="icon"
               aria-pressed={showWorkspace}
-              className={`ui-btn-round ui-icon-action flex size-icon-btn shrink-0 items-center justify-center rounded-full ${
-                showWorkspace ? "text-accent" : ""
-              }`}
-            >
-              {showWorkspace ? (
-                <PanelRightClose className="h-4 w-4" />
-              ) : (
-                <PanelRightOpen className="h-4 w-4" />
-              )}
-            </button>
+              className={showWorkspace ? "text-accent" : ""}
+              onClick={() => setShowWorkspace(!showWorkspace)}
+            />
           }
         />
 
@@ -186,26 +310,26 @@ export function ChatArea({ embedded = false }: { embedded?: boolean } = {}) {
           <QuestionNav />
         </div>
 
-        {/* 输入区：玻璃拟态 + 大圆角描边卡片 */}
-        <div className="ui-glass ui-chat-gutter relative z-10 border-t border-border py-inset">
-          <div className="mx-auto max-w-[var(--c-layout-content)]">
-            <div className="ui-ring rounded-[var(--c-radius-input)] bg-input-bg p-2 shadow-[var(--c-shadow-sm)] transition-[border-color,box-shadow] focus-within:border-accent/40 focus-within:shadow-[0_0_0_3px_var(--c-accent-soft)]">
-              {fileMention.references.length > 0 && (
+        {/* 输入区：一张书写纸 —— 正文在上，操作栏在下 */}
+        <div className="ui-chat-gutter relative z-10 border-t border-border bg-bg py-3">
+          <div className="mx-auto w-full max-w-[var(--c-layout-content)]">
+            <div className="rounded-input border border-border/80 bg-input-bg px-3 py-2 shadow-[var(--c-shadow-sm)] transition-[border-color,box-shadow] focus-within:border-accent/40 focus-within:shadow-[0_0_0_3px_var(--c-accent-soft)]">
+              {mention.references.length > 0 && (
                 <div className="mb-2 flex flex-wrap gap-1.5 px-1">
-                  {fileMention.references.map((entry) => (
+                  {mention.references.map((reference) => (
                     <span
-                      key={entry.relativePath}
-                      title={entry.relativePath}
-                      className="flex max-w-64 items-center gap-1.5 rounded-full border border-accent/25 bg-accent-soft px-2 py-1 text-meta font-medium text-accent"
+                      key={reference.key}
+                      title={reference.detail || reference.name}
+                      className="flex max-w-64 items-center gap-1.5 rounded-md border border-border/60 bg-surface-hover/40 px-2 py-1 ui-type-sub text-text-secondary"
                     >
-                      <FileTypeIcon name={entry.name} size={13} />
-                      <span className="truncate">{entry.name}</span>
+                      <ReferenceIcon reference={reference} />
+                      <span className="truncate">{reference.name}</span>
                       <button
                         type="button"
-                        onClick={() => fileMention.removeReference(entry.relativePath)}
-                        title={`移除 ${entry.name}`}
-                        aria-label={`移除引用文件 ${entry.name}`}
-                        className="rounded-full p-0.5 text-current opacity-70 hover:bg-surface-hover hover:opacity-100"
+                        onClick={() => mention.removeReference(reference.key)}
+                        title={`移除 ${reference.name}`}
+                        aria-label={`移除引用 ${reference.name}`}
+                        className="rounded-sm p-0.5 text-text-muted transition-colors hover:bg-surface-hover hover:text-text"
                       >
                         <X className="h-3 w-3" />
                       </button>
@@ -213,79 +337,112 @@ export function ChatArea({ embedded = false }: { embedded?: boolean } = {}) {
                   ))}
                 </div>
               )}
-              <div className="flex items-end gap-2">
-                <div className="relative flex flex-1 items-end">
-                  <textarea
-                    ref={textareaRef}
-                    // 启动时把焦点留在输入框：否则 Chromium 的初始焦点会落到
-                    // DOM 里第一个可聚焦元素（侧栏「新建会话」按钮）上。
-                    // autoFocus 只在挂载时生效，不会在后续渲染里抢焦点。
-                    autoFocus
-                    value={input}
-                    onChange={(e) => fileMention.handleChange(e)}
-                    onKeyDown={(e) => {
-                      if (fileMention.handleKeyDown(e)) return;
-                      // 中文输入法选词时的回车不能当发送：
-                      // 否则会把还没上屏的拼音当成完整消息发出去
-                      if (e.nativeEvent.isComposing || e.keyCode === 229) return;
-                      if (e.key === "Enter" && !e.shiftKey) {
-                        e.preventDefault();
-                        handleSend();
-                      }
-                    }}
-                    placeholder={
-                      currentProject
-                        ? "输入消息，@ 提及文件，Enter 发送，Shift+Enter 换行"
-                        : "描述任务，Enter 发送；绑定工作区后可用 @ 提及文件"
+
+              {/* 正文：独占整行，宽度不再被右侧控件挤占 */}
+              <div className="relative">
+                <textarea
+                  ref={textareaRef}
+                  // 启动时把焦点留在输入框：否则 Chromium 的初始焦点会落到
+                  // DOM 里第一个可聚焦元素（侧栏「新建会话」按钮）上。
+                  // autoFocus 只在挂载时生效，不会在后续渲染里抢焦点。
+                  autoFocus
+                  value={input}
+                  onChange={(e) => {
+                    mention.handleChange(e);
+                    workspacePicker.handleChange(e);
+                  }}
+                  onPaste={handlePaste}
+                  onKeyDown={(e) => {
+                    if (mention.handleKeyDown(e)) return;
+                    if (workspacePicker.handleKeyDown(e)) return;
+                    // 中文输入法选词时的回车不能当发送：
+                    // 否则会把还没上屏的拼音当成完整消息发出去
+                    if (e.nativeEvent.isComposing || e.keyCode === 229) return;
+                    if (e.key === "Enter" && !e.shiftKey) {
+                      e.preventDefault();
+                      handleSend();
                     }
-                    rows={1}
-                    className="max-h-40 flex-1 resize-none bg-transparent px-3 py-2 text-body-lg text-text placeholder-text-muted outline-none"
+                  }}
+                  placeholder=""
+                  rows={1}
+                  className="max-h-48 min-h-[40px] w-full resize-none bg-transparent px-1.5 py-1 ui-type-item leading-relaxed text-text placeholder-text-muted outline-none"
+                />
+                {input.length === 0 && (
+                  <span
+                    aria-hidden
+                    className="pointer-events-none absolute inset-x-0 top-0 select-none truncate px-1.5 py-1 ui-type-item leading-relaxed text-text-muted"
+                  >
+                    {placeholder}
+                  </span>
+                )}
+                {mention.active ? (
+                  <MentionPopup
+                    entries={mention.entries}
+                    hoverIdx={mention.hoverIdx}
+                    loading={mention.loading}
+                    emptyHint={mention.emptyHint}
+                    headerLabel={mention.headerLabel}
+                    canBack={mention.canBack}
+                    onBack={mention.goBack}
+                    onHover={mention.setHoverIdx}
+                    onSelect={mention.selectEntry}
+                    popupRef={mention.popupRef}
+                    itemRefs={mention.itemRefs}
                   />
-                  {fileMention.active && (
-                    <FileMentionPopup
-                      items={fileMention.items}
-                      hoverIdx={fileMention.hoverIdx}
-                      loading={fileMention.loading}
-                      onHover={fileMention.setHoverIdx}
-                      onSelect={fileMention.selectEntry}
-                      popupRef={fileMention.popupRef}
-                      itemRefs={fileMention.itemRefs}
+                ) : workspacePicker.active ? (
+                  <WorkspaceMenuPanel
+                    items={workspacePicker.entries}
+                    hoverIdx={workspacePicker.hoverIdx}
+                    emptyHint={workspacePicker.emptyHint}
+                    onHover={workspacePicker.setHoverIdx}
+                    onSelect={workspacePicker.selectEntry}
+                    popupRef={workspacePicker.popupRef}
+                    itemRefs={workspacePicker.itemRefs}
+                  />
+                ) : null}
+              </div>
+
+              {/* 操作栏：左边是上下文，右边是仪表与发送 */}
+              <div className="mt-0 flex items-center justify-between gap-3 border-t border-border/60 pt-1">
+                <div className="flex min-w-0 items-center gap-1">
+                  {/* 工作目录：可选。绑定后 Agent 在该工作区目录运行 */}
+                  <ProjectSelector />
+                  {/* 有多个可用 Agent 时才需要选择；否则自动使用唯一的那个 */}
+                  {hasAgentChoice && (
+                    <AgentSelector
+                      agents={agents}
+                      agentId={effectiveAgentId}
+                      locked={agentLocked}
+                      onSelect={selectAgent}
                     />
                   )}
                 </div>
-              {/* 工作目录：可选。绑定后 Agent 在该工作区目录运行 */}
-              <ProjectSelector />
-              {/* 常用提示词：选中后插入输入框，由用户确认后再发送 */}
-              <PromptPicker onPick={appendToInput} />
-              {/* 有多个可用 Agent 时才需要选择；否则自动使用唯一的那个 */}
-              {hasAgentChoice && (
-                <AgentSelector
-                  agents={agents}
-                  agentId={effectiveAgentId}
-                  locked={agentLocked}
-                  onSelect={selectAgent}
-                />
-              )}
-              {isStreaming ? (
-                <button
-                  onClick={() => abort()}
-                  title="停止运行"
-                  aria-label="停止运行"
-                  className="ui-btn-danger-soft flex size-icon-btn shrink-0 items-center justify-center rounded-full"
-                >
-                  <Square className="h-4 w-4" />
-                </button>
-              ) : (
-                <button
-                  onClick={handleSend}
-                  disabled={!input.trim() && fileMention.references.length === 0}
-                  title="发送"
-                  aria-label="发送消息"
-                  className="ui-btn-primary flex size-icon-btn shrink-0 items-center justify-center rounded-full disabled:cursor-not-allowed disabled:opacity-40"
-                >
-                  <Send className="h-4 w-4" />
-                </button>
-              )}
+
+                <div className="flex shrink-0 items-center gap-3">
+                  <ContextGauge usage={usage} agentId={effectiveAgentId} />
+                  {isStreaming ? (
+                    <button
+                      onClick={() => abort()}
+                      title="停止运行"
+                      aria-label="停止运行"
+                      className="ui-btn ui-btn-sm ui-btn-danger-soft shrink-0"
+                    >
+                      <Square className="h-3.5 w-3.5" />
+                      停止
+                    </button>
+                  ) : (
+                    <button
+                      onClick={handleSend}
+                      disabled={!input.trim() && mention.references.length === 0}
+                      title="发送"
+                      aria-label="发送消息"
+                      className="ui-btn ui-btn-sm ui-btn-primary shrink-0 disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      <Send className="h-3.5 w-3.5" />
+                      发送
+                    </button>
+                  )}
+                </div>
               </div>
             </div>
           </div>

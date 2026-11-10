@@ -36,6 +36,8 @@ import type {
   KnowledgeUploadResult,
   KnowledgeWriteResult,
 } from "../../shared/types";
+import { errorMessage } from "../../shared/error";
+import { parseJsonSafe } from "../../shared/json";
 
 /** Nova 知识库根目录 */
 export const KNOWLEDGE_ROOT = join(DATA_DIR, "knowledge");
@@ -107,29 +109,25 @@ async function readMeta(
   fallbackName: string,
   fallbackTime: number,
 ): Promise<KnowledgeMeta> {
+  let raw = "";
   try {
-    const raw = await readFile(join(dir, META_FILE), "utf8");
-    const value = JSON.parse(raw) as Partial<KnowledgeMeta>;
-    return {
-      name:
-        typeof value.name === "string" && value.name.trim()
-          ? value.name.trim()
-          : fallbackName,
-      description:
-        typeof value.description === "string" ? value.description : "",
-      createdAt:
-        typeof value.createdAt === "number" ? value.createdAt : fallbackTime,
-      updatedAt:
-        typeof value.updatedAt === "number" ? value.updatedAt : fallbackTime,
-    };
+    raw = await readFile(join(dir, META_FILE), "utf8");
   } catch {
-    return {
-      name: fallbackName,
-      description: "",
-      createdAt: fallbackTime,
-      updatedAt: fallbackTime,
-    };
+    // 元信息文件缺失时用调用方提供的默认值
   }
+  const value = parseJsonSafe<Partial<KnowledgeMeta>>(raw, {});
+  return {
+    name:
+      typeof value.name === "string" && value.name.trim()
+        ? value.name.trim()
+        : fallbackName,
+    description:
+      typeof value.description === "string" ? value.description : "",
+    createdAt:
+      typeof value.createdAt === "number" ? value.createdAt : fallbackTime,
+    updatedAt:
+      typeof value.updatedAt === "number" ? value.updatedAt : fallbackTime,
+  };
 }
 
 /** 递归收集知识库内的全部文件；跳过隐藏项与符号链接 */
@@ -431,7 +429,7 @@ export async function createKnowledgeBase(
   } catch (err) {
     return {
       ok: false,
-      error: err instanceof Error ? err.message : String(err),
+      error: errorMessage(err),
     };
   }
 }
@@ -474,7 +472,7 @@ export async function updateKnowledgeBase(
   } catch (err) {
     return {
       ok: false,
-      error: err instanceof Error ? err.message : String(err),
+      error: errorMessage(err),
     };
   }
 }
@@ -644,7 +642,7 @@ export async function importKnowledgeFiles(
       await indexDocument(asset, document);
     } catch (err) {
       warnings.push(
-        `${sourceName}：${err instanceof Error ? err.message : String(err)}`,
+        `${sourceName}：${errorMessage(err)}`,
       );
     }
   }

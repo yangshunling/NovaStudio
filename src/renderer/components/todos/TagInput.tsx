@@ -18,7 +18,7 @@ interface TagInputProps {
 }
 
 /** 统一标签清洗规则：去掉 # 前缀与首尾空白，按逗号拆分 */
-export function normalizeTagText(raw: string): string[] {
+function normalizeTagText(raw: string): string[] {
   return raw
     .split(/[,，]/)
     .map((part) => part.trim().replace(/^#+/, "").trim())
@@ -66,7 +66,7 @@ export function TagInput({
         {value.map((tag) => (
           <span
             key={tag}
-            className="flex items-center gap-1 rounded-full bg-accent-soft px-2 py-0.5 text-meta text-accent"
+            className="flex items-center gap-1 rounded-full bg-accent-soft px-2 py-0.5 ui-type-note text-accent"
           >
             #{tag}
             <button
@@ -97,19 +97,19 @@ export function TagInput({
             }
           }}
           placeholder={atLimit ? `最多 ${max} 个标签` : placeholder}
-          className="min-w-[120px] flex-1 bg-transparent px-0.5 py-0.5 text-body text-text outline-none placeholder-text-muted disabled:cursor-not-allowed"
+          className="min-w-[120px] flex-1 bg-transparent px-0.5 py-0.5 ui-type-body text-text outline-none placeholder-text-muted disabled:cursor-not-allowed"
         />
       </div>
 
       {available.length > 0 && (
         <div className="mt-2 flex flex-wrap items-center gap-1.5 border-t border-border/60 pt-2">
-          <span className="text-caption text-text-muted">已有</span>
+          <span className="ui-type-sub text-text-muted">已有</span>
           {available.map((tag) => (
             <button
               key={tag}
               type="button"
               onClick={() => add(tag)}
-              className="rounded-full bg-surface-2/40 px-2 py-0.5 text-caption text-text-secondary transition-colors hover:bg-surface-hover hover:text-text"
+              className="rounded-full bg-surface-2/40 px-2 py-0.5 ui-type-sub text-text-secondary transition-colors hover:bg-surface-hover hover:text-text"
             >
               #{tag}
             </button>

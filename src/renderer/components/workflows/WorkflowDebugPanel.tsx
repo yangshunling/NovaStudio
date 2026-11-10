@@ -8,7 +8,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Check, FileText, FolderOpen, Pencil, Square, X } from "lucide-react";
 import type { WorkflowRunDetail } from "@shared/types";
-import { formatDuration } from "../../lib/workflow/format";
+import { formatDuration } from "@shared/time";
 import { ACTIVE_RUN_STATUSES, RUN_STATUS } from "../../lib/workflow/status";
 import { Button } from "../ui/Button";
 
@@ -102,16 +102,16 @@ export function WorkflowDebugPanel({
             run.status === "running" ? "animate-spin" : ""
           }`}
         />
-        <span className={`shrink-0 text-body-lg font-semibold ${meta.className}`}>
+        <span className={`shrink-0 ui-type-item font-semibold ${meta.className}`}>
           {meta.label}
         </span>
 
-        <span className="shrink-0 text-meta text-text-muted">
+        <span className="shrink-0 ui-type-note text-text-muted">
           {done}/{nodes.length} 节点
         </span>
 
         {current && (
-          <span className="min-w-0 truncate text-meta text-text-secondary">
+          <span className="min-w-0 truncate ui-type-note text-text-secondary">
             当前：{current.nodeName}
             {currentNodes.length > 1
               ? ` 等 ${currentNodes.length} 个节点`
@@ -119,13 +119,13 @@ export function WorkflowDebugPanel({
           </span>
         )}
 
-        <span className="shrink-0 font-mono text-meta text-text-muted">
+        <span className="shrink-0 ui-type-code text-text-muted">
           {formatDuration(run.startedAt, run.finishedAt, now)}
         </span>
 
         {run.error && (
           <span
-            className="max-w-64 truncate text-meta text-error"
+            className="max-w-64 truncate ui-type-note text-error"
             title={run.error}
           >
             {run.error}
@@ -223,13 +223,13 @@ export function WorkflowDebugPanel({
         <div className="border-t border-border px-4 py-2.5">
           {awaitingNodes.length > 1 && (
             <div className="mb-2 flex flex-wrap items-center gap-1.5">
-              <span className="text-caption text-text-muted">待审核节点：</span>
+              <span className="ui-type-sub text-text-muted">待审核节点：</span>
               {awaitingNodes.map((node) => (
                 <button
                   key={node.id}
                   type="button"
                   onClick={() => setAwaitingId(node.id)}
-                  className={`rounded-full px-2.5 py-1 text-caption transition-colors ${
+                  className={`rounded-full px-2.5 py-1 ui-type-sub transition-colors ${
                     node.id === awaiting.id
                       ? "bg-accent-soft font-medium text-accent"
                       : "bg-surface/70 text-text-secondary hover:text-text"
@@ -240,14 +240,14 @@ export function WorkflowDebugPanel({
               ))}
             </div>
           )}
-          <p className="text-meta font-medium text-text-secondary">
+          <p className="ui-type-label text-text-secondary">
             产物待审核 · {awaiting.nodeName}
             {awaiting.employeeName ? ` · ${awaiting.employeeName}` : ""}
           </p>
-          <pre className="mt-1.5 max-h-24 overflow-y-auto whitespace-pre-wrap rounded-lg bg-surface/70 p-2.5 font-sans text-meta leading-relaxed text-text">
+          <pre className="mt-1.5 max-h-24 overflow-y-auto whitespace-pre-wrap rounded-lg bg-surface/70 p-2.5 font-sans ui-type-note leading-relaxed text-text">
             {awaiting.outputSummary || "（节点已完成，产物见运行详情）"}
           </pre>
-          <p className="mt-1.5 text-caption text-text-muted">
+          <p className="mt-1.5 ui-type-sub text-text-muted">
             通过后节点完成并继续下游；「要求修改」会在同一个会话里带着意见重做
             （最多 {maxRevisions} 轮）；驳回会立即终止本次运行，不能重试。
           </p>
@@ -256,7 +256,7 @@ export function WorkflowDebugPanel({
             onChange={(event) => setNote(event.target.value)}
             rows={2}
             placeholder="审核备注（要求修改时必填，会作为下一轮的评审意见）"
-            className="ui-ring mt-2 w-full resize-none rounded-lg bg-surface/70 px-2.5 py-2 text-meta text-text placeholder-text-muted outline-none"
+            className="ui-ring mt-2 w-full resize-none rounded-lg bg-surface/70 px-2.5 py-2 ui-type-note text-text placeholder-text-muted outline-none"
           />
         </div>
       )}

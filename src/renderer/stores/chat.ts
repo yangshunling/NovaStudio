@@ -49,6 +49,8 @@ interface ChatState {
   currentSessionId: string | null;
   /** 每个会话的实时消息桶（含未落库的流式增量） */
   messagesBySession: Record<string, Message[]>;
+  /** 每个会话的 token 用量与上下文占用；随 usage 事件增量更新 */
+  usageBySession: Record<string, SessionUsage>;
   /** 每个会话的输入草稿；切走再回来不丢，也不会串到别的会话 */
   draftsBySession: Record<string, string>;
   /** 每个会话是否正在流式运行（供会话列表并发指示、输入区按钮态） */
@@ -83,6 +85,8 @@ interface ChatState {
   selectSession: (id: string) => Promise<void>;
   renameSession: (id: string, title: string) => Promise<void>;
   deleteSession: (id: string) => Promise<void>;
+  /** 置顶 / 取消置顶；只影响列表排序，不参与时间分组 */
+  pinSession: (id: string, pinned: boolean) => Promise<void>;
 
   // Agent
   detectAgents: () => Promise<void>;
@@ -111,6 +115,112 @@ interface ChatState {
 }
 
 const EMPTY: readonly Message[] = Object.freeze([]);
+
+/** 一次 usage 事件（整轮汇总或单次调用的上下文快照） */
+type UsageEvent = Extract<AgentEvent, { type: "usage" }>;
+
+/**
+ * 单个会话的用量汇总。
+ *
+ * 两个口径分开记：
+ * - contextUsed / contextMax：最近一次 API 调用的上下文占用，用于仪表；
+ * - input/output/cache/cost：整轮 result 的累加，用于「会话累计」。
+ * 不能把整轮汇总当上下文占用：一轮里可能发生多次工具循环。
+ */
+export interface SessionUsage {
+  /** 最近一次 API 调用的上下文占用（输入 + 缓存创建 + 缓存读取） */
+  contextUsed: number;
+  /** 上下文窗口上限；CLI 未报告时使用默认值 */
+  contextMax: number;
+  /** contextMax 是否来自 CLI 的明确报告（否则为默认值，应由模型配置覆盖） */
+  contextMaxReported: boolean;
+  /** 最近一次 API 调用的输入侧明细，用于 hover 面板 */
+  contextInputTokens: number;
+  contextCacheCreationInputTokens: number;
+  contextCacheReadInputTokens: number;
+  contextOutputTokens: number;
+  inputTokens: number;
+  outputTokens: number;
+  cacheCreationInputTokens: number;
+  cacheReadInputTokens: number;
+  costUsd: number;
+  /** 已完成的问答轮数（按整轮 usage 计） */
+  turns: number;
+}
+
+/** Claude Code 未报告 contextWindow 时的保守上限 */
+const DEFAULT_CONTEXT_WINDOW = 200_000;
+
+function emptyUsage(): SessionUsage {
+  return {
+    contextUsed: 0,
+    contextMax: DEFAULT_CONTEXT_WINDOW,
+    contextMaxReported: false,
+    contextInputTokens: 0,
+    contextCacheCreationInputTokens: 0,
+    contextCacheReadInputTokens: 0,
+    contextOutputTokens: 0,
+    inputTokens: 0,
+    outputTokens: 0,
+    cacheCreationInputTokens: 0,
+    cacheReadInputTokens: 0,
+    costUsd: 0,
+    turns: 0,
+  };
+}
+
+function applyUsage(
+  previous: SessionUsage | undefined,
+  event: UsageEvent,
+): SessionUsage {
+  const base = previous ?? emptyUsage();
+  const context = event.inputTokens + event.cacheCreationInputTokens + event.cacheReadInputTokens;
+
+  if (event.scope === "context") {
+    return {
+      ...base,
+      contextUsed: context,
+      contextInputTokens: event.inputTokens,
+      contextCacheCreationInputTokens: event.cacheCreationInputTokens,
+      contextCacheReadInputTokens: event.cacheReadInputTokens,
+      contextOutputTokens: event.outputTokens,
+    };
+  }
+
+  return {
+    ...base,
+    /*
+     * 整轮汇总绝不能当上下文占用：一轮里可能发生多次工具循环，
+     * result.usage 是这些调用的累加，会轻松超过窗口上限（表现为 122%）。
+     * 上下文只由 scope: "context" 的快照更新；没有快照时保持 0，
+     * 仪表隐藏，而不是显示一个错误数字。
+     */
+    contextMax: event.contextWindow && event.contextWindow > 0
+      ? event.contextWindow
+      : base.contextMax,
+    contextMaxReported: event.contextWindow
+      ? true
+      : base.contextMaxReported,
+    inputTokens: base.inputTokens + event.inputTokens,
+    outputTokens: base.outputTokens + event.outputTokens,
+    cacheCreationInputTokens:
+      base.cacheCreationInputTokens + event.cacheCreationInputTokens,
+    cacheReadInputTokens: base.cacheReadInputTokens + event.cacheReadInputTokens,
+    costUsd: base.costUsd + (event.costUsd ?? 0),
+    turns: base.turns + 1,
+  };
+}
+
+/** 从历史消息里重建用量（冷启动 / 首次打开旧会话时） */
+function summarizeUsage(messages: Message[]): SessionUsage | undefined {
+  let usage: SessionUsage | undefined;
+  for (const message of messages) {
+    for (const event of message.content) {
+      if (event.type === "usage") usage = applyUsage(usage, event);
+    }
+  }
+  return usage;
+}
 
 /**
  * 流式事件的渲染层聚合。
@@ -148,8 +258,20 @@ function flushPendingEvents(): void {
 
     const messagesBySession = { ...state.messagesBySession };
     const streamingBySession = { ...state.streamingBySession };
+    const usageBySession = { ...state.usageBySession };
 
     for (const [sessionId, events] of bySession) {
+      // 用量与消息分开累计：上下文快照只改 contextUsed，
+      // 整轮 result 才累加 input/output/cost 与上下文上限。
+      let usage = usageBySession[sessionId];
+      let usageChanged = false;
+      for (const event of events) {
+        if (event.type !== "usage") continue;
+        usage = applyUsage(usage, event);
+        usageChanged = true;
+      }
+      if (usageChanged && usage) usageBySession[sessionId] = usage;
+
       const msgs = messagesBySession[sessionId] ?? [];
       const last = msgs[msgs.length - 1];
 
@@ -170,7 +292,7 @@ function flushPendingEvents(): void {
       streamingBySession[sessionId] = true;
     }
 
-    return { messagesBySession, streamingBySession };
+    return { messagesBySession, streamingBySession, usageBySession };
   });
 }
 
@@ -181,6 +303,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   currentProjectId: null,
   currentSessionId: null,
   messagesBySession: {},
+  usageBySession: {},
   draftsBySession: {},
   streamingBySession: {},
   loadingHistoryFor: null,
@@ -218,10 +341,12 @@ export const useChatStore = create<ChatState>((set, get) => ({
       );
       const messagesBySession = { ...state.messagesBySession };
       const streamingBySession = { ...state.streamingBySession };
+      const usageBySession = { ...state.usageBySession };
       const draftsBySession = { ...state.draftsBySession };
       for (const sessionId of removed) {
         delete messagesBySession[sessionId];
         delete streamingBySession[sessionId];
+        delete usageBySession[sessionId];
         delete draftsBySession[sessionId];
       }
       return {
@@ -229,6 +354,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         sessions: state.sessions.filter((s) => s.projectId !== id),
         messagesBySession,
         streamingBySession,
+        usageBySession,
         draftsBySession,
         currentProjectId: state.currentProjectId === id ? null : state.currentProjectId,
         currentSessionId:
@@ -315,9 +441,27 @@ export const useChatStore = create<ChatState>((set, get) => ({
     } else {
       set({ currentSessionId: id });
     }
+    /*
+     * 回放期间用户可能刚选过工作区（bindProject 会立刻改 currentProjectId）。
+     * 记下进入回放时的绑定值，回放结果回来时据此判断绑定态有没有被用户改过——
+     * 不能用「选择之前」的旧快照把刚绑定的工作区覆盖掉。
+     * known 不存在时沿用 store 里的现有值，保证旧会话残留的绑定也能被回放结果纠正。
+     */
+    const replayBaseProjectId = known ? known.projectId : get().currentProjectId;
 
-    // 已有实时桶：直接切换，无需回放历史
-    if (get().messagesBySession[id]) return;
+    // 已有实时桶：直接切换，无需回放历史。
+    // 但如果用量还没建立（例如刚重启后第一次点开），从消息里补建一次。
+    if (get().messagesBySession[id]) {
+      if (!get().usageBySession[id]) {
+        const usage = summarizeUsage(get().messagesBySession[id]);
+        if (usage) {
+          set((s) => ({
+            usageBySession: { ...s.usageBySession, [id]: usage },
+          }));
+        }
+      }
+      return;
+    }
     // 同一会话的回放尚未返回时重复点击：忽略，避免重复发起
     if (get().loadingHistoryFor === id) return;
 
@@ -338,13 +482,25 @@ export const useChatStore = create<ChatState>((set, get) => ({
               ),
             ]
           : history;
+        const usage = summarizeUsage(merged);
         return {
           messagesBySession: { ...s.messagesBySession, [id]: merged },
-          // 历史回放返回最新的绑定态（会话可能在别处被改过）
+          usageBySession: usage
+            ? { ...s.usageBySession, [id]: usage }
+            : s.usageBySession,
+          /*
+           * 历史回放返回最新的绑定态（会话可能在别处被改过）。
+           * 但如果回放期间用户自己选了工作区，bindProject 已经把
+           * currentProjectId 改掉，此时 getSession 的返回值是「选择之前」
+           * 的快照，直接写回会把刚绑定的工作区打回「指定工作区」。
+           * 因此只在绑定态仍是乐观值时采用回放结果。
+           */
           currentProjectId:
-            s.currentSessionId === id
-              ? (session?.projectId ?? null)
-              : s.currentProjectId,
+            s.currentSessionId !== id
+              ? s.currentProjectId
+              : s.currentProjectId === replayBaseProjectId
+                ? (session?.projectId ?? null)
+                : s.currentProjectId,
         // 注意：不回写 selectedAgentId。selectedAgentId 现在唯一的语义是
         // 「新会话默认用谁」，只应由输入框旁的 Agent 选择器显式修改 ——
         // 浏览历史会话不应该悄悄改掉它（这正是旧侧栏选择器令人困惑的根源）。
@@ -367,6 +523,16 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }));
   },
 
+  pinSession: async (id, pinned) => {
+    const ok = await ipc.setSessionPinned(id, pinned);
+    if (!ok) return;
+    set((s) => ({
+      sessions: s.sessions.map((se) =>
+        se.id === id ? { ...se, pinnedAt: pinned ? Date.now() : null } : se,
+      ),
+    }));
+  },
+
   deleteSession: async (id) => {
     await ipc.deleteSession(id);
     set((s) => {
@@ -374,6 +540,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
       delete messagesBySession[id];
       const streamingBySession = { ...s.streamingBySession };
       delete streamingBySession[id];
+      const usageBySession = { ...s.usageBySession };
+      delete usageBySession[id];
       const draftsBySession = { ...s.draftsBySession };
       delete draftsBySession[id];
       const wasCurrent = s.currentSessionId === id;
@@ -383,6 +551,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         sessions: s.sessions.filter((se) => se.id !== id),
         messagesBySession,
         streamingBySession,
+        usageBySession,
         draftsBySession,
         currentSessionId: wasCurrent ? null : s.currentSessionId,
         currentProjectId: wasCurrent ? null : s.currentProjectId,
@@ -454,7 +623,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
         streamingBySession: { ...s.streamingBySession, [sessionId]: false },
       }));
       // 立即刷新会话列表，让新会话出现（不等跑完）
-      void get().loadSessions();
+      void get()
+        .loadSessions()
+        .catch((err) => console.warn("[chat] 会话列表刷新失败", err));
     }
 
     // 用户消息入桶（带 role）
@@ -596,7 +767,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
     if (complete) {
       // 只刷新会话列表（标题/排序更新）
-      void get().loadSessions();
+      void get()
+        .loadSessions()
+        .catch((err) => console.warn("[chat] 会话列表刷新失败", err));
       return;
     }
 
@@ -605,18 +778,30 @@ export const useChatStore = create<ChatState>((set, get) => ({
         const session = await ipc.getSession(data.sessionId);
         // 期间用户可能已经发出下一条消息：此时不能覆盖新运行的实时状态
         if (session && !get().streamingBySession[data.sessionId]) {
+          const history = session.messages ?? [];
+          /*
+           * 回填的是落库后的完整事件流，用量也必须一起重建：
+           * 否则刷新 / 重连后仪表会停在 0 或上一轮的旧值，而消息桶已存在，
+           * selectSession 不会再为它重算（只有 usage 为空时才会补）。
+           */
+          const usage = summarizeUsage(history);
           set((s) => ({
             messagesBySession: {
               ...s.messagesBySession,
-              [data.sessionId]: session.messages ?? [],
+              [data.sessionId]: history,
             },
+            usageBySession: usage
+              ? { ...s.usageBySession, [data.sessionId]: usage }
+              : s.usageBySession,
           }));
         }
       } catch {
         // 回填失败保留内存中的消息，不影响继续使用
       }
       // 刷新会话列表（标题/排序更新）
-      void get().loadSessions();
+      void get()
+        .loadSessions()
+        .catch((err) => console.warn("[chat] 会话列表刷新失败", err));
     })();
   },
 }));

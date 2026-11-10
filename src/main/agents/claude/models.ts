@@ -8,12 +8,21 @@
 
 import type {
   AgentAuthMode,
+  AgentModelEntry,
   AgentModelOption,
 } from "../../../shared/contracts/agent";
 import { isOfficialBaseUrl } from "./config";
 
 const OFFICIAL_BASE_URL = "https://api.anthropic.com";
 const REQUEST_TIMEOUT_MS = 15_000;
+
+/** 模型配置 → 展示 / 环境变量用的 ID：`deepseek-flash` + `1M` → `deepseek-flash[1M]` */
+export function formatModelEntry(entry: AgentModelEntry): string {
+  const name = entry.name.trim();
+  if (!name) return "";
+  const context = entry.context.trim();
+  return context ? `${name}[${context}]` : name;
+}
 
 /** 兼容 Base URL 已带 /v1 的写法，避免拼成 /v1/v1/models */
 function modelsUrl(baseUrl: string): string {

@@ -14,20 +14,12 @@
 
 import { useState } from "react";
 import {
-  AlertTriangle,
-  Check,
-  ChevronRight,
-  FileText,
-  Loader2,
-  PenLine,
-  Search,
-  Terminal,
-  Wrench,
-} from "lucide-react";
+  AlertTriangle, Check, ChevronRight, FileText, PenLine, Search, Terminal, Wrench } from "lucide-react";
 import type { ToolKind, ToolResultImage } from "@shared/types";
 import type { FileChange } from "../../lib/tool-diff";
 import { truncateText } from "../../lib/utils";
 import { ToolDiffView } from "./ToolDiffView";
+import { Spinner } from "../ui/Spinner";
 
 const TOOL_ICONS: Record<ToolKind, typeof FileText> = {
   read: FileText,
@@ -114,7 +106,7 @@ export function ToolCallCard({
 
   return (
     <div
-      className={`ui-cv-block w-full overflow-hidden rounded-xl border transition-colors ${
+      className={`w-full overflow-hidden rounded-xl border transition-colors ${
         status === "error"
           ? "border-error/30 bg-error-bg/25"
           : status === "running"
@@ -135,12 +127,12 @@ export function ToolCallCard({
 
         <span className="min-w-0 flex-1">
           <span className="flex items-baseline gap-2">
-            <span className="shrink-0 font-mono text-meta font-medium text-text">
+            <span className="shrink-0 ui-type-code font-medium text-text">
               {toolName}
             </span>
             {target && (
               <span
-                className="min-w-0 truncate font-mono text-caption text-text-muted"
+                className="min-w-0 truncate ui-type-code-sm text-text-muted"
                 title={target}
               >
                 {target}
@@ -148,7 +140,7 @@ export function ToolCallCard({
             )}
           </span>
           {changes.length > 0 && (
-            <span className="mt-0.5 flex items-center gap-2 text-caption tabular-nums">
+            <span className="mt-0.5 flex items-center gap-2 ui-type-sub tabular-nums">
               {adds > 0 && <span className="text-diff-add">+{adds}</span>}
               {dels > 0 && <span className="text-diff-del">-{dels}</span>}
               <span className="text-text-muted">
@@ -160,11 +152,11 @@ export function ToolCallCard({
 
         <span className="flex shrink-0 items-center gap-2">
           <span
-            className={`inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-caption ${statusChip}`}
+            className={`inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 ui-type-sub ${statusChip}`}
           >
             {status === "done" && <Check className="h-3 w-3" />}
             {status === "running" && (
-              <Loader2 className="h-3 w-3 animate-spin" />
+              <Spinner className="h-3 w-3" />
             )}
             {status === "error" && <AlertTriangle className="h-3 w-3" />}
             {statusText}
@@ -186,7 +178,7 @@ export function ToolCallCard({
               <div className="mb-1 text-micro font-medium text-text-muted">
                 输入
               </div>
-              <pre className="max-h-40 overflow-auto rounded-lg border border-border/60 bg-surface-2/50 px-2.5 py-2 font-mono text-caption leading-relaxed text-text-secondary">
+              <pre className="max-h-40 overflow-auto rounded-lg border border-border/60 bg-surface-2/50 px-2.5 py-2 ui-type-code-sm leading-relaxed text-text-secondary">
                 {truncateText(
                   argsText ?? JSON.stringify(args ?? {}, null, 2),
                   500,
@@ -202,7 +194,7 @@ export function ToolCallCard({
                 {failed ? "错误" : "输出"}
               </div>
               <pre
-                className={`max-h-48 overflow-auto rounded-lg border px-2.5 py-2 font-mono text-caption leading-relaxed ${
+                className={`max-h-48 overflow-auto rounded-lg border px-2.5 py-2 ui-type-code-sm leading-relaxed ${
                   failed
                     ? "border-error/30 bg-error-bg text-error"
                     : "border-border/60 bg-surface-2/50 text-text-muted"

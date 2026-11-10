@@ -70,12 +70,12 @@ export function PageHeader({
         {icon && <span className="shrink-0 text-accent">{icon}</span>}
         <div className="min-w-0">
           <div className="flex min-w-0 items-center gap-2">
-            <span className="ui-serif truncate text-title font-semibold tracking-wide text-text-secondary">
+            <span className="ui-type-title truncate text-text-secondary">
               {title}
             </span>
             {badge ??
               (count !== undefined && (
-                <span className="flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-surface-hover px-1.5 font-mono text-caption leading-none text-text-muted">
+                <span className="flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-surface-hover px-1.5 ui-type-code-sm leading-none text-text-muted">
                   {count}
                   {countSuffix}
                 </span>
@@ -83,7 +83,7 @@ export function PageHeader({
           </div>
           {subtitle && (
             <div
-              className="truncate font-mono text-caption text-text-muted"
+              className="ui-type-code-sm truncate text-text-muted"
               title={typeof subtitle === "string" ? subtitle : undefined}
             >
               {subtitle}
