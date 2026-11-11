@@ -1,0 +1,1321 @@
+/**
+ * 工作区工作台 —— 局部设计语言
+ *
+ * 只服务「工作区」页（列表 / 控制台 / 文件 / Git），不改变全局皮肤。
+ * 元素原则：
+ * - 发丝线分组，不用大色块与胶囊
+ * - 选中 = 2px 强调色左轨 + 浅色底
+ * - 28px 行高，等宽数字，状态用 16px 字母方块
+ * - 卡片、输入、浮层一律无投影；只有浮层保留大而柔的投影
+ */
+
+/* ==========================================================================
+ * 左侧工作区列表
+ * ========================================================================== */
+
+.ws-rail {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  width: var(--c-layout-session-list);
+  border-right: 1px solid var(--c-border);
+  background: var(--c-panel-bg);
+}
+
+.ws-kicker {
+  margin: 0;
+  font-size: var(--c-font-size-micro);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  color: var(--c-text-muted);
+}
+
+.ws-rail-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  height: var(--c-layout-header);
+  flex: none;
+  padding: 0 16px;
+  border-bottom: 1px solid var(--c-border);
+}
+
+.ws-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border: 1px solid var(--c-border);
+  border-radius: var(--c-radius-md);
+  font-family: var(--c-font-mono);
+  font-size: var(--c-font-size-caption);
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  color: var(--c-text-muted);
+}
+
+.ws-rail-list {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+  gap: 2px;
+  overflow-y: auto;
+  padding: 8px;
+}
+
+.ws-rail-item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 44px;
+  padding: 8px;
+  border-radius: var(--c-radius-md);
+  text-align: left;
+  transition: background-color var(--c-motion-fast) var(--c-ease-standard),
+    color var(--c-motion-fast) var(--c-ease-standard);
+}
+
+.ws-rail-item:hover {
+  background: var(--c-surface-hover);
+}
+
+.ws-rail-item[data-active="true"] {
+  background: var(--c-accent-soft);
+}
+
+/* 与知识库 / 会话列表一致的选中竖条：20px 高、垂直居中、圆头 */
+.ws-rail-item[data-active="true"]::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 50%;
+  width: 2px;
+  height: 20px;
+  transform: translateY(-50%);
+  border-radius: 999px;
+  background: var(--c-accent);
+}
+
+.ws-rail-icon {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  flex: none;
+  color: var(--c-text-muted);
+}
+
+/* 选中态与知识库 / 会话列表保持一致：图标只染色，不加描边或底色 */
+.ws-rail-item[data-active="true"] .ws-rail-icon {
+  color: var(--c-accent);
+}
+
+.ws-rail-name {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--c-font-size-body-lg);
+  line-height: 1.35;
+  color: var(--c-text-secondary);
+}
+
+.ws-rail-item[data-active="true"] .ws-rail-name {
+  color: var(--c-text);
+  font-weight: 500;
+}
+
+.ws-rail-path {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--c-font-mono);
+  font-size: var(--c-font-size-caption);
+  line-height: 1.45;
+  color: var(--c-text-muted);
+}
+
+.ws-rail-chevron {
+  flex: none;
+  color: var(--c-text-muted);
+  opacity: 0;
+  transition: opacity var(--c-motion-fast) var(--c-ease-standard),
+    transform var(--c-motion-fast) var(--c-ease-standard);
+}
+
+.ws-rail-item:hover .ws-rail-chevron,
+.ws-rail-item[data-active="true"] .ws-rail-chevron {
+  opacity: 1;
+  color: var(--c-text-secondary);
+}
+
+.ws-rail-item:hover .ws-rail-chevron {
+  transform: translateX(1px);
+}
+
+.ws-rail-foot {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 16px;
+  border-top: 1px solid var(--c-border);
+  font-size: var(--c-font-size-caption);
+  color: var(--c-text-muted);
+}
+
+/* 工作区内的图标按钮：方形、安静，hover 才出现浅底。
+ * 全局 IconButton 仍是圆形灰底；这里用更高特异性把它拉回工作台语言。 */
+.ws-rail-head .ui-btn-round,
+.ws-head .ui-btn-round,
+.ws-toolbar .ui-btn-round {
+  border-radius: var(--c-radius-md);
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+  color: var(--c-text-muted);
+}
+
+.ws-rail-head .ui-btn-round:hover,
+.ws-head .ui-btn-round:hover,
+.ws-toolbar .ui-btn-round:hover {
+  background: var(--c-surface-hover);
+  color: var(--c-text);
+}
+
+/* ==========================================================================
+ * 控制台头部 / 页签
+ * ========================================================================== */
+
+.ws-head {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 12px;
+  height: var(--c-layout-header);
+  padding: 0 var(--c-space-section);
+  border-bottom: 1px solid var(--c-border);
+  background: var(--c-surface);
+}
+
+.ws-head-icon {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  flex: none;
+  border: 1px solid var(--c-border);
+  border-radius: var(--c-radius-md);
+  color: var(--c-text-muted);
+}
+
+.ws-head-title {
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--c-font-size-title);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--c-text);
+}
+
+.ws-head-path {
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--c-font-mono);
+  font-size: var(--c-font-size-caption);
+  line-height: 1.45;
+  color: var(--c-text-muted);
+}
+
+.ws-tabs {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 20px;
+  height: 42px;
+  padding: 0 var(--c-space-section);
+  border-bottom: 1px solid var(--c-border);
+  background: var(--c-surface);
+}
+
+.ws-tab {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 100%;
+  font-size: var(--c-font-size-meta);
+  font-weight: 500;
+  color: var(--c-text-muted);
+  transition: color var(--c-motion-fast) var(--c-ease-standard);
+}
+
+.ws-tab:hover {
+  color: var(--c-text-secondary);
+}
+
+.ws-tab[data-active="true"] {
+  color: var(--c-text);
+}
+
+.ws-tab[data-active="true"]::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  height: 2px;
+  background: var(--c-accent);
+}
+
+.ws-tab-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border: 1px solid var(--c-border);
+  border-radius: var(--c-radius-md);
+  font-family: var(--c-font-mono);
+  font-size: var(--c-font-size-micro);
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  color: var(--c-text-muted);
+}
+
+.ws-tab[data-active="true"] .ws-tab-count {
+  border-color: color-mix(in srgb, var(--c-accent) 30%, var(--c-border));
+  color: var(--c-accent);
+}
+
+/* ==========================================================================
+ * 进行中的多步操作
+ * ========================================================================== */
+
+.ws-op {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 10px;
+  padding: 8px var(--c-space-section);
+  border-bottom: 1px solid var(--c-border);
+  background: color-mix(in srgb, var(--c-agent-amber) 8%, var(--c-surface));
+}
+
+.ws-op-icon {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  flex: none;
+  border: 1px solid
+    color-mix(in srgb, var(--c-agent-amber) 35%, var(--c-border));
+  border-radius: var(--c-radius-md);
+  background: var(--c-surface);
+  color: var(--c-agent-amber);
+}
+
+.ws-op-title {
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--c-font-size-body);
+  font-weight: 600;
+  color: var(--c-text);
+}
+
+.ws-op-desc {
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--c-font-size-caption);
+  color: var(--c-text-muted);
+}
+
+.ws-op-actions {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+}
+
+.ws-op-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 26px;
+  padding: 0 9px;
+  border: 1px solid var(--c-border);
+  border-radius: var(--c-radius-md);
+  background: var(--c-surface);
+  font-size: var(--c-font-size-caption);
+  font-weight: 500;
+  color: var(--c-text-secondary);
+  transition: color var(--c-motion-fast) var(--c-ease-standard),
+    border-color var(--c-motion-fast) var(--c-ease-standard),
+    background-color var(--c-motion-fast) var(--c-ease-standard);
+}
+
+.ws-op-button:hover:not(:disabled) {
+  border-color: var(--c-accent);
+  color: var(--c-text);
+}
+
+.ws-op-button-danger {
+  border-color: color-mix(in srgb, var(--c-error) 30%, var(--c-border));
+  color: var(--c-error);
+}
+
+.ws-op-button-danger:hover:not(:disabled) {
+  border-color: var(--c-error);
+  background: var(--c-error-bg);
+  color: var(--c-error);
+}
+
+.ws-op-button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+/* ==========================================================================
+ * Git 工具栏
+ * ========================================================================== */
+
+.ws-toolbar {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 8px var(--c-space-section);
+  border-bottom: 1px solid var(--c-border);
+  background: var(--c-surface);
+}
+
+.ws-toolbar-group {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.ws-toolbar-divider {
+  width: 1px;
+  height: 16px;
+  margin: 0 4px;
+  background: var(--c-border);
+}
+
+.ws-tool {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 28px;
+  padding: 0 8px;
+  border-radius: var(--c-radius-md);
+  font-size: var(--c-font-size-caption);
+  font-weight: 500;
+  color: var(--c-text-secondary);
+  transition: color var(--c-motion-fast) var(--c-ease-standard),
+    background-color var(--c-motion-fast) var(--c-ease-standard);
+}
+
+.ws-tool:hover:not(:disabled) {
+  background: var(--c-surface-hover);
+  color: var(--c-text);
+}
+
+.ws-tool:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* 勾选后的批量入口：比「全部」更靠前，用浅底标出「有待执行的操作」 */
+.ws-tool-accent {
+  color: var(--c-accent);
+  background: var(--c-accent-soft);
+}
+
+.ws-tool-accent:hover:not(:disabled) {
+  color: var(--c-accent);
+  background: color-mix(in srgb, var(--c-accent) 15%, transparent);
+}
+
+.ws-tool-danger {
+  color: var(--c-error);
+}
+
+.ws-tool-danger:hover:not(:disabled) {
+  background: var(--c-error-bg);
+  color: var(--c-error);
+}
+
+.ws-tool-count {
+  display: inline-grid;
+  place-items: center;
+  min-width: 14px;
+  height: 14px;
+  padding: 0 3px;
+  border-radius: var(--c-radius-sm);
+  background: color-mix(in srgb, var(--c-accent) 18%, transparent);
+  font-family: var(--c-font-mono);
+  font-size: var(--c-font-size-micro);
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+.ws-branch {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  max-width: 260px;
+  padding: 0 8px;
+  border: 1px solid var(--c-border);
+  border-radius: var(--c-radius-md);
+  background: var(--c-surface-2);
+  color: var(--c-text-secondary);
+  font-family: var(--c-font-mono);
+  font-size: var(--c-font-size-caption);
+  transition: border-color var(--c-motion-fast) var(--c-ease-standard),
+    color var(--c-motion-fast) var(--c-ease-standard);
+}
+
+.ws-branch:hover {
+  border-color: color-mix(in srgb, var(--c-accent) 40%, var(--c-border));
+  color: var(--c-text);
+}
+
+.ws-branch-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ws-branch-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+  font-family: var(--c-font-mono);
+  font-size: var(--c-font-size-micro);
+  font-variant-numeric: tabular-nums;
+  color: var(--c-text-muted);
+}
+
+.ws-warning {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 28px;
+  padding: 0 8px;
+  border: 1px solid color-mix(in srgb, var(--c-agent-amber) 30%, var(--c-border));
+  border-radius: var(--c-radius-md);
+  background: color-mix(in srgb, var(--c-agent-amber) 10%, transparent);
+  font-size: var(--c-font-size-caption);
+  color: var(--c-agent-amber);
+}
+
+/* ==========================================================================
+ * 变更分组 / 文件行
+ * ========================================================================== */
+
+.ws-changes {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 8px;
+}
+
+.ws-group + .ws-group {
+  margin-top: 12px;
+}
+
+.ws-group-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  height: 26px;
+  padding: 0 6px;
+  border-radius: var(--c-radius-md);
+  color: var(--c-text-muted);
+  transition: background-color var(--c-motion-fast) var(--c-ease-standard),
+    color var(--c-motion-fast) var(--c-ease-standard);
+}
+
+.ws-group-head:hover {
+  background: var(--c-surface-hover);
+  color: var(--c-text-secondary);
+}
+
+.ws-group-title {
+  flex: 1;
+  text-align: left;
+  font-size: var(--c-font-size-micro);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  color: var(--c-text-secondary);
+}
+
+.ws-group-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 28px;
+  margin-bottom: 4px;
+  border-radius: var(--c-radius-md);
+  background: var(--c-surface-2);
+  /* 用内阴影描边而不是 border：不改变内容起点，勾选框仍与文件行对齐 */
+  box-shadow: inset 0 0 0 1px
+    color-mix(in srgb, var(--c-border) 70%, transparent);
+  transition: background-color var(--c-motion-fast) var(--c-ease-standard);
+}
+
+/* 悬浮高亮整条底板，避免只亮中间一段、把左侧勾选框切在外面。
+   用不透明混色而不是半透明 surface-hover：底板本身是实色，
+   半透明会叠到底下的面板上，高度和色差都不对。 */
+.ws-group-row:hover {
+  background: color-mix(in srgb, var(--c-surface-2) 92%, var(--c-text));
+}
+
+.ws-group-row > .ws-group-head:hover {
+  background: transparent;
+}
+
+.ws-group-row > .ws-group-action {
+  margin-right: 4px;
+}
+
+.ws-group-row > .ws-group-head {
+  flex: 1;
+  width: auto;
+  min-width: 0;
+  /* 文件行是 6px 内边距 + 14px 勾选 + 8px 间距；
+     分组头与勾选之间只留 4px 间距，再用 4px 内边距补齐，
+     标题与文件名都落在 28px 处 */
+  padding-left: 4px;
+}
+
+/* 分组级全选：空 / 部分 / 全选三态；与行内勾选同一套视觉 */
+.ws-group-check {
+  display: grid;
+  place-items: center;
+  width: 14px;
+  height: 14px;
+  flex: none;
+  /* 与文件行的勾选框左边对齐：文件行是 6px 内边距 */
+  margin-left: 6px;
+  border: 1px solid color-mix(in srgb, var(--c-text-muted) 45%, transparent);
+  border-radius: var(--c-radius-sm);
+  color: transparent;
+  transition: color var(--c-motion-fast) var(--c-ease-standard),
+    border-color var(--c-motion-fast) var(--c-ease-standard),
+    background-color var(--c-motion-fast) var(--c-ease-standard);
+}
+
+.ws-group-check:hover:not(:disabled) {
+  border-color: var(--c-accent);
+  background: var(--c-accent-soft);
+  color: color-mix(in srgb, var(--c-accent) 55%, transparent);
+}
+
+.ws-group-check[data-state="some"] {
+  border-color: var(--c-accent);
+  background: var(--c-accent-soft);
+  color: var(--c-accent);
+}
+
+.ws-group-check[data-state="all"] {
+  border-color: var(--c-accent);
+  background: var(--c-accent);
+  color: var(--c-accent-foreground);
+}
+
+.ws-group-check:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.ws-group-action {
+  flex: none;
+  height: 22px;
+  padding: 0 6px;
+  border-radius: var(--c-radius-md);
+  font-size: var(--c-font-size-micro);
+  font-weight: 500;
+  color: var(--c-text-muted);
+  opacity: 0;
+  transition: opacity var(--c-motion-fast) var(--c-ease-standard),
+    color var(--c-motion-fast) var(--c-ease-standard),
+    background-color var(--c-motion-fast) var(--c-ease-standard);
+}
+
+.ws-group-row:hover .ws-group-action,
+.ws-group-action:focus-visible {
+  opacity: 1;
+}
+
+.ws-group-action:hover:not(:disabled) {
+  background: var(--c-surface-hover);
+  color: var(--c-text);
+}
+
+.ws-group-action:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+/* 有勾选时把批量动作固定显示出来，不等 hover：它现在是这一步的主操作 */
+.ws-group-action[data-visible="true"] {
+  opacity: 1;
+  color: var(--c-accent);
+  background: var(--c-accent-soft);
+}
+
+.ws-group-action[data-visible="true"]:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--c-accent) 15%, transparent);
+  color: var(--c-accent);
+}
+
+.ws-group-title[data-tone="danger"] {
+  color: var(--c-error);
+}
+
+.ws-counter {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border: 1px solid var(--c-border);
+  border-radius: var(--c-radius-md);
+  font-family: var(--c-font-mono);
+  font-size: var(--c-font-size-micro);
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  color: var(--c-text-muted);
+}
+
+.ws-counter[data-tone="warning"] {
+  border-color: color-mix(in srgb, var(--c-agent-amber) 30%, var(--c-border));
+  color: var(--c-agent-amber);
+}
+
+/* content-visibility 的默认占位高度是 44px；工作区行高 28px，需要收窄 */
+.ws-file.ui-cv-row,
+.ws-commit-item.ui-cv-row {
+  contain-intrinsic-size: auto 28px;
+}
+
+.ws-file {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 28px;
+  padding: 0 6px;
+  border-radius: var(--c-radius-md);
+  transition: background-color var(--c-motion-fast) var(--c-ease-standard);
+}
+
+.ws-file:hover {
+  background: var(--c-surface-hover);
+}
+
+.ws-file[data-active="true"] {
+  background: var(--c-accent-soft);
+}
+
+.ws-file[data-active="true"]::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 6px;
+  bottom: 6px;
+  width: 2px;
+  background: var(--c-accent);
+}
+
+.ws-check {
+  display: grid;
+  place-items: center;
+  width: 14px;
+  height: 14px;
+  flex: none;
+  border: 1px solid color-mix(in srgb, var(--c-text-muted) 45%, transparent);
+  border-radius: var(--c-radius-sm);
+  color: transparent;
+  transition: color var(--c-motion-fast) var(--c-ease-standard),
+    border-color var(--c-motion-fast) var(--c-ease-standard),
+    background-color var(--c-motion-fast) var(--c-ease-standard);
+}
+
+.ws-check:hover {
+  border-color: var(--c-accent);
+  background: var(--c-accent-soft);
+  color: color-mix(in srgb, var(--c-accent) 55%, transparent);
+}
+
+.ws-check[data-checked="true"] {
+  border-color: var(--c-accent);
+  background: var(--c-accent);
+  color: var(--c-accent-foreground);
+}
+
+.ws-file-name {
+  min-width: 0;
+  max-width: 68%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--c-font-size-body);
+  color: var(--c-text-secondary);
+}
+
+.ws-file[data-active="true"] .ws-file-name {
+  color: var(--c-text);
+}
+
+.ws-file-path {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--c-font-mono);
+  font-size: var(--c-font-size-caption);
+  color: var(--c-text-muted);
+}
+
+.ws-file-discard {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  flex: none;
+  border-radius: var(--c-radius-md);
+  color: var(--c-text-muted);
+  opacity: 0;
+  transition: opacity var(--c-motion-fast) var(--c-ease-standard),
+    color var(--c-motion-fast) var(--c-ease-standard),
+    background-color var(--c-motion-fast) var(--c-ease-standard);
+}
+
+.ws-file:hover .ws-file-discard,
+.ws-file-discard:focus-visible {
+  opacity: 1;
+}
+
+.ws-file-discard:hover:not(:disabled) {
+  background: var(--c-error-bg);
+  color: var(--c-error);
+}
+
+.ws-file-discard:disabled {
+  opacity: 0;
+  cursor: default;
+}
+
+.ws-file-resolve {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  flex: none;
+  border-radius: var(--c-radius-md);
+  color: var(--c-text-muted);
+  opacity: 0;
+  transition: opacity var(--c-motion-fast) var(--c-ease-standard),
+    color var(--c-motion-fast) var(--c-ease-standard),
+    background-color var(--c-motion-fast) var(--c-ease-standard);
+}
+
+.ws-file:hover .ws-file-resolve,
+.ws-file-resolve:focus-visible {
+  opacity: 1;
+}
+
+.ws-file-resolve:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--c-success) 12%, transparent);
+  color: var(--c-success);
+}
+
+.ws-file-resolve:disabled {
+  opacity: 0;
+  cursor: default;
+}
+
+/* 16px 状态字母方块：代替彩色胶囊 */
+.ws-status {
+  display: inline-grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  flex: none;
+  border-radius: var(--c-radius-sm);
+  font-family: var(--c-font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1;
+  background: var(--c-surface-hover);
+  color: var(--c-text-muted);
+}
+
+.ws-status[data-status="untracked"],
+.ws-status[data-status="added"] {
+  background: color-mix(in srgb, var(--c-success) 12%, transparent);
+  color: var(--c-success);
+}
+
+.ws-status[data-status="modified"] {
+  background: color-mix(in srgb, var(--c-agent-amber) 14%, transparent);
+  color: var(--c-agent-amber);
+}
+
+.ws-status[data-status="deleted"],
+.ws-status[data-status="conflicted"] {
+  background: color-mix(in srgb, var(--c-error) 12%, transparent);
+  color: var(--c-error);
+}
+
+.ws-status[data-status="renamed"] {
+  background: color-mix(in srgb, var(--c-agent-sky) 14%, transparent);
+  color: var(--c-agent-sky);
+}
+
+.ws-status[data-status="copied"] {
+  background: color-mix(in srgb, var(--c-agent-teal) 14%, transparent);
+  color: var(--c-agent-teal);
+}
+
+/* ==========================================================================
+ * Diff
+ * ========================================================================== */
+
+.ws-diff-head {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 10px;
+  height: 34px;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--c-border);
+  background: var(--c-surface);
+}
+
+.ws-diff-path {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--c-font-mono);
+  font-size: var(--c-font-size-caption);
+  color: var(--c-text-secondary);
+}
+
+.ws-diff-stat {
+  flex: none;
+  font-family: var(--c-font-mono);
+  font-size: var(--c-font-size-caption);
+  font-variant-numeric: tabular-nums;
+}
+
+.ws-diff-add {
+  color: var(--c-diff-add);
+}
+
+.ws-diff-del {
+  color: var(--c-diff-del);
+}
+
+.ws-diff-body {
+  font-family: var(--c-font-mono);
+  font-size: var(--c-font-size-meta);
+  line-height: 22px;
+}
+
+.ws-diff-line {
+  display: flex;
+  align-items: flex-start;
+  min-width: max-content;
+  border-left: 2px solid transparent;
+  white-space: pre;
+  color: var(--c-text-secondary);
+}
+
+/* 行号槽：吸附在左侧，代码横向滚动时保持可见 */
+.ws-diff-gutter {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: 34px 34px;
+  flex: none;
+  align-self: stretch;
+  border-right: 1px solid var(--c-border);
+  background: var(--c-surface);
+  color: var(--c-text-muted);
+  user-select: none;
+}
+
+.ws-diff-gutter > span {
+  padding: 0 6px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.ws-diff-code {
+  padding: 0 12px 0 10px;
+  white-space: pre;
+}
+
+.ws-diff-line[data-kind="meta"] {
+  color: var(--c-text-muted);
+}
+
+.ws-diff-line[data-kind="hunk"] {
+  background: var(--c-accent-soft);
+  color: var(--c-accent);
+}
+
+.ws-diff-line[data-kind="add"] {
+  border-left-color: var(--c-diff-add);
+  background: color-mix(in srgb, var(--c-diff-add-bg) 55%, var(--c-surface));
+  color: var(--c-diff-add);
+}
+
+.ws-diff-line[data-kind="del"] {
+  border-left-color: var(--c-diff-del);
+  background: color-mix(in srgb, var(--c-diff-del-bg) 55%, var(--c-surface));
+  color: var(--c-diff-del);
+}
+
+/* 提交区外观与会话页输入框共用同一套 utility 类，这里不再单独定义。 */
+
+/* ==========================================================================
+ * 提交历史
+ * ========================================================================== */
+
+.ws-commits {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  border-top: 1px solid var(--c-border);
+}
+
+/* 提交历史的折叠头：容器已有水平内边距，按钮不再撑满原始宽度 */
+.ws-commits > .ws-group-head {
+  width: auto;
+  margin: 4px 8px 0;
+}
+
+.ws-commit-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding-right: 6px;
+  border-radius: var(--c-radius-md);
+  transition: background-color var(--c-motion-fast) var(--c-ease-standard);
+}
+
+.ws-commit-item:hover {
+  background: var(--c-surface-hover);
+}
+
+.ws-commit-subject {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--c-font-size-body);
+  color: var(--c-text-secondary);
+}
+
+.ws-commit-item[data-head="true"] .ws-commit-subject {
+  color: var(--c-text);
+  font-weight: 600;
+}
+
+.ws-ref {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 18px;
+  flex: none;
+  padding: 0 5px;
+  border: 1px solid var(--c-border);
+  border-radius: var(--c-radius-sm);
+  font-family: var(--c-font-mono);
+  font-size: 10px;
+  line-height: 1;
+  color: var(--c-text-muted);
+}
+
+/* 本地 / 远端分支用胶囊形，与方形的标签（tag）区分开 */
+.ws-ref[data-kind="head"],
+.ws-ref[data-kind="branch"],
+.ws-ref[data-kind="remote"] {
+  padding: 0 7px;
+  border-radius: var(--c-radius-full);
+  /* 分支名比标签（tag）大一档：10px → 11px */
+  font-size: var(--c-font-size-caption);
+}
+
+/* 实心胶囊：白字压在主色 / 紫色上，比浅底描边更醒目 */
+.ws-ref[data-kind="head"],
+.ws-ref[data-kind="branch"] {
+  border-color: transparent;
+  background: var(--c-accent);
+  color: var(--c-accent-foreground);
+}
+
+.ws-ref[data-kind="remote"] {
+  border-color: transparent;
+  background: var(--c-agent-violet);
+  color: var(--c-accent-foreground);
+}
+
+.ws-ref[data-kind="tag"] {
+  border-color: color-mix(in srgb, var(--c-agent-amber) 35%, var(--c-border));
+  background: color-mix(in srgb, var(--c-agent-amber) 10%, transparent);
+  color: var(--c-agent-amber);
+}
+
+/* ==========================================================================
+ * 提交悬浮卡
+ *
+ * 替代原生 title：字段带标签、层级清晰，也能容纳完整引用。
+ * 只有浮层允许投影，与全站约定一致。
+ * ========================================================================== */
+.ws-commit-card {
+  position: fixed;
+  z-index: 70;
+  width: 380px;
+  padding: 12px 14px 13px;
+  border: 1px solid var(--c-border);
+  border-radius: var(--c-radius-lg);
+  background: var(--c-surface);
+  box-shadow: var(--c-shadow);
+  color: var(--c-text);
+}
+
+.ws-commit-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.ws-commit-card-kicker {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: var(--c-font-size-micro);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+}
+
+.ws-commit-card-kicker[data-tone="outgoing"] {
+  color: var(--c-accent);
+}
+
+.ws-commit-card-kicker[data-tone="pushed"] {
+  color: var(--c-agent-violet);
+}
+
+.ws-commit-card-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: var(--c-radius-full);
+  background: currentColor;
+}
+
+.ws-commit-card-hash-value {
+  font-family: var(--c-font-mono);
+  font-size: var(--c-font-size-caption);
+  font-variant-numeric: tabular-nums;
+  color: var(--c-text-muted);
+  user-select: text;
+}
+
+.ws-commit-card-subject {
+  margin: 7px 0 10px;
+  font-size: var(--c-font-size-body);
+  font-weight: 600;
+  line-height: 1.5;
+  color: var(--c-text);
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+}
+
+.ws-commit-card-rows {
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr);
+  gap: 5px 8px;
+  padding-top: 10px;
+  border-top: 1px solid var(--c-border);
+}
+
+.ws-commit-card-label {
+  font-size: var(--c-font-size-caption);
+  line-height: 1.6;
+  white-space: nowrap;
+  color: var(--c-text-muted);
+}
+
+.ws-commit-card-value {
+  min-width: 0;
+  font-size: var(--c-font-size-caption);
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+  color: var(--c-text-secondary);
+}
+
+.ws-commit-card-abs {
+  font-family: var(--c-font-mono);
+  font-size: var(--c-font-size-micro);
+  color: var(--c-text-muted);
+}
+
+/* ==========================================================================
+ * 文件树 / 预览页签
+ * ========================================================================== */
+
+.ws-tree {
+  padding: 6px;
+}
+
+.ws-tree-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  height: 28px;
+  padding-right: 6px;
+  border-radius: var(--c-radius-md);
+  text-align: left;
+  color: var(--c-text-secondary);
+  transition: background-color var(--c-motion-fast) var(--c-ease-standard),
+    color var(--c-motion-fast) var(--c-ease-standard);
+}
+
+.ws-tree-row:hover {
+  background: var(--c-surface-hover);
+  color: var(--c-text);
+}
+
+.ws-tree-name {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--c-font-size-body);
+}
+
+.ws-preview-tabs {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 2px;
+  height: 36px;
+  padding: 0 8px;
+  border-bottom: 1px solid var(--c-border);
+  background: var(--c-surface);
+  overflow-x: auto;
+}
+
+.ws-preview-tab {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 100%;
+  max-width: 208px;
+  flex: none;
+  padding: 0 8px;
+  border-bottom: 2px solid transparent;
+  font-size: var(--c-font-size-caption);
+  color: var(--c-text-muted);
+  transition: color var(--c-motion-fast) var(--c-ease-standard),
+    border-color var(--c-motion-fast) var(--c-ease-standard);
+}
+
+.ws-preview-tab:hover {
+  color: var(--c-text-secondary);
+}
+
+.ws-preview-tab[data-active="true"] {
+  color: var(--c-text);
+  border-bottom-color: var(--c-accent);
+}
+
+.ws-preview-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ==========================================================================
+ * 空态
+ * ========================================================================== */
+
+.ws-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 100%;
+  padding: 32px 24px;
+  text-align: center;
+}
+
+.ws-empty-icon {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border: 1px solid var(--c-border);
+  border-radius: var(--c-radius-md);
+  background: var(--c-surface-2);
+  color: var(--c-text-muted);
+}
+
+.ws-empty-title {
+  margin: 0;
+  font-size: var(--c-font-size-body-lg);
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--c-text);
+}
+
+.ws-empty-desc {
+  max-width: 300px;
+  margin: 0;
+  font-size: var(--c-font-size-meta);
+  line-height: 1.6;
+  color: var(--c-text-muted);
+}

@@ -177,6 +177,20 @@ export interface IpcInvokeMap {
     result: GitOperationResult;
   };
   "git:pull": { args: [{ projectId: string }]; result: GitOperationResult };
+  /** 丢弃文件修改（未跟踪 → clean，新增 → rm，其它 → restore） */
+  "git:discard": {
+    args: [{ projectId: string; paths: string[] }];
+    result: GitOperationResult;
+  };
+  /** 继续 / 中止进行中的 merge、rebase、cherry-pick、revert、bisect */
+  "git:continueOperation": {
+    args: [{ projectId: string }];
+    result: GitOperationResult;
+  };
+  "git:abortOperation": {
+    args: [{ projectId: string }];
+    result: GitOperationResult;
+  };
   /** 读取项目内文件，供中间区域只读预览 */
   "file:read": {
     args: [{ projectId: string; relativePath: string }];

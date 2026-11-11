@@ -80,8 +80,8 @@ const SECTION_NAV = [
   { id: "connection", label: "连接配置" },
   { id: "models", label: "模型配置" },
   { id: "permission", label: "默认权限" },
-  { id: "upgrade", label: "版本升级" },
   { id: "file", label: "配置文件" },
+  { id: "upgrade", label: "版本升级" },
 ] as const;
 type SectionId = (typeof SECTION_NAV)[number]["id"];
 
@@ -854,6 +854,41 @@ export function AgentsView() {
                     </SectionCard>
 
                     <SectionCard
+                      id="agent-file"
+                      title="配置文件"
+                      description="Claude Code 与 Nova 共用同一份本机配置；保存后会直接写回该文件。"
+                      icon={FolderOpen}
+                    >
+                      <div className="flex flex-wrap items-center gap-2 rounded-lg border border-border/60 bg-input-bg px-3 py-2.5 ui-type-sub text-text-muted">
+                        <FolderOpen className="h-3.5 w-3.5 shrink-0" />
+                        <span
+                          title={settings.settingsPath}
+                          className="min-w-0 flex-1 break-all ui-type-code-sm leading-relaxed"
+                        >
+                          {settings.settingsPath}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={handleOpenConfig}
+                          disabled={opening}
+                          className="flex shrink-0 items-center gap-1 rounded-md px-2 py-1 ui-type-note text-accent transition-colors hover:bg-accent-soft disabled:opacity-50"
+                        >
+                          {opening ? (
+                            <Spinner className="h-3.5 w-3.5" />
+                          ) : (
+                            <FolderOpen className="h-3.5 w-3.5" />
+                          )}
+                          <span className="text-accent">打开所在目录</span>
+                        </button>
+                      </div>
+                      <p className="mt-2 ui-type-sub leading-relaxed text-text-muted">
+                        {settings.exists
+                          ? "修改会直接写回该文件；Claude CLI 与 Nova 共用同一份配置。"
+                          : "配置文件尚未创建，保存后会自动生成。"}
+                      </p>
+                    </SectionCard>
+
+                    <SectionCard
                       id="agent-upgrade"
                       title="版本升级"
                       description="从 npm 获取最新版本号，优先用 Claude Code 自带的 update 命令升级；未生效时回退到 npm 全局安装。"
@@ -925,41 +960,6 @@ export function AgentsView() {
                           </pre>
                         )}
                       </div>
-                    </SectionCard>
-
-                    <SectionCard
-                      id="agent-file"
-                      title="配置文件"
-                      description="Claude Code 与 Nova 共用同一份本机配置；保存后会直接写回该文件。"
-                      icon={FolderOpen}
-                    >
-                      <div className="flex flex-wrap items-center gap-2 rounded-lg border border-border/60 bg-input-bg px-3 py-2.5 ui-type-sub text-text-muted">
-                        <FolderOpen className="h-3.5 w-3.5 shrink-0" />
-                        <span
-                          title={settings.settingsPath}
-                          className="min-w-0 flex-1 break-all ui-type-code-sm leading-relaxed"
-                        >
-                          {settings.settingsPath}
-                        </span>
-                        <button
-                          type="button"
-                          onClick={handleOpenConfig}
-                          disabled={opening}
-                          className="flex shrink-0 items-center gap-1 rounded-md px-2 py-1 ui-type-note text-accent transition-colors hover:bg-accent-soft disabled:opacity-50"
-                        >
-                          {opening ? (
-                            <Spinner className="h-3.5 w-3.5" />
-                          ) : (
-                            <FolderOpen className="h-3.5 w-3.5" />
-                          )}
-                          <span className="text-accent">打开所在目录</span>
-                        </button>
-                      </div>
-                      <p className="mt-2 ui-type-sub leading-relaxed text-text-muted">
-                        {settings.exists
-                          ? "修改会直接写回该文件；Claude CLI 与 Nova 共用同一份配置。"
-                          : "配置文件尚未创建，保存后会自动生成。"}
-                      </p>
                     </SectionCard>
                   </>
                 ) : null}

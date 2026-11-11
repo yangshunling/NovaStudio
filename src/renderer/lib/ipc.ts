@@ -102,6 +102,12 @@ export const ipc = {
     call("git:push", { projectId, branch }),
   pullGitBranch: (projectId: string) =>
     call("git:pull", { projectId }),
+  discardGitPaths: (projectId: string, paths: string[]) =>
+    call("git:discard", { projectId, paths }),
+  continueGitOperation: (projectId: string) =>
+    call("git:continueOperation", { projectId }),
+  abortGitOperation: (projectId: string) =>
+    call("git:abortOperation", { projectId }),
   readFile: (projectId: string, relativePath: string) =>
     call("file:read", { projectId, relativePath }),
   readEmbeddedImage: (projectId: string, markdownPath: string, src: string) =>

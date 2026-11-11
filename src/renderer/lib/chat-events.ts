@@ -25,3 +25,16 @@ export const FOCUS_COMPOSER_EVENT = "nova:focus-composer";
 export function requestComposerFocus(): void {
   window.dispatchEvent(new Event(FOCUS_COMPOSER_EVENT));
 }
+
+/**
+ * 请求展开输入框旁的工作区选择器。
+ *
+ * 新建会话时先让用户决定这次在哪个目录里工作，避免先输入再切换
+ * （已有内容时切换工作区还要二次确认）。菜单的展开状态是
+ * ProjectSelector 的私有状态，因此同样用事件表达意图。
+ */
+export const OPEN_WORKSPACE_MENU_EVENT = "nova:open-workspace-menu";
+
+export function requestWorkspaceMenu(): void {
+  window.dispatchEvent(new Event(OPEN_WORKSPACE_MENU_EVENT));
+}

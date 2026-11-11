@@ -7,6 +7,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import {
+  AlertTriangle,
   Copy,
   FolderKanban,
   FolderOpen,
@@ -25,9 +26,7 @@ import { ipc } from "../../lib/ipc";
 import { toMessage } from "../../lib/utils";
 import { clampMenuPosition } from "../../lib/popup";
 import { useDismissableLayer } from "../../hooks/useDismissableLayer";
-import { PageHeader } from "../ui/Page";
 import { IconButton } from "../ui/IconButton";
-import { SegmentedTabs } from "../ui/SegmentedTabs";
 import {
   MENU_WIDTH,
   MenuItem,
@@ -109,6 +108,7 @@ export function WorkspaceConsole({
           ahead: 0,
           behind: 0,
           hasHead: false,
+          inProgress: null,
           files: [],
           error: toMessage(err),
         });
@@ -154,67 +154,92 @@ export function WorkspaceConsole({
 
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-      <PageHeader
-        icon={<FolderKanban className="h-4 w-4" />}
-        title={project.name}
-        subtitle={project.cwd}
-        actions={
-          <>
-            {git?.available && (
-              <button
-                type="button"
-                onClick={() => onTabChange("git")}
-                title="查看 Git 状态 / 切换分支"
-                className="flex h-9 max-w-56 items-center gap-1.5 rounded-full border border-border/60 bg-surface-2/50 px-3 ui-type-note text-text-secondary transition-colors hover:border-accent/35 hover:text-text"
-              >
-                <GitBranch className="h-3.5 w-3.5 shrink-0 text-accent" />
-                <span className="min-w-0 truncate font-mono">
-                  {git.branch ?? "HEAD"}
+      <div className="ws-head">
+        <span className="ws-head-icon">
+          <FolderKanban className="h-4 w-4" />
+        </span>
+        <div className="min-w-0 flex-1">
+          <p className="ws-head-title">{project.name}</p>
+          <p className="ws-head-path" title={project.cwd}>
+            {project.cwd}
+          </p>
+        </div>
+        <div className="flex shrink-0 items-center gap-1.5">
+          {git?.available && (
+            <button
+              type="button"
+              onClick={() => onTabChange("git")}
+              title="查看 Git 状态 / 切换分支"
+              className="ws-branch"
+            >
+              <GitBranch className="h-3.5 w-3.5 shrink-0 text-accent" />
+              <span className="ws-branch-name">{git.branch ?? "HEAD"}</span>
+              {(git.ahead > 0 || git.behind > 0) && (
+                <span className="ws-branch-meta">
+                  {git.ahead > 0 && <span>↑{git.ahead}</span>}
+                  {git.behind > 0 && <span>↓{git.behind}</span>}
                 </span>
-                {changes > 0 && (
-                  <span className="flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-agent-amber/10 px-1.5 ui-type-code-sm leading-none text-agent-amber">
-                    {changes}
-                  </span>
-                )}
-              </button>
-            )}
+              )}
+              {changes > 0 && <span className="ws-count">{changes}</span>}
+            </button>
+          )}
 
-            <IconButton
-              icon={<SquareTerminal className="h-4 w-4" />}
-              label="在此工作区打开终端"
-              tone="muted"
-              onClick={onOpenTerminal}
-            />
-            <IconButton
-              icon={<FolderOpen className="h-4 w-4" />}
-              label="在文件管理器中打开"
-              tone="muted"
-              onClick={onOpenFolder}
-            />
-            <IconButton
-              icon={<MoreHorizontal className="h-4 w-4" />}
-              label="更多操作"
-              tone="muted"
-              onClick={openMenu}
-            />
-          </>
-        }
-      />
+          <IconButton
+            icon={<SquareTerminal className="h-4 w-4" />}
+            label="在此工作区打开终端"
+            tone="muted"
+            size="sm"
+            onClick={onOpenTerminal}
+          />
+          <IconButton
+            icon={<FolderOpen className="h-4 w-4" />}
+            label="在文件管理器中打开"
+            tone="muted"
+            size="sm"
+            onClick={onOpenFolder}
+          />
+          <IconButton
+            icon={<MoreHorizontal className="h-4 w-4" />}
+            label="更多操作"
+            tone="muted"
+            size="sm"
+            onClick={openMenu}
+          />
+        </div>
+      </div>
 
       {/* Tab 栏 */}
-      <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-border px-card py-2">
-        <SegmentedTabs
-          value={tab}
-          onChange={(next) => onTabChange(next as WorkspaceTab)}
-          options={[
-            { id: "files", label: "文件" },
-            {
-              id: "git",
-              label: "Git",
-              count: git?.available ? changes : undefined,
-            },
-          ]}
-        />
+      <div className="ws-tabs" role="tablist" aria-label="工作区视图">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === "files"}
+          data-active={tab === "files"}
+          onClick={() => onTabChange("files")}
+          className="ws-tab"
+        >
+          文件
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === "git"}
+          data-active={tab === "git"}
+          onClick={() => onTabChange("git")}
+          className="ws-tab"
+          title={git?.inProgress ? git.inProgress.label : undefined}
+        >
+          Git
+          {git?.inProgress && (
+            <AlertTriangle
+              className="h-3 w-3 shrink-0 text-agent-amber"
+              aria-label={git.inProgress.label}
+            />
+          )}
+          {git?.available && changes > 0 && (
+            <span className="ws-tab-count">{changes}</span>
+          )}
+        </button>
       </div>
 
       {/* Tab 内容：两个都挂载，切换保留状态 */}

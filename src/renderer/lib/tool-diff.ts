@@ -95,6 +95,15 @@ const MAX_RENDER_LINES = 400;
 // ============================================================================
 
 /**
+ * 提取结果缓存。
+ *
+ * 工具输入的 JSON 对象在消息生命周期内是稳定的（assistant-ui 转换时原样透传），
+ * 适合做 WeakMap 键。切换会话会让消息窗口重新挂载，没有缓存时每个编辑类工具
+ * 都要重跑一次 LCS diff；长会话里这会叠加成明显的切换卡顿。
+ */
+const changeCache = new WeakMap<object, Map<string, FileChange[]>>();
+
+/**
  * 从工具调用中提取文件变更。
  * 不是「改文件」的调用（read / bash / grep…）返回空数组。
  */
@@ -105,6 +114,30 @@ export function extractFileChanges(
   lineStarts?: number[],
 ): FileChange[] {
   if (!input || typeof input !== "object") return [];
+
+  // 同一次调用可能先无行号、后被 backfill 补上行号，因此把 lineStarts 计入键
+  const key = `${toolName}\u0000${kind}\u0000${
+    lineStarts?.join(",") ?? ""
+  }`;
+  let byKey = changeCache.get(input);
+  if (!byKey) {
+    byKey = new Map();
+    changeCache.set(input, byKey);
+  }
+  const cached = byKey.get(key);
+  if (cached) return cached;
+
+  const changes = computeFileChanges(toolName, input, kind, lineStarts);
+  byKey.set(key, changes);
+  return changes;
+}
+
+function computeFileChanges(
+  toolName: string,
+  input: object,
+  kind: ToolKind,
+  lineStarts?: number[],
+): FileChange[] {
   const record = input as Record<string, unknown>;
   const path = readString(record, PATH_KEYS) ?? "";
   const looksLikeWrite = kind === "write" || WRITE_TOOL_NAME.test(toolName);

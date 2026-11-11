@@ -98,41 +98,63 @@ export function AssistantMessageList({
    * 长会话下真正昂贵的是「转换 + 渲染所有历史消息」，仅靠 CSS 跳过绘制
    * 并不能省掉 React/Markdown 的成本。这里默认只挂载最近 120 条，顶部
    * 提供「载入更早」，既保留可回看能力，又让打开长会话的成本与长度无关。
+   *
+   * 窗口必须和会话一起保存：切换会话时，如果沿用上一个会话的 windowStart，
+   * 首帧就可能把新会话的整段历史挂载出来（例如从 10 条会话切到 1000 条，
+   * windowStart=0 会先渲染 1000 条，等 effect 再改回最近 120 条）。
+   * 那一帧的 Markdown 解析 / 布局就是切换时「卡一下」的来源。
    */
-  const [windowStart, setWindowStart] = useState(() =>
-    Math.max(0, messages.length - INITIAL_MESSAGE_WINDOW),
-  );
+  const [messageWindow, setMessageWindow] = useState<{
+    sessionId: string | null;
+    start: number;
+  }>(() => ({
+    sessionId: currentSessionId,
+    start: Math.max(0, messages.length - INITIAL_MESSAGE_WINDOW),
+  }));
   /** 载入更早前的高度，用于抵消前插造成的滚动跳变 */
   const prependHeightRef = useRef<number | null>(null);
   /** 需要展开窗口后滚动到的消息 id（问题导航点击未挂载消息时） */
   const revealIdRef = useRef<string | null>(null);
-  /** 记录已经为哪个会话初始化过窗口，避免每次消息增长都重置 */
-  const initializedSessionRef = useRef<string | null>(null);
 
   const total = messages.length;
-  // 会话切换后的第一帧可能还用着上一个会话的 windowStart，先夹紧避免越界
-  const start = clamp(windowStart, 0, total - 1);
+  /** 当前会话的默认窗口起点：最近 N 条 */
+  const defaultStart = Math.max(0, total - INITIAL_MESSAGE_WINDOW);
+  // 第一帧就用「当前会话」的窗口，而不是上一个会话遗留的 start
+  const baseStart =
+    messageWindow.sessionId === currentSessionId
+      ? messageWindow.start
+      : defaultStart;
+  const start = clamp(baseStart, 0, Math.max(0, total - 1));
   const visibleMessages = useMemo(
     () => messages.slice(start),
     [messages, start],
   );
   const messageCount = visibleMessages.length;
 
-  // 会话切换 / 历史到达时，把窗口定位到「最近 N 条」
-  useEffect(() => {
-    if (!currentSessionId) {
-      initializedSessionRef.current = null;
-      return;
-    }
-    if (initializedSessionRef.current === currentSessionId) return;
-    if (messages.length === 0) return; // 等历史回放完成再定位
-    initializedSessionRef.current = currentSessionId;
-    setWindowStart(Math.max(0, messages.length - INITIAL_MESSAGE_WINDOW));
-  }, [currentSessionId, messages.length]);
+  /** 在保留当前窗口偏移的前提下更新窗口，并把窗口归属到当前会话 */
+  const setWindowStart = useCallback(
+    (updater: (baseStart: number) => number) => {
+      setMessageWindow((current) => {
+        const base =
+          current.sessionId === currentSessionId
+            ? current.start
+            : Math.max(0, messages.length - INITIAL_MESSAGE_WINDOW);
+        return {
+          sessionId: currentSessionId,
+          start: Math.max(0, updater(base)),
+        };
+      });
+    },
+    [currentSessionId, messages.length],
+  );
 
   // 问题导航请求查看一条可能尚未挂载的消息
-  const revealStateRef = useRef({ messages, start });
-  revealStateRef.current = { messages, start };
+  const revealStateRef = useRef({
+    sessionId: currentSessionId,
+    messages,
+    start,
+  });
+  revealStateRef.current = { sessionId: currentSessionId, messages, start };
   useEffect(() => {
     const onReveal = (event: Event) => {
       const id = (event as CustomEvent<{ id?: string }>).detail?.id;
@@ -153,9 +175,14 @@ export function AssistantMessageList({
         return;
       }
 
-      // 目标在窗口之前：向前扩到目标附近，渲染完成后再滚动
+      // 目标在窗口之前：向前扩到目标附近，渲染完成后再滚动。
+      // 这里直接给绝对起点，不能走「相对当前窗口」的 updater：
+      // 事件监听只注册一次，闭包里的 base 可能属于上一个会话。
       revealIdRef.current = id;
-      setWindowStart(Math.max(0, index - 5));
+      setMessageWindow({
+        sessionId: current.sessionId,
+        start: Math.max(0, index - 5),
+      });
     };
 
     window.addEventListener(REVEAL_MESSAGE_EVENT, onReveal);
@@ -192,7 +219,7 @@ export function AssistantMessageList({
     if (start <= 0) return;
     const viewport = document.getElementById(CHAT_VIEWPORT_ID);
     prependHeightRef.current = viewport?.scrollHeight ?? null;
-    setWindowStart((current) => Math.max(0, current - LOAD_EARLIER_STEP));
+    setWindowStart((base) => base - LOAD_EARLIER_STEP);
   };
 
   /*
@@ -447,6 +474,14 @@ function ToolPart(props: ToolCallMessagePartProps) {
     [props.toolName, props.args, kind, meta?.lineStarts],
   );
   const resultImages = readResultImages(props.result);
+  /*
+   * 工具输出可能很大，JSON.stringify 是 O(输出长度)。卡片在每次消息列表
+   * 重挂载 / 重渲染时都会走到这里，按 result 引用缓存一次即可。
+   */
+  const resultText = useMemo(
+    () => (done ? stringifyToolResult(props.result) : undefined),
+    [done, props.result],
+  );
 
   return (
     <ToolCallCard
@@ -455,7 +490,7 @@ function ToolPart(props: ToolCallMessagePartProps) {
       kind={kind}
       args={props.args}
       argsText={props.argsText}
-      result={done ? stringifyToolResult(props.result) : undefined}
+      result={resultText}
       resultImages={resultImages}
       isError={hasError}
       running={running}

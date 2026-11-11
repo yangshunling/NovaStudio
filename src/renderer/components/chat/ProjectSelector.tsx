@@ -19,9 +19,14 @@ import { ChevronDown, Folder } from "lucide-react";
 import { useChatStore } from "../../stores/chat";
 import { toast } from "../../stores/toast";
 import {
+  isWorkspaceSwitchBlocked,
   switchWorkspace,
   WORKSPACE_RUNNING_HINT,
 } from "../../lib/workspace-switch";
+import {
+  OPEN_WORKSPACE_MENU_EVENT,
+  requestComposerFocus,
+} from "../../lib/chat-events";
 import {
   buildWorkspaceItems,
   useWorkspaceDefaultCwd,
@@ -38,6 +43,7 @@ export function ProjectSelector() {
   /** 键盘导航的当前高亮项 */
   const [hoverIdx, setHoverIdx] = useState(0);
   const rootRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
   const itemRefs = useRef<(HTMLElement | null)[]>([]);
 
   const currentProject = projects.find((p) => p.id === currentProjectId);
@@ -65,6 +71,8 @@ export function ProjectSelector() {
   const choose = async (projectId: string | null) => {
     setOpen(false);
     await switchWorkspace(projectId);
+    // 选完工作区回到输入框：菜单已关闭，焦点不应留在消失的列表项上
+    requestComposerFocus();
   };
 
   /** 工作区的登记与删除统一在「工作区」页面完成 */
@@ -93,6 +101,30 @@ export function ProjectSelector() {
   const activateRef = useRef(activate);
   activateRef.current = activate;
 
+  /**
+   * 新建会话时自动展开选择器：先选工作区，再开始输入。
+   *
+   * 打开动作延到下一帧，等 newSession 的渲染提交完成，
+   * 这样 openMenu 读到的是「未绑定工作区」的新列表。
+   * 焦点落在触发器上而不是输入框：菜单的 ↑↓ / Enter 是文档级监听，
+   * 焦点在 textarea 时回车会被当成「选中菜单项」。选完 / 按 Esc 后
+   * 再交还输入框（见 choose 与键盘监听里的 Escape）。
+   */
+  const openMenuRef = useRef(openMenu);
+  openMenuRef.current = openMenu;
+  useEffect(() => {
+    const onRequest = () => {
+      if (isWorkspaceSwitchBlocked()) return;
+      requestAnimationFrame(() => {
+        openMenuRef.current();
+        triggerRef.current?.focus();
+      });
+    };
+    window.addEventListener(OPEN_WORKSPACE_MENU_EVENT, onRequest);
+    return () =>
+      window.removeEventListener(OPEN_WORKSPACE_MENU_EVENT, onRequest);
+  }, []);
+
   // 展开时：外部点击关闭；↑↓ / Enter / Esc 键盘导航
   useEffect(() => {
     if (!open) return;
@@ -102,6 +134,8 @@ export function ProjectSelector() {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         setOpen(false);
+        // 放弃选择（含新建会话时的自动展开）后把焦点交还输入框
+        requestComposerFocus();
         return;
       }
       if (e.key === "ArrowDown") {
@@ -137,6 +171,7 @@ export function ProjectSelector() {
     <div ref={rootRef} className="relative shrink-0">
       {/* 触发器：绑定后显示项目名，未绑定显示引导文案 */}
       <button
+        ref={triggerRef}
         type="button"
         aria-disabled={streaming}
         onClick={() => {

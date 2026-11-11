@@ -6,9 +6,12 @@
 
 import * as db from "../../db/sqlite";
 import {
+  abortOperation,
   checkoutBranch,
   commitChanges,
+  continueOperation,
   createBranch,
+  discardPaths,
   initRepository,
   listBranches,
   pullBranch,
@@ -63,5 +66,14 @@ export function registerGitHandlers(): void {
   );
   handle("git:pull", ({ projectId }) =>
     pullBranch(projectCwd(projectId)),
+  );
+  handle("git:discard", ({ projectId, paths }) =>
+    discardPaths(projectCwd(projectId), paths),
+  );
+  handle("git:continueOperation", ({ projectId }) =>
+    continueOperation(projectCwd(projectId)),
+  );
+  handle("git:abortOperation", ({ projectId }) =>
+    abortOperation(projectCwd(projectId)),
   );
 }

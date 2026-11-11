@@ -9,17 +9,19 @@
  */
 
 import { execFile } from "node:child_process";
-import { realpath } from "node:fs/promises";
-import { relative, resolve } from "node:path";
+import { access, readFile, realpath } from "node:fs/promises";
+import { isAbsolute, join, relative, resolve } from "node:path";
 import type { GitStatusKind } from "../../shared/types";
 import { clamp } from "../../shared/math";
-import type {
-  GitBranchInfo,
-  GitCommitSummary,
-  GitDiffResult,
-  GitFileStatus,
-  GitOperationResult,
-  GitStatusDetail,
+import {
+  GIT_OPERATION_LABELS,
+  type GitBranchInfo,
+  type GitCommitSummary,
+  type GitDiffResult,
+  type GitFileStatus,
+  type GitInProgress,
+  type GitOperationResult,
+  type GitStatusDetail,
 } from "../../shared/git";
 import { isInside } from "../utils/paths";
 import { errorMessage } from "../../shared/error";
@@ -43,6 +45,7 @@ function runGit(
   cwd: string,
   args: string[],
   timeoutMs = GIT_TIMEOUT_MS,
+  extraEnv?: NodeJS.ProcessEnv,
 ): Promise<GitRunResult> {
   return new Promise((resolveRun) => {
     execFile(
@@ -53,6 +56,7 @@ function runGit(
         windowsHide: true,
         timeout: timeoutMs,
         maxBuffer: GIT_MAX_BUFFER,
+        env: extraEnv ? { ...process.env, ...extraEnv } : undefined,
       },
       (error, stdout, stderr) => {
         const code =
@@ -82,9 +86,133 @@ function emptyStatus(error: string): GitStatusDetail {
     ahead: 0,
     behind: 0,
     hasHead: false,
+    inProgress: null,
     files: [],
     error,
   };
+}
+
+/** 进行中的操作需要额外记录「实际要执行的子命令」（am / rebase 共用 rebase-apply） */
+interface DetectedOperation extends GitInProgress {
+  command: string;
+}
+
+function toInProgress(operation: DetectedOperation): GitInProgress {
+  const { kind, label, step, canContinue, canAbort } = operation;
+  return { kind, label, step, canContinue, canAbort };
+}
+
+async function pathExists(target: string): Promise<boolean> {
+  try {
+    await access(target);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function readCounter(target: string): Promise<number | null> {
+  try {
+    const value = Number((await readFile(target, "utf8")).trim());
+    return Number.isFinite(value) && value > 0 ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+function formatStep(current: number | null, total: number | null): string | undefined {
+  return current !== null && total !== null ? `${current}/${total}` : undefined;
+}
+
+/**
+ * 检测 merge / rebase / cherry-pick / revert / bisect 的进行中状态。
+ *
+ * 标记文件位于 `git rev-parse --git-dir` 指向的目录：
+ * - rebase 优先于 cherry-pick：rebase 每个提交都会写 CHERRY_PICK_HEAD
+ * - rebase-apply 同时服务 `git am`，用 applying 文件区分
+ */
+async function detectOperation(cwd: string): Promise<DetectedOperation | null> {
+  const result = await runGit(cwd, ["rev-parse", "--git-dir"]);
+  if (!result.ok) return null;
+
+  const raw = result.stdout.trim();
+  if (!raw) return null;
+  const gitDir = isAbsolute(raw) ? raw : resolve(cwd, raw);
+
+  const rebaseMerge = join(gitDir, "rebase-merge");
+  if (await pathExists(rebaseMerge)) {
+    const [current, total] = await Promise.all([
+      readCounter(join(rebaseMerge, "msgnum")),
+      readCounter(join(rebaseMerge, "end")),
+    ]);
+    return {
+      kind: "rebase",
+      label: GIT_OPERATION_LABELS.rebase,
+      step: formatStep(current, total),
+      canContinue: true,
+      canAbort: true,
+      command: "rebase",
+    };
+  }
+
+  const rebaseApply = join(gitDir, "rebase-apply");
+  if (await pathExists(rebaseApply)) {
+    const applying = await pathExists(join(rebaseApply, "applying"));
+    const [current, total] = await Promise.all([
+      readCounter(join(rebaseApply, "next")),
+      readCounter(join(rebaseApply, "last")),
+    ]);
+    return {
+      kind: "rebase",
+      label: applying ? "正在应用补丁" : GIT_OPERATION_LABELS.rebase,
+      step: formatStep(current, total),
+      canContinue: true,
+      canAbort: true,
+      command: applying ? "am" : "rebase",
+    };
+  }
+
+  if (await pathExists(join(gitDir, "CHERRY_PICK_HEAD"))) {
+    return {
+      kind: "cherry-pick",
+      label: GIT_OPERATION_LABELS["cherry-pick"],
+      canContinue: true,
+      canAbort: true,
+      command: "cherry-pick",
+    };
+  }
+
+  if (await pathExists(join(gitDir, "REVERT_HEAD"))) {
+    return {
+      kind: "revert",
+      label: GIT_OPERATION_LABELS.revert,
+      canContinue: true,
+      canAbort: true,
+      command: "revert",
+    };
+  }
+
+  if (await pathExists(join(gitDir, "MERGE_HEAD"))) {
+    return {
+      kind: "merge",
+      label: GIT_OPERATION_LABELS.merge,
+      canContinue: true,
+      canAbort: true,
+      command: "merge",
+    };
+  }
+
+  if (await pathExists(join(gitDir, "BISECT_LOG"))) {
+    return {
+      kind: "bisect",
+      label: GIT_OPERATION_LABELS.bisect,
+      canContinue: false,
+      canAbort: true,
+      command: "bisect",
+    };
+  }
+
+  return null;
 }
 
 /** 读取工作区（可能是仓库子目录）的完整 Git 状态 */
@@ -123,7 +251,7 @@ export async function readStatusDetail(cwd: string): Promise<GitStatusDetail> {
     return emptyStatus("工作区不在仓库目录内");
   }
 
-  const [status, head] = await Promise.all([
+  const [status, head, operation] = await Promise.all([
     runGit(cwd, [
       "status",
       "--porcelain=v1",
@@ -132,6 +260,7 @@ export async function readStatusDetail(cwd: string): Promise<GitStatusDetail> {
       "--untracked-files=all",
     ]),
     runGit(cwd, ["rev-parse", "--verify", "HEAD"]),
+    detectOperation(cwd),
   ]);
 
   if (!status.ok) {
@@ -147,6 +276,7 @@ export async function readStatusDetail(cwd: string): Promise<GitStatusDetail> {
     ahead: parsed.ahead,
     behind: parsed.behind,
     hasHead: head.ok,
+    inProgress: operation ? toInProgress(operation) : null,
     files: parsed.files,
   };
 }
@@ -196,8 +326,15 @@ function parsePorcelain(raw: string, prefix: string): ParsedStatus {
     const repoPath = record.slice(3).replace(/\\/g, "/");
     if (!repoPath) continue;
 
-    // 重命名 / 复制记录后面还跟一个原路径，跳过它
-    if (indexChar === "R" || indexChar === "C") i += 1;
+    // 重命名 / 复制记录后面还跟一个原路径：留作丢弃 / 还原时一并处理
+    let originalPath: string | undefined;
+    if (indexChar === "R" || indexChar === "C") {
+      const oldRepoPath = records[i + 1]?.replace(/\\/g, "/");
+      i += 1;
+      if (oldRepoPath) {
+        originalPath = relativeToWorkspace(oldRepoPath, prefix) ?? undefined;
+      }
+    }
 
     const relativePath = relativeToWorkspace(repoPath, prefix);
     if (!relativePath) continue;
@@ -226,6 +363,7 @@ function parsePorcelain(raw: string, prefix: string): ParsedStatus {
 
     files.push({
       relativePath,
+      originalPath,
       indexStatus: conflicted ? null : indexStatus,
       worktreeStatus: conflicted ? null : worktreeStatus,
       untracked: false,
@@ -372,6 +510,126 @@ export async function readDiff(
       : diff,
     binary,
     truncated,
+  };
+}
+
+/**
+ * 丢弃文件修改（不可恢复）。
+ *
+ * 按当前 Git 状态自动分流：
+ * - 未跟踪 → `git clean -f`（删除文件）
+ * - 新增 / 复制 → `git rm -f`（移出索引并删除）
+ * - 重命名 → 恢复原路径 + 删除新路径
+ * - 其它已跟踪文件 → `git restore --source=HEAD --staged --worktree`
+ *
+ * 调用方必须已经做过用户确认；冲突文件不在这里处理，避免把冲突标记抹掉。
+ */
+export async function discardPaths(
+  cwd: string,
+  paths: string[],
+): Promise<GitOperationResult> {
+  if (paths.length === 0) return { ok: true };
+
+  let requested: string[];
+  try {
+    requested = [...new Set(paths.map((path) => validatePath(cwd, path)))];
+  } catch (err) {
+    return { ok: false, error: errorMessage(err) };
+  }
+
+  const status = await readStatusDetail(cwd);
+  if (!status.available) {
+    return { ok: false, error: status.error ?? "无法读取 Git 状态" };
+  }
+  if (status.inProgress) {
+    return {
+      ok: false,
+      error: "请先继续或中止当前 Git 操作，再丢弃文件修改",
+    };
+  }
+
+  const byPath = new Map(status.files.map((file) => [file.relativePath, file]));
+  if (requested.some((path) => !byPath.has(path))) {
+    return { ok: false, error: "文件状态已变化，请刷新后重试" };
+  }
+
+  const tracked = new Set<string>();
+  const removeAdded = new Set<string>();
+  const cleanUntracked = new Set<string>();
+
+  for (const path of requested) {
+    const file = byPath.get(path)!;
+    if (file.conflicted) {
+      return {
+        ok: false,
+        error: `「${file.relativePath}」处于冲突状态，请先解决冲突`,
+      };
+    }
+    if (file.untracked) {
+      cleanUntracked.add(file.relativePath);
+      continue;
+    }
+    if (file.indexStatus === "added" || file.indexStatus === "copied") {
+      removeAdded.add(file.relativePath);
+      continue;
+    }
+    if (file.indexStatus === "renamed") {
+      if (!file.originalPath) {
+        return {
+          ok: false,
+          error: "无法确定重命名的原路径，请刷新后重试",
+        };
+      }
+      removeAdded.add(file.relativePath);
+      try {
+        tracked.add(validatePath(cwd, file.originalPath));
+      } catch (err) {
+        return { ok: false, error: errorMessage(err) };
+      }
+      continue;
+    }
+    tracked.add(file.relativePath);
+  }
+
+  const commands: string[][] = [];
+  if (tracked.size > 0) {
+    commands.push([
+      "restore",
+      "--source=HEAD",
+      "--staged",
+      "--worktree",
+      "--",
+      ...tracked,
+    ]);
+  }
+  if (removeAdded.size > 0) {
+    commands.push(["rm", "-f", "--", ...removeAdded]);
+  }
+  if (cleanUntracked.size > 0) {
+    commands.push(["clean", "-f", "--", ...cleanUntracked]);
+  }
+
+  const outputs: string[] = [];
+  for (const args of commands) {
+    // 文件名可能包含 * ? [ ]，丢弃是破坏性操作，必须按字面路径处理
+    const result = await runGit(cwd, args, GIT_TIMEOUT_MS, {
+      GIT_LITERAL_PATHSPECS: "1",
+    });
+    const output = `${result.stdout}${result.stderr}`.trim();
+    if (output) outputs.push(output);
+    if (!result.ok) {
+      return {
+        ok: false,
+        error:
+          result.stderr.trim() || result.stdout.trim() || "丢弃修改失败",
+        output: outputs.filter(Boolean).join("\n") || undefined,
+      };
+    }
+  }
+
+  return {
+    ok: true,
+    output: outputs.filter(Boolean).join("\n") || undefined,
   };
 }
 
@@ -534,6 +792,46 @@ export async function pullBranch(cwd: string): Promise<GitOperationResult> {
   );
 }
 
+/** 继续进行中的 merge / rebase / cherry-pick / revert / am */
+export async function continueOperation(
+  cwd: string,
+): Promise<GitOperationResult> {
+  const operation = await detectOperation(cwd);
+  if (!operation) {
+    return { ok: false, error: "当前没有进行中的 Git 操作" };
+  }
+  if (!operation.canContinue) {
+    return {
+      ok: false,
+      error: "二分查找没有 continue，请用 good / bad 标记提交，或中止后重来",
+    };
+  }
+
+  return runGitOperation(
+    cwd,
+    [operation.command, "--continue"],
+    "继续操作失败",
+    GIT_TIMEOUT_MS,
+    { GIT_EDITOR: "true", GIT_SEQUENCE_EDITOR: "true" },
+  );
+}
+
+/** 中止进行中的 merge / rebase / cherry-pick / revert / bisect */
+export async function abortOperation(cwd: string): Promise<GitOperationResult> {
+  const operation = await detectOperation(cwd);
+  if (!operation) {
+    return { ok: false, error: "当前没有进行中的 Git 操作" };
+  }
+
+  return runGitOperation(
+    cwd,
+    operation.command === "bisect"
+      ? ["bisect", "reset"]
+      : [operation.command, "--abort"],
+    "中止操作失败",
+  );
+}
+
 /** 切换分支 */
 export async function checkoutBranch(
   cwd: string,
@@ -616,8 +914,9 @@ async function runGitOperation(
   args: string[],
   fallbackError: string,
   timeoutMs = GIT_TIMEOUT_MS,
+  extraEnv?: NodeJS.ProcessEnv,
 ): Promise<GitOperationResult> {
-  const result = await runGit(cwd, args, timeoutMs);
+  const result = await runGit(cwd, args, timeoutMs, extraEnv);
   const output = `${result.stdout}${result.stderr}`.trim();
   if (result.ok) return { ok: true, output: output || undefined };
   return {

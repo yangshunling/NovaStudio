@@ -6,7 +6,7 @@
  */
 
 import { useEffect, useState } from "react";
-import { Folder, FolderKanban, FolderPlus } from "lucide-react";
+import { ChevronRight, Folder, FolderKanban, FolderPlus } from "lucide-react";
 import type { Project } from "@shared/types";
 import { ipc } from "../../lib/ipc";
 import { toMessage } from "../../lib/utils";
@@ -15,13 +15,14 @@ import { useFileViewerStore } from "../../stores/fileViewer";
 import { useTerminalStore } from "../../stores/terminal";
 import { toast } from "../../stores/toast";
 import { confirmDialog } from "../../stores/confirm";
-import { EmptyState, LoadingState } from "../ui/EmptyState";
+import { LoadingState } from "../ui/EmptyState";
 import { Page } from "../ui/Page";
 import { Button } from "../ui/Button";
 import { IconButton } from "../ui/IconButton";
-import { ListItem } from "../ui/ListPane";
 import { WorkspaceConsole, type WorkspaceTab } from "./WorkspaceConsole";
 import { Spinner } from "../ui/Spinner";
+import { WorkspaceEmptyState } from "./workspaceUi";
+import "./workspace.css";
 
 /**
  * 路径比较：只用于「这个目录是不是已经登记过」的友好提示。
@@ -212,15 +213,11 @@ export function WorkspacesView() {
     <Page>
       <div className="flex min-h-0 flex-1">
         {/* 左：工作区列表 */}
-        <aside className="flex w-[var(--c-layout-session-list)] shrink-0 flex-col border-r border-border bg-[var(--c-panel-bg)] shadow-[var(--c-shadow-sm)]">
-          <div className="flex h-[var(--c-layout-header)] shrink-0 items-center justify-between gap-2 border-b border-border px-4">
+        <aside className="ws-rail">
+          <div className="ws-rail-head">
             <div className="flex min-w-0 items-center gap-2">
-              <p className="truncate ui-type-note font-semibold tracking-wide text-text-muted">
-                工作区
-              </p>
-              <span className="flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-surface-hover px-1.5 ui-type-code-sm leading-none text-text-muted">
-                {projects.length}
-              </span>
+              <p className="ws-kicker truncate">工作区</p>
+              <span className="ws-count">{projects.length}</span>
             </div>
             <IconButton
               icon={
@@ -232,12 +229,13 @@ export function WorkspacesView() {
               }
               label="新建工作区"
               tone="muted"
+              size="sm"
               disabled={creating}
               onClick={() => void createWorkspace()}
             />
           </div>
 
-          <div className="min-h-0 flex-1 space-y-1 overflow-y-auto px-2.5 pb-4 pt-3">
+          <div className="ws-rail-list">
             {projects.map((project) => (
               <WorkspaceRailItem
                 key={project.id}
@@ -248,8 +246,9 @@ export function WorkspacesView() {
             ))}
           </div>
 
-          <div className="shrink-0 border-t border-border px-3 py-2 ui-type-sub text-text-muted">
-            {projects.length} 个工作区
+          <div className="ws-rail-foot">
+            <span>本地目录</span>
+            <span>按需读取</span>
           </div>
         </aside>
 
@@ -275,9 +274,10 @@ export function WorkspacesView() {
               }
             />
           ) : (
-            <EmptyState
+            <WorkspaceEmptyState
+              icon={<FolderKanban className="h-5 w-5" />}
               title="选择一个工作区"
-              description="从左侧选择工作区，浏览文件并管理 Git 变更。"
+              description="从左侧选择目录，查看文件与 Git 变更。"
             />
           )}
         </div>
@@ -300,15 +300,22 @@ function WorkspaceRailItem({
   onClick: () => void;
 }) {
   return (
-    <ListItem
-      active={active}
-      icon={<Folder className="h-4 w-4 text-agent-amber" />}
-      title={project.name}
-      subtitle={project.cwd}
-      monoSubtitle
-      titleAttr={project.cwd}
+    <button
+      type="button"
       onClick={onClick}
-    />
+      title={project.cwd}
+      data-active={active}
+      className="ws-rail-item"
+    >
+      <span className="ws-rail-icon">
+        <Folder className="h-3.5 w-3.5" />
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="ws-rail-name">{project.name}</span>
+        <span className="ws-rail-path">{project.cwd}</span>
+      </span>
+      <ChevronRight className="ws-rail-chevron h-3.5 w-3.5" />
+    </button>
   );
 }
 
@@ -324,23 +331,26 @@ function EmptyWorkspaces({
   onCreate: () => void;
 }) {
   return (
-    <EmptyState
-      icon={<FolderKanban />}
-      title="先登记一个工作区"
-      description="工作区是一个本地根目录，可以是代码仓库、Excel 资料库或知识库目录。登记后可以浏览全部文件、预览内容，并进行 Git 操作。"
-      className="h-full"
-      action={
-        <Button
-          variant="primary"
-          onClick={onCreate}
-          disabled={creating}
-          loading={creating}
-          icon={<FolderPlus className="h-4 w-4" />}
-        >
-          选择文件夹创建
-        </Button>
-      }
-    />
+    <div className="ws-empty flex-1">
+      <span className="ws-empty-icon">
+        <FolderKanban className="h-5 w-5" />
+      </span>
+      <h2 className="ws-empty-title">先登记一个工作区</h2>
+      <p className="ws-empty-desc">
+        工作区是一个本地根目录，可以是代码仓库、Excel 资料库或知识库目录。
+        登记后可以浏览全部文件、预览内容，并进行 Git 操作。
+      </p>
+      <Button
+        variant="primary"
+        className="mt-2"
+        onClick={onCreate}
+        disabled={creating}
+        loading={creating}
+        icon={<FolderPlus className="h-4 w-4" />}
+      >
+        选择文件夹创建
+      </Button>
+    </div>
   );
 }
 

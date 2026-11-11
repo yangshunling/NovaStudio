@@ -67,6 +67,42 @@ const LANGS = [
 let highlighter: HighlighterCore | null = null;
 let initPromise: Promise<HighlighterCore> | null = null;
 
+/**
+ * 高亮结果缓存（LRU）。
+ *
+ * CodeBlock 在挂载时同步高亮：切换会话会把整个消息窗口重新挂载，同一段代码
+ * 会被反复 tokenize；代码块多的会话里这部分会叠加成明显的切换卡顿。
+ * 缓存按「主题 + 语言 + 源码」命中，切回看过的会话 / 反复换肤都不再重算。
+ */
+const HIGHLIGHT_CACHE_MAX_ENTRIES = 160;
+const HIGHLIGHT_CACHE_MAX_CHARS = 2_000_000;
+const highlightCache = new Map<string, string>();
+let highlightCacheChars = 0;
+
+function readHighlightCache(key: string): string | undefined {
+  const hit = highlightCache.get(key);
+  if (hit === undefined) return undefined;
+  // LRU：命中后移到队尾
+  highlightCache.delete(key);
+  highlightCache.set(key, hit);
+  return hit;
+}
+
+function writeHighlightCache(key: string, html: string): void {
+  highlightCacheChars += key.length + html.length;
+  highlightCache.set(key, html);
+  while (
+    highlightCache.size > HIGHLIGHT_CACHE_MAX_ENTRIES ||
+    highlightCacheChars > HIGHLIGHT_CACHE_MAX_CHARS
+  ) {
+    const oldestKey = highlightCache.keys().next().value;
+    if (oldestKey === undefined) break;
+    const oldest = highlightCache.get(oldestKey);
+    highlightCache.delete(oldestKey);
+    highlightCacheChars -= oldestKey.length + (oldest?.length ?? 0);
+  }
+}
+
 /** 获取 Shiki 高亮器（单例）。首次调用会异步初始化，后续直接返回缓存 */
 export function getHighlighter(): Promise<HighlighterCore> {
   if (highlighter) return Promise.resolve(highlighter);
@@ -104,7 +140,13 @@ export function highlightCodeSync(
     const loadedThemes = highlighter.getLoadedThemes();
     const safeTheme = loadedThemes.includes(codeTheme) ? codeTheme : loadedThemes[0];
 
-    return highlighter.codeToHtml(code, { lang: safeLang, theme: safeTheme });
+    const key = `${safeTheme}\u0000${safeLang}\u0000${code}`;
+    const cached = readHighlightCache(key);
+    if (cached !== undefined) return cached;
+
+    const html = highlighter.codeToHtml(code, { lang: safeLang, theme: safeTheme });
+    writeHighlightCache(key, html);
+    return html;
   } catch {
     return null;
   }

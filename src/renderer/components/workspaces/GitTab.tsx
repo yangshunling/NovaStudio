@@ -6,11 +6,22 @@
  * - 右：选中文件的 diff + 底部提交区
  *
  * 写操作全部走 git:* IPC；UI 只负责确认与刷新，不直接拼命令行。
+ *
+ * 勾选语义：勾选框只表示「选中」，不立即执行 Git 操作。
+ * 分组头三态全选 → 分组头「暂存 / 取消暂存 n」或工具栏「暂存选中 n」
+ * 一次执行整批；点文件名只加载 diff，不会改动暂存区。
  */
 
-import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  AlertTriangle, ArrowDown, ArrowUp, Check, CheckCircle2, ChevronDown, CircleDot, Cloud, GitBranch, GitBranchPlus, Minus, Plus, RefreshCw, Tag, type LucideIcon } from "lucide-react";
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type MouseEvent,
+} from "react";
+import { createPortal } from "react-dom";
+import {
+  AlertTriangle, ArrowDown, ArrowUp, Check, CheckCircle2, ChevronDown, CircleDot, Cloud, GitBranch, GitBranchPlus, Minus, Plus, RefreshCw, Tag, Undo2, type LucideIcon } from "lucide-react";
 import type { Project } from "@shared/types";
 import type {
   GitBranchInfo,
@@ -19,15 +30,16 @@ import type {
   GitStatusDetail,
 } from "@shared/git";
 import { clamp } from "@shared/math";
+import { formatDateTime } from "@shared/time";
 import { ipc } from "../../lib/ipc";
 import { timeAgo, toMessage } from "../../lib/utils";
 import { toast } from "../../stores/toast";
+import { confirmDialog } from "../../stores/confirm";
 import { Button } from "../ui/Button";
 import { IconButton } from "../ui/IconButton";
 import { Select } from "../ui/Select";
 import { Dialog, DialogActions } from "../ui/Dialog";
-import { Field, TextArea, TextInput } from "../ui/Field";
-import { EmptyState } from "../ui/EmptyState";
+import { Field, TextInput } from "../ui/Field";
 import {
   conflictedFiles,
   displayStatus,
@@ -37,6 +49,7 @@ import {
   untrackedFiles,
 } from "./gitUi";
 import { Spinner } from "../ui/Spinner";
+import { WorkspaceEmptyState as GitEmptyState } from "./workspaceUi";
 
 export interface GitTabProps {
   project: Project;
@@ -60,6 +73,60 @@ type SelectedFile = {
 
 /** 可折叠的区域：四个变更分组 + 最近提交 */
 type GroupKey = "conflict" | "staged" | "unstaged" | "untracked" | "commits";
+
+/**
+ * 勾选集合的不可变增删。
+ *
+ * 勾选只表示「选中」，不立即执行 Git 操作；集合内容没变化时返回原引用，
+ * 避免状态刷新时触发多余渲染。
+ */
+function togglePath(set: Set<string>, path: string): Set<string> {
+  const next = new Set(set);
+  if (next.has(path)) next.delete(path);
+  else next.add(path);
+  return next;
+}
+
+/** 分组全选：已全选则清空，否则补齐（保留其它分组的勾选） */
+function togglePaths(set: Set<string>, paths: string[]): Set<string> {
+  const allPicked = paths.length > 0 && paths.every((path) => set.has(path));
+  const next = new Set(set);
+  for (const path of paths) {
+    if (allPicked) next.delete(path);
+    else next.add(path);
+  }
+  return next;
+}
+
+function dropPaths(set: Set<string>, paths: string[]): Set<string> {
+  const next = new Set(set);
+  for (const path of paths) next.delete(path);
+  return next;
+}
+
+/** 操作完成后清掉已经不存在的文件勾选 */
+function intersectPaths(set: Set<string>, present: Set<string>): Set<string> {
+  let changed = false;
+  const next = new Set<string>();
+  for (const path of set) {
+    if (present.has(path)) next.add(path);
+    else changed = true;
+  }
+  return changed ? next : set;
+}
+
+/** 冲突组没有勾选语义；复用同一个空集合，避免每次渲染新建 */
+const NO_PICKS: ReadonlySet<string> = new Set<string>();
+
+/** 取某分组里被勾选的文件路径 */
+function pickedPaths(
+  files: GitFileStatus[],
+  picks: ReadonlySet<string>,
+): string[] {
+  return files
+    .filter((file) => picks.has(file.relativePath))
+    .map((file) => file.relativePath);
+}
 
 export function GitTab({
   project,
@@ -106,6 +173,18 @@ export function GitTab({
   };
   const isCollapsed = (key: GroupKey) => collapsedGroups.has(key);
 
+  /**
+   * 勾选 = 选中，不立即执行 Git 操作。
+   *
+   * 未暂存 / 未跟踪的勾选进入 stagePicks，已暂存的勾选进入 unstagePicks；
+   * 勾完后再由工具栏的「暂存选中 / 取消暂存选中」一次性执行，
+   * 避免过去「点一个勾选框就立刻 add / reset 一个文件」的交互。
+   */
+  const [stagePicks, setStagePicks] = useState<Set<string>>(() => new Set());
+  const [unstagePicks, setUnstagePicks] = useState<Set<string>>(
+    () => new Set(),
+  );
+
   const staged = useMemo(() => stagedFiles(status), [status]);
   const unstaged = useMemo(() => unstagedFiles(status), [status]);
   const untracked = useMemo(() => untrackedFiles(status), [status]);
@@ -115,7 +194,30 @@ export function GitTab({
     Boolean(message.trim()) &&
     staged.length > 0 &&
     !busy &&
-    status?.available === true;
+    status?.available === true &&
+    // merge 冲突解决后可以直接提交；rebase / cherry-pick 等应走「继续」
+    (!status.inProgress || status.inProgress.kind === "merge");
+
+  // 提交 / 暂存后文件可能从列表消失：把已经不存在的勾选剔除
+  useEffect(() => {
+    if (!status?.available) {
+      setStagePicks((prev) => (prev.size > 0 ? new Set() : prev));
+      setUnstagePicks((prev) => (prev.size > 0 ? new Set() : prev));
+      return;
+    }
+    const stageable = new Set(
+      [...unstaged, ...untracked].map((file) => file.relativePath),
+    );
+    const stagedPaths = new Set(staged.map((file) => file.relativePath));
+    setStagePicks((prev) => intersectPaths(prev, stageable));
+    setUnstagePicks((prev) => intersectPaths(prev, stagedPaths));
+  }, [status, staged, unstaged, untracked]);
+
+  // 切换工作区后旧勾选不再有意义
+  useEffect(() => {
+    setStagePicks(new Set());
+    setUnstagePicks(new Set());
+  }, [project.id]);
 
   // 加载选中文件的 diff
   useEffect(() => {
@@ -251,6 +353,7 @@ export function GitTab({
         toast.error(result.error ?? "暂存失败", 6000);
         return;
       }
+      setStagePicks((prev) => dropPaths(prev, paths));
       if (selected && paths.includes(selected.relativePath)) {
         setSelected({
           relativePath: selected.relativePath,
@@ -275,6 +378,7 @@ export function GitTab({
         toast.error(result.error ?? "取消暂存失败", 6000);
         return;
       }
+      setUnstagePicks((prev) => dropPaths(prev, paths));
       if (selected && paths.includes(selected.relativePath)) {
         setSelected({
           relativePath: selected.relativePath,
@@ -285,6 +389,126 @@ export function GitTab({
       onRefresh();
     } catch (err) {
       toast.error(toMessage(err), 5000);
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const discard = async (files: GitFileStatus[]) => {
+    if (files.length === 0 || busy) return;
+    if (status?.inProgress) {
+      toast.info("请先继续或中止当前 Git 操作");
+      return;
+    }
+
+    const uniquePaths = [...new Set(files.map((file) => file.relativePath))];
+    /** 新增 / 复制 / 未跟踪：丢弃意味着从磁盘删除，而不是还原内容 */
+    const isDelete = (file: GitFileStatus) =>
+      file.untracked ||
+      file.indexStatus === "added" ||
+      file.indexStatus === "copied";
+    const deleteOnly = files.every(isDelete);
+    const hasDelete = files.some(isDelete);
+    const target =
+      uniquePaths.length === 1
+        ? (uniquePaths[0].split("/").pop() ?? uniquePaths[0])
+        : `${uniquePaths.length} 个文件`;
+
+    const confirmed = await confirmDialog({
+      title: deleteOnly ? `删除「${target}」？` : `丢弃「${target}」的修改？`,
+      message: deleteOnly
+        ? "文件会从磁盘删除，无法恢复。"
+        : hasDelete
+          ? "选中的新增 / 未跟踪文件会从磁盘删除，其余修改会还原到暂存区 / HEAD 的状态。无法恢复。"
+          : "工作区修改会还原到暂存区 / HEAD 的状态，无法恢复。",
+      confirmLabel: deleteOnly ? "删除" : hasDelete ? "丢弃并删除" : "丢弃",
+      tone: "danger",
+    });
+    if (!confirmed) return;
+
+    setBusy("discard");
+    try {
+      const result = await ipc.discardGitPaths(project.id, uniquePaths);
+      if (!result.ok) {
+        toast.error(result.error ?? "丢弃失败", 8000);
+        setSelected(null);
+        onRefresh();
+        return;
+      }
+      toast.success(deleteOnly ? "已删除文件" : "已丢弃修改");
+      setSelected(null);
+      setMessage("");
+      setCommitError(null);
+      setCommitOutput(null);
+      setStagePicks(new Set());
+      setUnstagePicks(new Set());
+      onAfterMutation();
+    } catch (err) {
+      toast.error(toMessage(err), 5000);
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const continueOperation = async () => {
+    if (busy || !status?.inProgress) return;
+    setBusy("continue");
+    try {
+      const result = await ipc.continueGitOperation(project.id);
+      if (!result.ok) {
+        toast.error(result.error ?? "继续操作失败", 8000);
+        // rebase / cherry-pick 可能推进到下一个冲突：刷新让横幅与文件列表跟上
+        setSelected(null);
+        onAfterMutation();
+        return;
+      }
+      toast.success("已继续 Git 操作");
+      setSelected(null);
+      setMessage("");
+      setCommitError(null);
+      setCommitOutput(null);
+      setStagePicks(new Set());
+      setUnstagePicks(new Set());
+      onAfterMutation();
+    } catch (err) {
+      toast.error(toMessage(err), 6000);
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const abortOperation = async () => {
+    if (busy || !status?.inProgress) return;
+    const isBisect = status.inProgress.kind === "bisect";
+    const confirmed = await confirmDialog({
+      title: isBisect ? "结束二分查找？" : "中止当前 Git 操作？",
+      message: isBisect
+        ? "会回到二分查找开始前的分支。"
+        : "已解决的冲突与暂存状态会回退到操作开始前，无法恢复。",
+      confirmLabel: isBisect ? "结束" : "中止",
+      tone: "danger",
+    });
+    if (!confirmed) return;
+
+    setBusy("abort");
+    try {
+      const result = await ipc.abortGitOperation(project.id);
+      if (!result.ok) {
+        toast.error(result.error ?? "中止操作失败", 8000);
+        setSelected(null);
+        onAfterMutation();
+        return;
+      }
+      toast.success(isBisect ? "已结束二分查找" : "已中止 Git 操作");
+      setSelected(null);
+      setMessage("");
+      setCommitError(null);
+      setCommitOutput(null);
+      setStagePicks(new Set());
+      setUnstagePicks(new Set());
+      onAfterMutation();
+    } catch (err) {
+      toast.error(toMessage(err), 6000);
     } finally {
       setBusy(null);
     }
@@ -390,19 +614,18 @@ export function GitTab({
       Boolean(status.error?.includes("未检测到 git")) ||
       Boolean(status.error?.toLowerCase().includes("not found"));
     return (
-      <div className="flex h-full items-center justify-center p-section">
-        <div className="max-w-md rounded-xl border border-border/60 bg-surface-2/40 p-6 text-center shadow-[var(--c-shadow-sm)]">
-          <GitBranch className="mx-auto h-7 w-7 text-text-muted" />
-          <h3 className="mt-2 ui-type-body font-semibold text-text">
-            {gitMissing ? "未检测到 Git" : "该工作区还不是 Git 仓库"}
-          </h3>
-          <p className="mt-1 ui-type-note text-text-muted">
-            {status.error ?? "初始化后可以在这里查看变更、切换分支并提交。"}
-          </p>
+      <div className="h-full">
+        <GitEmptyState
+          icon={<GitBranch className="h-5 w-5" />}
+          title={gitMissing ? "未检测到 Git" : "该工作区还不是 Git 仓库"}
+          description={
+            status.error ?? "初始化后可以在这里查看变更、切换分支并提交。"
+          }
+        >
           {!gitMissing && (
             <Button
               variant="primary"
-              className="mt-3"
+              className="mt-1"
               size="sm"
               loading={busy === "init"}
               onClick={() => void init()}
@@ -410,7 +633,7 @@ export function GitTab({
               初始化 Git 仓库
             </Button>
           )}
-        </div>
+        </GitEmptyState>
       </div>
     );
   }
@@ -429,13 +652,25 @@ export function GitTab({
     !status.detached &&
     Boolean(status.branch) &&
     !busy &&
+    !status.inProgress &&
     (status.ahead > 0 || !hasUpstream);
   /** 分支列表未加载出来时不做判断，交给主进程给出明确错误 */
   const canPull =
     status.hasHead &&
     !status.detached &&
     !busy &&
+    !status.inProgress &&
     (branches.length === 0 || hasUpstream);
+
+  /** 勾选集合合并后用于批量丢弃；同一个文件同时有暂存 / 未暂存时只处理一次 */
+  const pickedPathSet = new Set([...stagePicks, ...unstagePicks]);
+  const pickedTotal = pickedPathSet.size;
+  const discardPicked = () => {
+    const files = status.files.filter((file) =>
+      pickedPathSet.has(file.relativePath),
+    );
+    void discard(files);
+  };
 
   const selectedEntry = selected
     ? (status.files.find(
@@ -448,26 +683,77 @@ export function GitTab({
 
   return (
     <div className="flex h-full min-h-0 flex-col">
+      {/* 进行中的多步操作：优先于一切其它操作，先让用户收尾 */}
+      {status.inProgress && (
+        <div
+          className="ws-op"
+          data-kind={status.inProgress.kind}
+          role="status"
+          aria-live="polite"
+        >
+          <span className="ws-op-icon">
+            <AlertTriangle className="h-3.5 w-3.5" />
+          </span>
+          <div className="min-w-0 flex-1">
+            <p className="ws-op-title">
+              {status.inProgress.label}
+              {status.inProgress.step
+                ? ` · ${status.inProgress.step}`
+                : ""}
+            </p>
+            <p className="ws-op-desc">
+              {status.inProgress.kind === "bisect"
+                ? "请在终端标记 good / bad，或中止回到起点。"
+                : "解决冲突后继续，或中止这次操作。"}
+            </p>
+          </div>
+          <div className="ws-op-actions">
+            {status.inProgress.canContinue && (
+              <button
+                type="button"
+                className="ws-op-button"
+                disabled={Boolean(busy)}
+                onClick={() => void continueOperation()}
+              >
+                {busy === "continue" ? (
+                  <Spinner className="h-3 w-3" />
+                ) : null}
+                继续
+              </button>
+            )}
+            <button
+              type="button"
+              className="ws-op-button ws-op-button-danger"
+              disabled={Boolean(busy)}
+              onClick={() => void abortOperation()}
+            >
+              {busy === "abort" ? <Spinner className="h-3 w-3" /> : null}
+              {status.inProgress.kind === "bisect" ? "结束" : "中止"}
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* 顶栏：分支 / 批量操作 */}
-      <div className="flex shrink-0 flex-wrap items-center gap-1.5 border-b border-border px-card py-2">
-        <div className="ui-ring flex h-7 min-w-0 items-center gap-1 rounded-full bg-input-bg pl-2.5 pr-1">
+      <div className="ws-toolbar">
+        <div className="ws-branch">
           <GitBranch className="h-3.5 w-3.5 shrink-0 text-accent" />
           {branchOptions.length > 0 ? (
             <Select
               value={status.branch ?? ""}
               onChange={requestCheckout}
               options={branchOptions}
-              disabled={Boolean(busy)}
-              className="min-w-0 max-w-44 ui-type-note text-text-secondary"
+              disabled={Boolean(busy) || Boolean(status.inProgress)}
+              className="ws-branch-name max-w-44 text-text-secondary"
               minMenuWidth={200}
               aria-label="切换分支"
               title="切换分支"
             />
           ) : (
-            <span className="px-1 ui-type-note text-text-muted">尚无分支</span>
+            <span className="ws-branch-name text-text-muted">尚无分支</span>
           )}
           {(status.ahead > 0 || status.behind > 0) && (
-            <span className="flex shrink-0 items-center gap-1 rounded-full bg-surface-hover px-1.5 ui-type-code-sm leading-4 text-text-muted">
+            <span className="ws-branch-meta">
               {status.ahead > 0 && <span>↑{status.ahead}</span>}
               {status.behind > 0 && <span>↓{status.behind}</span>}
             </span>
@@ -475,75 +761,130 @@ export function GitTab({
         </div>
 
         {status.detached && (
-          <span className="flex h-7 items-center gap-1 rounded-full bg-agent-amber/10 px-2 ui-type-sub text-agent-amber">
+          <span className="ws-warning">
             <AlertTriangle className="h-3 w-3" />
             detached HEAD
           </span>
         )}
 
-        <Button
-          size="xs"
-          icon={<GitBranchPlus className="h-3 w-3" />}
-          onClick={() => setNewBranchOpen(true)}
-          disabled={Boolean(busy)}
-        >
-          新建分支
-        </Button>
+        <div className="ws-toolbar-divider" />
 
-        <div className="flex items-center gap-1">
-          <Button
-            size="xs"
-            icon={<ArrowDown className="h-3 w-3" />}
+        <div className="ws-toolbar-group">
+          <button
+            type="button"
+            className="ws-tool"
+            onClick={() => setNewBranchOpen(true)}
+            disabled={Boolean(busy) || Boolean(status.inProgress)}
+            title="基于当前 HEAD 创建并切换"
+          >
+            <GitBranchPlus className="h-3.5 w-3.5" />
+            新建分支
+          </button>
+          <button
+            type="button"
+            className="ws-tool"
             onClick={() => void pull()}
             disabled={!canPull}
-            loading={busy === "pull"}
             title={
               hasUpstream || branches.length === 0
                 ? "拉取远端更新（仅 fast-forward）"
                 : "当前分支没有 upstream，请先推送一次"
             }
           >
+            {busy === "pull" ? (
+              <Spinner className="h-3 w-3" />
+            ) : (
+              <ArrowDown className="h-3.5 w-3.5" />
+            )}
             拉取
-          </Button>
-          <Button
-            size="xs"
-            icon={<ArrowUp className="h-3 w-3" />}
+          </button>
+          <button
+            type="button"
+            className="ws-tool"
             onClick={() => void push()}
             disabled={!canPush}
-            loading={busy === "push"}
             title={
               hasUpstream
                 ? "推送本地提交到远端"
                 : "首次推送并建立 upstream 跟踪"
             }
           >
+            {busy === "push" ? (
+              <Spinner className="h-3 w-3" />
+            ) : (
+              <ArrowUp className="h-3.5 w-3.5" />
+            )}
             推送
-          </Button>
+          </button>
         </div>
 
-        <div className="ml-auto flex items-center gap-1">
-          <Button
-            size="xs"
-            icon={<Plus className="h-3 w-3" />}
+        <div className="ws-toolbar-group ml-auto">
+          {/* 勾选后的批量入口：只在有选中时出现，点一次执行整批 */}
+          {stagePicks.size > 0 && (
+            <button
+              type="button"
+              className="ws-tool ws-tool-accent"
+              onClick={() => void stage([...stagePicks])}
+              disabled={Boolean(busy)}
+              title={`暂存选中的 ${stagePicks.size} 个文件`}
+            >
+              <Plus className="h-3.5 w-3.5" />
+              暂存选中
+              <span className="ws-tool-count">{stagePicks.size}</span>
+            </button>
+          )}
+          {unstagePicks.size > 0 && (
+            <button
+              type="button"
+              className="ws-tool ws-tool-accent"
+              onClick={() => void unstage([...unstagePicks])}
+              disabled={Boolean(busy)}
+              title={`取消暂存选中的 ${unstagePicks.size} 个文件`}
+            >
+              <Minus className="h-3.5 w-3.5" />
+              取消暂存选中
+              <span className="ws-tool-count">{unstagePicks.size}</span>
+            </button>
+          )}
+          {pickedTotal > 0 && (
+            <button
+              type="button"
+              className="ws-tool ws-tool-danger"
+              onClick={discardPicked}
+              disabled={Boolean(busy) || Boolean(status.inProgress)}
+              title={`丢弃 / 删除选中的 ${pickedTotal} 个文件`}
+            >
+              <Undo2 className="h-3.5 w-3.5" />
+              丢弃选中
+            </button>
+          )}
+          <button
+            type="button"
+            className="ws-tool"
             onClick={() =>
               void stage(
                 [...unstaged, ...untracked].map((file) => file.relativePath),
               )
             }
             disabled={Boolean(busy) || unstaged.length + untracked.length === 0}
+            title="暂存所有未暂存与未跟踪文件"
           >
+            <Plus className="h-3.5 w-3.5" />
             全部暂存
-          </Button>
-          <Button
-            size="xs"
-            icon={<Minus className="h-3 w-3" />}
+          </button>
+          <button
+            type="button"
+            className="ws-tool"
             onClick={() =>
               void unstage(staged.map((file) => file.relativePath))
             }
             disabled={Boolean(busy) || staged.length === 0}
+            title="取消暂存所有文件"
           >
+            <Minus className="h-3.5 w-3.5" />
             全部取消暂存
-          </Button>
+          </button>
+          <div className="ws-toolbar-divider" />
           <IconButton
             icon={
               <RefreshCw
@@ -563,12 +904,14 @@ export function GitTab({
         {/* 左：变更 + 历史 */}
         <aside className="flex w-[340px] shrink-0 flex-col border-r border-border">
           {/* 变更列表：占剩余空间，独立滚动 */}
-          <div className="min-h-0 flex-1 overflow-y-auto p-2">
+          <div className="ws-changes">
             {changes === 0 ? (
-              <div className="flex flex-col items-center gap-1.5 px-4 py-8 text-center">
-                <CheckCircle2 className="h-6 w-6 text-success" />
-                <p className="ui-type-note font-semibold text-text">工作区干净</p>
-                <p className="max-w-56 ui-type-sub leading-relaxed text-text-muted">
+              <div className="ws-empty">
+                <span className="ws-empty-icon">
+                  <CheckCircle2 className="h-5 w-5 text-success" />
+                </span>
+                <p className="ws-empty-title">工作区干净</p>
+                <p className="ws-empty-desc">
                   没有未提交变更，切换分支或提交都会很安全。
                 </p>
               </div>
@@ -584,7 +927,13 @@ export function GitTab({
                     collapsed={isCollapsed("conflict")}
                     onToggleCollapsed={() => toggleGroup("conflict")}
                     onSelect={setSelected}
-                    onToggle={() => undefined}
+                    picked={NO_PICKS}
+                    onTogglePick={() => undefined}
+                    onTogglePickAll={() => undefined}
+                    onApplyPicks={() => undefined}
+                    onDiscard={() => undefined}
+                    onResolve={(file) => void stage([file.relativePath])}
+                    discardDisabled
                   />
                 )}
                 {staged.length > 0 && (
@@ -596,11 +945,26 @@ export function GitTab({
                     busy={busy}
                     collapsed={isCollapsed("staged")}
                     onToggleCollapsed={() => toggleGroup("staged")}
-                    maxHeightClass="max-h-[48vh]"
                     onSelect={setSelected}
-                    onToggle={(file) =>
-                      void unstage([file.relativePath])
+                    picked={unstagePicks}
+                    onTogglePick={(file) =>
+                      setUnstagePicks((prev) =>
+                        togglePath(prev, file.relativePath),
+                      )
                     }
+                    onTogglePickAll={() =>
+                      setUnstagePicks((prev) =>
+                        togglePaths(
+                          prev,
+                          staged.map((file) => file.relativePath),
+                        ),
+                      )
+                    }
+                    onApplyPicks={() =>
+                      void unstage(pickedPaths(staged, unstagePicks))
+                    }
+                    onDiscard={(file) => void discard([file])}
+                    discardDisabled={Boolean(status.inProgress)}
                   />
                 )}
                 {unstaged.length > 0 && (
@@ -612,9 +976,26 @@ export function GitTab({
                     busy={busy}
                     collapsed={isCollapsed("unstaged")}
                     onToggleCollapsed={() => toggleGroup("unstaged")}
-                    maxHeightClass="max-h-[48vh]"
                     onSelect={setSelected}
-                    onToggle={(file) => void stage([file.relativePath])}
+                    picked={stagePicks}
+                    onTogglePick={(file) =>
+                      setStagePicks((prev) =>
+                        togglePath(prev, file.relativePath),
+                      )
+                    }
+                    onTogglePickAll={() =>
+                      setStagePicks((prev) =>
+                        togglePaths(
+                          prev,
+                          unstaged.map((file) => file.relativePath),
+                        ),
+                      )
+                    }
+                    onApplyPicks={() =>
+                      void stage(pickedPaths(unstaged, stagePicks))
+                    }
+                    onDiscard={(file) => void discard([file])}
+                    discardDisabled={Boolean(status.inProgress)}
                   />
                 )}
                 {untracked.length > 0 && (
@@ -627,7 +1008,25 @@ export function GitTab({
                     collapsed={isCollapsed("untracked")}
                     onToggleCollapsed={() => toggleGroup("untracked")}
                     onSelect={setSelected}
-                    onToggle={(file) => void stage([file.relativePath])}
+                    picked={stagePicks}
+                    onTogglePick={(file) =>
+                      setStagePicks((prev) =>
+                        togglePath(prev, file.relativePath),
+                      )
+                    }
+                    onTogglePickAll={() =>
+                      setStagePicks((prev) =>
+                        togglePaths(
+                          prev,
+                          untracked.map((file) => file.relativePath),
+                        ),
+                      )
+                    }
+                    onApplyPicks={() =>
+                      void stage(pickedPaths(untracked, stagePicks))
+                    }
+                    onDiscard={(file) => void discard([file])}
+                    discardDisabled={Boolean(status.inProgress)}
                   />
                 )}
               </div>
@@ -637,27 +1036,21 @@ export function GitTab({
 
           {/* 最近提交：展开时固定为父高度的 1/3，折叠后只留标题 */}
           <section
-            className={`flex shrink-0 flex-col border-t border-border ${
-              isCollapsed("commits") ? "" : "h-1/3"
-            }`}
+            className={`ws-commits ${isCollapsed("commits") ? "" : "h-1/3"}`}
           >
             <button
               type="button"
               aria-expanded={!isCollapsed("commits")}
               onClick={() => toggleGroup("commits")}
-              className="flex w-full shrink-0 items-center gap-1.5 px-3 py-2 text-left transition-colors hover:bg-surface-hover"
+              className="ws-group-head shrink-0"
             >
               <ChevronDown
                 className={`h-3.5 w-3.5 shrink-0 text-text-muted transition-transform ${
                   isCollapsed("commits") ? "-rotate-90" : ""
                 }`}
               />
-              <span className="flex-1 ui-type-sub font-semibold text-text-secondary">
-                最近提交
-              </span>
-              <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-surface-hover px-1.5 ui-type-code-sm leading-none text-text-muted">
-                {commits.length}
-              </span>
+              <span className="ws-group-title">最近提交</span>
+              <span className="ws-counter">{commits.length}</span>
             </button>
             <div
               className={`min-h-0 flex-1 overflow-y-auto px-2 pb-2 ${
@@ -665,7 +1058,7 @@ export function GitTab({
               }`}
             >
               {commits.length === 0 ? (
-                <p className="px-1 py-2 ui-type-sub text-text-muted">
+                <p className="my-0 px-1 py-2 ui-type-sub text-text-muted">
                   {status.hasHead ? "还没有提交记录" : "仓库还没有第一次提交"}
                 </p>
               ) : (
@@ -683,48 +1076,45 @@ export function GitTab({
         {/* 右：diff + 提交 */}
         <div className="flex min-w-0 flex-1 flex-col">
           <div className="flex min-h-0 flex-1 flex-col">
-            <div className="flex shrink-0 items-center gap-2 border-b border-border px-3 py-2">
-              <span className="min-w-0 flex-1 truncate ui-type-code text-text-secondary">
+            <div className="ws-diff-head">
+              <span
+                className="ws-diff-path"
+                title={selected?.relativePath}
+              >
                 {selected?.relativePath ?? "选择左侧变更文件查看 diff"}
               </span>
               {selected && !selected.untracked && !selectedDeleted && (
-                <Button
-                  size="xs"
+                <button
+                  type="button"
+                  className="ws-tool"
                   onClick={() => onOpenFile(selected.relativePath)}
                 >
                   打开文件
-                </Button>
+                </button>
               )}
             </div>
 
             <div className="min-h-0 flex-1 overflow-auto">
               {!selected ? (
                 changes === 0 ? (
-                  <EmptyState
-                    size="compact"
-                    icon={<CheckCircle2 />}
+                  <GitEmptyState
+                    icon={<CheckCircle2 className="h-5 w-5 text-success" />}
                     title="没有未提交变更"
                     description="工作区是干净的。可以切换分支，或从左侧查看最近的提交记录。"
-                    className="h-full"
                   />
                 ) : (
-                  <EmptyState
-                    size="compact"
-                    icon={<GitBranch />}
+                  <GitEmptyState
+                    icon={<GitBranch className="h-5 w-5" />}
                     title="选择一个变更文件"
                     description="点击左侧文件查看 diff；勾选文件可以暂存或取消暂存。"
-                    className="h-full"
                   />
                 )
               ) : selected.untracked ? (
-                <div className="flex h-full flex-col items-center justify-center gap-2 p-section text-center">
-                  <GitBranch className="h-6 w-6 text-text-muted" />
-                  <p className="ui-type-note font-semibold text-text">
-                    未跟踪文件
-                  </p>
-                  <p className="max-w-60 ui-type-sub leading-relaxed text-text-muted">
-                    文件还没有被 Git 跟踪，暂存后才能查看 diff。
-                  </p>
+                <GitEmptyState
+                  icon={<GitBranch className="h-5 w-5" />}
+                  title="未跟踪文件"
+                  description="文件还没有被 Git 跟踪，暂存后才能查看 diff。"
+                >
                   <div className="mt-1 flex gap-2">
                     <Button
                       size="sm"
@@ -740,100 +1130,108 @@ export function GitTab({
                       打开文件
                     </Button>
                   </div>
-                </div>
+                </GitEmptyState>
               ) : diffLoading ? (
                 <div className="flex h-full items-center justify-center text-text-muted">
                   <Spinner className="h-5 w-5" />
                 </div>
               ) : diffError ? (
-                <div className="m-3 rounded-lg border border-error/25 bg-error-bg px-3 py-2 ui-type-note text-error">
+                <div className="m-3 rounded-md border border-error/25 bg-error-bg px-3 py-2 ui-type-note text-error">
                   {diffError}
                 </div>
               ) : diffBinary ? (
-                <div className="flex h-full flex-col items-center justify-center gap-2 p-section text-center">
-                  <AlertTriangle className="h-6 w-6 text-agent-amber" />
-                  <p className="ui-type-note font-semibold text-text">
-                    二进制文件
-                  </p>
-                  <p className="max-w-60 ui-type-sub leading-relaxed text-text-muted">
-                    无法以文本方式显示 diff，请用系统程序打开查看。
-                  </p>
-                </div>
+                <GitEmptyState
+                  icon={<AlertTriangle className="h-5 w-5 text-agent-amber" />}
+                  title="二进制文件"
+                  description="无法以文本方式显示 diff，请用系统程序打开查看。"
+                />
               ) : diff.trim() === "" ? (
-                <div className="flex h-full flex-col items-center justify-center gap-2 p-section text-center">
-                  <GitBranch className="h-6 w-6 text-text-muted" />
-                  <p className="max-w-60 ui-type-sub leading-relaxed text-text-muted">
-                    没有可显示的 diff（文件可能已删除或内容未变化）。
-                  </p>
-                </div>
+                <GitEmptyState
+                  icon={<GitBranch className="h-5 w-5" />}
+                  title="没有可显示的 diff"
+                  description="文件可能已删除或内容未变化。"
+                />
               ) : (
                 <DiffView diff={diff} />
               )}
             </div>
           </div>
 
-          {/* 提交区 */}
+          {/* 提交区：与会话页输入框共用同一套外观（纸面 / 描边 / 聚焦光晕） */}
           {changes > 0 && (
-            <div ref={commitBoxRef} className="shrink-0 border-t border-border p-2.5">
-              <div className="rounded-xl border border-border/60 bg-surface-2/40 p-2.5">
-                <div className="flex items-center justify-between gap-2">
-                  <span className="ui-type-sub font-semibold text-text-secondary">
-                    提交信息
-                  </span>
-                  <span className="ui-type-code-sm text-text-muted">
-                    {staged.length} 个文件已暂存
-                  </span>
-                </div>
+            <div
+              ref={commitBoxRef}
+              className="border-t border-border bg-bg px-5 py-3"
+            >
+              <div className="mx-auto w-full max-w-[var(--c-layout-content)]">
+                <div className="rounded-input border border-border/80 bg-input-bg px-3 py-2 shadow-[var(--c-shadow-sm)] transition-[border-color,box-shadow] focus-within:border-accent/40 focus-within:shadow-[0_0_0_3px_var(--c-accent-soft)]">
+                  <textarea
+                    value={message}
+                    onChange={(event) => setMessage(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (
+                        (event.metaKey || event.ctrlKey) &&
+                        event.key === "Enter"
+                      ) {
+                        event.preventDefault();
+                        void commit();
+                      }
+                    }}
+                    placeholder="描述这次变更…"
+                    rows={3}
+                    className="max-h-48 min-h-[40px] w-full resize-none bg-transparent px-1.5 py-1 ui-type-item leading-relaxed text-text placeholder-text-muted outline-none"
+                  />
 
-                <TextArea
-                  value={message}
-                  onChange={(event) => setMessage(event.target.value)}
-                  placeholder="描述这次变更…"
-                  rows={3}
-                  className="mt-1.5"
-                />
+                  {checkoutAfterCommit && (
+                    <p className="my-1 flex items-center gap-2 px-1.5 ui-type-sub text-agent-amber">
+                      提交成功后将自动切换到 {checkoutAfterCommit}。
+                      <button
+                        type="button"
+                        onClick={() => setCheckoutAfterCommit(null)}
+                        className="font-medium underline underline-offset-2"
+                      >
+                        取消
+                      </button>
+                    </p>
+                  )}
 
-                {checkoutAfterCommit && (
-                  <p className="mt-1.5 flex items-center gap-2 ui-type-sub text-agent-amber">
-                    提交成功后将自动切换到 {checkoutAfterCommit}。
-                    <button
-                      type="button"
-                      onClick={() => setCheckoutAfterCommit(null)}
-                      className="font-medium underline underline-offset-2"
-                    >
-                      取消
-                    </button>
-                  </p>
-                )}
+                  {commitError && (
+                    <div className="my-1 rounded-md border border-error/25 bg-error-bg px-3 py-2 ui-type-note text-error">
+                      <p>{commitError}</p>
+                      {commitOutput && (
+                        <pre className="mt-1 max-h-24 overflow-auto whitespace-pre-wrap ui-type-code-sm opacity-80">
+                          {commitOutput}
+                        </pre>
+                      )}
+                    </div>
+                  )}
 
-                {commitError && (
-                  <div className="mt-2 rounded-lg border border-error/25 bg-error-bg px-2.5 py-2 ui-type-sub text-error">
-                    <p>{commitError}</p>
-                    {commitOutput && (
-                      <pre className="mt-1 max-h-24 overflow-auto whitespace-pre-wrap ui-type-code-sm opacity-80">
-                        {commitOutput}
-                      </pre>
-                    )}
+                  <div className="mt-0 flex items-center justify-between gap-3 border-t border-border/60 pt-1">
+                    <span className="min-w-0 truncate px-1.5 ui-type-sub text-text-muted">
+                      {staged.length === 0
+                        ? "先在左侧勾选要提交的文件"
+                        : message.trim()
+                          ? `将提交 ${staged.length} 个文件`
+                          : "填写提交信息后即可提交"}
+                    </span>
+                    <div className="flex shrink-0 items-center gap-2">
+                      <span
+                        className="ui-type-sub text-text-muted"
+                        title="Ctrl / ⌘ + Enter 提交"
+                      >
+                        Ctrl/⌘ + ↵
+                      </span>
+                      <Button
+                        variant="primary"
+                        size="sm"
+                        loading={busy === "commit"}
+                        disabled={!canCommit}
+                        onClick={() => void commit()}
+                      >
+                        提交
+                      </Button>
+                    </div>
                   </div>
-                )}
-
-                <div className="mt-2 flex items-center justify-between gap-2">
-                  <span className="ui-type-sub text-text-muted">
-                    {staged.length === 0
-                      ? "先在左侧勾选要提交的文件"
-                      : message.trim()
-                        ? `将提交 ${staged.length} 个文件`
-                        : "填写提交信息后即可提交"}
-                  </span>
-                  <Button
-                    variant="primary"
-                    size="sm"
-                    loading={busy === "commit"}
-                    disabled={!canCommit}
-                    onClick={() => void commit()}
-                  >
-                    提交
-                  </Button>
                 </div>
               </div>
             </div>
@@ -939,9 +1337,14 @@ function ChangeGroup({
   busy,
   collapsed,
   onToggleCollapsed,
-  maxHeightClass = "max-h-[32vh]",
   onSelect,
-  onToggle,
+  picked,
+  onTogglePick,
+  onTogglePickAll,
+  onApplyPicks,
+  onDiscard,
+  onResolve,
+  discardDisabled,
 }: {
   title: string;
   files: GitFileStatus[];
@@ -950,42 +1353,95 @@ function ChangeGroup({
   busy: string | null;
   collapsed: boolean;
   onToggleCollapsed: () => void;
-  /** 展开时的最大高度；已暂存 / 未暂存传更大的值 */
-  maxHeightClass?: string;
   onSelect: (file: SelectedFile) => void;
-  onToggle: (file: GitFileStatus) => void;
+  /** 本分组的勾选集合；勾选只表示选中，不会立即执行 Git 操作 */
+  picked: ReadonlySet<string>;
+  onTogglePick: (file: GitFileStatus) => void;
+  /** 分组级全选 / 取消全选；冲突组不传 */
+  onTogglePickAll?: () => void;
+  /** 对本分组已勾选的文件执行一次批量暂存 / 取消暂存 */
+  onApplyPicks: () => void;
+  /** 行尾的丢弃入口；冲突组不渲染 */
+  onDiscard: (file: GitFileStatus) => void;
+  /** 冲突组行尾的「标记已解决」入口（git add） */
+  onResolve?: (file: GitFileStatus) => void;
+  discardDisabled?: boolean;
 }) {
-  return (
-    <div>
-      <button
-        type="button"
-        aria-expanded={!collapsed}
-        onClick={onToggleCollapsed}
-        className="mb-0.5 flex h-7 w-full items-center gap-1.5 rounded-sm px-1.5 text-left transition-colors hover:bg-surface-hover"
-      >
-        <ChevronDown
-          className={`h-3.5 w-3.5 shrink-0 text-text-muted transition-transform ${
-            collapsed ? "-rotate-90" : ""
-          }`}
-        />
-        <span
-          className={`flex-1 ui-type-sub font-semibold ${
-            kind === "conflict" ? "text-error" : "text-text-secondary"
-          }`}
-        >
-          {title}
-        </span>
-        <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-surface-hover px-1.5 ui-type-code-sm leading-none text-text-muted">
-          {files.length}
-        </span>
-      </button>
+  const pickedCount = files.reduce(
+    (count, file) => count + (picked.has(file.relativePath) ? 1 : 0),
+    0,
+  );
+  const pickState =
+    pickedCount === 0 ? "none" : pickedCount === files.length ? "all" : "some";
 
-      {/* 展开后给足高度，超出部分在分组内滚动，不影响其它分组 */}
-      <div
-        className={`${maxHeightClass} space-y-0.5 overflow-y-auto overscroll-contain ${
-          collapsed ? "hidden" : ""
-        }`}
-      >
+  return (
+    <div className="ws-group">
+      <div className="ws-group-row">
+        {kind !== "conflict" && (
+          <button
+            type="button"
+            role="checkbox"
+            aria-checked={
+              pickState === "all"
+                ? true
+                : pickState === "some"
+                  ? "mixed"
+                  : false
+            }
+            aria-label={pickState === "all" ? "取消选择此分组" : "选择此分组"}
+            className="ws-group-check"
+            data-state={pickState}
+            disabled={Boolean(busy)}
+            onClick={onTogglePickAll}
+            title={pickState === "all" ? "取消选择此分组" : "选择此分组"}
+          >
+            {pickState === "all" ? (
+              <Check className="h-2.5 w-2.5" strokeWidth={3.2} />
+            ) : pickState === "some" ? (
+              <Minus className="h-2.5 w-2.5" strokeWidth={3.2} />
+            ) : null}
+          </button>
+        )}
+        <button
+          type="button"
+          aria-expanded={!collapsed}
+          onClick={onToggleCollapsed}
+          className="ws-group-head"
+        >
+          <ChevronDown
+            className={`h-3.5 w-3.5 shrink-0 text-text-muted transition-transform ${
+              collapsed ? "-rotate-90" : ""
+            }`}
+          />
+          <span
+            className="ws-group-title"
+            data-tone={kind === "conflict" ? "danger" : undefined}
+          >
+            {title}
+          </span>
+          <span className="ws-counter">{files.length}</span>
+        </button>
+        {kind !== "conflict" && pickedCount > 0 && (
+          <button
+            type="button"
+            className="ws-group-action"
+            data-visible="true"
+            disabled={Boolean(busy)}
+            onClick={onApplyPicks}
+            title={
+              kind === "staged"
+                ? `取消暂存选中的 ${pickedCount} 个文件`
+                : `暂存选中的 ${pickedCount} 个文件`
+            }
+          >
+            {kind === "staged" ? "取消暂存" : "暂存"} {pickedCount}
+          </button>
+        )}
+      </div>
+
+      {/* 分组本身不滚动：所有变更共用一个滚动容器（.ws-changes），
+          否则每个分组各自出滚动条，未跟踪的文件会被挤到独立的小窗口里 */}
+      <div className={`space-y-0.5 ${collapsed ? "hidden" : ""}`}>
         {files.map((file) => {
           const stagedFlag = kind === "staged";
           const untrackedFlag = kind === "untracked";
@@ -998,34 +1454,42 @@ function ChangeGroup({
           const name =
             file.relativePath.split("/").pop() ?? file.relativePath;
           const parent = parentPath(file.relativePath);
+          const isPicked = picked.has(file.relativePath);
+          const discardLabel = file.untracked
+            ? "删除未跟踪文件"
+            : status === "added"
+              ? "删除新增文件"
+              : status === "copied"
+                ? "删除复制文件"
+                : status === "deleted"
+                  ? "恢复此文件"
+                  : file.indexStatus
+                    ? "丢弃暂存与工作区修改"
+                    : "丢弃工作区修改";
 
           return (
             <div
               key={`${kind}:${file.relativePath}`}
-              className={`ui-cv-row flex h-7 items-center gap-2 rounded-sm px-1.5 transition-colors ${
-                active ? "bg-surface-active" : "hover:bg-surface-hover"
-              }`}
+              className="ws-file ui-cv-row"
+              data-active={active}
             >
               {kind !== "conflict" ? (
                 <button
                   type="button"
+                  role="checkbox"
+                  aria-checked={isPicked}
                   disabled={Boolean(busy)}
-                  onClick={() => onToggle(file)}
-                  title={
-                    stagedFlag ? "取消暂存" : "暂存此文件"
-                  }
-                  aria-label={stagedFlag ? "取消暂存" : "暂存此文件"}
-                  className={`flex h-[15px] w-[15px] shrink-0 items-center justify-center rounded-sm border transition-all active:scale-90 disabled:opacity-40 ${
-                    stagedFlag
-                      ? "border-accent bg-accent text-accent-foreground shadow-[var(--c-shadow-sm)]"
-                      : "border-text-muted/45 text-transparent hover:border-accent hover:bg-accent-soft hover:text-accent/50"
-                  }`}
+                  onClick={() => onTogglePick(file)}
+                  title={isPicked ? "取消选择" : "选择此文件"}
+                  aria-label={isPicked ? "取消选择" : "选择此文件"}
+                  data-checked={isPicked}
+                  className="ws-check disabled:opacity-40"
                 >
-                  <Check className="h-3 w-3" strokeWidth={3.2} />
+                  <Check className="h-2.5 w-2.5" strokeWidth={3.2} />
                 </button>
               ) : (
-                <span className="grid h-[15px] w-[15px] shrink-0 place-items-center text-error">
-                  <AlertTriangle className="h-3.5 w-3.5" />
+                <span className="grid h-[14px] w-[14px] shrink-0 place-items-center text-error">
+                  <AlertTriangle className="h-3 w-3" />
                 </span>
               )}
 
@@ -1041,21 +1505,39 @@ function ChangeGroup({
                 title={file.relativePath}
                 className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
               >
-                <span className="max-w-[65%] shrink-0 truncate ui-type-note text-text-secondary">
-                  {name}
-                </span>
-                {parent && (
-                  <span className="min-w-0 shrink truncate ui-type-code-sm text-text-muted">
-                    {parent}
-                  </span>
-                )}
+                <span className="ws-file-name">{name}</span>
+                {parent && <span className="ws-file-path">{parent}</span>}
                 <span
-                  className={`ml-auto shrink-0 rounded-full px-1.5 ui-type-sub font-medium leading-4 ${meta.badge}`}
+                  className="ws-status ml-auto"
+                  data-status={status}
                   title={meta.text}
                 >
                   {meta.label}
                 </span>
               </button>
+              {kind === "conflict" ? (
+                <button
+                  type="button"
+                  className="ws-file-resolve"
+                  disabled={Boolean(busy)}
+                  onClick={() => onResolve?.(file)}
+                  title="标记为已解决（git add）"
+                  aria-label="标记为已解决"
+                >
+                  <Check className="h-3 w-3" />
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  className="ws-file-discard"
+                  disabled={Boolean(busy) || discardDisabled}
+                  onClick={() => onDiscard(file)}
+                  title={discardLabel}
+                  aria-label={discardLabel}
+                >
+                  <Undo2 className="h-3 w-3" />
+                </button>
+              )}
             </div>
           );
         })}
@@ -1075,26 +1557,11 @@ interface CommitRefBadge {
   kind: CommitRefKind;
 }
 
-const COMMIT_REF_BADGE: Record<
-  CommitRefKind,
-  { icon: LucideIcon; className: string }
-> = {
-  head: {
-    icon: CircleDot,
-    className: "border-accent/40 bg-accent-soft text-accent",
-  },
-  branch: {
-    icon: GitBranch,
-    className: "border-accent/40 bg-accent-soft text-accent",
-  },
-  remote: {
-    icon: Cloud,
-    className: "border-agent-violet/40 bg-agent-violet/10 text-agent-violet",
-  },
-  tag: {
-    icon: Tag,
-    className: "border-agent-amber/40 bg-agent-amber/10 text-agent-amber",
-  },
+const COMMIT_REF_BADGE: Record<CommitRefKind, { icon: LucideIcon }> = {
+  head: { icon: CircleDot },
+  branch: { icon: GitBranch },
+  remote: { icon: Cloud },
+  tag: { icon: Tag },
 };
 
 /** 竖线颜色跟着提交段走：未推送段用主色，已推送段用紫色 */
@@ -1112,6 +1579,14 @@ const GRAPH_TONE: Record<
   },
 };
 
+/** 提交行的悬浮信息卡：定位用视口坐标，经 portal 渲染，避免被列表裁切 */
+interface CommitHoverState {
+  commit: GitCommitSummary;
+  tone: GraphTone;
+  top: number;
+  left: number;
+}
+
 function CommitGraph({
   commits,
   ahead,
@@ -1128,6 +1603,63 @@ function CommitGraph({
   const outgoing = clamp(ahead, 0, commits.length);
   const showOutgoing = outgoing > 0 && Boolean(branch);
   const rowCount = commits.length + (showOutgoing ? 1 : 0);
+
+  const [hovered, setHovered] = useState<CommitHoverState | null>(null);
+  const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const cancelHide = () => {
+    if (hideTimer.current !== null) {
+      clearTimeout(hideTimer.current);
+      hideTimer.current = null;
+    }
+  };
+
+  /** 留一点延迟：鼠标从提交行移进卡片时不会被立刻收起 */
+  const scheduleHide = () => {
+    cancelHide();
+    hideTimer.current = setTimeout(() => setHovered(null), 140);
+  };
+
+  useEffect(() => {
+    if (!hovered) return;
+    const dismiss = () => setHovered(null);
+    // 列表滚动 / 窗口缩放后固定定位会脱节，直接收起
+    window.addEventListener("scroll", dismiss, true);
+    window.addEventListener("resize", dismiss);
+    return () => {
+      window.removeEventListener("scroll", dismiss, true);
+      window.removeEventListener("resize", dismiss);
+    };
+  }, [hovered]);
+
+  useEffect(
+    () => () => {
+      if (hideTimer.current !== null) clearTimeout(hideTimer.current);
+    },
+    [],
+  );
+
+  const showCard = (
+    event: MouseEvent<HTMLDivElement>,
+    commit: GitCommitSummary,
+    tone: GraphTone,
+  ) => {
+    cancelHide();
+    const rect = event.currentTarget.getBoundingClientRect();
+    const width = 380;
+    const height = 240;
+    const gap = 12;
+    let left = rect.right + gap;
+    // 右侧放不下时翻到左边；顶部 / 底部都留出边距
+    if (left + width > window.innerWidth - 12) {
+      left = Math.max(12, rect.left - width - gap);
+    }
+    const top = Math.max(
+      12,
+      Math.min(rect.top - 8, window.innerHeight - height - 12),
+    );
+    setHovered({ commit, tone, top, left });
+  };
 
   return (
     <div>
@@ -1158,8 +1690,10 @@ function CommitGraph({
         return (
           <div
             key={commit.hash}
-            title={`${commit.subject}\n${commit.hash}\n${commit.author} · ${timeAgo(commit.date)}`}
-            className="ui-cv-row relative flex h-7 items-center gap-1.5 rounded-sm pr-1 transition-colors hover:bg-surface-hover"
+            className="ws-commit-item ui-cv-row"
+            data-head={isHead}
+            onMouseEnter={(event) => showCard(event, commit, tone)}
+            onMouseLeave={scheduleHide}
           >
             <GraphRail
               tone={tone}
@@ -1167,16 +1701,7 @@ function CommitGraph({
               isFirst={index === 0 && !showOutgoing}
               isLast={index === commits.length - 1}
             />
-            <span
-              className={`min-w-0 flex-1 truncate ui-type-note ${
-                isHead ? "font-semibold text-text" : "text-text-secondary"
-              }`}
-            >
-              {commit.subject}
-            </span>
-            <span className="max-w-[68px] shrink-0 truncate ui-type-sub text-text-muted">
-              {commit.author}
-            </span>
+            <span className="ws-commit-subject">{commit.subject}</span>
             {badges.slice(0, 2).map((badge) => (
               <CommitRefChip
                 key={`${badge.kind}:${badge.label}`}
@@ -1184,16 +1709,49 @@ function CommitGraph({
               />
             ))}
             {rest.length > 0 && (
-              <span
-                title={rest.map((badge) => badge.label).join("\n")}
-                className="shrink-0 rounded-full border border-border px-1.5 ui-type-code-sm leading-4 text-text-muted"
-              >
-                +{rest.length}
-              </span>
+              <span className="ws-counter">+{rest.length}</span>
             )}
           </div>
         );
       })}
+
+      {hovered &&
+        createPortal(
+          <div
+            className="ws-commit-card ui-dropdown-in"
+            role="tooltip"
+            style={{ top: hovered.top, left: hovered.left }}
+            onMouseEnter={cancelHide}
+            onMouseLeave={scheduleHide}
+          >
+            <div className="ws-commit-card-head">
+              <span className="ws-commit-card-kicker" data-tone={hovered.tone}>
+                <span className="ws-commit-card-dot" />
+                {hovered.tone === "outgoing" ? "未推送" : "已推送"}
+              </span>
+            </div>
+            <p className="ws-commit-card-subject">{hovered.commit.subject}</p>
+            <div className="ws-commit-card-rows">
+              <span className="ws-commit-card-label">提交人：</span>
+              <span className="ws-commit-card-value">
+                {hovered.commit.author || "—"}
+              </span>
+              <span className="ws-commit-card-label">时间：</span>
+              <span className="ws-commit-card-value">
+                {timeAgo(hovered.commit.date)}
+                <span className="ws-commit-card-abs">
+                  {" · "}
+                  {formatDateTime(hovered.commit.date)}
+                </span>
+              </span>
+              <span className="ws-commit-card-label">哈希：</span>
+              <span className="ws-commit-card-value ws-commit-card-hash-value">
+                {hovered.commit.hash}
+              </span>
+            </div>
+          </div>,
+          document.body,
+        )}
     </div>
   );
 }
@@ -1246,12 +1804,10 @@ function GraphRail({
 }
 
 function CommitRefChip({ badge }: { badge: CommitRefBadge }) {
-  const { icon: Icon, className } = COMMIT_REF_BADGE[badge.kind];
+  const { icon: Icon } = COMMIT_REF_BADGE[badge.kind];
 
   return (
-    <span
-      className={`inline-flex h-[18px] shrink-0 items-center gap-1 rounded-full border px-2 ui-type-sub leading-none ${className}`}
-    >
+    <span className="ws-ref" data-kind={badge.kind}>
       <Icon className="h-3 w-3" />
       <span className="max-w-[92px] truncate">{badge.label}</span>
     </span>
@@ -1284,10 +1840,13 @@ function parseCommitRefs(
     // origin/HEAD 只是远端默认分支的别名，不单独展示
     if (ref.endsWith("/HEAD")) continue;
 
-    badges.push({
-      label: ref,
-      kind: localBranches.has(ref) || !ref.includes("/") ? "branch" : "remote",
-    });
+    const kind: CommitRefKind =
+      localBranches.has(ref) || !ref.includes("/") ? "branch" : "remote";
+    // 远端分支只显示分支名：云图标已经表明它来自远端
+    const label =
+      kind === "remote" ? ref.slice(ref.indexOf("/") + 1) : ref;
+
+    badges.push({ label, kind });
   }
 
   return badges;
@@ -1306,34 +1865,63 @@ function DiffView({ diff }: { diff: string }) {
     (line) => line.startsWith("-") && !line.startsWith("---"),
   ).length;
 
+  /** 当前 hunk 的旧 / 新行号；遇到 hunk 头时重置 */
+  let oldNo: number | null = null;
+  let newNo: number | null = null;
+
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="flex shrink-0 items-center gap-3 border-b border-border/60 px-3 py-1.5 ui-type-code-sm">
-        <span className="text-diff-add">+{added}</span>
-        <span className="text-diff-del">-{removed}</span>
+      <div className="flex shrink-0 items-center gap-3 border-b border-border px-3 py-1.5">
+        <span className="ws-diff-stat ws-diff-add">+{added}</span>
+        <span className="ws-diff-stat ws-diff-del">-{removed}</span>
+        <span className="ml-auto ui-type-sub ui-num text-text-muted">
+          {lines.length} 行
+        </span>
       </div>
       <div className="min-h-0 flex-1 overflow-auto">
-        <pre className="min-w-max py-2 ui-type-code leading-6">
+        <pre className="ws-diff-body min-w-max py-2">
           {lines.map((line, index) => {
-            let className = "text-text-secondary";
+            let kind = "context";
+            let oldLine: number | null = null;
+            let newLine: number | null = null;
+
             if (
               line.startsWith("diff --git") ||
               line.startsWith("index ") ||
               line.startsWith("---") ||
-              line.startsWith("+++")
+              line.startsWith("+++") ||
+              line.startsWith("\\")
             ) {
-              className = "text-text-muted";
+              kind = "meta";
             } else if (line.startsWith("@@")) {
-              className = "text-accent";
+              const match = line.match(/^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/);
+              if (match) {
+                oldNo = Number(match[1]);
+                newNo = Number(match[2]);
+              }
+              kind = "hunk";
             } else if (line.startsWith("+")) {
-              className = "bg-diff-add-bg text-diff-add";
+              kind = "add";
+              newLine = newNo;
+              if (newNo !== null) newNo += 1;
             } else if (line.startsWith("-")) {
-              className = "bg-diff-del-bg text-diff-del";
+              kind = "del";
+              oldLine = oldNo;
+              if (oldNo !== null) oldNo += 1;
+            } else {
+              oldLine = oldNo;
+              newLine = newNo;
+              if (oldNo !== null) oldNo += 1;
+              if (newNo !== null) newNo += 1;
             }
 
             return (
-              <div key={index} className={`px-3 ${className}`}>
-                {line || " "}
+              <div key={index} className="ws-diff-line" data-kind={kind}>
+                <span className="ws-diff-gutter" aria-hidden>
+                  <span>{oldLine ?? ""}</span>
+                  <span>{newLine ?? ""}</span>
+                </span>
+                <span className="ws-diff-code">{line || " "}</span>
               </div>
             );
           })}

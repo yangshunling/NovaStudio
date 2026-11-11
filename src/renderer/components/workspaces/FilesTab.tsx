@@ -12,7 +12,7 @@ import type { GitStatusDetail } from "@shared/git";
 import type { FileTab } from "../../stores/fileViewer";
 import { ipc } from "../../lib/ipc";
 import { toMessage } from "../../lib/utils";
-import { EmptyState } from "../ui/EmptyState";
+import { WorkspaceEmptyState } from "./workspaceUi";
 import { FileTypeIcon } from "../ui/FileTypeIcon";
 import { FolderTypeIcon } from "../ui/FolderTypeIcon";
 import { FilePreview } from "../files/FilePreview";
@@ -182,9 +182,9 @@ export function FilesTab({ project, git, request, revision }: FilesTabProps) {
       <div className="flex min-h-0 flex-1">
         {/* 树 */}
         <div className="flex w-[340px] shrink-0 flex-col border-r border-border">
-          <div className="min-h-0 flex-1 overflow-y-auto p-1.5">
+          <div className="ws-tree min-h-0 flex-1 overflow-y-auto">
             {treeError ? (
-              <div className="m-2 rounded-lg border border-error/25 bg-error-bg px-2.5 py-2 ui-type-sub text-error">
+              <div className="m-2 rounded-md border border-error/25 bg-error-bg px-2.5 py-2 ui-type-sub text-error">
                 {treeError}
                 <button
                   type="button"
@@ -199,7 +199,9 @@ export function FilesTab({ project, git, request, revision }: FilesTabProps) {
                 <Spinner className="h-5 w-5" />
               </div>
             ) : rootItems.length === 0 ? (
-              <EmptyState size="compact" title="空目录" />
+              <div className="px-3 py-8 text-center ui-type-note text-text-muted">
+                空目录
+              </div>
             ) : (
               <TreeNodes
                 entries={rootItems}
@@ -235,9 +237,8 @@ export function FilesTab({ project, git, request, revision }: FilesTabProps) {
                 onClose={() => closeTab(activeTab.id)}
               />
             ) : (
-              <EmptyState
-                size="compact"
-                icon={<FolderOpen />}
+              <WorkspaceEmptyState
+                icon={<FolderOpen className="h-5 w-5" />}
                 title="选择左侧文件预览"
                 description="文本、Markdown、CSV、图片和 PDF 可以直接在应用内查看；Office 等二进制文件会交给系统程序。"
                 className="h-full"
@@ -315,7 +316,7 @@ function TreeNode({
           type="button"
           onClick={() => onToggle(entry)}
           title={entry.relativePath}
-          className="flex h-7 w-full items-center gap-1.5 rounded-sm pr-1.5 text-left ui-type-body text-text-secondary transition-colors hover:bg-surface-hover hover:text-text"
+          className="ws-tree-row"
           style={{ paddingLeft: 8 + depth * 14 }}
         >
           <ChevronRight
@@ -324,11 +325,12 @@ function TreeNode({
             }`}
           />
           <FolderTypeIcon open={open} />
-          <span className="min-w-0 flex-1 truncate">{entry.name}</span>
+          <span className="ws-tree-name">{entry.name}</span>
           {directoryChangeCount > 0 && (
             <span
               title={`${directoryChangeCount} 个文件有变更`}
-              className="shrink-0 rounded-full bg-agent-amber/10 px-1.5 ui-type-code-sm leading-4 text-agent-amber"
+              className="ws-counter"
+              data-tone="warning"
             >
               {directoryChangeCount}
             </span>
@@ -362,20 +364,19 @@ function TreeNode({
       type="button"
       onClick={() => onOpen(entry.relativePath, entry.name)}
       title={entry.relativePath}
-      className={`flex h-7 w-full items-center gap-1.5 rounded-sm pr-1.5 text-left ui-type-body transition-colors hover:bg-surface-hover hover:text-text ${
-        statusMeta ? "text-text" : "text-text-secondary"
-      }`}
+      className="ws-tree-row"
       style={{ paddingLeft: 30 + depth * 14 }}
     >
       <FileTypeIcon
         name={entry.name}
         toneClassName={statusMeta?.textClass}
       />
-      <span className="min-w-0 flex-1 truncate">{entry.name}</span>
+      <span className="ws-tree-name">{entry.name}</span>
       {statusMeta && (
         <span
           title={statusMeta.text}
-          className={`shrink-0 rounded-full px-1.5 ui-type-sub font-medium leading-4 ${statusMeta.badge}`}
+          className="ws-status"
+          data-status={status ?? "changed"}
         >
           {statusMeta.label}
         </span>
@@ -404,32 +405,30 @@ function PreviewTabs({
   if (tabs.length === 0) return null;
 
   return (
-    <div className="flex shrink-0 items-center gap-1 overflow-x-auto border-b border-border px-2 py-1">
+    <div className="ws-preview-tabs">
       {tabs.map((tab) => {
         const active = tab.id === activeId;
         return (
           <span
             key={tab.id}
-            className={`flex h-7 max-w-52 shrink-0 items-center gap-1 rounded-sm px-2 ui-type-note ${
-              active
-                ? "bg-surface-active text-text"
-                : "text-text-muted hover:bg-surface-hover hover:text-text"
-            }`}
+            className="ws-preview-tab"
+            data-active={active}
           >
             <button
               type="button"
               onClick={() => onActivate(tab.id)}
               title={tab.relativePath}
-              className="min-w-0 truncate"
+              className="flex min-w-0 items-center gap-1.5"
             >
-              {tab.name}
+              <FileTypeIcon name={tab.name} size={14} />
+              <span className="ws-preview-name">{tab.name}</span>
             </button>
             <button
               type="button"
               onClick={() => onClose(tab.id)}
               title="关闭"
               aria-label={`关闭 ${tab.name}`}
-              className="shrink-0 rounded-sm p-0.5 hover:bg-surface-hover"
+              className="shrink-0 rounded-sm p-0.5 text-text-muted transition-colors hover:bg-surface-hover hover:text-text"
             >
               <X className="h-3 w-3" />
             </button>

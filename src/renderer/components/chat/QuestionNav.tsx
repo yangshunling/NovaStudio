@@ -181,7 +181,7 @@ export function QuestionNav() {
         onClick={jumpToTop}
         className={`${ARROW_CLASS} hover:-translate-y-px`}
       >
-        <ChevronsUp className="h-3.5 w-3.5" />
+        <ChevronsUp className="h-3.5 w-3.5" strokeWidth={2.5} />
       </button>
 
       {/* 提问很多时只让中间索引滚动，上下箭头始终固定 */}
@@ -202,7 +202,7 @@ export function QuestionNav() {
                 title={question.text || `第 ${index + 1} 个问题`}
                 aria-label={`跳转到第 ${index + 1} 个问题`}
                 aria-current={active ? "true" : undefined}
-                className={`w-full cursor-pointer py-0.5 text-center ui-type-body italic leading-none tabular-nums transition-colors ${
+                className={`w-full cursor-pointer py-0.5 text-center ui-type-body font-semibold italic leading-none tabular-nums transition-colors ${
                   active
                     ? "text-accent"
                     : "text-text-muted/60 hover:text-text-secondary"
@@ -223,7 +223,7 @@ export function QuestionNav() {
         onClick={jumpToBottom}
         className={`${ARROW_CLASS} hover:translate-y-px`}
       >
-        <ChevronsDown className="h-3.5 w-3.5" />
+        <ChevronsDown className="h-3.5 w-3.5" strokeWidth={2.5} />
       </button>
     </div>
   );

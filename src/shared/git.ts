@@ -10,6 +10,8 @@ import type { GitStatusKind } from "./types";
 export interface GitFileStatus {
   /** 相对工作区根目录的 POSIX 路径 */
   relativePath: string;
+  /** 重命名 / 复制前的路径；仅当 Git 在索引里识别出 R / C 时存在 */
+  originalPath?: string;
   /** 暂存区状态；null 表示没有暂存变更 */
   indexStatus: GitStatusKind | null;
   /** 工作区状态；null 表示没有未暂存变更 */
@@ -19,6 +21,34 @@ export interface GitFileStatus {
   /** 冲突文件 */
   conflicted: boolean;
 }
+
+/** 进行中的多步 Git 操作 */
+export type GitOperationKind =
+  | "merge"
+  | "rebase"
+  | "cherry-pick"
+  | "revert"
+  | "bisect";
+
+export interface GitInProgress {
+  kind: GitOperationKind;
+  /** 展示用中文名，如「正在变基」 */
+  label: string;
+  /** 进度，如 rebase 的 2/5 */
+  step?: string;
+  /** 是否支持 continue（bisect 不支持） */
+  canContinue: boolean;
+  /** 是否支持 abort / reset */
+  canAbort: boolean;
+}
+
+export const GIT_OPERATION_LABELS: Record<GitOperationKind, string> = {
+  merge: "正在合并",
+  rebase: "正在变基",
+  "cherry-pick": "正在拣选提交",
+  revert: "正在撤销提交",
+  bisect: "正在二分查找",
+};
 
 export interface GitStatusDetail {
   available: boolean;
@@ -31,6 +61,8 @@ export interface GitStatusDetail {
   behind: number;
   /** 是否已有提交（空仓库时为 false） */
   hasHead: boolean;
+  /** 当前是否处于 merge / rebase / cherry-pick 等多步操作中 */
+  inProgress: GitInProgress | null;
   files: GitFileStatus[];
   /** 不可用时的原因（未安装 git / 不是仓库） */
   error?: string;

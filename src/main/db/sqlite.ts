@@ -11,7 +11,8 @@
  *   供应用重启后回放完整对话过程（含工具调用、思考等），不再依赖 CLI 侧回放。
  * - settings：键值对
  *
- * schema 变更走"加列 + 迁移"策略：检测到旧表缺列就 ALTER。
+ * schema 由下方的建表语句一次性定义，并用 PRAGMA user_version 标记版本；
+ * 发版前不保留增量迁移，旧库会备份后按当前 schema 重建。
  *
  * 会话不再强依赖项目：project_id 为 NULL 表示未绑定工作目录，
  * 用户可在会话输入框处随时绑定 / 切换项目。
@@ -19,6 +20,7 @@
 
 import Database from "better-sqlite3";
 import { randomUUID } from "crypto";
+import { existsSync, renameSync } from "fs";
 import type {
   Project,
   Session,
@@ -89,14 +91,66 @@ function clearStmtCache(): void {
  */
 let knowledgeFtsReady = false;
 
-/** 初始化数据库连接和表结构 */
-export function initDatabase(): void {
-  ensureDataDirs();
+/**
+ * 当前 schema 版本。
+ *
+ * 发版前只有一个基线版本：结构变更直接改建表语句，不写增量迁移。
+ * 发版之后要改表时，把版本 +1，并在 initDatabase 里补一段顺序升级。
+ */
+const SCHEMA_VERSION = 1;
+
+/** 打开连接并应用连接级 pragma（重建库后需要重新执行） */
+function openDatabase(): void {
   db = new Database(DB_PATH);
   db.pragma("journal_mode = WAL");
   db.pragma("foreign_keys = ON");
+}
 
-  db.exec(`
+/**
+ * 发版前的旧库没有版本号（user_version = 0），结构可能与本版本的建表语句不一致，
+ * 而 CREATE TABLE IF NOT EXISTS 会静默跳过已有表，导致后续查询缺列。
+ * 这里把旧库文件改名备份后按当前 schema 重建，避免半新半旧的结构共存。
+ */
+function resetLegacyDatabase(): void {
+  const version = db!.pragma("user_version", { simple: true }) as number;
+  if (version === SCHEMA_VERSION) return;
+  if (version > SCHEMA_VERSION) {
+    throw new Error(
+      `数据库 schema 版本 ${version} 高于当前应用支持的 ${SCHEMA_VERSION}`,
+    );
+  }
+
+  // 全新安装：文件里没有任何表，直接按建表语句初始化
+  const hasTables = db!
+    .prepare(
+      "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' LIMIT 1",
+    )
+    .get();
+  if (!hasTables) return;
+
+  const backup = `${DB_PATH}.bak-${Date.now()}`;
+  clearStmtCache();
+  db!.close();
+  db = null;
+  renameSync(DB_PATH, backup);
+  for (const suffix of ["-wal", "-shm"]) {
+    if (existsSync(`${DB_PATH}${suffix}`)) {
+      renameSync(`${DB_PATH}${suffix}`, `${backup}${suffix}`);
+    }
+  }
+  console.warn(`[db] 旧版本数据库已备份至 ${backup}，按当前 schema 重建`);
+  openDatabase();
+}
+
+/** 初始化数据库连接和表结构 */
+export function initDatabase(): void {
+  ensureDataDirs();
+  openDatabase();
+  resetLegacyDatabase();
+  // resetLegacyDatabase 可能重建连接，这里取重建后的实例
+  const conn = db!;
+
+  conn.exec(`
     CREATE TABLE IF NOT EXISTS projects (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
@@ -133,8 +187,6 @@ export function initDatabase(): void {
       FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
     );
 
-    -- 会话列表相关的索引依赖后加的 source / project_id 列，
-    -- 旧库在这些列补齐之前建索引会失败，因此放到 migrate 之后再建。
     -- 消息按会话回放时始终是 (session_id, timestamp) 有序读取
     CREATE INDEX IF NOT EXISTS idx_messages_session_time
       ON messages (session_id, timestamp);
@@ -344,52 +396,20 @@ export function initDatabase(): void {
 
   ensureKnowledgeFts();
 
-  // === schema 迁移：只服务旧库 ===
-  // 上面的 CREATE TABLE 已包含全部列，新装用户不会走到这里；
-  // 旧库因表已存在而跳过 CREATE，故需要 ALTER 补齐后加的列。
-  migrateSessionsProjectId();
-  migrateSessionsMessageCount();
-  migrateSessionsConfigDir();
-  migrateSessionsSource();
-  migrateSessionsHistoryComplete();
-  migrateSessionsPinnedAt();
-  // 先清理旧版占位项目，再让工作区迁移把空归属的工作流挂到有效项目上
-  migrateLegacyInboxProject();
-  migrateWorkflowWorkspace();
-  migrateWorkflowNodeRunDecisionNote();
-  migrateWorkflowNodeRunRound();
-  migrateWorkflowNodeAttemptRound();
-  migrateWorkflowRunSource();
-  migrateWorkflowTriggerLastError();
-  migrateEmployeeKnowledge();
-  // Agent 从员工迁移到工作流节点；必须在员工表重建前完成
-  migrateEmployeeAgentToWorkflowNode();
-
-  // 旧版本由 Nova 自己维护的 Agent 连接配置已废弃，统一改用各 CLI 本机配置
-  db.exec("DROP TABLE IF EXISTS agent_connections;");
-  // 旧版「Nova 创建的 MCP / 技能」标记：资产改为全部可编辑后已无任何读取
-  db.exec("DROP TABLE IF EXISTS managed_assets;");
-
-  // 未绑定项目的会话是合法状态，不再把孤儿会话收编到「收件箱」项目：
-  // 否则每次启动都会把用户有意留空的会话重新绑定上。
-
   // 上次进程遗留的运行不可能还活着：统一标记为中断
   interruptStaleWorkflowRuns();
 
-  // 会话列表索引依赖 source / project_id 列，必须在迁移补齐这些列之后创建
-  db.exec(`
+  conn.exec(`
     CREATE INDEX IF NOT EXISTS idx_sessions_chat_updated
       ON sessions (updated_at DESC) WHERE source <> 'workflow';
     CREATE INDEX IF NOT EXISTS idx_sessions_project
       ON sessions (project_id);
-  `);
-
-  // 按节点查尝试列表的索引依赖 round 列（旧库由 migrateWorkflowNodeAttemptRound 补齐），
-  // 必须放在迁移之后，否则老库会在 CREATE INDEX 阶段报 "no such column: round"
-  db.exec(`
+    -- 节点详情 / 尝试列表按节点过滤
     CREATE INDEX IF NOT EXISTS idx_workflow_node_attempts_node
       ON workflow_node_attempts (node_run_id, attempt, round);
   `);
+
+  conn.pragma(`user_version = ${SCHEMA_VERSION}`);
 }
 
 /**
@@ -419,331 +439,6 @@ function ensureKnowledgeFts(): void {
   } catch {
     knowledgeFtsReady = false;
   }
-}
-
-/** 检测并给 digital_employees 表补 knowledge_json 列 */
-function migrateEmployeeKnowledge(): void {
-  const cols = prepare("PRAGMA table_info(digital_employees)").all() as {
-    name: string;
-  }[];
-  if (!cols.some((column) => column.name === "knowledge_json")) {
-    db!.exec(
-      "ALTER TABLE digital_employees ADD COLUMN knowledge_json TEXT NOT NULL DEFAULT '[]'",
-    );
-  }
-}
-
-/**
- * 员工 Agent 迁移到工作流节点。
- *
- * 旧版把 Agent 绑在员工上；现在改由节点指定。升级时把员工原有的 Agent
- * 写进引用它的 employee 节点，然后重建员工表，去掉 agent_id 与废弃的 model 列。
- * 已显式指定 agentId 的节点保持不变。
- */
-function migrateEmployeeAgentToWorkflowNode(): void {
-  const columns = db!
-    .prepare("PRAGMA table_info(digital_employees)")
-    .all() as { name: string }[];
-  if (!columns.some((column) => column.name === "agent_id")) return;
-
-  const employeeAgents = new Map<string, string>();
-  const employees = db!
-    .prepare("SELECT id, agent_id FROM digital_employees")
-    .all() as any[];
-  for (const row of employees) {
-    if (typeof row.agent_id === "string" && row.agent_id) {
-      employeeAgents.set(row.id, row.agent_id);
-    }
-  }
-
-  // 1) 把员工的 Agent 落到引用它的工作流节点上
-  const updateWorkflow = prepare(
-    "UPDATE workflows SET graph_json = ? WHERE id = ?",
-  );
-  const workflows = prepare("SELECT id, graph_json FROM workflows").all() as any[];
-  for (const row of workflows) {
-    let graph: any;
-    try {
-      graph = JSON.parse(row.graph_json);
-    } catch {
-      continue;
-    }
-    if (!Array.isArray(graph?.nodes)) continue;
-
-    let changed = false;
-    for (const node of graph.nodes) {
-      if (node?.type !== "employee") continue;
-      if (typeof node.config?.agentId === "string" && node.config.agentId) {
-        continue;
-      }
-      const agentId = employeeAgents.get(node.config?.employeeId);
-      if (!agentId) continue;
-      node.config = { ...(node.config ?? {}), agentId };
-      changed = true;
-    }
-    if (changed) updateWorkflow.run(JSON.stringify(graph), row.id);
-  }
-
-  // 2) 重建员工表：同时移除历史遗留的 model 列。
-  // 不用 DROP COLUMN，兼容旧 SQLite，并让 NOT NULL 约束一并消失。
-  db!.transaction(() => {
-    db!.exec(`
-      CREATE TABLE digital_employees_new (
-        id TEXT PRIMARY KEY,
-        name TEXT NOT NULL,
-        role TEXT NOT NULL DEFAULT '',
-        description TEXT NOT NULL DEFAULT '',
-        avatar TEXT,
-        system_prompt TEXT NOT NULL DEFAULT '',
-        mcp_servers_json TEXT NOT NULL DEFAULT '[]',
-        skills_json TEXT NOT NULL DEFAULT '[]',
-        knowledge_json TEXT NOT NULL DEFAULT '[]',
-        enabled INTEGER NOT NULL DEFAULT 1,
-        created_at INTEGER NOT NULL,
-        updated_at INTEGER NOT NULL
-      );
-      INSERT INTO digital_employees_new (
-        id, name, role, description, avatar,
-        system_prompt, mcp_servers_json, skills_json, knowledge_json,
-        enabled, created_at, updated_at
-      )
-      SELECT id, name, role, description, avatar,
-             system_prompt, mcp_servers_json, skills_json, knowledge_json,
-             enabled, created_at, updated_at
-      FROM digital_employees;
-      DROP TABLE digital_employees;
-      ALTER TABLE digital_employees_new RENAME TO digital_employees;
-    `);
-  })();
-}
-
-/** 检测并给 sessions 表补 project_id 列 */
-function migrateSessionsProjectId(): void {
-  const cols = prepare("PRAGMA table_info(sessions)").all() as { name: string }[];
-  if (!cols.some((c) => c.name === "project_id")) {
-    db!.exec("ALTER TABLE sessions ADD COLUMN project_id TEXT");
-  }
-}
-
-/** 检测并给 sessions 表补 source 列：工作流节点会话不进入项目会话列表 */
-function migrateSessionsSource(): void {
-  const cols = prepare("PRAGMA table_info(sessions)").all() as { name: string }[];
-  if (!cols.some((c) => c.name === "source")) {
-    db!.exec("ALTER TABLE sessions ADD COLUMN source TEXT NOT NULL DEFAULT 'chat'");
-  }
-
-  // 历史工作流节点已经建过会话：按 node_runs.session_id 回填来源，
-  // 避免旧数据继续出现在项目会话树里。只回填一次，避免每次启动全表扫描。
-  const marker = "migration.sessionsSource.v1";
-  if (hasMigrationRun(marker)) return;
-  db!.exec(`
-    UPDATE sessions
-    SET source = 'workflow'
-    WHERE COALESCE(source, 'chat') <> 'workflow'
-      AND id IN (
-        SELECT session_id FROM workflow_node_runs WHERE session_id IS NOT NULL
-      )
-  `);
-  markMigrationRun(marker);
-}
-
-/** 检测并给 sessions 表补 config_dir 列（工作流节点使用独立 CLI 配置目录） */
-function migrateSessionsConfigDir(): void {
-  const cols = prepare("PRAGMA table_info(sessions)").all() as { name: string }[];
-  if (!cols.some((c) => c.name === "config_dir")) {
-    db!.exec("ALTER TABLE sessions ADD COLUMN config_dir TEXT");
-  }
-}
-
-/** 检测并给 sessions 表补 message_count 列（旧索引不含消息计数） */
-function migrateSessionsMessageCount(): void {
-  const cols = prepare("PRAGMA table_info(sessions)").all() as { name: string }[];
-  if (!cols.some((c) => c.name === "message_count")) {
-    db!.exec("ALTER TABLE sessions ADD COLUMN message_count INTEGER NOT NULL DEFAULT 0");
-  }
-}
-
-/** 检测并给 sessions 表补 pinned_at 列（会话置顶） */
-function migrateSessionsPinnedAt(): void {
-  const cols = prepare("PRAGMA table_info(sessions)").all() as { name: string }[];
-  if (!cols.some((c) => c.name === "pinned_at")) {
-    db!.exec("ALTER TABLE sessions ADD COLUMN pinned_at INTEGER");
-  }
-}
-
-/**
- * 检测并给 sessions 表补 history_complete 列。
- *
- * 已经有本地 messages 的会话，说明它的完整事件流早就开始落库了
- * （messages 表与 history_complete 引入前的版本都从“第一条消息”开始写），
- * 直接回填为 1；没有消息的旧会话保持 0，下次运行前会从 CLI 侧导入历史。
- */
-function migrateSessionsHistoryComplete(): void {
-  const cols = prepare("PRAGMA table_info(sessions)").all() as { name: string }[];
-  if (!cols.some((c) => c.name === "history_complete")) {
-    db!.exec(
-      "ALTER TABLE sessions ADD COLUMN history_complete INTEGER NOT NULL DEFAULT 0",
-    );
-  }
-
-  // 回填只做一次：DISTINCT 子查询在大 messages 表上不适合每次启动都跑
-  const marker = "migration.sessionHistoryComplete.v1";
-  if (hasMigrationRun(marker)) return;
-  db!.exec(`
-    UPDATE sessions
-    SET history_complete = 1
-    WHERE history_complete = 0
-      AND id IN (SELECT DISTINCT session_id FROM messages)
-  `);
-  markMigrationRun(marker);
-}
-
-/** 一次性数据迁移标记：存于 settings，避免每次启动重复执行 */
-function hasMigrationRun(marker: string): boolean {
-  return Boolean(
-    prepare("SELECT 1 FROM settings WHERE key = ?").get(marker),
-  );
-}
-
-function markMigrationRun(marker: string): void {
-  prepare(
-    "INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",
-  ).run(marker, "1");
-}
-
-/**
- * 工作区迁移：给旧库补 workspace_id，并把未归属的工作流挂到最早创建的项目上。
- *
- * 工作区复用项目（同一个根目录 + 名字），因此这里不做新的实体，
- * 只保证历史工作流不会因为缺少 workspace_id 而从列表里消失。
- */
-function migrateWorkflowWorkspace(): void {
-  const cols = prepare("PRAGMA table_info(workflows)").all() as {
-    name: string;
-  }[];
-  if (!cols.some((col) => col.name === "workspace_id")) {
-    db!.exec("ALTER TABLE workflows ADD COLUMN workspace_id TEXT");
-  }
-
-  // 归属迁移只做一次：新版本允许工作流“未归属”，
-  // 若每次启动都重新挂到第一个项目，用户的选择会被静默覆盖。
-  const marker = "migration.workflowWorkspace.v1";
-  if (hasMigrationRun(marker)) return;
-
-  const first = db!
-    .prepare("SELECT id FROM projects ORDER BY created_at ASC LIMIT 1")
-    .get() as { id: string } | undefined;
-  if (!first) return; // 还没有项目：下次启动再尝试，不写标记
-
-  prepare(
-    "UPDATE workflows SET workspace_id = ? WHERE workspace_id IS NULL OR workspace_id = ''",
-  ).run(first.id);
-  markMigrationRun(marker);
-}
-
-/** 节点运行增加审核备注列（旧库补齐） */
-function migrateWorkflowNodeRunDecisionNote(): void {
-  const cols = db!
-    .prepare("PRAGMA table_info(workflow_node_runs)")
-    .all() as { name: string }[];
-  if (!cols.some((col) => col.name === "decision_note")) {
-    db!.exec("ALTER TABLE workflow_node_runs ADD COLUMN decision_note TEXT");
-  }
-}
-
-/** 节点运行增加修正轮次列（旧库补齐；默认第 1 轮） */
-function migrateWorkflowNodeRunRound(): void {
-  const cols = db!
-    .prepare("PRAGMA table_info(workflow_node_runs)")
-    .all() as { name: string }[];
-  if (!cols.some((col) => col.name === "round")) {
-    db!.exec(
-      "ALTER TABLE workflow_node_runs ADD COLUMN round INTEGER NOT NULL DEFAULT 1",
-    );
-  }
-}
-
-/** 节点调用记录增加轮次 / 来源 / 消息边界（旧库补齐） */
-function migrateWorkflowNodeAttemptRound(): void {
-  const cols = db!
-    .prepare("PRAGMA table_info(workflow_node_attempts)")
-    .all() as { name: string }[];
-  if (!cols.some((col) => col.name === "round")) {
-    db!.exec(
-      "ALTER TABLE workflow_node_attempts ADD COLUMN round INTEGER NOT NULL DEFAULT 1",
-    );
-  }
-  if (!cols.some((col) => col.name === "kind")) {
-    db!.exec(
-      "ALTER TABLE workflow_node_attempts ADD COLUMN kind TEXT NOT NULL DEFAULT 'initial'",
-    );
-  }
-  if (!cols.some((col) => col.name === "user_message_id")) {
-    db!.exec("ALTER TABLE workflow_node_attempts ADD COLUMN user_message_id TEXT");
-  }
-  if (!cols.some((col) => col.name === "assistant_message_id")) {
-    db!.exec(
-      "ALTER TABLE workflow_node_attempts ADD COLUMN assistant_message_id TEXT",
-    );
-  }
-}
-
-/** 运行记录增加来源 / 触发器 id（旧库补齐） */
-function migrateWorkflowRunSource(): void {
-  const cols = db!
-    .prepare("PRAGMA table_info(workflow_runs)")
-    .all() as { name: string }[];
-  if (!cols.some((col) => col.name === "source")) {
-    db!.exec(
-      "ALTER TABLE workflow_runs ADD COLUMN source TEXT NOT NULL DEFAULT 'manual'",
-    );
-  }
-  if (!cols.some((col) => col.name === "trigger_id")) {
-    db!.exec("ALTER TABLE workflow_runs ADD COLUMN trigger_id TEXT");
-  }
-}
-
-/** 触发器增加最近一次失败原因列（旧库补齐） */
-function migrateWorkflowTriggerLastError(): void {
-  const cols = db!
-    .prepare("PRAGMA table_info(workflow_triggers)")
-    .all() as { name: string }[];
-  if (!cols.some((col) => col.name === "last_error")) {
-    db!.exec("ALTER TABLE workflow_triggers ADD COLUMN last_error TEXT");
-  }
-}
-
-/**
- * 清理旧版自动创建的「收件箱」项目。
- *
- * 旧版本把无 project_id 的会话收编到 name='收件箱' 且 cwd='' 的项目里。
- * 新模型允许会话不绑定项目，这个占位项目只会让项目选择器里出现一个
- * 没有目录的空条目 —— 把会话解绑后删掉它。
- */
-function migrateLegacyInboxProject(): void {
-  const inbox = db!
-    .prepare("SELECT id FROM projects WHERE name = ? AND cwd = ''")
-    .get("收件箱") as { id: string } | undefined;
-  if (!inbox) return;
-
-  // 极旧的库还没有 workspace_id 列：此时工作流不可能指向该收件箱，
-  // 跳过工作流处理；随后的 migrateWorkflowWorkspace 会补列并重新归属。
-  const workflowCols = prepare("PRAGMA table_info(workflows)").all() as {
-    name: string;
-  }[];
-  const hasWorkspaceId = workflowCols.some((c) => c.name === "workspace_id");
-
-  db!.transaction(() => {
-    prepare("UPDATE sessions SET project_id = NULL WHERE project_id = ?").run(
-      inbox.id,
-    );
-    if (hasWorkspaceId) {
-      prepare(
-        "UPDATE workflows SET workspace_id = NULL WHERE workspace_id = ?",
-      ).run(inbox.id);
-    }
-    prepare("DELETE FROM projects WHERE id = ?").run(inbox.id);
-  })();
 }
 
 // ============================================================================
@@ -1221,7 +916,7 @@ export function deleteDigitalEmployee(id: string): void {
   prepare("DELETE FROM digital_employees WHERE id = ?").run(id);
 }
 
-/** 迁移时只更新员工的 MCP / Skill 引用，避免改动其它字段 */
+/** 只更新员工的 MCP / Skill 引用，避免改动其它字段 */
 export function updateEmployeeBindings(
   id: string,
   mcpServersJson: string,
@@ -1501,11 +1196,8 @@ export function searchKnowledgeDocuments(input: {
 // ============================================================================
 
 /**
- * 单节点归一化。
- *
- * 除了兜住损坏数据，还负责一次字段迁移：
- * 旧版把任务内容存在 config.prompt，现统一为 config.taskDetail。
- * 新的策略 / 门禁字段缺失时补默认值（失败停止 + 自动通过）。
+ * 单节点归一化：兜住手工编辑或损坏的 graph_json，
+ * 策略 / 门禁字段缺失时补默认值（失败停止 + 自动通过）。
  */
 function normalizeWorkflowNode(raw: any, index: number): WorkflowNode {
   const config = raw?.config ?? {};

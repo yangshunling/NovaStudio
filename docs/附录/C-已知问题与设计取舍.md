@@ -52,7 +52,6 @@ function resolveAgentId(): string {
 
 - 工作流节点固定使用第一个 provider；
 - 节点级 Agent 选择已退化；
-- 旧迁移代码仍会往 `node.config.agentId` 写值，但类型里已没有该字段，运行器也不读。
 
 **为什么保留 provider 抽象**：未来新增 Agent 只需加目录，不改 engine / IPC / UI。
 
@@ -277,24 +276,21 @@ MCP / Skill 是否恶意由用户自行判断；Nova 只做格式校验与路径
 
 ## 9. 数据 / 迁移取舍
 
-### 9.1 迁移是“加列 + 检测”
+### 9.1 单一基线 schema
 
-- 新装用户走全量 `CREATE TABLE`；
-- 旧库用 `PRAGMA table_info` 检测缺列后 `ALTER`；
-- 一次性数据迁移用 `settings` 里的 marker 防重复。
+- 建表语句是唯一事实来源，结构变更直接改建表语句，不写增量迁移；
+- `PRAGMA user_version` 标记版本，当前基线为 `1`；
+- 发版前的旧库（`user_version = 0` 且已有表）启动时改名为 `data.db.bak-<时间戳>`，再按当前 schema 重建；
+- 发版后再引入按版本顺序执行的升级，替代“检测缺列 + ALTER”。
 
-**代价**：迁移代码与建表代码可能漂移；需要保持同步。
+**代价**：发版前的旧库数据不会保留（已备份）。换来的是删掉约 350 行只服务旧库的迁移代码。
 
-### 9.2 员工表重建
-
-旧版员工有 `agent_id` / `model` 列，迁移时重建表去掉它们。
-
-### 9.3 旧目录归档
+### 9.2 旧目录归档
 
 `~/.nova` → `~/.novastudio` 一次性 rename；
 旧 MCP / Skill → Claude 配置后移到 `~/.novastudio/legacy-assets/<时间戳>`。
 
-### 9.4 应用异常退出
+### 9.3 应用异常退出
 
 - 启动时把 `running` / `awaiting_approval` 运行标记为 `interrupted`；
 - 节点标记为 `canceled`；
