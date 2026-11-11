@@ -53,10 +53,11 @@ const derived = listOf("DERIVED_TOKENS");
 const tokensIn = (body) =>
   new Set([...body.matchAll(/(--c-[a-z0-9-]+)\s*:/g)].map((x) => x[1]));
 
-/** 取某个精确选择器块里声明的 token 集合 */
+/** 取某个精确选择器块里声明的 token 集合（构建压缩会去掉属性选择器的引号，两种写法都认） */
 function tokensOf(selector) {
   const esc = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const m = css.match(new RegExp(`${esc}\\s*\\{([\\s\\S]*?)\\}`));
+  const loose = esc.replace(/"([^"]*)"/g, '"?$1"?');
+  const m = css.match(new RegExp(`${loose}\\s*\\{([\\s\\S]*?)\\}`));
   return m ? tokensIn(m[1]) : null;
 }
 
