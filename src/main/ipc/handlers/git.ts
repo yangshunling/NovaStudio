@@ -22,6 +22,7 @@ import {
   stagePaths,
   unstagePaths,
 } from "../../git/detail";
+import { generateCommitMessage } from "../../git/message";
 import { handle } from "../register";
 
 function projectCwd(projectId: string): string {
@@ -51,6 +52,9 @@ export function registerGitHandlers(): void {
   );
   handle("git:commit", ({ projectId, message }) =>
     commitChanges(projectCwd(projectId), message),
+  );
+  handle("git:generateCommitMessage", ({ projectId }) =>
+    generateCommitMessage(projectCwd(projectId)),
   );
   handle("git:checkoutBranch", ({ projectId, branch }) =>
     checkoutBranch(projectCwd(projectId), branch),

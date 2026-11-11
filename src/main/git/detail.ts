@@ -515,6 +515,41 @@ export async function readDiff(
 }
 
 /**
+ * 读取暂存区的完整 diff（限定在工作区范围内）。
+ *
+ * 供「自动生成提交信息」使用：不针对单个文件，也不在这里截断，
+ * 由调用方按 prompt 预算决定保留多少内容。
+ */
+export async function readStagedDiff(cwd: string): Promise<GitDiffResult> {
+  const result = await runGit(cwd, [
+    "diff",
+    "--cached",
+    "--no-color",
+    "--no-ext-diff",
+    "--relative",
+    "--",
+    ".",
+  ]);
+  if (!result.ok) {
+    return {
+      ok: false,
+      diff: "",
+      binary: false,
+      truncated: false,
+      error: result.stderr.trim() || "无法读取暂存区 diff",
+    };
+  }
+
+  const diff = result.stdout;
+  return {
+    ok: true,
+    diff,
+    binary: diff.includes("Binary files") || diff.includes("GIT binary patch"),
+    truncated: false,
+  };
+}
+
+/**
  * 放弃文件修改（不可恢复）。
  *
  * 按当前 Git 状态自动分流：

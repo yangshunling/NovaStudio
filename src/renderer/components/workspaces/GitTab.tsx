@@ -23,7 +23,7 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import {
-  AlertTriangle, ArrowDown, ArrowUp, Check, CheckCircle2, ChevronDown, CircleDot, Cloud, GitBranch, GitBranchPlus, Minus, Plus, RefreshCw, Tag, Undo2, type LucideIcon } from "lucide-react";
+  AlertTriangle, ArrowDown, ArrowUp, Check, CheckCircle2, ChevronDown, CircleDot, Cloud, GitBranch, GitBranchPlus, Minus, Plus, RefreshCw, Sparkles, Tag, Undo2, type LucideIcon } from "lucide-react";
 import type { Project } from "@shared/types";
 import type {
   GitBranchInfo,
@@ -148,6 +148,8 @@ export function GitTab({
   const [message, setMessage] = useState("");
   const [commitError, setCommitError] = useState<string | null>(null);
   const [commitOutput, setCommitOutput] = useState<string | null>(null);
+  /** 自动生成提交信息：独立于 busy，避免生成期间锁住整个 Git 面板 */
+  const [generatingMessage, setGeneratingMessage] = useState(false);
 
   const [branchToCheckout, setBranchToCheckout] = useState<string | null>(
     null,
@@ -159,6 +161,8 @@ export function GitTab({
   const [newBranchName, setNewBranchName] = useState("");
   const commitBoxRef = useRef<HTMLDivElement>(null);
   const commitInputRef = useRef<HTMLTextAreaElement>(null);
+  /** 生成请求返回时用来确认工作区没被切走 */
+  const projectIdRef = useRef(project.id);
 
   /** 折叠状态按分组记录；默认全部展开 */
   const [collapsedGroups, setCollapsedGroups] = useState<Set<GroupKey>>(
@@ -200,9 +204,16 @@ export function GitTab({
     Boolean(message.trim()) &&
     staged.length > 0 &&
     !busy &&
+    !generatingMessage &&
     status?.available === true &&
     // merge 冲突解决后可以直接提交；rebase / cherry-pick 等应走「继续」
     (!status.inProgress || status.inProgress.kind === "merge");
+  /** 只有存在暂存内容时才值得生成；生成期间不和其它 Git 操作并行 */
+  const canGenerate =
+    staged.length > 0 &&
+    !busy &&
+    !generatingMessage &&
+    status?.available === true;
 
   /**
    * 提交框与会话页输入框一致：未输入时只占一行，随内容自动增高，
@@ -231,10 +242,12 @@ export function GitTab({
     setUnstagePicks((prev) => intersectPaths(prev, stagedPaths));
   }, [status, staged, unstaged, untracked]);
 
-  // 切换工作区后旧勾选不再有意义
+  // 切换工作区后旧勾选不再有意义；进行中的生成结果也不再属于当前面板
   useEffect(() => {
+    projectIdRef.current = project.id;
     setStagePicks(new Set());
     setUnstagePicks(new Set());
+    setGeneratingMessage(false);
   }, [project.id]);
 
   // 加载选中文件的 diff；未跟踪文件没有 diff，直接读内容做「全部新增」预览
@@ -553,6 +566,40 @@ export function GitTab({
       toast.error(toMessage(err), 6000);
     } finally {
       setBusy(null);
+    }
+  };
+
+  /** 根据已暂存差异生成提交信息；已有草稿时先确认再覆盖 */
+  const generateMessage = async () => {
+    if (!canGenerate) return;
+    if (message.trim()) {
+      const confirmed = await confirmDialog({
+        title: "替换当前提交信息？",
+        message: "自动生成的内容会覆盖已经输入的文字。",
+        confirmLabel: "生成并替换",
+      });
+      if (!confirmed) return;
+    }
+
+    const projectId = project.id;
+    setGeneratingMessage(true);
+    setCommitError(null);
+    try {
+      const result = await ipc.generateGitCommitMessage(projectId);
+      // 生成期间可能已切换到别的工作区：结果不能落进当前面板
+      if (projectIdRef.current !== projectId) return;
+      if (!result.ok || !result.message) {
+        toast.error(result.error ?? "生成提交信息失败", 6000);
+        return;
+      }
+      setMessage(result.message);
+      requestAnimationFrame(() => commitInputRef.current?.focus());
+    } catch (err) {
+      if (projectIdRef.current === projectId) {
+        toast.error(toMessage(err), 5000);
+      }
+    } finally {
+      if (projectIdRef.current === projectId) setGeneratingMessage(false);
     }
   };
 
@@ -1208,13 +1255,30 @@ export function GitTab({
 
                   <div className="mt-0 flex items-center justify-between gap-3 border-t border-border/60 pt-1">
                     <span className="min-w-0 truncate px-1.5 ui-type-sub text-text-muted">
-                      {staged.length === 0
-                        ? "先在左侧勾选要提交的文件"
-                        : message.trim()
-                          ? `将提交 ${staged.length} 个文件`
-                          : "填写提交信息后即可提交"}
+                      {generatingMessage
+                        ? "正在根据暂存差异生成提交信息…"
+                        : staged.length === 0
+                          ? "先在左侧勾选要提交的文件"
+                          : message.trim()
+                            ? `将提交 ${staged.length} 个文件`
+                            : "填写提交信息后即可提交"}
                     </span>
                     <div className="flex shrink-0 items-center gap-2">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        icon={<Sparkles className="h-3.5 w-3.5" />}
+                        loading={generatingMessage}
+                        disabled={!canGenerate}
+                        onClick={() => void generateMessage()}
+                        title={
+                          staged.length === 0
+                            ? "暂存文件后可根据差异自动生成提交信息"
+                            : "根据已暂存的差异自动生成提交信息"
+                        }
+                      >
+                        生成提交信息
+                      </Button>
                       <span
                         className="ui-type-sub text-text-muted"
                         title="Ctrl / ⌘ + Enter 提交"

@@ -92,6 +92,8 @@ export const ipc = {
     call("git:unstage", { projectId, paths }),
   commitGit: (projectId: string, message: string) =>
     call("git:commit", { projectId, message }),
+  generateGitCommitMessage: (projectId: string) =>
+    call("git:generateCommitMessage", { projectId }),
   checkoutGitBranch: (projectId: string, branch: string) =>
     call("git:checkoutBranch", { projectId, branch }),
   createGitBranch: (projectId: string, name: string) =>

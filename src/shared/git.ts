@@ -101,6 +101,14 @@ export interface GitOperationResult {
   output?: string;
 }
 
+/** 自动生成提交信息的结果 */
+export interface GitCommitMessageResult {
+  ok: boolean;
+  /** 生成成功的提交信息（已清理代码块标记 / 引号） */
+  message?: string;
+  error?: string;
+}
+
 /** 染色状态 → 单字母标记，与文件树 / Git 面板共用 */
 export const GIT_STATUS_LABELS: Record<GitStatusKind, string> = {
   untracked: "U",

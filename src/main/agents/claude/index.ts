@@ -26,8 +26,14 @@
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from "fs";
 import { homedir, tmpdir } from "os";
 import { join } from "path";
-import type { AgentProvider, RunOptions, RunSession } from "../types";
+import type {
+  AgentProvider,
+  CompleteOptions,
+  RunOptions,
+  RunSession,
+} from "../types";
 import { startLineRun } from "../line-run";
+import { spawnChild, type Transport } from "../transport";
 import { probeVersion } from "../probe";
 import { manifest } from "./manifest";
 import { createDecoder, createStreamDecoder, extractSessionId } from "./parse";
@@ -68,6 +74,85 @@ function writeSystemPromptFile(prompt: string): {
       }
     },
   };
+}
+
+/** 一次性文本生成的默认超时：提交信息等小任务不应无限等待 */
+const COMPLETE_TIMEOUT_MS = 120_000;
+/** 一次性生成只保留诊断尾部，避免异常输出占满内存 */
+const COMPLETE_STDERR_LIMIT = 4000;
+
+/**
+ * 一次性文本生成。
+ *
+ * 与 start() 的差别：
+ * - --output-format text：只要最终文本，不解析事件流
+ * - --tools ""：禁用全部内置工具，模型不能读写仓库
+ * - --no-session-persistence：不落盘会话，不污染用户历史
+ */
+function completeOnce(opts: CompleteOptions): Promise<string> {
+  return new Promise<string>((resolve, reject) => {
+    const limit = opts.timeoutMs ?? COMPLETE_TIMEOUT_MS;
+    let stdout = "";
+    let stderr = "";
+    let settled = false;
+    let transport: Transport | null = null;
+    let timer: NodeJS.Timeout | null = null;
+
+    const settle = (action: () => void) => {
+      if (settled) return;
+      settled = true;
+      if (timer) clearTimeout(timer);
+      action();
+    };
+
+    timer = setTimeout(() => {
+      settle(() =>
+        reject(
+          new Error(
+            `生成超时（${Math.round(limit / 1000)} 秒），请稍后重试`,
+          ),
+        ),
+      );
+      transport?.kill();
+    }, limit);
+
+    transport = spawnChild(
+      [
+        BIN,
+        "-p",
+        "--output-format",
+        "text",
+        // 空字符串表示禁用全部内置工具
+        "--tools",
+        "",
+        "--no-session-persistence",
+      ],
+      opts.cwd,
+      undefined,
+      undefined,
+      {
+        onData: (chunk) => {
+          stdout += chunk;
+        },
+        onStderr: (chunk) => {
+          stderr = (stderr + chunk).slice(-COMPLETE_STDERR_LIMIT);
+        },
+        onExit: (code) => {
+          if (code === 0) {
+            settle(() => resolve(stdout.trim()));
+          } else {
+            settle(() =>
+              reject(
+                new Error(stderr.trim() || `Claude 进程退出码 ${code}`),
+              ),
+            );
+          }
+        },
+      },
+    );
+
+    transport.writeInput(opts.prompt);
+  });
 }
 
 export const provider: AgentProvider = {
@@ -205,6 +290,9 @@ export const provider: AgentProvider = {
 
     return session;
   },
+
+  /** 一次性文本生成（提交信息等宿主内部任务） */
+  complete: completeOnce,
 
   /** claude --resume 收的就是会话 id，无需规范化 */
   normalizeSessionRef(rawId) {

@@ -40,6 +40,8 @@ interface TerminalState {
   }) => string;
   /** 关闭终端并销毁对应 PTY */
   close: (id: string) => void;
+  /** 批量关闭；标签栏的「关闭其他 / 全部关闭」使用 */
+  closeMany: (ids: string[]) => void;
   /** 在同一个标签里重新拉起 shell（PTY 退出后使用） */
   restart: (id: string) => void;
   /** 关闭某工作区下的所有终端（删除工作区时调用） */
@@ -72,6 +74,19 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
       return {
         terminals: state.terminals.filter((item) => item.id !== id),
       };
+    });
+  },
+
+  closeMany: (ids) => {
+    if (ids.length === 0) return;
+    const closing = new Set(ids);
+    set((state) => {
+      const terminals = state.terminals.filter(
+        (item) => !closing.has(item.id),
+      );
+      return terminals.length === state.terminals.length
+        ? state
+        : { terminals };
     });
   },
 

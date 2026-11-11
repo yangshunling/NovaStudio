@@ -64,6 +64,7 @@ import type {
 } from "./agent";
 import type {
   GitBranchInfo,
+  GitCommitMessageResult,
   GitCommitSummary,
   GitDiffResult,
   GitOperationResult,
@@ -161,6 +162,11 @@ export interface IpcInvokeMap {
   "git:commit": {
     args: [{ projectId: string; message: string }];
     result: GitOperationResult;
+  };
+  /** 根据已暂存差异自动生成提交信息（使用默认 Agent 的一次性调用） */
+  "git:generateCommitMessage": {
+    args: [{ projectId: string }];
+    result: GitCommitMessageResult;
   };
   "git:checkoutBranch": {
     args: [{ projectId: string; branch: string }];

@@ -39,6 +39,7 @@ import {
 import { AssistantMessageList } from "./AssistantMessageList";
 import { ContextGauge } from "./ContextGauge";
 import { useWorkspacePicker } from "./WorkspacePicker";
+import { useInputHistory } from "../../hooks/useInputHistory";
 import { WorkspaceMenuPanel } from "./WorkspaceMenu";
 import { QuestionNav } from "./QuestionNav";
 import { FileTypeIcon } from "../ui/FileTypeIcon";
@@ -186,6 +187,14 @@ export function ChatArea({ embedded = false }: { embedded?: boolean } = {}) {
       textarea.scrollHeight > 0 ? `${textarea.scrollHeight}px` : "";
   }, [input]);
 
+  /** ↑ / ↓ 翻找已发送正文：跨会话共享，草稿在翻回底部时原样还原 */
+  const history = useInputHistory({
+    value: input,
+    setValue: setInput,
+    textareaRef,
+    scopeKey: draftKey,
+  });
+
   const mention = useMention({
     draftKey,
     projectId: currentProject?.id ?? "",
@@ -247,8 +256,8 @@ export function ChatArea({ embedded = false }: { embedded?: boolean } = {}) {
 
   /** 占位提示用独立的一行文本渲染：textarea 原生 placeholder 会自动折行 */
   const placeholder = currentProject
-    ? "输入消息，@ 引用内容，# 切换工作区，Enter 发送，Shift+Enter 换行"
-    : "描述任务，@ 引用内容，# 切换工作区，Enter 发送，Shift+Enter 换行";
+    ? "输入消息，@ 引用内容，# 切换工作区，Enter 发送，Shift+Enter 换行，↑↓ 翻历史"
+    : "描述任务，@ 引用内容，# 切换工作区，Enter 发送，Shift+Enter 换行，↑↓ 翻历史";
 
   const handleSend = () => {
     const trimmed = input.trim();
@@ -259,6 +268,8 @@ export function ChatArea({ embedded = false }: { embedded?: boolean } = {}) {
       .map((reference) => reference.promptText)
       .join("\n");
     const prompt = [trimmed, referenceText].filter(Boolean).join("\n");
+    // 只记用户亲手输入的正文：引用说明是按引用标签拼出来的，回溯时无意义
+    history.push(trimmed);
     setInput("");
     mention.clearReferences();
     /*
@@ -432,9 +443,13 @@ export function ChatArea({ embedded = false }: { embedded?: boolean } = {}) {
                   onKeyDown={(e) => {
                     if (mention.handleKeyDown(e)) return;
                     if (workspacePicker.handleKeyDown(e)) return;
-                    // 中文输入法选词时的回车不能当发送：
+                    // 中文输入法选词时的回车 / 方向键不能当发送或翻历史：
                     // 否则会把还没上屏的拼音当成完整消息发出去
                     if (e.nativeEvent.isComposing || e.keyCode === 229) return;
+                    // ↑ / ↓ 翻找历史发送正文（Esc 退出浏览并还原草稿）。
+                    // 弹窗开着时方向键属于弹窗（哪怕列表为空），不接管
+                    if (mention.active || workspacePicker.active) return;
+                    if (history.handleKeyDown(e)) return;
                     if (e.key === "Enter" && !e.shiftKey) {
                       e.preventDefault();
                       handleSend();

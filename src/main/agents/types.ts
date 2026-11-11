@@ -151,6 +151,18 @@ export interface SessionContext {
   configDir?: string | null;
 }
 
+/**
+ * 一次性文本生成的输入。
+ *
+ * 与 RunOptions 的区别：不创建会话、不落盘历史、不开工具，
+ * 只把 prompt 交给模型并返回最终纯文本。
+ */
+export interface CompleteOptions {
+  prompt: string;
+  cwd: string;
+  timeoutMs?: number;
+}
+
 export interface AgentProvider {
   readonly manifest: AgentManifest;
 
@@ -192,6 +204,14 @@ export interface AgentProvider {
 
   /** 发起一次对话（新建或恢复由 opts.sessionRef 决定） */
   start(opts: RunOptions): RunSession;
+
+  /**
+   * 一次性文本生成：prompt → 纯文本。
+   *
+   * 用于提交信息、标题这类宿主内部的小任务：不创建会话、不落盘历史，
+   * 也不应启用工具（避免模型顺手动仓库）。缺省表示该 Agent 不支持。
+   */
+  complete?(opts: CompleteOptions): Promise<string>;
 
   /**
    * 把首次运行拿到的原始会话 id 规范化为可长期复用的引用。

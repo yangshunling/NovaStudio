@@ -220,7 +220,11 @@ export function ProjectSelector() {
 
       {open && (
         <WorkspaceMenuPanel
-          align="right"
+          /*
+           * 与输入框左边缘对齐，而不是向右对齐触发器。
+           * 向右对齐会让 22rem 的面板整体伸到输入框左侧，盖住会话列表。
+           */
+          align="left"
           items={menuItems}
           hoverIdx={hoverIdx}
           emptyHint="还没有工作区，先到「工作区」页面登记一个本地目录。"

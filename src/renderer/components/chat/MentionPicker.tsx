@@ -718,7 +718,11 @@ export function MentionPopup({
           >
             <EntryIcon entry={entry} />
             <span className="flex min-w-0 flex-1 items-baseline gap-2">
-              <span className="max-w-[55%] shrink-0 truncate ui-type-body text-text">
+              <span
+                className={`truncate ui-type-body text-text ${
+                  entry.detail ? "max-w-[55%] shrink-0" : "min-w-0 flex-1"
+                }`}
+              >
                 {entry.name}
               </span>
               {entry.detail && (

@@ -24,6 +24,8 @@ interface FileViewerState {
   openFile: (projectId: string, relativePath: string, name: string) => void;
   activateTab: (id: string | null) => void;
   closeTab: (id: string) => void;
+  /** 批量关闭（关闭其他 / 左侧 / 右侧 / 全部）；活动标签由调用方重新指定 */
+  closeTabs: (ids: string[]) => void;
   closeAll: () => void;
 }
 
@@ -63,6 +65,15 @@ export const useFileViewerStore = create<FileViewerState>((set) => ({
       const next = tabs[Math.min(index, tabs.length - 1)];
       return { tabs, activeTabId: next?.id ?? null };
     });
+  },
+
+  closeTabs: (ids) => {
+    if (ids.length === 0) return;
+    const closing = new Set(ids);
+    // activeTabId 不在这里挑后继：标签栏还要考虑终端标签，由调用方统一决定
+    set((state) => ({
+      tabs: state.tabs.filter((tab) => !closing.has(tab.id)),
+    }));
   },
 
   closeAll: () => {
