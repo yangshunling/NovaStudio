@@ -8,12 +8,13 @@
  * 实时对话与历史回放共用本组件；实时流式输出时内容区会自动跟随底部。
  */
 
-import { useEffect, useRef, useState } from "react";
+import { memo, useEffect, useRef, useState } from "react";
 import { Brain, Check, ChevronRight } from "lucide-react";
-import { MarkdownRenderer } from "../ui/MarkdownRenderer";
+import { StreamingMarkdown } from "../ui/MarkdownRenderer";
 import { Spinner } from "../ui/Spinner";
 
-export function ThinkingCard({
+/** memo：已完成的思考块不应跟着正文的每个 token 重渲染 */
+export const ThinkingCard = memo(function ThinkingCard({
   text,
   running,
 }: {
@@ -94,9 +95,9 @@ export function ThinkingCard({
           onScroll={handleBodyScroll}
           className="max-h-60 overflow-auto border-t border-border/60 bg-surface/50 p-3 ui-type-note leading-relaxed text-text-secondary"
         >
-          <MarkdownRenderer content={text} streaming={running} />
+          <StreamingMarkdown content={text} streaming={running} />
         </div>
       )}
     </div>
   );
-}
+});

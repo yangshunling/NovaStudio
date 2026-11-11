@@ -11,6 +11,7 @@
 
 import { useCallback, useEffect, useLayoutEffect, useRef } from "react";
 import {
+  EMPTY_QUEUE,
   NEW_SESSION_DRAFT_KEY,
   useChatStore,
   selectCurrentStreaming,
@@ -25,6 +26,7 @@ import {
   Sparkles,
   Wrench,
   Library,
+  ListOrdered,
   X,
 } from "lucide-react";
 import { AgentSelector } from "./AgentSelector";
@@ -69,6 +71,14 @@ export function ChatArea({ embedded = false }: { embedded?: boolean } = {}) {
   const isStreaming = useChatStore(selectCurrentStreaming);
   const sendMessage = useChatStore((s) => s.sendMessage);
   const abort = useChatStore((s) => s.abort);
+  /** 当前会话的暂存区：运行中继续发送的消息排在这里 */
+  const queued = useChatStore((s) =>
+    s.currentSessionId
+      ? (s.queuedBySession[s.currentSessionId] ?? EMPTY_QUEUE)
+      : EMPTY_QUEUE,
+  );
+  const removeQueuedMessage = useChatStore((s) => s.removeQueuedMessage);
+  const resumeQueue = useChatStore((s) => s.resumeQueue);
   const projects = useChatStore((s) => s.projects);
   const sessions = useChatStore((s) => s.sessions);
   const currentProjectId = useChatStore((s) => s.currentProjectId);
@@ -243,8 +253,7 @@ export function ChatArea({ embedded = false }: { embedded?: boolean } = {}) {
   const handleSend = () => {
     const trimmed = input.trim();
     const references = mention.references;
-    // 流式中再次提交会被主进程拒绝，但仍清空了输入框：这里直接短路
-    if ((!trimmed && references.length === 0) || isStreaming) return;
+    if (!trimmed && references.length === 0) return;
     // 引用说明各自成行：除文件 @path 外都是完整句子，挤在一行里会连成一片
     const referenceText = references
       .map((reference) => reference.promptText)
@@ -252,8 +261,12 @@ export function ChatArea({ embedded = false }: { embedded?: boolean } = {}) {
     const prompt = [trimmed, referenceText].filter(Boolean).join("\n");
     setInput("");
     mention.clearReferences();
-    // 会话创建 / Agent 缺失等前置失败不会进入消息流：把输入还给用户并提示
-    void sendMessage(prompt).catch((err) => {
+    /*
+     * 运行中发送不再被丢弃：chat store 会把它放进暂存区，
+     * 本轮结束后按顺序发送。展示正文只用用户输入，不铺开引用说明。
+     */
+    void sendMessage(prompt, trimmed || referenceText).catch((err) => {
+      // 会话创建 / Agent 缺失等前置失败不会进入消息流：把输入还给用户并提示
       setInput(trimmed);
       toast.error(toMessage(err), 5000);
     });
@@ -314,6 +327,70 @@ export function ChatArea({ embedded = false }: { embedded?: boolean } = {}) {
         <div className="ui-chat-gutter relative z-10 border-t border-border bg-bg py-3">
           <div className="mx-auto w-full max-w-[var(--c-layout-content)]">
             <div className="rounded-input border border-border/80 bg-input-bg px-3 py-2 shadow-[var(--c-shadow-sm)] transition-[border-color,box-shadow] focus-within:border-accent/40 focus-within:shadow-[0_0_0_3px_var(--c-accent-soft)]">
+              {/* 暂存区：本轮运行中继续发送的消息按序排在这里，结束后自动接力 */}
+              {queued.length > 0 && (
+                <div className="mb-2 overflow-hidden rounded-md border border-border/70 bg-surface-2/70">
+                  <div className="flex items-center gap-2 border-b border-border/60 px-2.5 py-1.5">
+                    <ListOrdered className="h-3.5 w-3.5 shrink-0 text-text-muted" />
+                    <span className="shrink-0 ui-type-sub font-semibold tracking-[0.08em] text-text-secondary">
+                      暂存区
+                    </span>
+                    <span className="flex h-4 min-w-4 shrink-0 items-center justify-center rounded-sm border border-border bg-surface px-1 ui-type-sub tabular-nums text-text-muted">
+                      {queued.length}
+                    </span>
+                    <span className="flex min-w-0 items-center gap-1.5 ui-type-sub text-text-muted">
+                      <span
+                        className={`h-1.5 w-1.5 shrink-0 rounded-full ${
+                          isStreaming
+                            ? "animate-pulse bg-accent"
+                            : "bg-text-muted"
+                        }`}
+                      />
+                      <span className="truncate">
+                        {isStreaming ? "本轮结束后自动发送" : "已暂停"}
+                      </span>
+                    </span>
+                    {!isStreaming && (
+                      <button
+                        type="button"
+                        onClick={() => resumeQueue()}
+                        title="立即发送暂存区中的下一条"
+                        className="ml-auto shrink-0 rounded-sm px-1.5 py-0.5 ui-type-sub font-medium text-accent transition-colors hover:bg-accent/10"
+                      >
+                        继续发送
+                      </button>
+                    )}
+                  </div>
+                  <ul className="max-h-28 overflow-y-auto px-1.5 py-1">
+                    {queued.map((item, index) => (
+                      <li
+                        key={item.id}
+                        className="group flex items-start gap-2 rounded-sm px-1.5 py-1 transition-colors hover:bg-surface-hover/50"
+                      >
+                        <span className="mt-0.5 w-5 shrink-0 text-right ui-type-sub tabular-nums text-text-muted/80">
+                          {String(index + 1).padStart(2, "0")}
+                        </span>
+                        <span
+                          title={item.display}
+                          className="line-clamp-2 min-w-0 flex-1 whitespace-pre-wrap ui-type-note leading-relaxed text-text-secondary"
+                        >
+                          {item.display}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => removeQueuedMessage(item.id)}
+                          title="从暂存区移除"
+                          aria-label="从暂存区移除"
+                          className="mt-0.5 shrink-0 rounded-sm p-0.5 text-text-muted opacity-0 transition-all hover:bg-surface-hover hover:text-text group-hover:opacity-100 focus-visible:opacity-100"
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
               {mention.references.length > 0 && (
                 <div className="mb-2 flex flex-wrap gap-1.5 px-1">
                   {mention.references.map((reference) => (
@@ -420,26 +497,29 @@ export function ChatArea({ embedded = false }: { embedded?: boolean } = {}) {
 
                 <div className="flex shrink-0 items-center gap-3">
                   <ContextGauge usage={usage} agentId={effectiveAgentId} />
-                  {isStreaming ? (
+                  <button
+                    onClick={handleSend}
+                    disabled={!input.trim() && mention.references.length === 0}
+                    title={
+                      isStreaming
+                        ? "加入暂存区，本轮结束后自动发送"
+                        : "发送"
+                    }
+                    aria-label={isStreaming ? "排队发送" : "发送消息"}
+                    className="ui-btn ui-btn-sm ui-btn-primary shrink-0 disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    <Send className="h-3.5 w-3.5" />
+                    {isStreaming ? "排队" : "发送"}
+                  </button>
+                  {isStreaming && (
                     <button
                       onClick={() => abort()}
-                      title="停止运行"
+                      title="停止本轮运行（暂存区会暂停）"
                       aria-label="停止运行"
                       className="ui-btn ui-btn-sm ui-btn-danger-soft shrink-0"
                     >
                       <Square className="h-3.5 w-3.5" />
                       停止
-                    </button>
-                  ) : (
-                    <button
-                      onClick={handleSend}
-                      disabled={!input.trim() && mention.references.length === 0}
-                      title="发送"
-                      aria-label="发送消息"
-                      className="ui-btn ui-btn-sm ui-btn-primary shrink-0 disabled:cursor-not-allowed disabled:opacity-40"
-                    >
-                      <Send className="h-3.5 w-3.5" />
-                      发送
                     </button>
                   )}
                 </div>

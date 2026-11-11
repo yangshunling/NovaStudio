@@ -334,19 +334,57 @@ export function WorkflowRunView({
     };
   }, [runId, selectedNodeRunId, selectedNode?.status]);
 
-  // 节点执行中的实时事件：只按 seq 合并，不做节流（主进程已按 16ms 聚合）
+  /*
+   * 节点执行中的实时事件：按 seq 合并。
+   *
+   * 主进程的 16ms 批量队列只是「攒够一批再发」，批内仍是逐条 IPC；
+   * 渲染进程每个回调都是独立任务，React 无法跨任务合批。每个 token 一次
+   * setState 时，实时查看运行记录会变成每秒几十次整页重渲染。这里和聊天
+   * 流一样，在渲染侧再把同一个窗口内的事件合成一次更新。
+   */
   useEffect(() => {
     setLiveMap({});
+    type LivePayload = {
+      runId: string;
+      nodeRunId: string;
+      attempt: number;
+      round: number;
+      seq: number;
+      event: AgentEvent;
+    };
+    let pending: LivePayload[] = [];
+    let timer: ReturnType<typeof setTimeout> | null = null;
+
+    const flush = (): void => {
+      timer = null;
+      if (pending.length === 0) return;
+      const batch = pending;
+      pending = [];
+      setLiveMap((prev) => {
+        let next = prev;
+        for (const payload of batch) {
+          next = mergeLiveItem(
+            next,
+            payload.nodeRunId,
+            payload.attempt,
+            payload.round,
+            { seq: payload.seq, event: payload.event },
+          );
+        }
+        return next;
+      });
+    };
+
     const off = ipc.on.workflowRunAgentEvent((payload) => {
       if (payload.runId !== runId) return;
-      setLiveMap((prev) =>
-        mergeLiveItem(prev, payload.nodeRunId, payload.attempt, payload.round, {
-          seq: payload.seq,
-          event: payload.event,
-        }),
-      );
+      pending.push(payload);
+      if (!timer) timer = setTimeout(flush, 16);
     });
-    return off;
+
+    return () => {
+      off();
+      if (timer) clearTimeout(timer);
+    };
   }, [runId]);
 
   /** DAG 并行执行时可能有多个节点同时等待审核 */

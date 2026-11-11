@@ -17,6 +17,10 @@ import { getHighlighter, highlightCodeSync } from "../../lib/shiki";
 import { stripPreTag } from "../../lib/utils";
 import { useSkin } from "../../hooks/useTheme";
 import { ipc } from "../../lib/ipc";
+import {
+  MARKDOWN_BLOCK_THRESHOLD,
+  splitMarkdownBlocks,
+} from "../../lib/markdown-blocks";
 
 /**
  * 内嵌图片的解析上下文。
@@ -263,6 +267,12 @@ export interface MarkdownRendererProps {
   allowHtml?: boolean;
   /** 内容仍在流式增长：跳过昂贵的代码高亮，等定型后再执行 */
   streaming?: boolean;
+  /**
+   * 不输出外层 .nova-markdown 容器。
+   * 块级渲染时由父组件提供唯一容器，否则每个块都会命中
+   * `.nova-markdown > :last-child { margin-bottom: 0 }`，块间距被吃掉。
+   */
+  bare?: boolean;
 }
 
 function MarkdownRendererImpl({
@@ -271,6 +281,7 @@ function MarkdownRendererImpl({
   markdownPath,
   allowHtml = false,
   streaming = false,
+  bare = false,
 }: MarkdownRendererProps) {
   const imageContext = useMemo(
     () =>
@@ -288,18 +299,24 @@ function MarkdownRendererImpl({
     [allowHtml],
   );
 
+  const markdown = (
+    <ReactMarkdown
+      remarkPlugins={REMARK_PLUGINS}
+      rehypePlugins={rehypePlugins}
+      components={MARKDOWN_COMPONENTS}
+    >
+      {content}
+    </ReactMarkdown>
+  );
+
   return (
     <MarkdownImageContext.Provider value={imageContext}>
       <MarkdownStreamingContext.Provider value={streaming}>
-      <div className="nova-markdown ui-type-prose text-text">
-      <ReactMarkdown
-        remarkPlugins={REMARK_PLUGINS}
-        rehypePlugins={rehypePlugins}
-        components={MARKDOWN_COMPONENTS}
-      >
-        {content}
-      </ReactMarkdown>
-      </div>
+        {bare ? (
+          markdown
+        ) : (
+          <div className="nova-markdown ui-type-prose text-text">{markdown}</div>
+        )}
       </MarkdownStreamingContext.Provider>
     </MarkdownImageContext.Provider>
   );
@@ -307,3 +324,53 @@ function MarkdownRendererImpl({
 
 /** memo 化：相同内容不重新渲染（皮肤变化由 CodeBlock 内部订阅处理） */
 export const MarkdownRenderer = memo(MarkdownRendererImpl);
+
+/**
+ * 流式 Markdown 渲染器。
+ *
+ * 长正文按「已写完的块 + 正在增长的尾巴」渲染：块一旦写完就不再参与
+ * 后续刷新，每帧只重解析尾巴。阈值以下的短文本仍走整段渲染（少一层
+ * 组件开销）。切分规则与为什么不能更激进见 lib/markdown-blocks.ts。
+ */
+function StreamingMarkdownImpl({
+  content,
+  streaming = false,
+}: {
+  content: string;
+  streaming?: boolean;
+}) {
+  /*
+   * 长正文始终按块渲染（不只流式期间）：回复结束时若切回整段渲染，
+   * 整棵 React 树会被卸载重建，反而在「刚好写完」的瞬间卡一下。
+   * 保持同一种树形，结束时只有尾块需要再渲染一次（补上代码高亮）。
+   */
+  const blocks = useMemo(
+    () =>
+      content.length >= MARKDOWN_BLOCK_THRESHOLD
+        ? splitMarkdownBlocks(content)
+        : null,
+    [content],
+  );
+
+  if (!blocks || blocks.stable.length === 0) {
+    return <MarkdownRenderer content={content} streaming={streaming} />;
+  }
+
+  return (
+    /*
+     * 唯一的 .nova-markdown 容器：块间距、首尾边距归零都按「整段」计算，
+     * 与未切分时一致；每个块自身不再套容器（bare）。
+     */
+    <div className="nova-markdown ui-type-prose text-text">
+      {blocks.stable.map((block, index) => (
+        // 块只追加不修改，index 作为 key 在整轮流式中保持稳定
+        <MarkdownRenderer key={index} content={block} bare />
+      ))}
+      {blocks.tail && (
+        <MarkdownRenderer content={blocks.tail} streaming bare />
+      )}
+    </div>
+  );
+}
+
+export const StreamingMarkdown = memo(StreamingMarkdownImpl);

@@ -157,35 +157,6 @@ export function WorkspacesView() {
     useChatStore.getState().setViewMode("chat");
   };
 
-  const copyPath = async (project: Project) => {
-    try {
-      await navigator.clipboard.writeText(project.cwd);
-      toast.success("路径已复制");
-    } catch (err) {
-      toast.error(toMessage(err), 5000);
-    }
-  };
-
-  const browseFilesInChat = async (project: Project) => {
-    try {
-      const state = useChatStore.getState();
-      const current = state.sessions.find(
-        (session) => session.id === state.currentSessionId,
-      );
-      if (current?.projectId === project.id) {
-        state.setShowWorkspace(true);
-        state.setViewMode("chat");
-      } else {
-        state.newSession();
-        await state.bindProject(project.id);
-        state.setShowWorkspace(true);
-        state.setViewMode("chat");
-      }
-    } catch (err) {
-      toast.error(toMessage(err), 5000);
-    }
-  };
-
   // ==========================================================================
   // 渲染
   // ==========================================================================
@@ -267,11 +238,7 @@ export function WorkspacesView() {
               }
               onOpenFolder={() => void openFolder(selectedProject)}
               onOpenTerminal={() => openTerminal(selectedProject)}
-              onCopyPath={() => void copyPath(selectedProject)}
               onDelete={() => void removeWorkspace(selectedProject)}
-              onBrowseFilesInChat={() =>
-                void browseFilesInChat(selectedProject)
-              }
             />
           ) : (
             <WorkspaceEmptyState

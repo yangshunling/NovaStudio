@@ -1,18 +1,16 @@
 /**
  * 工作区控制台
  *
- * 右侧工作台：头部（工作区名 / 分支 / 动作） + 两个 Tab：文件 / Git。
+ * 右侧工作台：头部（工作区名 / 动作） + 两个 Tab：文件 / Git。
+ * 分支信息只出现在 Git Tab 内（顶栏选择器），头部不再重复展示。
  * 两个 Tab 常驻挂载，切换不丢文件预览标签和 Git 提交草稿。
  */
 
 import { useEffect, useRef, useState } from "react";
 import {
   AlertTriangle,
-  Copy,
   FolderKanban,
   FolderOpen,
-  GitBranch,
-  MoreHorizontal,
   SquareTerminal,
   Trash2,
 } from "lucide-react";
@@ -24,15 +22,7 @@ import type {
 } from "@shared/git";
 import { ipc } from "../../lib/ipc";
 import { toMessage } from "../../lib/utils";
-import { clampMenuPosition } from "../../lib/popup";
-import { useDismissableLayer } from "../../hooks/useDismissableLayer";
 import { IconButton } from "../ui/IconButton";
-import {
-  MENU_WIDTH,
-  MenuItem,
-  MenuPanel,
-  MenuSeparator,
-} from "../ui/Menu";
 import { FilesTab, type FilesRequest } from "./FilesTab";
 import { GitTab } from "./GitTab";
 import { changeCount } from "./gitUi";
@@ -45,9 +35,7 @@ export interface WorkspaceConsoleProps {
   onTabChange: (tab: WorkspaceTab) => void;
   onOpenFolder: () => void;
   onOpenTerminal: () => void;
-  onCopyPath: () => void;
   onDelete: () => void;
-  onBrowseFilesInChat: () => void;
 }
 
 export function WorkspaceConsole({
@@ -56,9 +44,7 @@ export function WorkspaceConsole({
   onTabChange,
   onOpenFolder,
   onOpenTerminal,
-  onCopyPath,
   onDelete,
-  onBrowseFilesInChat,
 }: WorkspaceConsoleProps) {
   const [git, setGit] = useState<GitStatusDetail | null>(null);
   const [gitLoading, setGitLoading] = useState(true);
@@ -71,8 +57,6 @@ export function WorkspaceConsole({
 
   const [filesRequest, setFilesRequest] = useState<FilesRequest | null>(null);
   const requestNonce = useRef(0);
-  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
-  const menuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -122,8 +106,6 @@ export function WorkspaceConsole({
     };
   }, [project.id, gitTick]);
 
-  useDismissableLayer(Boolean(menu), () => setMenu(null), [menuRef]);
-
   const changes = changeCount(git);
 
   const openFiles = (request: Omit<FilesRequest, "nonce">) => {
@@ -142,16 +124,6 @@ export function WorkspaceConsole({
     setRevision((value) => value + 1);
   };
 
-  const openMenu = (event: React.MouseEvent) => {
-    event.stopPropagation();
-    setMenu(
-      clampMenuPosition(event.clientX, event.clientY, {
-        width: MENU_WIDTH,
-        height: 180,
-      }),
-    );
-  };
-
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col">
       <div className="ws-head">
@@ -165,25 +137,6 @@ export function WorkspaceConsole({
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-1.5">
-          {git?.available && (
-            <button
-              type="button"
-              onClick={() => onTabChange("git")}
-              title="查看 Git 状态 / 切换分支"
-              className="ws-branch"
-            >
-              <GitBranch className="h-3.5 w-3.5 shrink-0 text-accent" />
-              <span className="ws-branch-name">{git.branch ?? "HEAD"}</span>
-              {(git.ahead > 0 || git.behind > 0) && (
-                <span className="ws-branch-meta">
-                  {git.ahead > 0 && <span>↑{git.ahead}</span>}
-                  {git.behind > 0 && <span>↓{git.behind}</span>}
-                </span>
-              )}
-              {changes > 0 && <span className="ws-count">{changes}</span>}
-            </button>
-          )}
-
           <IconButton
             icon={<SquareTerminal className="h-4 w-4" />}
             label="在此工作区打开终端"
@@ -199,11 +152,11 @@ export function WorkspaceConsole({
             onClick={onOpenFolder}
           />
           <IconButton
-            icon={<MoreHorizontal className="h-4 w-4" />}
-            label="更多操作"
-            tone="muted"
+            icon={<Trash2 className="h-4 w-4" />}
+            label="删除工作区"
+            tone="danger"
             size="sm"
-            onClick={openMenu}
+            onClick={onDelete}
           />
         </div>
       </div>
@@ -218,7 +171,7 @@ export function WorkspaceConsole({
           onClick={() => onTabChange("files")}
           className="ws-tab"
         >
-          文件
+          <span className="ws-tab-label">文件</span>
         </button>
         <button
           type="button"
@@ -229,7 +182,7 @@ export function WorkspaceConsole({
           className="ws-tab"
           title={git?.inProgress ? git.inProgress.label : undefined}
         >
-          Git
+          <span className="ws-tab-label">Git</span>
           {git?.inProgress && (
             <AlertTriangle
               className="h-3 w-3 shrink-0 text-agent-amber"
@@ -273,41 +226,6 @@ export function WorkspaceConsole({
         </div>
       </div>
 
-      {menu && (
-        <div
-          className="contents"
-          onClick={(event) => event.stopPropagation()}
-        >
-          <MenuPanel x={menu.x} y={menu.y} menuRef={menuRef}>
-            <MenuItem
-              icon={Copy}
-              label="复制路径"
-              onClick={() => {
-                setMenu(null);
-                onCopyPath();
-              }}
-            />
-            <MenuItem
-              icon={FolderKanban}
-              label="在会话文件树中打开"
-              onClick={() => {
-                setMenu(null);
-                onBrowseFilesInChat();
-              }}
-            />
-            <MenuSeparator />
-            <MenuItem
-              icon={Trash2}
-              label="删除工作区"
-              danger
-              onClick={() => {
-                setMenu(null);
-                onDelete();
-              }}
-            />
-          </MenuPanel>
-        </div>
-      )}
     </div>
   );
 }

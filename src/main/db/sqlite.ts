@@ -614,9 +614,9 @@ export function saveSessionMessage(sessionId: string, msg: Message): void {
 
 /** 读取会话的全部持久化消息（按时间正序）。无数据时返回 null，表示回退到 provider 回放。 */
 export function readSessionMessages(sessionId: string): Message[] | null {
-  const rows = db!
-    .prepare("SELECT * FROM messages WHERE session_id = ? ORDER BY timestamp ASC, rowid ASC")
-    .all(sessionId) as any[];
+  const rows = prepare(
+    "SELECT * FROM messages WHERE session_id = ? ORDER BY timestamp ASC, rowid ASC",
+  ).all(sessionId) as any[];
   if (rows.length === 0) return null;
 
   const messages: Message[] = [];
@@ -638,9 +638,9 @@ export function readSessionMessages(sessionId: string): Message[] | null {
 /** 会话是否已有本地消息（用于判断运行前是否需要从 CLI 侧补全历史） */
 export function hasSessionMessages(sessionId: string): boolean {
   return Boolean(
-    db!
-      .prepare("SELECT 1 FROM messages WHERE session_id = ? LIMIT 1")
-      .get(sessionId),
+    prepare("SELECT 1 FROM messages WHERE session_id = ? LIMIT 1").get(
+      sessionId,
+    ),
   );
 }
 

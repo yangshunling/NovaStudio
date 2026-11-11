@@ -471,8 +471,9 @@ export async function readDiff(
   relativePath: string,
   staged: boolean,
 ): Promise<GitDiffResult> {
+  let normalizedPath: string;
   try {
-    validatePath(cwd, relativePath);
+    normalizedPath = validatePath(cwd, relativePath);
   } catch (err) {
     return {
       ok: false,
@@ -485,7 +486,7 @@ export async function readDiff(
 
   const args = ["diff", "--no-color", "--relative"];
   if (staged) args.push("--cached");
-  args.push("--", relativePath);
+  args.push("--", normalizedPath);
 
   const result = await runGit(cwd, args);
   if (!result.ok) {
@@ -514,7 +515,7 @@ export async function readDiff(
 }
 
 /**
- * 丢弃文件修改（不可恢复）。
+ * 放弃文件修改（不可恢复）。
  *
  * 按当前 Git 状态自动分流：
  * - 未跟踪 → `git clean -f`（删除文件）
@@ -544,7 +545,7 @@ export async function discardPaths(
   if (status.inProgress) {
     return {
       ok: false,
-      error: "请先继续或中止当前 Git 操作，再丢弃文件修改",
+      error: "请先继续或中止当前 Git 操作，再放弃文件修改",
     };
   }
 
@@ -621,7 +622,7 @@ export async function discardPaths(
       return {
         ok: false,
         error:
-          result.stderr.trim() || result.stdout.trim() || "丢弃修改失败",
+          result.stderr.trim() || result.stdout.trim() || "放弃修改失败",
         output: outputs.filter(Boolean).join("\n") || undefined,
       };
     }

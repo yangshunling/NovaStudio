@@ -2,18 +2,20 @@
  * Git Tab：工作区级 Git 面板
  *
  * 布局按 IDE 的 Source Control 来：
- * - 左：已暂存 / 未暂存 / 未跟踪 / 冲突分组 + 最近提交
+ * - 左：已暂存 / 未暂存（含未跟踪）/ 冲突分组 + 最近提交
  * - 右：选中文件的 diff + 底部提交区
  *
  * 写操作全部走 git:* IPC；UI 只负责确认与刷新，不直接拼命令行。
  *
  * 勾选语义：勾选框只表示「选中」，不立即执行 Git 操作。
- * 分组头三态全选 → 分组头「暂存 / 取消暂存 n」或工具栏「暂存选中 n」
+ * 分组头三态全选 → 工具栏「加入暂存 / 取消暂存 / 放弃修改」
  * 一次执行整批；点文件名只加载 diff，不会改动暂存区。
  */
 
 import {
+  memo,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -72,7 +74,7 @@ type SelectedFile = {
 };
 
 /** 可折叠的区域：四个变更分组 + 最近提交 */
-type GroupKey = "conflict" | "staged" | "unstaged" | "untracked" | "commits";
+type GroupKey = "conflict" | "staged" | "unstaged" | "commits";
 
 /**
  * 勾选集合的不可变增删。
@@ -118,16 +120,6 @@ function intersectPaths(set: Set<string>, present: Set<string>): Set<string> {
 /** 冲突组没有勾选语义；复用同一个空集合，避免每次渲染新建 */
 const NO_PICKS: ReadonlySet<string> = new Set<string>();
 
-/** 取某分组里被勾选的文件路径 */
-function pickedPaths(
-  files: GitFileStatus[],
-  picks: ReadonlySet<string>,
-): string[] {
-  return files
-    .filter((file) => picks.has(file.relativePath))
-    .map((file) => file.relativePath);
-}
-
 export function GitTab({
   project,
   status,
@@ -143,6 +135,14 @@ export function GitTab({
   const [diffBinary, setDiffBinary] = useState(false);
   const [diffLoading, setDiffLoading] = useState(false);
   const [diffError, setDiffError] = useState<string | null>(null);
+  /** 未跟踪文件：diff 里存的是原文件内容，统一按新增行渲染 */
+  const [diffNewFile, setDiffNewFile] = useState(false);
+  const [diffTruncated, setDiffTruncated] = useState(false);
+  /*
+   * 提交信息是根状态，每敲一个字都会重渲染整页。这里按 diff 缓存
+   * 「是否有内容」，避免每次都整串 trim 复制；DiffView 则由 memo 跳过。
+   */
+  const hasDiff = useMemo(() => diff.trim().length > 0, [diff]);
 
   const [busy, setBusy] = useState<string | null>(null);
   const [message, setMessage] = useState("");
@@ -158,6 +158,7 @@ export function GitTab({
   const [newBranchOpen, setNewBranchOpen] = useState(false);
   const [newBranchName, setNewBranchName] = useState("");
   const commitBoxRef = useRef<HTMLDivElement>(null);
+  const commitInputRef = useRef<HTMLTextAreaElement>(null);
 
   /** 折叠状态按分组记录；默认全部展开 */
   const [collapsedGroups, setCollapsedGroups] = useState<Set<GroupKey>>(
@@ -177,7 +178,7 @@ export function GitTab({
    * 勾选 = 选中，不立即执行 Git 操作。
    *
    * 未暂存 / 未跟踪的勾选进入 stagePicks，已暂存的勾选进入 unstagePicks；
-   * 勾完后再由工具栏的「暂存选中 / 取消暂存选中」一次性执行，
+   * 勾完后再由工具栏的「加入暂存 / 取消暂存 / 放弃修改」一次性执行，
    * 避免过去「点一个勾选框就立刻 add / reset 一个文件」的交互。
    */
   const [stagePicks, setStagePicks] = useState<Set<string>>(() => new Set());
@@ -188,6 +189,11 @@ export function GitTab({
   const staged = useMemo(() => stagedFiles(status), [status]);
   const unstaged = useMemo(() => unstagedFiles(status), [status]);
   const untracked = useMemo(() => untrackedFiles(status), [status]);
+  /** 未暂存与未跟踪合并展示：两者都还没进入索引，只是状态字母不同 */
+  const workingFiles = useMemo(
+    () => [...unstaged, ...untracked],
+    [unstaged, untracked],
+  );
   const conflicted = useMemo(() => conflictedFiles(status), [status]);
   const changes = status?.available ? status.files.length : 0;
   const canCommit =
@@ -197,6 +203,18 @@ export function GitTab({
     status?.available === true &&
     // merge 冲突解决后可以直接提交；rebase / cherry-pick 等应走「继续」
     (!status.inProgress || status.inProgress.kind === "merge");
+
+  /**
+   * 提交框与会话页输入框一致：未输入时只占一行，随内容自动增高，
+   * 超过 max-h-48 后在框内滚动。
+   */
+  useLayoutEffect(() => {
+    const textarea = commitInputRef.current;
+    if (!textarea) return;
+    textarea.style.height = "auto";
+    textarea.style.height =
+      textarea.scrollHeight > 0 ? `${textarea.scrollHeight}px` : "";
+  }, [message]);
 
   // 提交 / 暂存后文件可能从列表消失：把已经不存在的勾选剔除
   useEffect(() => {
@@ -219,13 +237,15 @@ export function GitTab({
     setUnstagePicks(new Set());
   }, [project.id]);
 
-  // 加载选中文件的 diff
+  // 加载选中文件的 diff；未跟踪文件没有 diff，直接读内容做「全部新增」预览
   useEffect(() => {
-    if (!selected || selected.untracked) {
+    if (!selected) {
       setDiff("");
       setDiffBinary(false);
       setDiffError(null);
       setDiffLoading(false);
+      setDiffNewFile(false);
+      setDiffTruncated(false);
       return;
     }
 
@@ -233,19 +253,41 @@ export function GitTab({
     setDiffLoading(true);
     setDiffError(null);
     setDiffBinary(false);
+    setDiffNewFile(selected.untracked);
+    setDiffTruncated(false);
 
-    ipc
-      .getGitDiff(project.id, selected.relativePath, selected.staged)
-      .then((result) => {
-        if (cancelled) return;
-        if (!result.ok) {
-          setDiff("");
-          setDiffError(result.error ?? "无法读取 diff");
-          return;
-        }
-        setDiff(result.diff);
-        setDiffBinary(result.binary);
-      })
+    const request = selected.untracked
+      ? ipc.readFile(project.id, selected.relativePath).then((result) => {
+          if (cancelled) return;
+          if (!result.ok) {
+            setDiff("");
+            setDiffError(result.error);
+            return;
+          }
+          const file = result.file;
+          // content 缺失表示图片 / PDF / 二进制文件
+          if (file.content === undefined) {
+            setDiff("");
+            setDiffBinary(true);
+            return;
+          }
+          setDiff(file.content);
+          setDiffTruncated(Boolean(file.truncated));
+        })
+      : ipc
+          .getGitDiff(project.id, selected.relativePath, selected.staged)
+          .then((result) => {
+            if (cancelled) return;
+            if (!result.ok) {
+              setDiff("");
+              setDiffError(result.error ?? "无法读取 diff");
+              return;
+            }
+            setDiff(result.diff);
+            setDiffBinary(result.binary);
+          });
+
+    request
       .catch((err) => {
         if (!cancelled) {
           setDiff("");
@@ -402,7 +444,7 @@ export function GitTab({
     }
 
     const uniquePaths = [...new Set(files.map((file) => file.relativePath))];
-    /** 新增 / 复制 / 未跟踪：丢弃意味着从磁盘删除，而不是还原内容 */
+    /** 新增 / 复制 / 未跟踪：放弃意味着从磁盘删除，而不是还原内容 */
     const isDelete = (file: GitFileStatus) =>
       file.untracked ||
       file.indexStatus === "added" ||
@@ -415,13 +457,13 @@ export function GitTab({
         : `${uniquePaths.length} 个文件`;
 
     const confirmed = await confirmDialog({
-      title: deleteOnly ? `删除「${target}」？` : `丢弃「${target}」的修改？`,
+      title: deleteOnly ? `删除「${target}」？` : `放弃「${target}」的修改？`,
       message: deleteOnly
         ? "文件会从磁盘删除，无法恢复。"
         : hasDelete
-          ? "选中的新增 / 未跟踪文件会从磁盘删除，其余修改会还原到暂存区 / HEAD 的状态。无法恢复。"
-          : "工作区修改会还原到暂存区 / HEAD 的状态，无法恢复。",
-      confirmLabel: deleteOnly ? "删除" : hasDelete ? "丢弃并删除" : "丢弃",
+          ? "选中的未跟踪文件会从磁盘删除，其余修改会还原到最近一次提交（HEAD）的内容。无法恢复。"
+          : "工作区修改会还原到最近一次提交（HEAD）的内容，无法恢复。",
+      confirmLabel: deleteOnly ? "删除" : hasDelete ? "放弃并删除" : "放弃",
       tone: "danger",
     });
     if (!confirmed) return;
@@ -430,12 +472,12 @@ export function GitTab({
     try {
       const result = await ipc.discardGitPaths(project.id, uniquePaths);
       if (!result.ok) {
-        toast.error(result.error ?? "丢弃失败", 8000);
+        toast.error(result.error ?? "放弃失败", 8000);
         setSelected(null);
         onRefresh();
         return;
       }
-      toast.success(deleteOnly ? "已删除文件" : "已丢弃修改");
+      toast.success(deleteOnly ? "已删除文件" : "已放弃修改");
       setSelected(null);
       setMessage("");
       setCommitError(null);
@@ -662,12 +704,20 @@ export function GitTab({
     !status.inProgress &&
     (branches.length === 0 || hasUpstream);
 
-  /** 勾选集合合并后用于批量丢弃；同一个文件同时有暂存 / 未暂存时只处理一次 */
-  const pickedPathSet = new Set([...stagePicks, ...unstagePicks]);
-  const pickedTotal = pickedPathSet.size;
+  /**
+   * 放弃只作用于工作区：未跟踪，或索引里没有内容的纯未暂存文件。
+   * 已暂存（包括部分暂存）的文件必须先取消暂存，
+   * 否则一次操作会把暂存内容和工作区修改一起抹掉。
+   */
+  const discardablePicks = new Set(
+    [...stagePicks].filter((path) => {
+      const file = status.files.find((item) => item.relativePath === path);
+      return file !== undefined && file.indexStatus === null;
+    }),
+  );
   const discardPicked = () => {
     const files = status.files.filter((file) =>
-      pickedPathSet.has(file.relativePath),
+      discardablePicks.has(file.relativePath),
     );
     void discard(files);
   };
@@ -769,6 +819,55 @@ export function GitTab({
 
         <div className="ws-toolbar-divider" />
 
+        {/* 勾选后的批量入口：只在有选中时出现，点一次执行整批 */}
+        {(stagePicks.size > 0 ||
+          unstagePicks.size > 0 ||
+          discardablePicks.size > 0) && (
+          <>
+            <div className="ws-toolbar-group">
+              {stagePicks.size > 0 && (
+                <button
+                  type="button"
+                  className="ws-tool ws-tool-accent"
+                  onClick={() => void stage([...stagePicks])}
+                  disabled={Boolean(busy)}
+                  title={`将选中的 ${stagePicks.size} 个文件加入暂存`}
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                  加入暂存
+                  <span className="ws-tool-count">{stagePicks.size}</span>
+                </button>
+              )}
+              {unstagePicks.size > 0 && (
+                <button
+                  type="button"
+                  className="ws-tool ws-tool-accent"
+                  onClick={() => void unstage([...unstagePicks])}
+                  disabled={Boolean(busy)}
+                  title={`将选中的 ${unstagePicks.size} 个文件取消暂存`}
+                >
+                  <Minus className="h-3.5 w-3.5" />
+                  取消暂存
+                  <span className="ws-tool-count">{unstagePicks.size}</span>
+                </button>
+              )}
+              {discardablePicks.size > 0 && (
+                <button
+                  type="button"
+                  className="ws-tool ws-tool-danger"
+                  onClick={discardPicked}
+                  disabled={Boolean(busy) || Boolean(status.inProgress)}
+                  title={`放弃选中的 ${discardablePicks.size} 个未暂存 / 未跟踪文件的修改（已暂存的文件请先取消暂存）`}
+                >
+                  <Undo2 className="h-3.5 w-3.5" />
+                  放弃修改
+                </button>
+              )}
+            </div>
+            <div className="ws-toolbar-divider" />
+          </>
+        )}
+
         <div className="ws-toolbar-group">
           <button
             type="button"
@@ -818,46 +917,8 @@ export function GitTab({
           </button>
         </div>
 
+        {/* 全仓库操作固定在右侧 */}
         <div className="ws-toolbar-group ml-auto">
-          {/* 勾选后的批量入口：只在有选中时出现，点一次执行整批 */}
-          {stagePicks.size > 0 && (
-            <button
-              type="button"
-              className="ws-tool ws-tool-accent"
-              onClick={() => void stage([...stagePicks])}
-              disabled={Boolean(busy)}
-              title={`暂存选中的 ${stagePicks.size} 个文件`}
-            >
-              <Plus className="h-3.5 w-3.5" />
-              暂存选中
-              <span className="ws-tool-count">{stagePicks.size}</span>
-            </button>
-          )}
-          {unstagePicks.size > 0 && (
-            <button
-              type="button"
-              className="ws-tool ws-tool-accent"
-              onClick={() => void unstage([...unstagePicks])}
-              disabled={Boolean(busy)}
-              title={`取消暂存选中的 ${unstagePicks.size} 个文件`}
-            >
-              <Minus className="h-3.5 w-3.5" />
-              取消暂存选中
-              <span className="ws-tool-count">{unstagePicks.size}</span>
-            </button>
-          )}
-          {pickedTotal > 0 && (
-            <button
-              type="button"
-              className="ws-tool ws-tool-danger"
-              onClick={discardPicked}
-              disabled={Boolean(busy) || Boolean(status.inProgress)}
-              title={`丢弃 / 删除选中的 ${pickedTotal} 个文件`}
-            >
-              <Undo2 className="h-3.5 w-3.5" />
-              丢弃选中
-            </button>
-          )}
           <button
             type="button"
             className="ws-tool"
@@ -867,10 +928,10 @@ export function GitTab({
               )
             }
             disabled={Boolean(busy) || unstaged.length + untracked.length === 0}
-            title="暂存所有未暂存与未跟踪文件"
+            title="将所有未暂存与未跟踪文件加入暂存"
           >
             <Plus className="h-3.5 w-3.5" />
-            全部暂存
+            全部加入暂存
           </button>
           <button
             type="button"
@@ -884,20 +945,20 @@ export function GitTab({
             <Minus className="h-3.5 w-3.5" />
             全部取消暂存
           </button>
-          <div className="ws-toolbar-divider" />
-          <IconButton
-            icon={
-              <RefreshCw
-                className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`}
-              />
-            }
-            label="刷新 Git 状态"
-            size="xs"
-            tone="muted"
-            disabled={loading}
-            onClick={onRefresh}
-          />
         </div>
+        <div className="ws-toolbar-divider" />
+        <IconButton
+          icon={
+            <RefreshCw
+              className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`}
+            />
+          }
+          label="刷新 Git 状态"
+          size="xs"
+          tone="muted"
+          disabled={loading}
+          onClick={onRefresh}
+        />
       </div>
 
       <div className="flex min-h-0 flex-1">
@@ -930,10 +991,7 @@ export function GitTab({
                     picked={NO_PICKS}
                     onTogglePick={() => undefined}
                     onTogglePickAll={() => undefined}
-                    onApplyPicks={() => undefined}
-                    onDiscard={() => undefined}
                     onResolve={(file) => void stage([file.relativePath])}
-                    discardDisabled
                   />
                 )}
                 {staged.length > 0 && (
@@ -960,17 +1018,12 @@ export function GitTab({
                         ),
                       )
                     }
-                    onApplyPicks={() =>
-                      void unstage(pickedPaths(staged, unstagePicks))
-                    }
-                    onDiscard={(file) => void discard([file])}
-                    discardDisabled={Boolean(status.inProgress)}
                   />
                 )}
-                {unstaged.length > 0 && (
+                {workingFiles.length > 0 && (
                   <ChangeGroup
                     title="未暂存"
-                    files={unstaged}
+                    files={workingFiles}
                     kind="unstaged"
                     selected={selected}
                     busy={busy}
@@ -987,46 +1040,10 @@ export function GitTab({
                       setStagePicks((prev) =>
                         togglePaths(
                           prev,
-                          unstaged.map((file) => file.relativePath),
+                          workingFiles.map((file) => file.relativePath),
                         ),
                       )
                     }
-                    onApplyPicks={() =>
-                      void stage(pickedPaths(unstaged, stagePicks))
-                    }
-                    onDiscard={(file) => void discard([file])}
-                    discardDisabled={Boolean(status.inProgress)}
-                  />
-                )}
-                {untracked.length > 0 && (
-                  <ChangeGroup
-                    title="未跟踪"
-                    files={untracked}
-                    kind="untracked"
-                    selected={selected}
-                    busy={busy}
-                    collapsed={isCollapsed("untracked")}
-                    onToggleCollapsed={() => toggleGroup("untracked")}
-                    onSelect={setSelected}
-                    picked={stagePicks}
-                    onTogglePick={(file) =>
-                      setStagePicks((prev) =>
-                        togglePath(prev, file.relativePath),
-                      )
-                    }
-                    onTogglePickAll={() =>
-                      setStagePicks((prev) =>
-                        togglePaths(
-                          prev,
-                          untracked.map((file) => file.relativePath),
-                        ),
-                      )
-                    }
-                    onApplyPicks={() =>
-                      void stage(pickedPaths(untracked, stagePicks))
-                    }
-                    onDiscard={(file) => void discard([file])}
-                    discardDisabled={Boolean(status.inProgress)}
                   />
                 )}
               </div>
@@ -1083,7 +1100,7 @@ export function GitTab({
               >
                 {selected?.relativePath ?? "选择左侧变更文件查看 diff"}
               </span>
-              {selected && !selected.untracked && !selectedDeleted && (
+              {selected && !selectedDeleted && (
                 <button
                   type="button"
                   className="ws-tool"
@@ -1106,31 +1123,9 @@ export function GitTab({
                   <GitEmptyState
                     icon={<GitBranch className="h-5 w-5" />}
                     title="选择一个变更文件"
-                    description="点击左侧文件查看 diff；勾选文件可以暂存或取消暂存。"
+                    description="点击左侧文件查看 diff；勾选文件可以加入暂存、取消暂存或放弃修改。"
                   />
                 )
-              ) : selected.untracked ? (
-                <GitEmptyState
-                  icon={<GitBranch className="h-5 w-5" />}
-                  title="未跟踪文件"
-                  description="文件还没有被 Git 跟踪，暂存后才能查看 diff。"
-                >
-                  <div className="mt-1 flex gap-2">
-                    <Button
-                      size="sm"
-                      loading={busy === "stage"}
-                      onClick={() => void stage([selected.relativePath])}
-                    >
-                      暂存此文件
-                    </Button>
-                    <Button
-                      size="sm"
-                      onClick={() => onOpenFile(selected.relativePath)}
-                    >
-                      打开文件
-                    </Button>
-                  </div>
-                </GitEmptyState>
               ) : diffLoading ? (
                 <div className="flex h-full items-center justify-center text-text-muted">
                   <Spinner className="h-5 w-5" />
@@ -1145,14 +1140,18 @@ export function GitTab({
                   title="二进制文件"
                   description="无法以文本方式显示 diff，请用系统程序打开查看。"
                 />
-              ) : diff.trim() === "" ? (
+              ) : !hasDiff ? (
                 <GitEmptyState
                   icon={<GitBranch className="h-5 w-5" />}
                   title="没有可显示的 diff"
                   description="文件可能已删除或内容未变化。"
                 />
               ) : (
-                <DiffView diff={diff} />
+                <DiffView
+                  diff={diff}
+                  newFile={diffNewFile}
+                  truncated={diffTruncated}
+                />
               )}
             </div>
           </div>
@@ -1166,6 +1165,7 @@ export function GitTab({
               <div className="mx-auto w-full max-w-[var(--c-layout-content)]">
                 <div className="rounded-input border border-border/80 bg-input-bg px-3 py-2 shadow-[var(--c-shadow-sm)] transition-[border-color,box-shadow] focus-within:border-accent/40 focus-within:shadow-[0_0_0_3px_var(--c-accent-soft)]">
                   <textarea
+                    ref={commitInputRef}
                     value={message}
                     onChange={(event) => setMessage(event.target.value)}
                     onKeyDown={(event) => {
@@ -1178,7 +1178,7 @@ export function GitTab({
                       }
                     }}
                     placeholder="描述这次变更…"
-                    rows={3}
+                    rows={1}
                     className="max-h-48 min-h-[40px] w-full resize-none bg-transparent px-1.5 py-1 ui-type-item leading-relaxed text-text placeholder-text-muted outline-none"
                   />
 
@@ -1341,14 +1341,11 @@ function ChangeGroup({
   picked,
   onTogglePick,
   onTogglePickAll,
-  onApplyPicks,
-  onDiscard,
   onResolve,
-  discardDisabled,
 }: {
   title: string;
   files: GitFileStatus[];
-  kind: "staged" | "unstaged" | "untracked" | "conflict";
+  kind: "staged" | "unstaged" | "conflict";
   selected: SelectedFile | null;
   busy: string | null;
   collapsed: boolean;
@@ -1359,13 +1356,8 @@ function ChangeGroup({
   onTogglePick: (file: GitFileStatus) => void;
   /** 分组级全选 / 取消全选；冲突组不传 */
   onTogglePickAll?: () => void;
-  /** 对本分组已勾选的文件执行一次批量暂存 / 取消暂存 */
-  onApplyPicks: () => void;
-  /** 行尾的丢弃入口；冲突组不渲染 */
-  onDiscard: (file: GitFileStatus) => void;
   /** 冲突组行尾的「标记已解决」入口（git add） */
   onResolve?: (file: GitFileStatus) => void;
-  discardDisabled?: boolean;
 }) {
   const pickedCount = files.reduce(
     (count, file) => count + (picked.has(file.relativePath) ? 1 : 0),
@@ -1421,30 +1413,13 @@ function ChangeGroup({
           </span>
           <span className="ws-counter">{files.length}</span>
         </button>
-        {kind !== "conflict" && pickedCount > 0 && (
-          <button
-            type="button"
-            className="ws-group-action"
-            data-visible="true"
-            disabled={Boolean(busy)}
-            onClick={onApplyPicks}
-            title={
-              kind === "staged"
-                ? `取消暂存选中的 ${pickedCount} 个文件`
-                : `暂存选中的 ${pickedCount} 个文件`
-            }
-          >
-            {kind === "staged" ? "取消暂存" : "暂存"} {pickedCount}
-          </button>
-        )}
       </div>
 
-      {/* 分组本身不滚动：所有变更共用一个滚动容器（.ws-changes），
-          否则每个分组各自出滚动条，未跟踪的文件会被挤到独立的小窗口里 */}
+      {/* 分组本身不滚动：所有变更共用一个滚动容器（.ws-changes） */}
       <div className={`space-y-0.5 ${collapsed ? "hidden" : ""}`}>
         {files.map((file) => {
           const stagedFlag = kind === "staged";
-          const untrackedFlag = kind === "untracked";
+          const untrackedFlag = file.untracked;
           const active =
             selected?.relativePath === file.relativePath &&
             selected?.staged === stagedFlag &&
@@ -1455,17 +1430,6 @@ function ChangeGroup({
             file.relativePath.split("/").pop() ?? file.relativePath;
           const parent = parentPath(file.relativePath);
           const isPicked = picked.has(file.relativePath);
-          const discardLabel = file.untracked
-            ? "删除未跟踪文件"
-            : status === "added"
-              ? "删除新增文件"
-              : status === "copied"
-                ? "删除复制文件"
-                : status === "deleted"
-                  ? "恢复此文件"
-                  : file.indexStatus
-                    ? "丢弃暂存与工作区修改"
-                    : "丢弃工作区修改";
 
           return (
             <div
@@ -1515,7 +1479,7 @@ function ChangeGroup({
                   {meta.label}
                 </span>
               </button>
-              {kind === "conflict" ? (
+              {kind === "conflict" && (
                 <button
                   type="button"
                   className="ws-file-resolve"
@@ -1525,17 +1489,6 @@ function ChangeGroup({
                   aria-label="标记为已解决"
                 >
                   <Check className="h-3 w-3" />
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  className="ws-file-discard"
-                  disabled={Boolean(busy) || discardDisabled}
-                  onClick={() => onDiscard(file)}
-                  title={discardLabel}
-                  aria-label={discardLabel}
-                >
-                  <Undo2 className="h-3 w-3" />
                 </button>
               )}
             </div>
@@ -1856,14 +1809,36 @@ function parseCommitRefs(
 // Diff
 // ============================================================================
 
-function DiffView({ diff }: { diff: string }) {
-  const lines = diff.split("\n");
-  const added = lines.filter(
-    (line) => line.startsWith("+") && !line.startsWith("+++"),
-  ).length;
-  const removed = lines.filter(
-    (line) => line.startsWith("-") && !line.startsWith("---"),
-  ).length;
+/**
+ * memo：diff 只随选中文件变化，但父组件（提交信息输入）每敲一个字都会
+ * 重渲染。没有 memo 时，几千行 diff 的 split/filter 与逐行 VDOM diff
+ * 会在每次击键时重跑，输入明显发涩。
+ */
+const DiffView = memo(function DiffView({
+  diff,
+  newFile = false,
+  truncated = false,
+}: {
+  diff: string;
+  /** 未跟踪文件：整份内容都按新增行渲染，不解析 diff 头 */
+  newFile?: boolean;
+  /** 文件读取被截断（仅未跟踪预览会出现） */
+  truncated?: boolean;
+}) {
+  const lines = diff.split(/\r?\n/);
+  // 新文件以换行结尾时会多出一个空元素，它不是实际的一行
+  if (newFile && lines.length > 0 && lines[lines.length - 1] === "") {
+    lines.pop();
+  }
+
+  const added = newFile
+    ? lines.length
+    : lines.filter((line) => line.startsWith("+") && !line.startsWith("+++"))
+        .length;
+  const removed = newFile
+    ? 0
+    : lines.filter((line) => line.startsWith("-") && !line.startsWith("---"))
+        .length;
 
   /** 当前 hunk 的旧 / 新行号；遇到 hunk 头时重置 */
   let oldNo: number | null = null;
@@ -1881,6 +1856,17 @@ function DiffView({ diff }: { diff: string }) {
       <div className="min-h-0 flex-1 overflow-auto">
         <pre className="ws-diff-body min-w-max py-2">
           {lines.map((line, index) => {
+            if (newFile) {
+              return (
+                <div key={index} className="ws-diff-line" data-kind="add">
+                  <span className="ws-diff-gutter" aria-hidden>
+                    {index + 1}
+                  </span>
+                  <span className="ws-diff-code">{line || " "}</span>
+                </div>
+              );
+            }
+
             let kind = "context";
             let oldLine: number | null = null;
             let newLine: number | null = null;
@@ -1918,18 +1904,23 @@ function DiffView({ diff }: { diff: string }) {
             return (
               <div key={index} className="ws-diff-line" data-kind={kind}>
                 <span className="ws-diff-gutter" aria-hidden>
-                  <span>{oldLine ?? ""}</span>
-                  <span>{newLine ?? ""}</span>
+                  {/* 单列行号：优先新文件行号；删除行没有新行号，退回旧行号 */}
+                  {newLine ?? oldLine ?? ""}
                 </span>
                 <span className="ws-diff-code">{line || " "}</span>
               </div>
             );
           })}
         </pre>
+        {truncated && (
+          <p className="m-0 border-t border-border px-3 py-2 ui-type-sub text-text-muted">
+            文件过大，仅显示前一部分。
+          </p>
+        )}
       </div>
     </div>
   );
-}
+});
 
 function parentPath(relativePath: string): string {
   const index = relativePath.lastIndexOf("/");

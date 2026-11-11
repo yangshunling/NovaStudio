@@ -12,7 +12,7 @@
  * 状态色沿用全站语义：执行中=蓝，完成=绿，失败=红。
  */
 
-import { useState } from "react";
+import { memo, useMemo, useState } from "react";
 import {
   AlertTriangle, Check, ChevronRight, FileText, PenLine, Search, Terminal, Wrench } from "lucide-react";
 import type { ToolKind, ToolResultImage } from "@shared/types";
@@ -47,7 +47,12 @@ export interface ToolCallCardProps {
   changes: FileChange[];
 }
 
-export function ToolCallCard({
+/**
+ * memo：流式期间父组件每个刷新周期都会重建整条消息的 part，但已完成
+ * 工具卡片的 props 引用是稳定的。没有 memo 时，一次回复里几十张卡片
+ * （含上千行 diff）会跟着每个 token 一起做 DOM diff。
+ */
+export const ToolCallCard = memo(function ToolCallCard({
   toolName,
   target,
   kind,
@@ -77,16 +82,18 @@ export function ToolCallCard({
           : "未完成";
 
   const Icon = TOOL_ICONS[kind];
-  const adds = changes.reduce(
-    (sum, change) =>
-      sum + change.lines.filter((line) => line.type === "add").length,
-    0,
-  );
-  const dels = changes.reduce(
-    (sum, change) =>
-      sum + change.lines.filter((line) => line.type === "del").length,
-    0,
-  );
+  // 一次遍历得到增删行数；changes 引用稳定，不必每次渲染重算
+  const { adds, dels } = useMemo(() => {
+    let added = 0;
+    let deleted = 0;
+    for (const change of changes) {
+      for (const line of change.lines) {
+        if (line.type === "add") added += 1;
+        else if (line.type === "del") deleted += 1;
+      }
+    }
+    return { adds: added, dels: deleted };
+  }, [changes]);
 
   const tileClass =
     status === "error"
@@ -227,4 +234,4 @@ export function ToolCallCard({
       )}
     </div>
   );
-}
+});

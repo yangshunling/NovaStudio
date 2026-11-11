@@ -5,6 +5,8 @@
  * - messagesBySession / streamingBySession 按 sessionId 分桶
  * - 事件带 sessionId 到达，路由到对应桶（即便该会话不在前台也持续累积）
  * - 切换会话只换 currentSessionId，后台会话继续跑
+ * - 同一会话同时只跑一轮；运行中再发送的消息进入 queuedBySession 暂存，
+ *   本轮结束后（_onDone）按先来后到自动发送下一条
  *
  * 数据模型：会话(Session) → 消息(Message[]，带 role)。
  * 会话可选地绑定项目(Project = 工作目录)：项目不再出现在会话列表层级里，
@@ -38,6 +40,24 @@ export type ViewMode =
 /** 尚未创建会话时的草稿桶 key；UUID 会话 id 不会与之冲突 */
 export const NEW_SESSION_DRAFT_KEY = "__new__";
 
+/**
+ * 暂存区里的一条消息。
+ *
+ * 运行中用户继续发送时不再被丢弃，而是按顺序排在这里；本轮结束后
+ * 自动取出队首发送。中断（停止）后队列会暂停，由用户决定是否继续。
+ */
+export interface QueuedMessage {
+  id: string;
+  /** 实际发给 Agent 的完整提示词（可能含 @ 引用说明） */
+  prompt: string;
+  /** 暂存区里展示的正文：只放用户输入，引用说明另起行 */
+  display: string;
+  createdAt: number;
+}
+
+/** 空队列的稳定引用：selector 返回新数组会让 zustand 每帧都认为变了 */
+export const EMPTY_QUEUE: readonly QueuedMessage[] = Object.freeze([]);
+
 interface ChatState {
   // 状态
   /** 主进程检测出的全部 Agent（manifest + 安装状态） */
@@ -55,6 +75,8 @@ interface ChatState {
   draftsBySession: Record<string, string>;
   /** 每个会话是否正在流式运行（供会话列表并发指示、输入区按钮态） */
   streamingBySession: Record<string, boolean>;
+  /** 每个会话的暂存区：运行中继续发送的消息按顺序排在这里，本轮结束后自动发送 */
+  queuedBySession: Record<string, QueuedMessage[]>;
   /** 正在回放历史的会话 id（供聊天区显示进度条；null 表示空闲） */
   loadingHistoryFor: string | null;
   /** 当前选中的 Agent；空字符串表示尚未确定 */
@@ -93,8 +115,18 @@ interface ChatState {
   selectAgent: (id: string) => void;
 
   // 对话
-  sendMessage: (prompt: string) => Promise<void>;
+  /**
+   * 发送消息。
+   * - 会话空闲：立即发送；
+   * - 会话运行中：进入该会话的暂存区，本轮结束后自动发送；
+   * - `display` 用于暂存区展示（默认与 prompt 相同）。
+   */
+  sendMessage: (prompt: string, display?: string) => Promise<void>;
   abort: (sessionId?: string) => Promise<void>;
+  /** 从暂存区移除一条；默认作用于当前会话 */
+  removeQueuedMessage: (id: string, sessionId?: string) => void;
+  /** 立即开始消费暂存区（中断后队列处于暂停态）；默认当前会话 */
+  resumeQueue: (sessionId?: string) => void;
   /** 写入某个会话（或新会话草稿桶）的输入草稿 */
   setDraft: (key: string, value: string) => void;
 
@@ -229,12 +261,30 @@ function summarizeUsage(messages: Message[]): SessionUsage | undefined {
  * 回调都是独立任务，React 无法跨任务自动合批。于是一个 token 一个事件时，
  * 就变成每秒几十次完整渲染（每次还要重解析 Markdown）。
  *
- * 这里把短窗口内到达的事件合并成**一次** store 更新：渲染频率降到与帧率同阶，
- * 而消息内容仍然按原顺序逐条 appendEvent，语义不变。
+ * 这里把窗口内到达的事件合并成**一次** store 更新。
+ *
+ * 文本批次用 48ms（约 20Hz）而不是 16ms：
+ * - 可见文本由 AnswerPart 再按 80–200ms 节流，16ms 的 store 更新并不能让
+ *   文字更早出现，只会让 assistant-ui 每帧重建一次线程快照、跑一遍
+ *   convertMessage 缓存检查；
+ * - 结构性事件（工具调用 / 结果 / 错误 / 收敛）立即 flush，不受该窗口影响。
  */
-const EVENT_FLUSH_MS = 16;
+const TEXT_FLUSH_MS = 48;
 let pendingEvents: Array<{ sessionId: string; event: AgentEvent }> = [];
 let pendingFlushTimer: ReturnType<typeof setTimeout> | null = null;
+
+/**
+ * 结构性事件：工具调用 / 结果 / 错误 / 整轮收敛。
+ * 这类事件数量少、必须及时落到界面，不跟文本一起等 48ms。
+ * usage 是纯元数据，归入文本批次即可。
+ */
+function isStructuralEvent(event: AgentEvent): boolean {
+  return (
+    event.type !== "text_delta" &&
+    event.type !== "thinking_delta" &&
+    event.type !== "usage"
+  );
+}
 
 function flushPendingEvents(): void {
   if (pendingFlushTimer) {
@@ -256,21 +306,32 @@ function flushPendingEvents(): void {
       else bySession.set(sessionId, [event]);
     }
 
+    /*
+     * 只有真正变化的切片才换新对象。
+     *
+     * 每 16ms 无条件复制 streamingBySession / usageBySession 时，订阅整个
+     * 切片的地方（会话列表订阅 streamingBySession）会被迫以 60fps 重渲染
+     * —— 哪怕流式状态一个字都没变。Zustand 以 Object.is 判断选择器结果，
+     * 保持未变切片的引用就是最直接的重渲染屏障。
+     */
     const messagesBySession = { ...state.messagesBySession };
-    const streamingBySession = { ...state.streamingBySession };
-    const usageBySession = { ...state.usageBySession };
+    let streamingBySession: Record<string, boolean> | null = null;
+    let usageBySession: Record<string, SessionUsage> | null = null;
 
     for (const [sessionId, events] of bySession) {
       // 用量与消息分开累计：上下文快照只改 contextUsed，
       // 整轮 result 才累加 input/output/cost 与上下文上限。
-      let usage = usageBySession[sessionId];
+      let usage = usageBySession?.[sessionId] ?? state.usageBySession[sessionId];
       let usageChanged = false;
       for (const event of events) {
         if (event.type !== "usage") continue;
         usage = applyUsage(usage, event);
         usageChanged = true;
       }
-      if (usageChanged && usage) usageBySession[sessionId] = usage;
+      if (usageChanged && usage) {
+        if (!usageBySession) usageBySession = { ...state.usageBySession };
+        usageBySession[sessionId] = usage;
+      }
 
       const msgs = messagesBySession[sessionId] ?? [];
       const last = msgs[msgs.length - 1];
@@ -289,11 +350,96 @@ function flushPendingEvents(): void {
         { id: newId(), role: "assistant", content, timestamp: Date.now() },
       ];
       // 未知会话收到事件（例如运行中刷新）：恢复“正在执行”状态
+      if (!streamingBySession) {
+        streamingBySession = { ...state.streamingBySession };
+      }
       streamingBySession[sessionId] = true;
     }
 
-    return { messagesBySession, streamingBySession, usageBySession };
+    return {
+      messagesBySession,
+      ...(streamingBySession ? { streamingBySession } : {}),
+      ...(usageBySession ? { usageBySession } : {}),
+    };
   });
+}
+
+// ============================================================================
+// 暂存区（同一会话的运行中排队）
+// ============================================================================
+
+/**
+ * 真正把一条消息发给某个会话。
+ *
+ * 调用方保证该会话当前空闲。运行标记在第一个 await 之前同步写入，
+ * 因此多次调用不会并发启动同一会话。
+ */
+async function dispatchPrompt(sessionId: string, prompt: string): Promise<void> {
+  if (useChatStore.getState().streamingBySession[sessionId]) return;
+
+  const userMsg: Message = {
+    id: newId(),
+    role: "user",
+    content: [{ type: "text", content: prompt }],
+    timestamp: Date.now(),
+  };
+  useChatStore.setState((s) => ({
+    messagesBySession: {
+      ...s.messagesBySession,
+      [sessionId]: [...(s.messagesBySession[sessionId] ?? []), userMsg],
+    },
+    streamingBySession: { ...s.streamingBySession, [sessionId]: true },
+  }));
+
+  try {
+    // 运行方式完全由 Agent 平台的本机配置决定，会话不再单独传运行参数
+    const result = await ipc.sendAgent(sessionId, prompt);
+    if (!result.ok) throw new Error(result.error);
+    // done 事件会复位 streaming；此处不提前复位，避免中间闪烁
+  } catch (err) {
+    // 发送失败：写进消息流，并让暂存区保持暂停，
+    // 剩余消息等用户确认后再继续，避免连续失败刷屏。
+    useChatStore.setState((s) => ({
+      streamingBySession: { ...s.streamingBySession, [sessionId]: false },
+      messagesBySession: {
+        ...s.messagesBySession,
+        [sessionId]: [
+          ...(s.messagesBySession[sessionId] ?? []),
+          {
+            id: newId(),
+            role: "assistant",
+            content: [{ type: "error", message: String(err) }],
+            timestamp: Date.now(),
+          },
+        ],
+      },
+    }));
+  }
+}
+
+/**
+ * 消费暂存区：取队首发送。
+ * 运行中或队列为空时什么都不做；队列可能在 done 回调、发送动作、
+ * 「继续发送」按钮三处被触发，这里统一收口，保证同一会话不会并发。
+ */
+function drainQueue(sessionId: string): void {
+  const state = useChatStore.getState();
+  if (state.streamingBySession[sessionId]) return;
+
+  const head = state.queuedBySession[sessionId]?.[0];
+  if (!head) return;
+
+  useChatStore.setState((s) => {
+    const remaining = (s.queuedBySession[sessionId] ?? []).filter(
+      (item) => item.id !== head.id,
+    );
+    const queuedBySession = { ...s.queuedBySession };
+    if (remaining.length > 0) queuedBySession[sessionId] = remaining;
+    else delete queuedBySession[sessionId];
+    return { queuedBySession };
+  });
+
+  void dispatchPrompt(sessionId, head.prompt);
 }
 
 export const useChatStore = create<ChatState>((set, get) => ({
@@ -306,6 +452,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   usageBySession: {},
   draftsBySession: {},
   streamingBySession: {},
+  queuedBySession: {},
   loadingHistoryFor: null,
   selectedAgentId: "",
   viewMode: "chat",
@@ -343,11 +490,13 @@ export const useChatStore = create<ChatState>((set, get) => ({
       const streamingBySession = { ...state.streamingBySession };
       const usageBySession = { ...state.usageBySession };
       const draftsBySession = { ...state.draftsBySession };
+      const queuedBySession = { ...state.queuedBySession };
       for (const sessionId of removed) {
         delete messagesBySession[sessionId];
         delete streamingBySession[sessionId];
         delete usageBySession[sessionId];
         delete draftsBySession[sessionId];
+        delete queuedBySession[sessionId];
       }
       return {
         projects: state.projects.filter((p) => p.id !== id),
@@ -356,6 +505,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         streamingBySession,
         usageBySession,
         draftsBySession,
+        queuedBySession,
         currentProjectId: state.currentProjectId === id ? null : state.currentProjectId,
         currentSessionId:
           state.currentSessionId && removed.has(state.currentSessionId)
@@ -474,13 +624,11 @@ export const useChatStore = create<ChatState>((set, get) => ({
         const history = session?.messages ?? [];
         const existing = s.messagesBySession[id];
         // 回放期间用户可能已经发出了消息：保留这些新消息，避免被历史覆盖
+        // 用 Set 查重：回放期间新发出的消息很少，但历史可能有上千条，
+        // 逐条 some() 是 O(历史 × 新消息)，长会话下会拖慢切换。
+        const historyIds = new Set(history.map((message) => message.id));
         const merged = existing
-          ? [
-              ...history,
-              ...existing.filter(
-                (message) => !history.some((item) => item.id === message.id),
-              ),
-            ]
+          ? [...history, ...existing.filter((message) => !historyIds.has(message.id))]
           : history;
         const usage = summarizeUsage(merged);
         return {
@@ -544,6 +692,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
       delete usageBySession[id];
       const draftsBySession = { ...s.draftsBySession };
       delete draftsBySession[id];
+      const queuedBySession = { ...s.queuedBySession };
+      delete queuedBySession[id];
       const wasCurrent = s.currentSessionId === id;
       // 删除当前会话后输入区回到「新会话」态：不要翻出更早遗留的新会话草稿
       if (wasCurrent) delete draftsBySession[NEW_SESSION_DRAFT_KEY];
@@ -553,6 +703,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         streamingBySession,
         usageBySession,
         draftsBySession,
+        queuedBySession,
         currentSessionId: wasCurrent ? null : s.currentSessionId,
         currentProjectId: wasCurrent ? null : s.currentProjectId,
       };
@@ -589,89 +740,96 @@ export const useChatStore = create<ChatState>((set, get) => ({
   // 对话
   // ==========================================================================
 
-  sendMessage: async (prompt) => {
+  sendMessage: async (prompt, display) => {
     const state = get();
     const currentId = state.currentSessionId;
+    const label = display ?? prompt;
 
-    // 同一会话不允许并发发送：主进程按 sessionId 只保留一个运行句柄，
-    // 第二次发送会覆盖运行记录，导致中断与状态都不正确。
-    if (currentId && state.streamingBySession[currentId]) return;
+    if (currentId) {
+      /*
+       * 运行中不再丢弃消息：主进程同一会话只允许一个运行句柄，
+       * 但用户完全可以在等待期间继续提问。这里把消息放进暂存区，
+       * 本轮结束后由 _onDone 按先来后到自动发送。
+       *
+       * 队列已有内容时也排队（即使当前空闲）：中断后队列会暂停，
+       * 此时新消息应排在旧消息之后，避免打乱用户预期的顺序。
+       */
+      const queue = state.queuedBySession[currentId] ?? [];
+      if (state.streamingBySession[currentId] || queue.length > 0) {
+        set((s) => ({
+          queuedBySession: {
+            ...s.queuedBySession,
+            [currentId]: [
+              ...(s.queuedBySession[currentId] ?? []),
+              {
+                id: newId(),
+                prompt,
+                display: label,
+                createdAt: Date.now(),
+              },
+            ],
+          },
+        }));
+        // 空闲说明队列之前被暂停了（中断 / 发送失败）：立刻恢复消费
+        drainQueue(currentId);
+        return;
+      }
+
+      await dispatchPrompt(currentId, prompt);
+      return;
+    }
 
     // 无会话 → 预创建一个，拿到 sessionId 再发（保证事件可路由）
-    let sessionId: string;
-    let agentId: string;
-    if (currentId) {
-      sessionId = currentId;
-      // 已有会话：参数按该会话实际使用的 Agent 取，而不是当前选中的
-      agentId = selectEffectiveAgentId(state);
-    } else {
-      // Agent 由「当前选中 → 第一个已安装」推导，不硬编码任何具体 Agent
-      const picked =
-        state.selectedAgentId ||
-        state.agents.find((a) => a.status.installed)?.id;
-      // 抛给调用方：此时还没有会话，无法把错误写进消息流
-      if (!picked) throw new Error("未检测到可用的 Agent，请先完成安装或在 Agent 配置中选择");
-      agentId = picked;
+    // Agent 由「当前选中 → 第一个已安装」推导，不硬编码任何具体 Agent
+    const picked =
+      state.selectedAgentId ||
+      state.agents.find((a) => a.status.installed)?.id;
+    // 抛给调用方：此时还没有会话，无法把错误写进消息流
+    if (!picked) throw new Error("未检测到可用的 Agent，请先完成安装或在 Agent 配置中选择");
 
-      // 项目可空：未绑定时主进程会回退到默认目录
-      const session = await ipc.createSession(state.currentProjectId, agentId);
-      sessionId = session.id;
-      set((s) => ({
-        currentSessionId: sessionId,
-        currentProjectId: session.projectId,
-        messagesBySession: { ...s.messagesBySession, [sessionId]: [] },
-        streamingBySession: { ...s.streamingBySession, [sessionId]: false },
-      }));
-      // 立即刷新会话列表，让新会话出现（不等跑完）
-      void get()
-        .loadSessions()
-        .catch((err) => console.warn("[chat] 会话列表刷新失败", err));
-    }
-
-    // 用户消息入桶（带 role）
-    const userMsg: Message = {
-      id: newId(),
-      role: "user",
-      content: [{ type: "text", content: prompt }],
-      timestamp: Date.now(),
-    };
+    // 项目可空：未绑定时主进程会回退到默认目录
+    const session = await ipc.createSession(state.currentProjectId, picked);
+    const sessionId = session.id;
     set((s) => ({
-      messagesBySession: {
-        ...s.messagesBySession,
-        [sessionId]: [...(s.messagesBySession[sessionId] ?? []), userMsg],
-      },
-      streamingBySession: { ...s.streamingBySession, [sessionId]: true },
+      currentSessionId: sessionId,
+      currentProjectId: session.projectId,
+      messagesBySession: { ...s.messagesBySession, [sessionId]: [] },
+      streamingBySession: { ...s.streamingBySession, [sessionId]: false },
     }));
+    // 立即刷新会话列表，让新会话出现（不等跑完）
+    void get()
+      .loadSessions()
+      .catch((err) => console.warn("[chat] 会话列表刷新失败", err));
 
-    try {
-      // 运行方式完全由 Agent 平台的本机配置决定，会话不再单独传运行参数
-      const result = await ipc.sendAgent(sessionId, prompt);
-      if (!result.ok) throw new Error(result.error);
-      // done 事件会复位 streaming；此处不提前复位，避免中间闪烁
-    } catch (err) {
-      set((s) => ({
-        streamingBySession: { ...s.streamingBySession, [sessionId]: false },
-        messagesBySession: {
-          ...s.messagesBySession,
-          [sessionId]: [
-            ...(s.messagesBySession[sessionId] ?? []),
-            {
-              id: newId(),
-              role: "assistant",
-              content: [{ type: "error", message: String(err) }],
-              timestamp: Date.now(),
-            },
-          ],
-        },
-      }));
-    }
+    await dispatchPrompt(sessionId, prompt);
   },
 
   abort: async (sessionId) => {
     const id = sessionId ?? get().currentSessionId;
     if (!id) return;
     await ipc.abortAgent(id);
+    // 暂存区保持不动、且不自动开跑：用户点「停止」是明确的刹车，
+    // 不应该马上又启动下一条。队列由输入区的「继续发送」恢复。
     set((s) => ({ streamingBySession: { ...s.streamingBySession, [id]: false } }));
+  },
+
+  removeQueuedMessage: (id, sessionId) => {
+    const sid = sessionId ?? get().currentSessionId;
+    if (!sid) return;
+    set((s) => {
+      const list = s.queuedBySession[sid];
+      if (!list) return s;
+      const remaining = list.filter((item) => item.id !== id);
+      const queuedBySession = { ...s.queuedBySession };
+      if (remaining.length > 0) queuedBySession[sid] = remaining;
+      else delete queuedBySession[sid];
+      return { queuedBySession };
+    });
+  },
+
+  resumeQueue: (sessionId) => {
+    const sid = sessionId ?? get().currentSessionId;
+    if (sid) drainQueue(sid);
   },
 
   setDraft: (key, value) => {
@@ -730,6 +888,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     if (event.type === "done") {
       flushPendingEvents();
       set((s) => ({ streamingBySession: { ...s.streamingBySession, [sessionId]: false } }));
+      drainQueue(sessionId);
       return;
     }
 
@@ -739,8 +898,13 @@ export const useChatStore = create<ChatState>((set, get) => ({
      * 否则新建一条 assistant 消息（刷新后 store 为空时用这个分支恢复流状态）。
      */
     pendingEvents.push({ sessionId, event });
+    // 工具/错误/收敛事件立刻落地；文本与 usage 合并到 48ms 窗口
+    if (isStructuralEvent(event)) {
+      flushPendingEvents();
+      return;
+    }
     if (!pendingFlushTimer) {
-      pendingFlushTimer = setTimeout(flushPendingEvents, EVENT_FLUSH_MS);
+      pendingFlushTimer = setTimeout(flushPendingEvents, TEXT_FLUSH_MS);
     }
   },
 
@@ -770,6 +934,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
       void get()
         .loadSessions()
         .catch((err) => console.warn("[chat] 会话列表刷新失败", err));
+      // 本轮收尾后继续消费暂存区（运行中的消息在这里接力）
+      drainQueue(data.sessionId);
       return;
     }
 
@@ -802,7 +968,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
       void get()
         .loadSessions()
         .catch((err) => console.warn("[chat] 会话列表刷新失败", err));
-    })();
+    })().finally(() => {
+      /*
+       * 回填完成后再消费暂存区：这样下一条的用户消息追加在「已回填的历史」
+       * 之后，而不是被回填结果覆盖。回填函数自身也会在检测到新运行
+       * （streaming 已置位）时跳过覆盖。
+       */
+      drainQueue(data.sessionId);
+    });
   },
 }));
 

@@ -44,7 +44,7 @@ import {
 } from "../../stores/chat";
 import { REVEAL_MESSAGE_EVENT } from "../../lib/chat-events";
 import { CHAT_VIEWPORT_ID, scrollToMessage } from "../../lib/chat-scroll";
-import { MarkdownRenderer } from "../ui/MarkdownRenderer";
+import { StreamingMarkdown } from "../ui/MarkdownRenderer";
 import { AgentAvatar, NovaAvatar } from "../ui/MessageAvatar";
 import { UserBubble } from "../ui/UserBubble";
 import { extractFileChanges } from "../../lib/tool-diff";
@@ -76,10 +76,96 @@ const SUGGESTIONS = [
   },
 ];
 
-/** 首次只挂载最近多少条消息；更早的按需展开 */
+/**
+ * 消息窗口按「渲染成本」而不是条数来定。
+ *
+ * 只限制条数并不能限制成本：实测本地库中最长的会话有 40 条消息、
+ * 正文合计 143 万字符，其中单条就有 32 万字符。按条数挂载 120 条时，
+ * 打开会话会把全部正文一次性交给 Markdown 解析（约 1.6ms/KB），
+ * 直接卡住一两秒。这里同时限制正文长度与事件数：
+ * - 正文按字符计；
+ * - 每个事件（工具调用 / 结果）折算固定权重，避免几百张工具卡片撑爆 DOM。
+ */
+const INITIAL_TEXT_BUDGET = 120_000;
+const LOAD_EARLIER_BUDGET = 80_000;
+/** 单次最多展开多少条（防止大量短消息一次挂太多） */
+const LOAD_EARLIER_STEP = 40;
+/** 首次最多挂载多少条 */
 const INITIAL_MESSAGE_WINDOW = 120;
-/** 每次「载入更早」增加多少条 */
-const LOAD_EARLIER_STEP = 80;
+/** 单个事件折算的正文权重 */
+const EVENT_WEIGHT = 120;
+
+/** 模块级空实现：保持 assistant-ui store 对象的引用稳定 */
+const NOOP_ON_NEW = async (): Promise<void> => {};
+
+/** 估算一条消息的渲染成本 */
+function messageWeight(message: Message): number {
+  let chars = 0;
+  for (const event of message.content) {
+    if (event.type === "text" || event.type === "thinking") {
+      chars += event.content.length;
+    }
+  }
+  return chars + message.content.length * EVENT_WEIGHT;
+}
+
+/**
+ * 最近的窗口起点：从末尾往前累加，直到超出预算。
+ * 最后一条消息无论多大都要包含，否则打开会话会是一片空白。
+ */
+function windowStartFor(messages: readonly Message[]): number {
+  let weight = 0;
+  let count = 0;
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const next = messageWeight(messages[i]);
+    if (
+      count > 0 &&
+      (count >= INITIAL_MESSAGE_WINDOW || weight + next > INITIAL_TEXT_BUDGET)
+    ) {
+      break;
+    }
+    weight += next;
+    count += 1;
+  }
+  return Math.max(0, messages.length - count);
+}
+
+/** 「载入更早」：从当前窗口继续往前，直到用完本次预算 */
+function earlierStartFor(messages: readonly Message[], start: number): number {
+  let weight = 0;
+  let count = 0;
+  let index = start - 1;
+  for (; index >= 0; index -= 1) {
+    const next = messageWeight(messages[index]);
+    if (
+      count > 0 &&
+      (count >= LOAD_EARLIER_STEP || weight + next > LOAD_EARLIER_BUDGET)
+    ) {
+      break;
+    }
+    weight += next;
+    count += 1;
+  }
+  return Math.max(0, index + 1);
+}
+
+/**
+ * 消息 part 渲染表。
+ *
+ * 必须放在模块作用域：`MessagePrimitive.Parts` 用引用比较 components，
+ * 内联对象每次渲染都会换引用，流式期间整条消息的 part 分发会被反复击穿。
+ */
+const ASSISTANT_PART_COMPONENTS = {
+  Text: AnswerPart,
+  Reasoning: ReasoningPart,
+  data: {
+    by_name: {
+      novaError: ErrorPart,
+      novaWarning: WarningPart,
+    },
+  },
+  tools: { Fallback: ToolPart },
+};
 
 export function AssistantMessageList({
   onSuggestion,
@@ -109,7 +195,7 @@ export function AssistantMessageList({
     start: number;
   }>(() => ({
     sessionId: currentSessionId,
-    start: Math.max(0, messages.length - INITIAL_MESSAGE_WINDOW),
+    start: windowStartFor(messages),
   }));
   /** 载入更早前的高度，用于抵消前插造成的滚动跳变 */
   const prependHeightRef = useRef<number | null>(null);
@@ -117,8 +203,16 @@ export function AssistantMessageList({
   const revealIdRef = useRef<string | null>(null);
 
   const total = messages.length;
-  /** 当前会话的默认窗口起点：最近 N 条 */
-  const defaultStart = Math.max(0, total - INITIAL_MESSAGE_WINDOW);
+  /*
+   * 当前会话的默认窗口起点。
+   * 依赖只取长度：流式期间数组每 16ms 换一次引用，但长度不变，切窗成本
+   * 没必要跟着每个 token 重算；历史整体替换时长度一定会变。
+   */
+  const defaultStart = useMemo(
+    () => windowStartFor(messages),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [currentSessionId, messages.length],
+  );
   // 第一帧就用「当前会话」的窗口，而不是上一个会话遗留的 start
   const baseStart =
     messageWindow.sessionId === currentSessionId
@@ -138,7 +232,7 @@ export function AssistantMessageList({
         const base =
           current.sessionId === currentSessionId
             ? current.start
-            : Math.max(0, messages.length - INITIAL_MESSAGE_WINDOW);
+            : windowStartFor(messages);
         return {
           sessionId: currentSessionId,
           start: Math.max(0, updater(base)),
@@ -219,7 +313,8 @@ export function AssistantMessageList({
     if (start <= 0) return;
     const viewport = document.getElementById(CHAT_VIEWPORT_ID);
     prependHeightRef.current = viewport?.scrollHeight ?? null;
-    setWindowStart((base) => base - LOAD_EARLIER_STEP);
+    // 一次只展开「预算内」的一段：几屏很长的消息不会在点击时造成长卡顿
+    setWindowStart((base) => earlierStartFor(messages, base));
   };
 
   /*
@@ -235,13 +330,22 @@ export function AssistantMessageList({
     [streaming, messageCount],
   );
 
-  const runtime = useExternalStoreRuntime<Message>({
-    messages: visibleMessages,
-    isRunning: streaming,
-    convertMessage,
-    // 输入框仍由 Nova 管理，这里只借用 assistant-ui 的展示运行时。
-    onNew: async () => {},
-  });
+  /*
+   * store 对象保持引用稳定：useExternalStoreRuntime 内部每次渲染都会
+   * setAdapter，adapter 引用不变时才能命中它的 early-return；不稳定的
+   * 对象会让整窗快照更新在无关重渲染时也执行一次。
+   */
+  const runtimeStore = useMemo(
+    () => ({
+      messages: visibleMessages,
+      isRunning: streaming,
+      convertMessage,
+      // 输入框仍由 Nova 管理，这里只借用 assistant-ui 的展示运行时。
+      onNew: NOOP_ON_NEW,
+    }),
+    [visibleMessages, streaming, convertMessage],
+  );
+  const runtime = useExternalStoreRuntime<Message>(runtimeStore);
 
   return (
     <AssistantRuntimeProvider runtime={runtime}>
@@ -257,7 +361,7 @@ export function AssistantMessageList({
                 onClick={loadEarlier}
                 className="rounded-full border border-border/60 bg-surface-2/40 px-3 py-1 ui-type-note text-text-secondary transition-colors hover:border-accent/40 hover:text-accent"
               >
-                载入更早的 {Math.min(start, LOAD_EARLIER_STEP)} 条消息
+                载入更早的消息
               </button>
             </div>
           )}
@@ -387,19 +491,7 @@ function AssistantMessage() {
       {/* 同一回复内的 part 间距统一由 gap 控制，part 自身不再带下边距，
           否则「最后一块是什么」会改变消息尾部的留白。 */}
       <div className="flex w-full min-w-0 flex-col gap-2">
-        <MessagePrimitive.Parts
-          components={{
-            Text: AnswerPart,
-            Reasoning: ReasoningPart,
-            data: {
-              by_name: {
-                novaError: ErrorPart,
-                novaWarning: WarningPart,
-              },
-            },
-            tools: { Fallback: ToolPart },
-          }}
-        />
+        <MessagePrimitive.Parts components={ASSISTANT_PART_COMPONENTS} />
         {/* 固定在整条回复末尾：不论是思考、工具调用还是正文流式，只要没结束就一直在 */}
         {running && <WorkingIndicator />}
       </div>
@@ -439,7 +531,7 @@ function AnswerPart() {
   // 助手正文不再套气泡外框：正文直接落在内容列上，与输入框左右对齐
   return (
     <div className="w-full text-text">
-      <MarkdownRenderer content={text} streaming={running} />
+      <StreamingMarkdown content={text} streaming={running} />
     </div>
   );
 }
@@ -473,7 +565,19 @@ function ToolPart(props: ToolCallMessagePartProps) {
     () => extractFileChanges(props.toolName, props.args, kind, meta?.lineStarts),
     [props.toolName, props.args, kind, meta?.lineStarts],
   );
-  const resultImages = readResultImages(props.result);
+  /*
+   * 结果对象在每次转换时都会重建（`{ output, isError, images }`），但内部的
+   * images 数组引用来自事件本身、是稳定的。按 images 引用缓存过滤结果：
+   * 否则每次刷新都会得到一个新数组，memo 化的 ToolCallCard 等于失效。
+   */
+  const rawImages =
+    props.result && typeof props.result === "object"
+      ? (props.result as { images?: unknown }).images
+      : undefined;
+  const resultImages = useMemo(
+    () => readResultImages(rawImages),
+    [rawImages],
+  );
   /*
    * 工具输出可能很大，JSON.stringify 是 O(输出长度)。卡片在每次消息列表
    * 重挂载 / 重渲染时都会走到这里，按 result 引用缓存一次即可。
@@ -577,7 +681,7 @@ function assistantParts(
           toolCallId: event.callId ?? `${message.id}-tool-${parts.length}`,
           toolName: event.name,
           args: asJSONObject(event.input),
-          argsText: JSON.stringify(event.input ?? {}, null, 2),
+          argsText: toolArgsText(event.input),
           providerMetadata: {
             nova: {
               kind: event.kind,
@@ -659,6 +763,27 @@ function findOpenTool(parts: any[], name: string, callId?: string): number {
   return -1;
 }
 
+/**
+ * tool_call 参数的格式化文本。
+ *
+ * convertMessage 在每个流式刷新周期都会重建整条消息的 parts，而工具参数
+ * 对象（event.input）本身是复用的。按对象缓存序列化结果，避免对同一份
+ * 参数反复 stringify —— 大文件编辑参数可达数十 KB。WeakMap 不阻止回收。
+ */
+const ARGS_TEXT_CACHE = new WeakMap<object, string>();
+
+function toolArgsText(input: unknown): string {
+  if (input && typeof input === "object") {
+    const key = input as object;
+    const cached = ARGS_TEXT_CACHE.get(key);
+    if (cached !== undefined) return cached;
+    const text = JSON.stringify(input, null, 2);
+    ARGS_TEXT_CACHE.set(key, text);
+    return text;
+  }
+  return JSON.stringify(input ?? {}, null, 2);
+}
+
 function textFromEvents(events: AgentEvent[]): string {
   return events
     .filter((event): event is Extract<AgentEvent, { type: "text" }> => event.type === "text")
@@ -694,10 +819,8 @@ function readToolTarget(args: unknown): string {
   );
 }
 
-/** tool-call part 的 result 里携带的工具输出图片 */
-function readResultImages(result: unknown): ToolResultImage[] | undefined {
-  if (!result || typeof result !== "object") return undefined;
-  const images = (result as { images?: unknown }).images;
+/** tool-call part 的 result.images 里携带的工具输出图片 */
+function readResultImages(images: unknown): ToolResultImage[] | undefined {
   if (!Array.isArray(images)) return undefined;
   const valid = images.filter(
     (image): image is ToolResultImage =>

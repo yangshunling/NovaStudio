@@ -189,6 +189,14 @@ export function Sidebar() {
       <div className="space-y-1 px-2.5 pb-2">
         <button
           type="button"
+          onClick={() => setViewMode("workspaces")}
+          className={itemClass(viewMode === "workspaces")}
+        >
+          <FolderKanban className="h-4 w-4 shrink-0" />
+          工作区
+        </button>
+        <button
+          type="button"
           onClick={() => setViewMode("workflow")}
           className={itemClass(viewMode === "workflow")}
         >
@@ -273,14 +281,6 @@ export function Sidebar() {
         >
           <Library className="h-4 w-4 shrink-0" />
           知识库
-        </button>
-        <button
-          type="button"
-          onClick={() => setViewMode("workspaces")}
-          className={itemClass(viewMode === "workspaces")}
-        >
-          <FolderKanban className="h-4 w-4 shrink-0" />
-          工作区
         </button>
       </div>
 

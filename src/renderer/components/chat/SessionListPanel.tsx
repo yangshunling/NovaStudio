@@ -156,6 +156,7 @@ export function SessionListPanel() {
   const sessions = useChatStore((s) => s.sessions);
   const currentSessionId = useChatStore((s) => s.currentSessionId);
   const streamingBySession = useChatStore((s) => s.streamingBySession);
+  const queuedBySession = useChatStore((s) => s.queuedBySession);
   const projects = useChatStore((s) => s.projects);
   // 逐项订阅 action：避免无 selector 的 useChatStore() 让整个面板
   // 在每次流式 token 到达时重渲染
@@ -288,6 +289,7 @@ export function SessionListPanel() {
                       }
                       isActive={session.id === currentSessionId}
                       isStreaming={!!streamingBySession[session.id]}
+                      queuedCount={queuedBySession[session.id]?.length ?? 0}
                       onOpen={() => {
                         void selectSession(session.id);
                         // 点击会话即回到「对话」标签：否则文件预览 / 终端会盖住
@@ -321,6 +323,7 @@ function SessionRow({
   projectName,
   isActive,
   isStreaming,
+  queuedCount,
   onOpen,
   onDelete,
   onRename,
@@ -333,6 +336,8 @@ function SessionRow({
   projectName?: string;
   isActive: boolean;
   isStreaming: boolean;
+  /** 该会话暂存区里待发送的消息条数 */
+  queuedCount: number;
   onOpen: () => void;
   onDelete: () => void;
   onRename: (title: string) => void;
@@ -467,12 +472,20 @@ function SessionRow({
         </span>
       </div>
 
-      {(meta.length > 0 || isStreaming) && (
+      {(meta.length > 0 || isStreaming || queuedCount > 0) && (
         <div className="mt-0.5 flex min-w-0 items-center gap-1 ui-type-sub text-text-muted">
           {isStreaming && <span className="shrink-0 text-accent">执行中</span>}
+          {queuedCount > 0 && (
+            <span className="flex min-w-0 items-center gap-1">
+              {isStreaming && <span className="shrink-0 opacity-50">·</span>}
+              <span className="shrink-0 text-accent">
+                {queuedCount} 条待发送
+              </span>
+            </span>
+          )}
           {meta.map((item, index) => (
             <span key={item} className="flex min-w-0 items-center gap-1">
-              {(index > 0 || isStreaming) && (
+              {(index > 0 || isStreaming || queuedCount > 0) && (
                 <span className="shrink-0 opacity-50">·</span>
               )}
               <span className="truncate">{item}</span>

@@ -270,7 +270,15 @@
   color: var(--c-text);
 }
 
-.ws-tab[data-active="true"]::after {
+/* 下划线只覆盖文案：计数与状态图标不参与，避免把数字也画进去 */
+.ws-tab-label {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  height: 100%;
+}
+
+.ws-tab[data-active="true"] .ws-tab-label::after {
   content: "";
   position: absolute;
   left: 0;
@@ -598,10 +606,6 @@
   background: transparent;
 }
 
-.ws-group-row > .ws-group-action {
-  margin-right: 4px;
-}
-
 .ws-group-row > .ws-group-head {
   flex: 1;
   width: auto;
@@ -650,47 +654,6 @@
 .ws-group-check:disabled {
   opacity: 0.4;
   cursor: default;
-}
-
-.ws-group-action {
-  flex: none;
-  height: 22px;
-  padding: 0 6px;
-  border-radius: var(--c-radius-md);
-  font-size: var(--c-font-size-micro);
-  font-weight: 500;
-  color: var(--c-text-muted);
-  opacity: 0;
-  transition: opacity var(--c-motion-fast) var(--c-ease-standard),
-    color var(--c-motion-fast) var(--c-ease-standard),
-    background-color var(--c-motion-fast) var(--c-ease-standard);
-}
-
-.ws-group-row:hover .ws-group-action,
-.ws-group-action:focus-visible {
-  opacity: 1;
-}
-
-.ws-group-action:hover:not(:disabled) {
-  background: var(--c-surface-hover);
-  color: var(--c-text);
-}
-
-.ws-group-action:disabled {
-  opacity: 0.35;
-  cursor: default;
-}
-
-/* 有勾选时把批量动作固定显示出来，不等 hover：它现在是这一步的主操作 */
-.ws-group-action[data-visible="true"] {
-  opacity: 1;
-  color: var(--c-accent);
-  background: var(--c-accent-soft);
-}
-
-.ws-group-action[data-visible="true"]:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--c-accent) 15%, transparent);
-  color: var(--c-accent);
 }
 
 .ws-group-title[data-tone="danger"] {
@@ -801,35 +764,6 @@
   font-family: var(--c-font-mono);
   font-size: var(--c-font-size-caption);
   color: var(--c-text-muted);
-}
-
-.ws-file-discard {
-  display: grid;
-  place-items: center;
-  width: 20px;
-  height: 20px;
-  flex: none;
-  border-radius: var(--c-radius-md);
-  color: var(--c-text-muted);
-  opacity: 0;
-  transition: opacity var(--c-motion-fast) var(--c-ease-standard),
-    color var(--c-motion-fast) var(--c-ease-standard),
-    background-color var(--c-motion-fast) var(--c-ease-standard);
-}
-
-.ws-file:hover .ws-file-discard,
-.ws-file-discard:focus-visible {
-  opacity: 1;
-}
-
-.ws-file-discard:hover:not(:disabled) {
-  background: var(--c-error-bg);
-  color: var(--c-error);
-}
-
-.ws-file-discard:disabled {
-  opacity: 0;
-  cursor: default;
 }
 
 .ws-file-resolve {
@@ -965,20 +899,17 @@
   position: sticky;
   left: 0;
   z-index: 1;
-  display: grid;
-  grid-template-columns: 34px 34px;
+  display: block;
+  width: 50px;
   flex: none;
   align-self: stretch;
+  padding: 0 8px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
   border-right: 1px solid var(--c-border);
   background: var(--c-surface);
   color: var(--c-text-muted);
   user-select: none;
-}
-
-.ws-diff-gutter > span {
-  padding: 0 6px;
-  text-align: right;
-  font-variant-numeric: tabular-nums;
 }
 
 .ws-diff-code {
