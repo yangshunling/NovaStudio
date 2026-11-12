@@ -7,7 +7,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  ChevronRight, GitBranch, PanelRightClose, RefreshCw } from "lucide-react";
+  ChevronRight, PanelRightClose, RefreshCw } from "lucide-react";
 import { ipc } from "../../lib/ipc";
 import { useChatStore } from "../../stores/chat";
 import { useFileViewerStore } from "../../stores/fileViewer";
@@ -228,17 +228,27 @@ export function WorkspacePanel({
     projectIdRef.current = projectId;
   }, [projectId]);
 
-  useEffect(() => {
-    if (panelWidth === null) return;
+  /** 拖动期间的宽度只在 rAF 中提交，localStorage 松手后写一次 */
+  const resizeFrameRef = useRef<number | null>(null);
+  const pendingWidthRef = useRef<number | null>(null);
+
+  const persistWidth = (width: number | null) => {
     try {
-      localStorage.setItem(WORKSPACE_WIDTH_KEY, String(Math.round(panelWidth)));
+      if (width === null) {
+        localStorage.removeItem(WORKSPACE_WIDTH_KEY);
+      } else {
+        localStorage.setItem(WORKSPACE_WIDTH_KEY, String(Math.round(width)));
+      }
     } catch {
       // localStorage 不可用时忽略：不影响本次拖拽
     }
-  }, [panelWidth]);
+  };
 
   useEffect(() => {
     return () => {
+      if (resizeFrameRef.current !== null) {
+        cancelAnimationFrame(resizeFrameRef.current);
+      }
       document.body.style.cursor = "";
       document.body.style.userSelect = "";
     };
@@ -352,6 +362,16 @@ export function WorkspacePanel({
   const gitChangeCount = gitStatus?.available ? gitStatus.files.length : 0;
 
   const stopResize = () => {
+    if (resizeFrameRef.current !== null) {
+      cancelAnimationFrame(resizeFrameRef.current);
+      resizeFrameRef.current = null;
+    }
+    const pending = pendingWidthRef.current;
+    pendingWidthRef.current = null;
+    if (pending !== null) {
+      setPanelWidth(pending);
+      persistWidth(pending);
+    }
     dragRef.current = null;
     setResizing(false);
     document.body.style.cursor = "";
@@ -375,16 +395,22 @@ export function WorkspacePanel({
   const handleResizeMove = (event: React.PointerEvent<HTMLDivElement>) => {
     const drag = dragRef.current;
     if (!drag || drag.pointerId !== event.pointerId) return;
-    setPanelWidth(clampWidth(drag.startWidth - (event.clientX - drag.startX)));
+    pendingWidthRef.current = clampWidth(
+      drag.startWidth - (event.clientX - drag.startX),
+    );
+    if (resizeFrameRef.current !== null) return;
+    resizeFrameRef.current = requestAnimationFrame(() => {
+      resizeFrameRef.current = null;
+      if (pendingWidthRef.current !== null) {
+        setPanelWidth(pendingWidthRef.current);
+      }
+    });
   };
 
   const resetWorkspaceWidth = () => {
     setPanelWidth(null);
-    try {
-      localStorage.removeItem(WORKSPACE_WIDTH_KEY);
-    } catch {
-      // localStorage 不可用时忽略
-    }
+    pendingWidthRef.current = null;
+    persistWidth(null);
   };
 
   return (
@@ -406,10 +432,14 @@ export function WorkspacePanel({
         onKeyDown={(event) => {
           if (event.key === "ArrowLeft") {
             event.preventDefault();
-            setPanelWidth(clampWidth(effectiveWidth + 24));
+            const next = clampWidth(effectiveWidth + 24);
+            setPanelWidth(next);
+            persistWidth(next);
           } else if (event.key === "ArrowRight") {
             event.preventDefault();
-            setPanelWidth(clampWidth(effectiveWidth - 24));
+            const next = clampWidth(effectiveWidth - 24);
+            setPanelWidth(next);
+            persistWidth(next);
           } else if (event.key === "Home") {
             event.preventDefault();
             resetWorkspaceWidth();
@@ -461,20 +491,9 @@ export function WorkspacePanel({
         />
 
         <PageToolbar className="justify-between">
-          <div className="flex min-w-0 items-center gap-2">
-            <span className="shrink-0 ui-type-sub font-medium text-text-muted">
-              工作区文件
-            </span>
-            {gitStatus?.available && gitStatus.branch && (
-              <span
-                title={`Git 分支：${gitStatus.branch}`}
-                className="flex min-w-0 items-center gap-1 rounded-full border border-accent/25 bg-accent-soft px-2 py-0.5 font-medium text-accent"
-              >
-                <GitBranch className="h-3 w-3 shrink-0" />
-                <span className="max-w-28 truncate font-mono">{gitStatus.branch}</span>
-              </span>
-            )}
-          </div>
+          <span className="shrink-0 ui-type-sub font-medium text-text-muted">
+            工作区文件
+          </span>
           <span className="ui-type-code-sm text-text-muted">
             {gitChangeCount > 0
               ? `${gitChangeCount} 变更`

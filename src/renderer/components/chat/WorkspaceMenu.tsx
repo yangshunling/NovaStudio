@@ -14,6 +14,7 @@ import { useEffect, useState } from "react";
 import { Check, Folder, FolderCog, FolderMinus } from "lucide-react";
 import type { Project } from "@shared/types";
 import { ipc } from "../../lib/ipc";
+import { shortPath } from "../../lib/utils";
 import { useChatStore } from "../../stores/chat";
 
 export interface WorkspaceMenuItem {
@@ -27,13 +28,6 @@ export interface WorkspaceMenuItem {
   /** 完整路径，作为 tooltip */
   title?: string;
   current: boolean;
-}
-
-/** 项目副标题只保留末尾两级目录，避免长路径把行撑乱 */
-export function shortPath(cwd: string): string {
-  const parts = cwd.split(/[\\/]/).filter(Boolean);
-  if (parts.length <= 2) return cwd;
-  return `…/${parts.slice(-2).join("/")}`;
 }
 
 /** 未绑定工作区时实际使用的路径（主进程解析 defaultCwd / 主目录） */

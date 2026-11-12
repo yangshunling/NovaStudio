@@ -29,6 +29,7 @@ import { FileTypeIcon } from "../ui/FileTypeIcon";
 import { MENU_WIDTH, MenuItem, MenuPanel, MenuSeparator } from "../ui/Menu";
 import { useDismissableLayer } from "../../hooks/useDismissableLayer";
 import { clampMenuPosition } from "../../lib/popup";
+import { confirmDialog } from "../../stores/confirm";
 
 /** 右键菜单高度：3 项 + 2 条分隔线，留一点余量用于视口收拢 */
 const TAB_MENU_HEIGHT = 224;
@@ -61,13 +62,27 @@ export function CenterTabs() {
    * 活动标签被关掉时，优先选它右侧最近的一个，其次左侧 —— 与浏览器一致；
    * forcedActive 用于「关闭其他」：保留下来的标签应当直接成为活动标签。
    */
-  const closeIds = (ids: Set<string>, forcedActive?: string | null) => {
+  const closeIds = async (ids: Set<string>, forcedActive?: string | null) => {
     if (ids.size === 0) return;
     const fileIds = tabs.filter((tab) => ids.has(tab.id)).map((tab) => tab.id);
     const terminalIds = terminals
       .filter((tab) => ids.has(tab.id))
       .map((tab) => tab.id);
     if (fileIds.length === 0 && terminalIds.length === 0) return;
+
+    // 终端由 PTY 承载，关闭标签等于终止正在运行的命令：必须二次确认
+    if (terminalIds.length > 0) {
+      const ok = await confirmDialog({
+        title:
+          terminalIds.length === 1
+            ? "关闭这个终端？"
+            : `关闭这 ${terminalIds.length} 个终端？`,
+        message: "正在运行的命令会被终止，未保存的交互无法恢复。",
+        confirmLabel: "关闭终端",
+        tone: "danger",
+      });
+      if (!ok) return;
+    }
 
     let nextActive = activeTabId;
     if (activeTabId && ids.has(activeTabId)) {
@@ -88,7 +103,7 @@ export function CenterTabs() {
     else if (nextActive !== activeTabId) activateTab(nextActive);
   };
 
-  const closeOne = (id: string) => closeIds(new Set([id]));
+  const closeOne = (id: string) => void closeIds(new Set([id]));
 
   const openMenu = (event: ReactMouseEvent, id: string) => {
     event.preventDefault();
@@ -229,7 +244,7 @@ export function CenterTabs() {
               const others = allTabs
                 .filter((tab) => tab.id !== menu.id)
                 .map((tab) => tab.id);
-              closeIds(new Set(others), menu.id);
+              void closeIds(new Set(others), menu.id);
               setMenu(null);
             }}
           />
@@ -239,7 +254,7 @@ export function CenterTabs() {
             label="关闭左侧"
             disabled={menuIndex === 0}
             onClick={() => {
-              closeIds(
+              void closeIds(
                 new Set(allTabs.slice(0, menuIndex).map((tab) => tab.id)),
               );
               setMenu(null);
@@ -250,7 +265,7 @@ export function CenterTabs() {
             label="关闭右侧"
             disabled={menuIndex === allTabs.length - 1}
             onClick={() => {
-              closeIds(
+              void closeIds(
                 new Set(allTabs.slice(menuIndex + 1).map((tab) => tab.id)),
               );
               setMenu(null);
@@ -262,7 +277,7 @@ export function CenterTabs() {
             label="全部关闭"
             danger
             onClick={() => {
-              closeIds(new Set(allTabs.map((tab) => tab.id)));
+              void closeIds(new Set(allTabs.map((tab) => tab.id)));
               setMenu(null);
             }}
           />

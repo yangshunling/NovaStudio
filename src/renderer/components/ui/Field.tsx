@@ -4,8 +4,10 @@
  * 头像、MCP、员工等表单共用，避免各页面各写一份同样的小组件。
  */
 
+import { cloneElement, isValidElement, useId } from "react";
 import type {
   InputHTMLAttributes,
+  ReactElement,
   ReactNode,
   TextareaHTMLAttributes,
 } from "react";
@@ -72,13 +74,33 @@ export function Field({
   className?: string;
   children: ReactNode;
 }) {
+  const labelId = useId();
+  const controlId = useId();
+
+  /*
+   * 给原生输入框补 id / aria-labelledby；对不转发这些属性的自定义控件，
+   * 外层 role=group + aria-labelledby 仍能提供可读的字段名。
+   */
+  const control = isValidElement(children)
+    ? cloneElement(children as ReactElement<Record<string, unknown>>, {
+        id: controlId,
+        "aria-labelledby": labelId,
+      })
+    : children;
+
   return (
-    <div className={className.trim()}>
+    <div
+      role="group"
+      aria-labelledby={labelId}
+      className={className.trim()}
+    >
       <div className="mb-1.5 flex shrink-0 items-center gap-1 ui-type-label text-text-secondary">
-        {label}
-        {required && <span className="text-error">*</span>}
+        <label id={labelId} htmlFor={controlId} className="cursor-default">
+          {label}
+          {required && <span className="ml-0.5 text-error">*</span>}
+        </label>
       </div>
-      {children}
+      {control}
       {hint && (
         <p className="mt-1 shrink-0 ui-type-note leading-relaxed text-text-muted">
           {hint}

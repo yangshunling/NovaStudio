@@ -173,6 +173,8 @@ export function useWorkspacePicker({
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent): boolean => {
+      // 输入法组合期间的 Enter / 方向键属于候选词选择，不能被弹窗消费
+      if (e.nativeEvent.isComposing || e.keyCode === 229) return false;
       if (!active) return false;
 
       if (e.key === "ArrowDown") {

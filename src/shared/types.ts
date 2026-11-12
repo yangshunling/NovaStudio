@@ -170,6 +170,8 @@ export interface Session {
   pinnedAt?: number | null;
   /** 仅 session:get 时由 provider 回放填充；listSessions 返回空数组 */
   messages?: Message[];
+  /** 分页读取时是否还有更早的消息未返回 */
+  hasMoreMessages?: boolean;
   /**
    * CLI 配置目录（如 Claude 的 CLAUDE_CONFIG_DIR）。
    * 工作流节点会为每次运行使用独立配置目录；普通会话为 null，走用户默认目录。

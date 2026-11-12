@@ -14,9 +14,10 @@ import { toast } from "../../stores/toast";
 import { confirmDialog } from "../../stores/confirm";
 import { appendEvent } from "@shared/agent-events";
 import { MessageGroup } from "../chat/MessageList";
-import { formatDateTime, formatDuration } from "@shared/time";
+import { formatDateTime } from "@shared/time";
 import { MarkdownRenderer } from "../ui/MarkdownRenderer";
 import { Button } from "../ui/Button";
+import { Elapsed } from "../ui/Elapsed";
 import { Dialog } from "../ui/Dialog";
 import { EmptyState, LoadingState } from "../ui/EmptyState";
 import { Page } from "../ui/Page";
@@ -174,7 +175,6 @@ export function WorkflowRunView({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [now, setNow] = useState(Date.now());
   const [approvalNotes, setApprovalNotes] = useState<Record<string, string>>({});
 
   const [selectedNodeRunId, setSelectedNodeRunId] = useState<string | null>(null);
@@ -216,13 +216,6 @@ export function WorkflowRunView({
       off();
     };
   }, [runId]);
-
-  // 运行中每秒刷新耗时
-  useEffect(() => {
-    if (!detail || !ACTIVE_RUN_STATUSES.has(detail.run.status)) return;
-    const timer = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(timer);
-  }, [detail?.run.status]);
 
   // 结束提示只弹一次
   useEffect(() => {
@@ -509,7 +502,6 @@ export function WorkflowRunView({
   const statusMeta = RUN_STATUS[run.status];
   const StatusIcon = statusMeta.icon;
   const active = ACTIVE_RUN_STATUSES.has(run.status);
-  const elapsed = formatDuration(run.startedAt, run.finishedAt, now);
   const doneCount = nodes.filter(
     (node) => node.status === "succeeded" || node.status === "skipped",
   ).length;
@@ -551,9 +543,11 @@ export function WorkflowRunView({
             {statusMeta.label}
           </span>
 
-          <span className="shrink-0 ui-type-code text-text-muted">
-            {elapsed}
-          </span>
+          <Elapsed
+            startedAt={run.startedAt}
+            finishedAt={run.finishedAt}
+            className="shrink-0 ui-type-code text-text-muted"
+          />
           <span className="shrink-0 ui-type-note text-text-muted">
             {doneCount}/{nodes.length} 节点
           </span>
@@ -637,7 +631,6 @@ export function WorkflowRunView({
                   key={node.id}
                   node={node}
                   active={node.id === selectedNodeRunId}
-                  now={now}
                   onClick={() => setSelectedNodeRunId(node.id)}
                 />
               ))}
@@ -748,7 +741,6 @@ export function WorkflowRunView({
                   node={selectedNode}
                   detail={nodeDetail}
                   loading={nodeDetailLoading}
-                  now={now}
                   live={selectedLiveEvents}
                   canResume={!active && canResumeRun}
                   onResume={() => void resumeRun(selectedNode.id)}
@@ -773,12 +765,10 @@ export function WorkflowRunView({
 function NodeListItem({
   node,
   active,
-  now,
   onClick,
 }: {
   node: WorkflowNodeRun;
   active: boolean;
-  now: number;
   onClick: () => void;
 }) {
   const meta = NODE_STATUS[node.status];
@@ -810,7 +800,7 @@ function NodeListItem({
         <span className="mt-0.5 block truncate ui-type-note text-text-muted">
           {node.employeeName ?? "未绑定员工"}
           {node.attempt > 1 ? ` · 第 ${node.attempt} 次` : ""} ·{" "}
-          {formatDuration(node.startedAt, node.finishedAt, now)}
+          <Elapsed startedAt={node.startedAt} finishedAt={node.finishedAt} />
         </span>
       </span>
     </button>
@@ -833,7 +823,6 @@ function NodeDetailPanel({
   node,
   detail,
   loading,
-  now,
   live,
   canResume,
   onResume,
@@ -842,7 +831,6 @@ function NodeDetailPanel({
   node: WorkflowNodeRun;
   detail: WorkflowNodeRunDetail | null;
   loading: boolean;
-  now: number;
   /** 节点执行中的实时事件流；不在运行时为 null */
   live: AgentEvent[] | null;
   /** 运行已结束时可从该节点继续 */
@@ -929,7 +917,8 @@ function NodeDetailPanel({
           <span>开始：{formatDateTime(node.startedAt)}</span>
           <span>完成：{formatDateTime(node.finishedAt)}</span>
           <span>
-            耗时：{formatDuration(node.startedAt, node.finishedAt, now)}
+            耗时：
+            <Elapsed startedAt={node.startedAt} finishedAt={node.finishedAt} />
           </span>
         </div>
 

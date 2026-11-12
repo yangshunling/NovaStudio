@@ -25,7 +25,7 @@ import {
   Users,
 } from "lucide-react";
 import { ipc } from "../../lib/ipc";
-import { dirName, toMessage } from "../../lib/utils";
+import { dirName, formatJson, toMessage } from "../../lib/utils";
 import { useAssetCatalog, useMcpServersStore } from "../../stores/assets";
 import { useFilteredList } from "../../hooks/useFilteredList";
 import { toast } from "../../stores/toast";
@@ -301,7 +301,7 @@ function McpDrawer({
 }) {
   const initialName = server?.slug ?? "";
   const initialDefinition = server
-    ? JSON.stringify(server.definition, null, 2)
+    ? formatJson(server.definition)
     : DEFAULT_DEFINITION;
   const [name, setName] = useState(initialName);
   const [definition, setDefinition] = useState(initialDefinition);
@@ -384,8 +384,28 @@ function McpDrawer({
   const fileName = server ? dirName(server.path) : "新建服务";
   const title = creating ? "新建 MCP 服务" : server?.name ?? "MCP 服务";
 
+  /** 有未保存的定义 / 服务名时，遮罩与 Esc 不能直接丢弃草稿 */
+  const requestClose = async () => {
+    if (!dirty) {
+      onClose();
+      return;
+    }
+    const confirmed = await confirmDialog({
+      title: "放弃未保存的修改？",
+      message: "MCP 服务定义尚未保存。",
+      confirmLabel: "放弃修改",
+      tone: "danger",
+    });
+    if (confirmed) onClose();
+  };
+
   return (
-    <Drawer onClose={onClose} ariaLabel={title} width="lg">
+    <Drawer
+      onClose={onClose}
+      requestClose={requestClose}
+      ariaLabel={title}
+      width="lg"
+    >
       {/* 头部 */}
       <DrawerHeader>
         <Server className="h-5 w-5 shrink-0 text-accent" />
@@ -402,7 +422,7 @@ function McpDrawer({
           </div>
           <div className="truncate ui-type-note text-text-muted">{fileName}</div>
         </div>
-        <DrawerCloseButton onClose={onClose} />
+        <DrawerCloseButton onClose={requestClose} />
       </DrawerHeader>
 
         <DrawerBody className="flex flex-col gap-4">

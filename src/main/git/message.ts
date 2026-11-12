@@ -15,9 +15,7 @@ import {
   type GitCommitMessageResult,
   type GitFileStatus,
 } from "../../shared/git";
-import { getProvider, listProviders } from "../agents/registry";
-import type { AgentProvider } from "../agents/types";
-import * as db from "../db/sqlite";
+import { resolveCompletionProvider } from "../agents/complete";
 import { readLog, readStagedDiff, readStatusDetail } from "./detail";
 
 /** 送进 prompt 的 diff 上限：再长也不会让摘要更准确，只是更贵更慢 */
@@ -28,24 +26,6 @@ const RECENT_COMMIT_LIMIT = 8;
 const GENERATE_TIMEOUT_MS = 120_000;
 /** 最终提交信息长度上限，防御模型输出整篇说明 */
 const MAX_MESSAGE_CHARS = 1200;
-
-/** 优先用设置里的默认 Agent；它不支持时再找第一个具备生成能力的 Agent */
-function resolveProvider(): AgentProvider {
-  const configured = db.getSetting("defaultAgent")?.trim() ?? "";
-  if (configured) {
-    const preferred = getProvider(configured);
-    if (preferred?.complete) return preferred;
-    if (preferred) {
-      throw new Error(
-        `${preferred.manifest.displayName} 不支持自动生成提交信息`,
-      );
-    }
-  }
-
-  const fallback = listProviders().find((provider) => provider.complete);
-  if (!fallback) throw new Error("当前 Agent 不支持自动生成提交信息");
-  return fallback;
-}
 
 /** 暂存文件 → prompt 里的单行描述 */
 function describeFile(file: GitFileStatus): string {
@@ -169,7 +149,7 @@ export async function generateCommitMessage(
   });
 
   try {
-    const provider = resolveProvider();
+    const provider = resolveCompletionProvider("自动生成提交信息");
     const raw = await provider.complete!({
       prompt,
       cwd,

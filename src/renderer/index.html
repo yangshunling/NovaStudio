@@ -4,6 +4,28 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Nova Studio</title>
+  <script>
+    /*
+     * 首帧前的主题引导：模块脚本是 deferred，执行前窗口已经可能绘制一帧。
+     * 这里先按 localStorage 缓存贴上 data-theme 与底色，避免深色皮肤启动白闪。
+     */
+    (function () {
+      try {
+        var raw = localStorage.getItem("nova-skin");
+        var theme = "classic-day";
+        if (raw) {
+          var parsed = JSON.parse(raw);
+          if (parsed && typeof parsed.theme === "string") theme = parsed.theme;
+        }
+        var dark = theme.indexOf("night") >= 0;
+        document.documentElement.setAttribute("data-theme", theme);
+        document.documentElement.style.colorScheme = dark ? "dark" : "light";
+        document.documentElement.style.backgroundColor = dark ? "#000000" : "#ffffff";
+      } catch (_) {
+        // 缓存损坏时保持默认浅色，由应用启动后修正
+      }
+    })();
+  </script>
 </head>
 <body>
   <div id="root"></div>

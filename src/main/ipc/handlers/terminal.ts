@@ -7,12 +7,7 @@
  */
 
 import * as db from "../../db/sqlite";
-import {
-  createTerminal,
-  killTerminal,
-  resizeTerminal,
-  writeTerminal,
-} from "../../terminal/manager";
+import type { TerminalManager } from "../../terminal/manager";
 import { handle } from "../register";
 
 /** 路径归一化：Windows 下大小写与分隔符都不敏感 */
@@ -36,16 +31,16 @@ function resolveWorkspaceCwd(cwd: string | undefined): string {
   return project.cwd;
 }
 
-export function registerTerminalHandlers(): void {
+export function registerTerminalHandlers(terminals: TerminalManager): void {
   handle("terminal:create", ({ id, cwd, cols, rows }) => {
     if (typeof id !== "string" || !id.trim()) {
       throw new Error("终端标识无效");
     }
-    return createTerminal(id, resolveWorkspaceCwd(cwd), cols, rows);
+    return terminals.create(id, resolveWorkspaceCwd(cwd), cols, rows);
   });
-  handle("terminal:write", ({ id, data }) => writeTerminal(id, data));
+  handle("terminal:write", ({ id, data }) => terminals.write(id, data));
   handle("terminal:resize", ({ id, cols, rows }) =>
-    resizeTerminal(id, cols, rows),
+    terminals.resize(id, cols, rows),
   );
-  handle("terminal:kill", ({ id }) => killTerminal(id));
+  handle("terminal:kill", ({ id }) => terminals.kill(id));
 }

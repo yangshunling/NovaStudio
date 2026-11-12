@@ -363,6 +363,9 @@ export interface MessageBuffer {
   id: string | null;
   /** 本条消息已收到的全部块（不展示的工具已剔除） */
   blocks: AgentEvent[];
+  /** 本条消息是否收到过增量，用于避免完整块与 delta 重复 */
+  sawTextDelta: boolean;
+  sawThinkingDelta: boolean;
 }
 
 /** 一条命令行解出的会话 id + 事件；用一次 JSON.parse 同时得到两者 */
@@ -382,7 +385,12 @@ export function createDecoder(options?: {
   resolveLineStarts?: LineStartsResolver;
 }): (line: string) => AgentEvent | AgentEvent[] | null {
   const names: CallNames = new Map();
-  const buffer: MessageBuffer = { id: null, blocks: [] };
+  const buffer: MessageBuffer = {
+    id: null,
+    blocks: [],
+    sawTextDelta: false,
+    sawThinkingDelta: false,
+  };
   return (line) => decode(line, names, buffer, options?.resolveLineStarts);
 }
 
@@ -395,7 +403,12 @@ export function createStreamDecoder(options?: {
   resolveLineStarts?: LineStartsResolver;
 }): StreamDecoder {
   const names: CallNames = new Map();
-  const buffer: MessageBuffer = { id: null, blocks: [] };
+  const buffer: MessageBuffer = {
+    id: null,
+    blocks: [],
+    sawTextDelta: false,
+    sawThinkingDelta: false,
+  };
   return (line) => decodeStreamLine(line, names, buffer, options?.resolveLineStarts);
 }
 
@@ -471,12 +484,24 @@ function decodeObject(
     if (event.type === "message_start") {
       buffer.id = null;
       buffer.blocks = [];
+      buffer.sawTextDelta = false;
+      buffer.sawThinkingDelta = false;
       return mapContextUsage(event.message);
+    }
+    if (event.type === "message_stop") {
+      if (buffer.blocks.length === 0) return null;
+      const blocks = [...buffer.blocks];
+      buffer.blocks = [];
+      return { type: "message_end", blocks };
     }
     if (event.type !== "content_block_delta" || !event.delta) return null;
     const delta = event.delta;
-    if (delta.type === "text_delta") return { type: "text_delta", delta: delta.text ?? "" };
+    if (delta.type === "text_delta") {
+      buffer.sawTextDelta = true;
+      return { type: "text_delta", delta: delta.text ?? "" };
+    }
     if (delta.type === "thinking_delta") {
+      buffer.sawThinkingDelta = true;
       return { type: "thinking_delta", delta: delta.thinking ?? "" };
     }
     return null;
@@ -495,6 +520,8 @@ function decodeObject(
     if (obj.isApiErrorMessage === true || typeof obj.error === "string") {
       buffer.id = null;
       buffer.blocks = [];
+      buffer.sawTextDelta = false;
+      buffer.sawThinkingDelta = false;
       const errorText = assistantErrorText(message?.content, obj.error);
       return errorText ? { type: "error", message: errorText } : null;
     }
@@ -509,11 +536,27 @@ function decodeObject(
     // 但决定了输入区的上下文占用仪表。
     if (blocks.length === 0) return contextUsage;
     buffer.blocks.push(...blocks);
-    const messageEnd: AgentEvent = {
-      type: "message_end",
-      blocks: [...buffer.blocks],
-    };
-    return contextUsage ? [messageEnd, contextUsage] : messageEnd;
+
+    /*
+     * 不在这里发「累积全集」：一条消息有 k 个 block 时，第 i 次发送前 i 个
+     * block，总负载会退化成 O(k²)。工具调用不在 delta 流里，必须立即出现；
+     * 正文 / 思考若已有 delta 则不再重复发完整块。剩余内容由 message_stop
+     * 或 result 一次性收敛。
+     */
+    const immediate: AgentEvent[] = [];
+    for (const block of blocks) {
+      if (block.type === "tool_call") immediate.push(block);
+      else if (block.type === "text" && !buffer.sawTextDelta) immediate.push(block);
+      else if (
+        block.type === "thinking" &&
+        !buffer.sawThinkingDelta
+      ) {
+        immediate.push(block);
+      }
+    }
+    if (contextUsage) immediate.push(contextUsage);
+    if (immediate.length === 0) return null;
+    return immediate.length === 1 ? immediate[0] : immediate;
   }
 
   // 工具回执
@@ -536,6 +579,8 @@ function decodeObject(
     if (events.length > 0) {
       buffer.blocks = [];
       buffer.id = null;
+      buffer.sawTextDelta = false;
+      buffer.sawThinkingDelta = false;
     }
     return events.length > 0 ? events : null;
   }
@@ -551,7 +596,21 @@ function decodeObject(
     const usage = mapResultUsage(obj);
     const subtype = typeof obj.subtype === "string" ? obj.subtype : "";
     const isError = obj.is_error === true || subtype.startsWith("error");
-    if (!isError) return usage;
+
+    /*
+     * 兜底收敛：部分版本不会发 message_stop，result 到达时把仍未收敛的
+     * 累积块一次性发出去，避免正文停留在 delta 的中间状态。
+     */
+    const finalBlocks: AgentEvent | null =
+      buffer.blocks.length > 0
+        ? { type: "message_end", blocks: [...buffer.blocks] }
+        : null;
+    buffer.blocks = [];
+
+    if (!isError) {
+      if (!finalBlocks) return usage;
+      return usage ? [finalBlocks, usage] : finalBlocks;
+    }
 
     const errors = Array.isArray(obj.errors)
       ? obj.errors.filter((item): item is string => typeof item === "string")

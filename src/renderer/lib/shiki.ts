@@ -156,3 +156,24 @@ export function highlightCodeSync(
 export function isHighlighterReady(): boolean {
   return highlighter !== null;
 }
+
+/**
+ * 首屏之后空闲预热高亮器。
+ *
+ * 首个含代码块的回复 / 文件预览会触发 600KB+ wasm 的加载与 20 种语言注册；
+ * 放到 `requestIdleCallback` 里可以把这段成本从「用户第一次看到代码」移到
+ * 空闲时段，避免那一次明显停顿。
+ */
+export function prewarmHighlighter(): void {
+  if (highlighter || initPromise) return;
+  const run = () => {
+    void getHighlighter().catch(() => {
+      // 预热失败不影响后续按需加载
+    });
+  };
+  if (typeof window !== "undefined" && "requestIdleCallback" in window) {
+    window.requestIdleCallback(run, { timeout: 3000 });
+  } else {
+    setTimeout(run, 1500);
+  }
+}

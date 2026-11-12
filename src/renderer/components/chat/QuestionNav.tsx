@@ -9,7 +9,7 @@
  * 以及 AssistantMessageList 中给滚动容器标注的 id="chat-viewport"。
  */
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ChevronsDown, ChevronsUp } from "lucide-react";
 import { selectCurrentMessages, useChatStore } from "../../stores/chat";
 import { firstText } from "../../lib/utils";
@@ -32,16 +32,37 @@ export function QuestionNav() {
   const sessionId = useChatStore((s) => s.currentSessionId);
   const messages = useChatStore(selectCurrentMessages);
 
-  const questions = useMemo(
-    () =>
-      messages
+  /*
+   * 流式期间 messages 每个 48ms 批次都会换引用，但用户问题本身不变。
+   * 用「用户消息数量 + 最后一条用户消息 id / 块数」作为签名，只在真正新增
+   * 或替换用户消息时重建问题列表，避免每次 token 都跑一遍 firstText。
+   */
+  let userCount = 0;
+  let lastUserId = "";
+  let lastUserBlocks = 0;
+  for (const message of messages) {
+    if (message.role !== "user") continue;
+    userCount += 1;
+    lastUserId = message.id;
+    lastUserBlocks = message.content.length;
+  }
+  const questionsKey = `${userCount}\u0000${lastUserId}\u0000${lastUserBlocks}`;
+  const questionsCache = useRef<{
+    key: string;
+    questions: Array<{ id: string; text: string }>;
+  }>({ key: "", questions: [] });
+  if (questionsCache.current.key !== questionsKey) {
+    questionsCache.current = {
+      key: questionsKey,
+      questions: messages
         .filter((message) => message.role === "user")
         .map((message) => ({
           id: message.id,
           text: firstText(message.content).replace(/\s+/g, " ").trim(),
         })),
-    [messages],
-  );
+    };
+  }
+  const questions = questionsCache.current.questions;
 
   const [activeId, setActiveId] = useState<string | null>(null);
   /** 是否已贴顶 / 贴底：到达边缘时把对应箭头置灰，避免无效点击 */

@@ -9,7 +9,7 @@
  * 避免把原图整张塞进数据库。
  */
 
-import { useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import {
   Eraser,
   Library,
@@ -103,8 +103,12 @@ export function EmployeeDrawer({
   onClose,
   onSaved,
 }: EmployeeDrawerProps) {
-  const [draft, setDraft] = useState<DigitalEmployeeDraft>(() =>
+  /** 打开抽屉时的快照：用于判断草稿是否真的有改动 */
+  const initialDraft = useRef<DigitalEmployeeDraft>(
     employee ? toDraft(employee) : emptyDraft(),
+  );
+  const [draft, setDraft] = useState<DigitalEmployeeDraft>(() =>
+    initialDraft.current,
   );
   const [tab, setTab] = useState<TabId>("profile");
   const [saving, setSaving] = useState(false);
@@ -114,6 +118,29 @@ export function EmployeeDrawer({
 
   const update = (fields: Partial<DigitalEmployeeDraft>) =>
     setDraft((current) => ({ ...current, ...fields }));
+
+  const dirty = useMemo(
+    () => JSON.stringify(draft) !== JSON.stringify(initialDraft.current),
+    [draft],
+  );
+
+  /**
+   * 遮罩 / Esc / 右上角关闭：有未保存修改时先确认。
+   * 保存或删除成功走 onClose，不经过这里。
+   */
+  const requestClose = useCallback(async () => {
+    if (!dirty) {
+      onClose();
+      return;
+    }
+    const confirmed = await confirmDialog({
+      title: "放弃未保存的修改？",
+      message: "数字员工的人设、提示词与能力绑定修改尚未保存。",
+      confirmLabel: "放弃修改",
+      tone: "danger",
+    });
+    if (confirmed) onClose();
+  }, [dirty, onClose]);
 
   const handleAvatarFile = async (file: File) => {
     if (!file.type.startsWith("image/")) {
@@ -195,6 +222,7 @@ export function EmployeeDrawer({
   return (
     <Drawer
       onClose={onClose}
+      requestClose={requestClose}
       ariaLabel={employee ? "编辑数字员工" : "新建数字员工"}
       width="md"
     >
@@ -216,7 +244,7 @@ export function EmployeeDrawer({
             {draft.role.trim() || "数字员工"}
           </div>
         </div>
-        <DrawerCloseButton onClose={onClose} />
+        <DrawerCloseButton onClose={requestClose} />
       </DrawerHeader>
 
         {/* 标签栏 */}

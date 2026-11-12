@@ -111,6 +111,13 @@ export function WorkflowCanvas({
   );
   /** 拖动时与其他节点对齐的参考线（世界坐标） */
   const [guides, setGuides] = useState<{ x?: number; y?: number }>({});
+  /**
+   * 拖动期间的本地节点预览。
+   * 不把每个 pointermove 写回父级：那会让整张图重新校验 + 全部节点重渲染；
+   * 松手时才提交一次 onChange。
+   */
+  const [previewNodes, setPreviewNodes] = useState<WorkflowNode[] | null>(null);
+  const previewRef = useRef<WorkflowNode[] | null>(null);
   const [connecting, setConnecting] = useState<{
     from: string;
     x: number;
@@ -223,24 +230,27 @@ export function WorkflowCanvas({
         )?.position.y,
       });
 
-      onChange(
-        snapshot.map((item) => {
-          const start = starts.get(item.id);
-          return start
-            ? {
-                ...item,
-                position: { x: start.x + deltaX, y: start.y + deltaY },
-              }
-            : item;
-        }),
-        edges,
-      );
+      const next = snapshot.map((item) => {
+        const start = starts.get(item.id);
+        return start
+          ? {
+              ...item,
+              position: { x: start.x + deltaX, y: start.y + deltaY },
+            }
+          : item;
+      });
+      previewRef.current = next;
+      setPreviewNodes(next);
     };
     const up = () => {
+      const next = previewRef.current;
+      previewRef.current = null;
+      setPreviewNodes(null);
       setDrag(null);
       setGuides({});
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerup", up);
+      if (next) onChange(next, edges);
     };
     window.addEventListener("pointermove", move);
     window.addEventListener("pointerup", up);
@@ -467,7 +477,9 @@ export function WorkflowCanvas({
     onSelectEdge,
   ]);
 
-  const nodeById = (id: string) => nodes.find((n) => n.id === id);
+  // 拖动预览期间，连线端点也跟随预览位置
+  const displayNodes = previewNodes ?? nodes;
+  const nodeById = (id: string) => displayNodes.find((n) => n.id === id);
 
   return (
     <div
@@ -584,7 +596,7 @@ export function WorkflowCanvas({
           </defs>
         </svg>
 
-        {nodes.map((node) => (
+        {displayNodes.map((node) => (
           <NodeCard
             key={node.id}
             node={node}
@@ -639,7 +651,7 @@ export function WorkflowCanvas({
           })()}
       </div>
 
-      {nodes.length === 0 && (
+      {displayNodes.length === 0 && (
         <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center">
           <p className="rounded-xl border border-dashed border-border px-6 py-4 ui-type-item text-text-muted">
             从左侧点击「节点」或数字员工，开始编排

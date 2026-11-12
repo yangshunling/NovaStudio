@@ -13,14 +13,15 @@ import { join } from "path";
 import { existsSync } from "fs";
 import {
   attachMainWindow,
+  hasActiveBackgroundWork,
   initIpcHandlers,
   stopAgents,
   stopAutomation,
+  stopTerminals,
   stopTriggers,
   stopWorkflows,
 } from "./ipc";
-import { initDatabase, closeDatabase } from "./db/sqlite";
-import { stopTerminals } from "./terminal/manager";
+import { initDatabase, closeDatabase, getSetting } from "./db/sqlite";
 import { purgeLegacyWorkflowRuntimes } from "./workflow/artifacts";
 import { migrateLegacyAssets } from "./migration/legacy-assets";
 import { syncKnowledgeIndex } from "./knowledge/catalog";
@@ -36,6 +37,8 @@ let databaseClosed = false;
 let quitting = false;
 /** 清理是否完成；完成前所有 before-quit 都必须继续阻止退出 */
 let cleanupFinished = false;
+/** 知识库外部变更的后台索引同步（搜索路径不再扫盘） */
+let knowledgeSyncTimer: NodeJS.Timeout | null = null;
 
 /**
  * 解析 preload 脚本路径。
@@ -56,6 +59,15 @@ function resolvePreloadPath(): string {
   return join(dir, "index.cjs");
 }
 
+/** 建窗时的底色：与渲染进程首帧主题缓存保持一致，避免深色皮肤白闪 */
+function initialWindowBackground(): string {
+  try {
+    return getSetting("theme") === "classic-night" ? "#000000" : "#ffffff";
+  } catch {
+    return "#ffffff";
+  }
+}
+
 function createWindow(): BrowserWindow {
   // 窗口/任务栏图标：打包后在 extraResources 里，开发时读项目根 resources/
   const iconPath = app.isPackaged
@@ -71,6 +83,7 @@ function createWindow(): BrowserWindow {
     minWidth: 1024,
     minHeight: 600,
     show: false,
+    backgroundColor: initialWindowBackground(),
     icon: iconPath,
     autoHideMenuBar: true,
     titleBarStyle: "hiddenInset",
@@ -93,10 +106,28 @@ function createWindow(): BrowserWindow {
   });
 
   /*
+   * 后台节流跟随真实负载：
+   * - 有聊天 / 自动化 / 工作流在跑时必须保持全速（否则流式事件会成块到达）；
+   * - 空闲时恢复 Chromium 默认节流，避免窗口失焦后仍全速跑定时器与动画。
+   * 用 2 秒轮询而不是在每条运行路径上打点，避免遗漏任一种运行来源。
+   */
+  let lastThrottle: boolean | null = null;
+  const throttleTimer = setInterval(() => {
+    if (win.isDestroyed()) return;
+    const allowed = !hasActiveBackgroundWork();
+    if (allowed === lastThrottle) return;
+    lastThrottle = allowed;
+    win.webContents.setBackgroundThrottling(allowed);
+  }, 2000);
+
+  /*
    * 渲染进程销毁后它持有的终端 id 也一起丢失，PTY 会变成无人认领的后台进程。
    * 窗口关闭 / 渲染进程崩溃时统一回收，避免 powershell.exe 越积越多。
    */
-  win.on("closed", () => stopTerminals());
+  win.on("closed", () => {
+    clearInterval(throttleTimer);
+    stopTerminals();
+  });
   win.webContents.on("render-process-gone", () => stopTerminals());
 
   /*
@@ -154,6 +185,17 @@ async function bootstrap(): Promise<void> {
       errorMessage(err),
     );
   });
+
+  /*
+   * 外部编辑（用户直接在资源管理器里改文件）不会经过 Nova 的写入接口，
+   * 因此用低频定时同步吸收；搜索本身不再扫盘。
+   */
+  knowledgeSyncTimer = setInterval(() => {
+    void syncKnowledgeIndex().catch((err) => {
+      console.warn("[knowledge] 后台索引同步失败：", errorMessage(err));
+    });
+  }, 5 * 60 * 1000);
+  knowledgeSyncTimer.unref?.();
 }
 
 /**
@@ -165,6 +207,10 @@ async function bootstrap(): Promise<void> {
 async function stopBackgroundTasks(): Promise<void> {
   if (backgroundStopped) return;
   backgroundStopped = true;
+  if (knowledgeSyncTimer) {
+    clearInterval(knowledgeSyncTimer);
+    knowledgeSyncTimer = null;
+  }
   stopAutomation();
   stopTriggers();
   stopWorkflows();

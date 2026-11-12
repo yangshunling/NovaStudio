@@ -49,6 +49,8 @@ export function WorkflowRunHistoryView({
     "all" | "active" | "failed" | "succeeded"
   >("all");
   const [busyRunId, setBusyRunId] = useState<string | null>(null);
+  /** 运行记录可能很多，先展示 50 条，按需加载更多 */
+  const [visibleCount, setVisibleCount] = useState(50);
   const runsRef = useRef(runs);
   runsRef.current = runs;
   /** 轮询失败只提示一次，避免活跃运行时每 2 秒刷屏 */
@@ -103,6 +105,12 @@ export function WorkflowRunHistoryView({
     });
   }, [runs, sourceFilter, statusFilter]);
 
+  const shownRuns = visibleRuns.slice(0, visibleCount);
+
+  useEffect(() => {
+    setVisibleCount(50);
+  }, [sourceFilter, statusFilter]);
+
   /** 以相同工作流重新发起一次手动运行 */
   const rerun = async (run: WorkflowRun) => {
     if (busyRunId) return;
@@ -144,7 +152,8 @@ export function WorkflowRunHistoryView({
   const hasActive = runs.some((run) => ACTIVE_RUN_STATUSES.has(run.status));
   useEffect(() => {
     if (!hasActive) return;
-    const timer = setInterval(() => void load(), 2000);
+    // 推送之外只做 10 秒兜底，避免活跃运行期间每 2 秒重复查库
+    const timer = setInterval(() => void load(), 10_000);
     return () => clearInterval(timer);
   }, [hasActive, load]);
 
@@ -220,7 +229,7 @@ export function WorkflowRunHistoryView({
                   ] as const}
                 />
                 <span className="ml-auto ui-type-code-sm text-text-muted">
-                  {visibleRuns.length} / {runs.length}
+                  {Math.min(visibleCount, visibleRuns.length)} / {visibleRuns.length}
                 </span>
               </div>
 
@@ -236,7 +245,7 @@ export function WorkflowRunHistoryView({
                     <span className="w-44 shrink-0 text-right">操作</span>
                   </div>
 
-                  {visibleRuns.map((run) => {
+                  {shownRuns.map((run) => {
                 const meta = RUN_STATUS[run.status];
                 const Icon = meta.icon;
                 const active = ACTIVE_RUN_STATUSES.has(run.status);

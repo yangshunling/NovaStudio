@@ -41,7 +41,13 @@ export function useLoad<T>(
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    loader()
+    /*
+     * 用 Promise.resolve() 包一层：loader 若同步抛错（例如依赖未就绪时
+     * 直接 throw），裸调会让异常在 effect 里逃逸到 ErrorBoundary，整页被
+     * 兜底；包一层后同步异常也变成 rejection，走下面的 catch 只影响本区块。
+     */
+    Promise.resolve()
+      .then(() => loader())
       .then((result) => {
         if (cancelled) return;
         setData(result);

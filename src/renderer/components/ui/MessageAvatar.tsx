@@ -10,7 +10,7 @@
 
 import { Bot } from "lucide-react";
 import claudeAvatarUrl from "../../assets/claude.png";
-import logoUrl from "../../assets/logo.png";
+import logoAvatarUrl from "../../assets/logo-avatar.png";
 import { agentTone, getAgentName } from "../../lib/utils";
 import type { AgentInfo } from "@shared/contracts/agent";
 
@@ -79,7 +79,7 @@ export function EmployeeChatAvatar({
           draggable={false}
         />
       ) : initial ? (
-        <span className="text-[13px] font-semibold text-accent">{initial}</span>
+        <span className="ui-type-item font-semibold text-accent">{initial}</span>
       ) : (
         <Bot className="h-4 w-4 text-text-muted" />
       )}
@@ -96,7 +96,7 @@ export function NovaAvatar({ className = "" }: { className?: string }) {
     >
       {/* logo 自带透明留白，稍微放大让标记的视觉大小与 Claude 头像接近 */}
       <img
-        src={logoUrl}
+        src={logoAvatarUrl}
         alt="Nova"
         className="h-full w-full scale-125 object-cover"
       />

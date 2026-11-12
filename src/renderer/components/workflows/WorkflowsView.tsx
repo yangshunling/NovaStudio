@@ -297,7 +297,9 @@ export function WorkflowsView() {
       if (debounce) clearTimeout(debounce);
       debounce = setTimeout(() => void load(), 200);
     });
+    // 推送是主链路；页面不可见时不轮询，可见时用 10 秒兜底
     const timer = setInterval(() => {
+      if (useChatStore.getState().viewMode !== "workflow") return;
       if (
         runsRef.current.some(
           (run) =>
@@ -306,7 +308,7 @@ export function WorkflowsView() {
       ) {
         void load();
       }
-    }, 2500);
+    }, 10_000);
 
     return () => {
       alive = false;

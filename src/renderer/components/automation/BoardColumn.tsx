@@ -1,7 +1,7 @@
 /**
  * 看板列 — 自动化看板的单列容器（顶部色条 + 列头 + 计数徽章 + 任务卡片列表）
  *
- * 三列以语义色区分身份，由 data-tone 驱动（色相派生见 styles/index.css 的
+ * 各列以语义色区分身份，由 data-tone 驱动（色相派生见 styles/index.css 的
  * .board-col）：pending=次要文本灰（排队）、running=强调蓝（进行）、
  * done=成功绿（完成）。列头带计数徽章与可选的「新建任务」按钮；
  * 空列时展示 EmptyState 提示。
@@ -19,8 +19,8 @@ interface ColumnProps {
   title: string;
   count: number;
   icon: ReactNode;
-  /** 列身份色相：pending=灰 / running=蓝 / done=绿 */
-  tone: "pending" | "running" | "done";
+  /** 列身份色相：pending=灰 / running=蓝 / failed=红 / done=绿 */
+  tone: "pending" | "running" | "failed" | "done";
   tasks: AutomationTask[];
   projects: Project[];
   agents: AgentInfo[];
@@ -31,11 +31,13 @@ interface ColumnProps {
   onViewDetail: (task: AutomationTask) => void;
   onAdd?: () => void;
   emptyHint: string;
+  /** 列表分页 / 加载更多等列尾操作 */
+  footer?: ReactNode;
 }
 
 export function BoardColumn({
   title, count, icon, tone, tasks, projects, agents,
-  onDelete, onRetry, onStop, onViewDetail, onAdd, emptyHint,
+  onDelete, onRetry, onStop, onViewDetail, onAdd, emptyHint, footer,
 }: ColumnProps) {
   return (
     <div
@@ -92,6 +94,7 @@ export function BoardColumn({
             onViewDetail={() => onViewDetail(task)}
           />
         ))}
+        {footer}
       </div>
     </div>
   );

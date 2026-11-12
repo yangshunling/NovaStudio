@@ -30,6 +30,8 @@ const DIALOG_WIDTHS: Record<DialogWidth, string> = {
 interface DialogProps {
   open: boolean;
   onClose: () => void;
+  /** 用户主动关闭（遮罩 / Esc / 右上角 X）；缺省等于 onClose */
+  requestClose?: () => void;
   title: string;
   /** 宽度档位；优先于 widthClass */
   width?: DialogWidth;
@@ -47,6 +49,7 @@ interface DialogProps {
 export function Dialog({
   open,
   onClose,
+  requestClose,
   title,
   width = "md",
   widthClass,
@@ -59,13 +62,14 @@ export function Dialog({
     <Modal
       open={open}
       onClose={onClose}
+      requestClose={requestClose}
       widthClass={widthClass ?? DIALOG_WIDTHS[width]}
       size={size}
     >
       <div className="p-section">
         <ModalHeader
           title={title}
-          onClose={onClose}
+          onClose={requestClose ?? onClose}
           className={headerClassName ?? "mb-4"}
         />
         {description && (

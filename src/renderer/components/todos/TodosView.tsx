@@ -13,7 +13,15 @@
 
 import { useMemo, useState } from "react";
 import type { ReactNode } from "react";
-import { ArrowUpDown, Inbox, ListTodo, Plus, Tag, Trash2 } from "lucide-react";
+import {
+  ArrowUpDown,
+  Inbox,
+  ListTodo,
+  Plus,
+  Sparkles,
+  Tag,
+  Trash2,
+} from "lucide-react";
 import type { TodoDraft, TodoItem } from "@shared/types";
 import { ipc } from "../../lib/ipc";
 import { toMessage } from "../../lib/utils";
@@ -28,6 +36,7 @@ import { SegmentedTabs } from "../ui/SegmentedTabs";
 import { EmptyState, ErrorState, LoadingState } from "../ui/EmptyState";
 import { TodoComposer } from "./TodoComposer";
 import { TodoCalendar } from "./TodoCalendar";
+import { WeeklyReportDialog } from "./WeeklyReportDialog";
 import { TodoEditorDialog } from "./TodoEditorDialog";
 import { TodoRow, type DragPosition } from "./TodoRow";
 import { TodoStats } from "./TodoStats";
@@ -76,6 +85,7 @@ export function TodosView() {
   /** 日历选中的日期（本地 0 点）；null 表示不按日期筛选 */
   const [selectedDate, setSelectedDate] = useState<number | null>(null);
   const [editing, setEditing] = useState<TodoItem | "new" | null>(null);
+  const [reportOpen, setReportOpen] = useState(false);
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [dropTarget, setDropTarget] = useState<{
     id: string;
@@ -430,6 +440,16 @@ export function TodosView() {
               placeholder="搜索待办"
             />
             <Button
+              variant="ghost"
+              size="sm"
+              icon={<Sparkles className="h-4 w-4" />}
+              disabled={loading || todos.length === 0}
+              onClick={() => setReportOpen(true)}
+              title="根据选定周期的待办生成周报"
+            >
+              生成周报
+            </Button>
+            <Button
               variant="primary"
               size="sm"
               icon={<Plus className="h-4 w-4" />}
@@ -697,6 +717,12 @@ export function TodosView() {
         defaultDueAt={selectedDate}
         onClose={() => setEditing(null)}
         onSubmit={submitEditing}
+      />
+
+      <WeeklyReportDialog
+        open={reportOpen}
+        todos={todos}
+        onClose={() => setReportOpen(false)}
       />
     </Page>
   );

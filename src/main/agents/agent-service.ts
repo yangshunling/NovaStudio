@@ -16,7 +16,7 @@ import type { AgentEvent, Message, Session, SessionOptions } from "../../shared/
 import { DEFAULT_SETTINGS } from "../../shared/types";
 import { appendEvent } from "../../shared/agent-events";
 import type { AgentInfo } from "../../shared/contracts/agent";
-import type { IpcPushChannel, IpcPushMap } from "../../shared/contracts/ipc";
+import type { Emit } from "../../shared/contracts/ipc";
 import { getProvider, listProviders } from "../agents/registry";
 import { isResumeFailure } from "../agents/resume-error";
 import type { AgentInvocationInfo, RunSession } from "../agents/types";
@@ -24,7 +24,7 @@ import * as db from "../db/sqlite";
 import { errorMessage } from "../../shared/error";
 
 /** 事件发射器，由 IPC 层注入（负责批量聚合与窗口推送） */
-export type Emit = <C extends IpcPushChannel>(channel: C, payload: IpcPushMap[C]) => void;
+export type { Emit };
 
 /** 历史缓存容量上限（超出后淘汰最久未使用的条目） */
 const HISTORY_CACHE_LIMIT = 32;
@@ -109,6 +109,8 @@ export interface AgentService {
   abort(sessionId: string): boolean;
   /** 指定会话是否仍有运行中的 Agent 进程（含尚未完成落库的收尾阶段） */
   isRunning(sessionId: string): boolean;
+  /** 是否还有任意会话在运行（供窗口后台节流开关判断） */
+  hasRunningSessions(): boolean;
   /**
    * 是否有正在运行的会话使用该数字员工。
    *
@@ -118,6 +120,14 @@ export interface AgentService {
   isEmployeeInUse(employeeId: string): boolean;
   /** 取会话元数据 + 回放历史 */
   getSessionWithHistory(sessionId: string): Promise<Session | null>;
+  /**
+   * 分页取会话历史：只解析最近 N 条，更早的按 before 游标继续取。
+   * 用于打开长会话时避免一次性 JSON.parse 全部消息。
+   */
+  getSessionPage(
+    sessionId: string,
+    input: { limit: number; beforeTimestamp?: number; beforeMessageId?: string },
+  ): Promise<Session | null>;
   /**
    * 中断该会话、等待运行收尾，再清理其 CLI 侧数据与缓存。
    * 必须先等运行结束再删数据库行，否则运行收尾写入 messages 会触发外键错误。
@@ -464,7 +474,7 @@ export function createAgentService(emit: Emit): AgentService {
         let assistantMessageId: string | null = null;
         if (assistantContent.length > 0) {
           assistantMessageId = randomUUID();
-          db.saveSessionMessage(sessionId, {
+          await db.saveSessionMessageAsync(sessionId, {
             id: assistantMessageId,
             role: "assistant",
             content: assistantContent,
@@ -513,6 +523,10 @@ export function createAgentService(emit: Emit): AgentService {
       return running.has(sessionId);
     },
 
+    hasRunningSessions(): boolean {
+      return running.size > 0;
+    },
+
     isEmployeeInUse(employeeId: string): boolean {
       for (const id of runningEmployees.values()) {
         if (id === employeeId) return true;
@@ -541,6 +555,41 @@ export function createAgentService(emit: Emit): AgentService {
         return { ...session, messages: await backfillLineStarts(session, persisted) };
       }
       return { ...session, messages: await readHistoryCached(session) };
+    },
+
+    async getSessionPage(
+      sessionId: string,
+      input: { limit: number; beforeTimestamp?: number; beforeMessageId?: string },
+    ): Promise<Session | null> {
+      const session = db.getSession(sessionId);
+      if (!session) return null;
+
+      const persisted = db.readSessionMessagesPage(sessionId, input);
+      if (persisted) {
+        return {
+          ...session,
+          messages: await backfillLineStarts(session, persisted.messages),
+          hasMoreMessages: persisted.hasMore,
+        };
+      }
+
+      // 本地已有消息但这一页为空：说明更早的消息已经取完，不要再回放 CLI 历史
+      if (db.hasSessionMessages(sessionId)) {
+        return { ...session, messages: [], hasMoreMessages: false };
+      }
+
+      // 升级前的老会话没有本地消息：从 provider 回放后按游标切片
+      const all = await readHistoryCached(session);
+      const filtered =
+        input.beforeTimestamp === undefined
+          ? all
+          : all.filter((message) => message.timestamp < input.beforeTimestamp!);
+      const page = filtered.slice(-Math.max(1, Math.min(500, input.limit)));
+      return {
+        ...session,
+        messages: page,
+        hasMoreMessages: filtered.length > page.length,
+      };
     },
 
     async releaseSession(sessionId: string): Promise<void> {

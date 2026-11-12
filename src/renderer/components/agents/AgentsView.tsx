@@ -19,12 +19,12 @@ import {
   type AgentModelOption,
   type AgentSettingsDraft,
   type AgentSettingsView,
-  type AgentUpgradeCheck,
 } from "@shared/contracts/agent";
 import { ipc } from "../../lib/ipc";
 import { toMessage } from "../../lib/utils";
 import { useChatStore } from "../../stores/chat";
 import { toast } from "../../stores/toast";
+import { useAgentUpgrade } from "./useAgentUpgrade";
 import { Button } from "../ui/Button";
 import { Combobox } from "../ui/Combobox";
 import { Field, FORM_INPUT_CLASS, inputClass } from "../ui/Field";
@@ -130,13 +130,6 @@ export function AgentsView() {
   /** 右侧配置区：滚动容器 + 当前分区 */
   const contentRef = useRef<HTMLDivElement>(null);
   const [activeSection, setActiveSection] = useState<SectionId>("connection");
-  /** 版本升级：检测结果、执行状态与实时日志 */
-  const [upgradeCheck, setUpgradeCheck] = useState<AgentUpgradeCheck | null>(null);
-  const [checkingUpgrade, setCheckingUpgrade] = useState(false);
-  const [upgrading, setUpgrading] = useState(false);
-  const [upgradeLog, setUpgradeLog] = useState("");
-  const [upgradeError, setUpgradeError] = useState<string | null>(null);
-
   const scrollToSection = (id: SectionId) => {
     document
       .getElementById(`agent-${id}`)
@@ -197,6 +190,15 @@ export function AgentsView() {
     () => agents.find((agent) => agent.id === selectedId) ?? agents[0],
     [agents, selectedId],
   );
+
+  /** 版本检查 / 升级 / 实时日志：与配置表单无关，整块交给专用 hook */
+  const upgrade = useAgentUpgrade({
+    agentId: CLAUDE_ID,
+    active: selected?.id === CLAUDE_ID && Boolean(selected.status.installed),
+    installed: Boolean(selected?.status.installed),
+    version: selected?.status.version,
+    refreshAgents: detectAgents,
+  });
 
   // 加载 Claude 本机配置
   useEffect(() => {
@@ -321,106 +323,6 @@ export function AgentsView() {
     }
   };
 
-  /**
-   * 检查最新版本。
-   *
-   * notify=false 用于页面打开时的静默检查；用户手动点击时再弹 toast，
-   * 避免每次进入 Agent 配置都被“已是最新”打扰。
-   */
-  const checkUpgrade = useCallback(async (notify = false) => {
-    setCheckingUpgrade(true);
-    setUpgradeError(null);
-    try {
-      const result = await ipc.checkAgentUpgrade(CLAUDE_ID);
-      setUpgradeCheck(result);
-      if (notify) {
-        if (result.error) {
-          toast.info(result.error);
-        } else if (result.updateAvailable) {
-          toast.info(
-            `发现新版本 ${result.latestVersion}，当前 ${result.installedVersion}`,
-          );
-        } else {
-          toast.success(
-            `Claude Code 已是最新版本（${result.installedVersion ?? "未知"}）`,
-          );
-        }
-      }
-    } catch (err) {
-      const message = toMessage(err);
-      setUpgradeCheck(null);
-      setUpgradeError(message);
-      if (notify) toast.error(message);
-    } finally {
-      setCheckingUpgrade(false);
-    }
-  }, []);
-
-  // 选中 Claude Code 且已安装时自动检查一次；升级后版本变化会再次触发
-  useEffect(() => {
-    if (selected?.id !== CLAUDE_ID || !selected.status.installed) {
-      setUpgradeCheck(null);
-      setUpgradeError(null);
-      return;
-    }
-    void checkUpgrade();
-  }, [
-    selected?.id,
-    selected?.status.installed,
-    selected?.status.version,
-    checkUpgrade,
-  ]);
-
-  // 升级命令的实时输出（npm 进度等已由主进程去掉控制序列）
-  useEffect(
-    () =>
-      ipc.on.agentUpgradeProgress(({ agentId, chunk }) => {
-        if (agentId !== CLAUDE_ID) return;
-        setUpgradeLog((prev) => (prev + chunk).slice(-12_000));
-      }),
-    [],
-  );
-
-  /** 执行升级：完成后刷新 Agent 状态并重新检查版本 */
-  const handleUpgrade = async () => {
-    if (upgrading) return;
-    setUpgrading(true);
-    setUpgradeError(null);
-    setUpgradeLog("");
-    try {
-      const result = await ipc.upgradeAgent(CLAUDE_ID);
-      if (result.output) setUpgradeLog(result.output);
-
-      if (result.ok) {
-        toast.success(
-          result.previousVersion &&
-            result.version &&
-            result.previousVersion !== result.version
-            ? `Claude Code 已从 ${result.previousVersion} 升级到 ${result.version}`
-            : "Claude Code 已是最新版本",
-        );
-      } else {
-        const message = result.error ?? "升级失败";
-        setUpgradeError(message);
-        toast.error(message);
-      }
-
-      // 状态刷新失败不应把一次成功的升级误报成失败
-      try {
-        await detectAgents();
-      } catch {
-        // 下次进入页面或手动检测时会重新拉取
-      }
-      await checkUpgrade();
-    } catch (err) {
-      const message = toMessage(err);
-      setUpgradeError(message);
-      toast.error(message);
-    } finally {
-      setUpgrading(false);
-    }
-  };
-
   const handleCopyInstall = async () => {
     if (!selected?.installCommand) return;
     try {
@@ -520,27 +422,6 @@ export function AgentsView() {
           }
         : current,
     );
-
-  const upgradeStatus = useMemo(() => {
-    if (!selected?.status.installed) {
-      return "未检测到 Claude Code，安装后可检查更新。";
-    }
-    if (upgradeError) return upgradeError;
-    if (checkingUpgrade && !upgradeCheck) return "正在检查最新版本…";
-    if (!upgradeCheck) return "尚未检查最新版本。";
-    if (upgradeCheck.error) return upgradeCheck.error;
-    if (upgradeCheck.updateAvailable) {
-      return `发现新版本 ${upgradeCheck.latestVersion}，当前 ${upgradeCheck.installedVersion}。`;
-    }
-    return `已是最新版本（${upgradeCheck.installedVersion ?? "未知"}）。`;
-  }, [selected?.status.installed, upgradeError, checkingUpgrade, upgradeCheck]);
-
-  // 已确认是最新版本时禁用；检测失败（error 有值）仍允许尝试升级
-  const upgradeDisabled =
-    !selected?.status.installed ||
-    upgrading ||
-    checkingUpgrade ||
-    Boolean(upgradeCheck && !upgradeCheck.updateAvailable && !upgradeCheck.error);
 
   return (
     <Page>
@@ -894,9 +775,9 @@ export function AgentsView() {
                       description="从 npm 获取最新版本号，优先用 Claude Code 自带的 update 命令升级；未生效时回退到 npm 全局安装。"
                       icon={ArrowUpCircle}
                       action={
-                        upgradeCheck?.updateAvailable ? (
+                        upgrade.check?.updateAvailable ? (
                           <span className="shrink-0 rounded-full bg-accent-soft px-2 py-0.5 ui-type-label text-accent">
-                            可升级到 {upgradeCheck.latestVersion}
+                            可升级到 {upgrade.check.latestVersion}
                           </span>
                         ) : undefined
                       }
@@ -910,15 +791,15 @@ export function AgentsView() {
                           <VersionTile
                             label="最新版本"
                             value={
-                              checkingUpgrade
+                              upgrade.checking
                                 ? "检查中…"
-                                : upgradeCheck?.latestVersion ?? "未知"
+                                : upgrade.check?.latestVersion ?? "未知"
                             }
                           />
                         </div>
 
                         <p className="ui-type-sub leading-relaxed text-text-muted">
-                          {upgradeStatus}
+                          {upgrade.statusText}
                         </p>
 
                         <div className="flex flex-wrap items-center gap-2">
@@ -929,12 +810,12 @@ export function AgentsView() {
                             icon={
                               <RefreshCw
                                 className={`h-3.5 w-3.5 ${
-                                  checkingUpgrade ? "animate-spin" : ""
+                                  upgrade.checking ? "animate-spin" : ""
                                 }`}
                               />
                             }
-                            onClick={() => void checkUpgrade(true)}
-                            disabled={checkingUpgrade || upgrading}
+                            onClick={() => void upgrade.checkUpgrade(true)}
+                            disabled={upgrade.checking || upgrade.upgrading}
                           >
                             检查更新
                           </Button>
@@ -942,10 +823,10 @@ export function AgentsView() {
                             variant="primary"
                             size="sm"
                             className="rounded-full"
-                            loading={upgrading}
+                            loading={upgrade.upgrading}
                             icon={<ArrowUpCircle className="h-3.5 w-3.5" />}
-                            onClick={() => void handleUpgrade()}
-                            disabled={upgradeDisabled}
+                            onClick={() => void upgrade.runUpgrade()}
+                            disabled={upgrade.disabled}
                           >
                             升级到最新版本
                           </Button>
@@ -954,9 +835,9 @@ export function AgentsView() {
                           </span>
                         </div>
 
-                        {(upgrading || upgradeLog) && (
+                        {(upgrade.upgrading || upgrade.log) && (
                           <pre className="max-h-52 overflow-auto whitespace-pre-wrap break-all rounded-lg border border-border/60 bg-input-bg px-3 py-2 ui-type-code leading-relaxed text-text-secondary">
-                            {upgradeLog || "正在升级…"}
+                            {upgrade.log || "正在升级…"}
                           </pre>
                         )}
                       </div>

@@ -13,6 +13,9 @@ import { Field, TextArea, FORM_INPUT_CLASS } from "../ui/Field";
 import { Select } from "../ui/Select";
 import { useAutomationStore } from "../../stores/automation";
 import { useChatStore } from "../../stores/chat";
+import { confirmDialog } from "../../stores/confirm";
+import { toast } from "../../stores/toast";
+import { toMessage } from "../../lib/utils";
 
 /** 自动化任务当前固定使用的 Agent（仅支持 Claude） */
 const AGENT_ID = "claude";
@@ -27,20 +30,38 @@ export function TaskCreateModal({ onClose }: { onClose: () => void }) {
 
   const handleSubmit = async () => {
     const trimmed = prompt.trim();
-    if (!trimmed || !projectId) return;
+    if (!trimmed || !projectId || submitting) return;
     setSubmitting(true);
     try {
       await createTask(trimmed, projectId, AGENT_ID);
       onClose();
+    } catch (err) {
+      // 创建失败时弹框保持打开，正文不丢；明确提示，避免用户以为按钮没反应
+      toast.error(toMessage(err), 5000);
     } finally {
       setSubmitting(false);
     }
+  };
+
+  const requestClose = async () => {
+    if (!prompt.trim()) {
+      onClose();
+      return;
+    }
+    const confirmed = await confirmDialog({
+      title: "放弃未下发的任务？",
+      message: "任务描述尚未提交，关闭后将丢失。",
+      confirmLabel: "放弃",
+      tone: "danger",
+    });
+    if (confirmed) onClose();
   };
 
   return (
     <Dialog
       open
       onClose={onClose}
+      requestClose={requestClose}
       title="新建自动化任务"
       width="md"
     >

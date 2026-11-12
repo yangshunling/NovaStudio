@@ -13,7 +13,6 @@ import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeRaw from "rehype-raw";
 import rehypeSanitize, { defaultSchema } from "rehype-sanitize";
-import { getHighlighter, highlightCodeSync } from "../../lib/shiki";
 import { stripPreTag } from "../../lib/utils";
 import { useSkin } from "../../hooks/useTheme";
 import { ipc } from "../../lib/ipc";
@@ -119,6 +118,10 @@ function MarkdownImage({
       src={resolved}
       alt={alt}
       {...props}
+      loading="lazy"
+      decoding="async"
+      // 外部图片不带 Referer，降低本地优先场景下的追踪面
+      referrerPolicy="no-referrer"
       className="my-2 max-w-full rounded-md"
     />
   );
@@ -137,20 +140,29 @@ function CodeBlock({ code, lang }: { code: string; lang: string }) {
       return;
     }
 
-    // 先尝试同步高亮（高亮器已就绪时）
-    const sync = highlightCodeSync(code, lang, codeTheme);
-    if (sync) {
-      setHighlighted(stripPreTag(sync));
-      return;
-    }
-
-    // 高亮器未就绪，异步初始化后重试
     let cancelled = false;
-    getHighlighter().then(() => {
-      if (cancelled) return;
-      const result = highlightCodeSync(code, lang, codeTheme);
-      if (result) setHighlighted(stripPreTag(result));
-    });
+
+    /*
+     * Shiki 的语言包 + 主题约 2.7MB，绝不能因为「可能有一段代码」就进入
+     * 首屏主包。这里改为首次出现代码块时动态加载；加载完成前先显示
+     * 纯文本，视觉上只差一次高亮着色。
+     */
+    void import("../../lib/shiki")
+      .then(async (shiki) => {
+        if (cancelled) return;
+        const sync = shiki.highlightCodeSync(code, lang, codeTheme);
+        if (sync) {
+          setHighlighted(stripPreTag(sync));
+          return;
+        }
+        await shiki.getHighlighter();
+        if (cancelled) return;
+        const result = shiki.highlightCodeSync(code, lang, codeTheme);
+        if (result) setHighlighted(stripPreTag(result));
+      })
+      .catch(() => {
+        // 加载失败保持纯文本
+      });
 
     return () => {
       cancelled = true;

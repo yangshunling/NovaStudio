@@ -54,6 +54,7 @@ import type {
   WorkflowTriggerBinding,
   WorkflowTriggerDraft,
 } from "../types";
+import type { WeeklyReportOptions, WeeklyReportResult } from "../report";
 import type {
   AgentAuthMode,
   AgentInfo,
@@ -277,8 +278,22 @@ export interface IpcInvokeMap {
     result: Session;
   };
   "session:list": { args: []; result: Session[] };
-  /** 返回带历史消息的会话；历史由 provider 回放 */
-  "session:get": { args: [{ id: string }]; result: Session | null };
+  /**
+   * 返回带历史消息的会话。
+   * 传 limit 时按页返回最近 N 条，并给出 hasMoreMessages；
+   * 更早的消息用 before / beforeId 游标继续取。
+   */
+  "session:get": {
+    args: [
+      {
+        id: string;
+        limit?: number;
+        before?: number;
+        beforeId?: string;
+      },
+    ];
+    result: Session | null;
+  };
   "session:rename": { args: [{ id: string; title: string }]; result: boolean };
   "session:delete": { args: [{ id: string }]; result: boolean };
   /** 置顶 / 取消置顶会话；不改变 updated_at，不影响时间分组 */
@@ -555,6 +570,29 @@ export interface IpcInvokeMap {
   /** 按传入顺序重写 sort_order（同一分组内拖动） */
   "todos:reorder": { args: [{ ids: string[] }]; result: boolean };
 
+  /**
+   * 周报生成：一次性文本生成，不创建会话、不落历史。
+   * requestId 用于把流式片段路由回发起方。
+   */
+  "report:generate": {
+    args: [
+      {
+        requestId: string;
+        start: number;
+        end: number;
+        options: WeeklyReportOptions;
+      },
+    ];
+    result: WeeklyReportResult;
+  };
+  /** 取消正在生成的周报 */
+  "report:abort": { args: [{ requestId: string }]; result: boolean };
+  /** 导出 Markdown；返回保存路径，取消返回 null */
+  "report:export": {
+    args: [{ content: string; defaultName: string }];
+    result: string | null;
+  };
+
   /** 常用提示词：列表 / 新建 / 更新 / 删除 */
   "prompts:list": { args: []; result: PromptItem[] };
   "prompts:create": {
@@ -572,6 +610,11 @@ export interface IpcInvokeMap {
 export interface IpcPushMap {
   "agent:event": { sessionId: string; event: AgentEvent };
   "agent:done": { sessionId: string; exitCode: number; duration: number };
+  /**
+   * 被用户中断的运行已经真正收尾（进程退出、消息落库完成）。
+   * 与 agent:done 分开：中断不应触发“完成”语义，也不应自动消费暂存队列。
+   */
+  "agent:aborted": { sessionId: string };
   "agents:detected": AgentInfo[];
   /** 升级过程输出（已去除终端控制序列），供设置页实时展示 */
   "agent:upgrade:progress": { agentId: string; chunk: string };
@@ -596,6 +639,8 @@ export interface IpcPushMap {
   "triggers:updated": WorkflowTrigger;
   /** 待办增删改后推送未完成数量，供侧栏角标实时更新 */
   "todos:changed": { pending: number };
+  /** 周报生成过程中的增量文本 */
+  "report:chunk": { requestId: string; chunk: string };
   /** 更新状态变更（检查结果 / 下载进度 / 下载完成 / 错误） */
   "updater:changed": UpdaterState;
 }
@@ -607,3 +652,15 @@ export type IpcPushChannel = keyof IpcPushMap;
 export type IpcArgs<C extends IpcInvokeChannel> = IpcInvokeMap[C]["args"];
 /** 通道返回值 */
 export type IpcResult<C extends IpcInvokeChannel> = IpcInvokeMap[C]["result"];
+
+/**
+ * 主进程内部的事件出口。
+ *
+ * 引擎层（AgentService / 调度器 / 终端）只依赖这个签名，构造时注入；
+ * 具体实现（Electron 的 webContents.send）留在 ipc/push，引擎层因此
+ * 可以脱离 Electron 单测。
+ */
+export type Emit = <C extends IpcPushChannel>(
+  channel: C,
+  payload: IpcPushMap[C],
+) => void;

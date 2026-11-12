@@ -10,7 +10,8 @@
  * 有更精确的行号（见 sessions.ts）。
  */
 
-import { readFileSync, statSync } from "fs";
+import { statSync } from "fs";
+import { readFile } from "fs/promises";
 import { resolve } from "path";
 import type { LineStartsResolver } from "./parse";
 
@@ -83,10 +84,53 @@ function readPath(record: Record<string, unknown>): string | null {
   return null;
 }
 
+/**
+ * 文件内容缓存：按 mtime + size 失效。
+ *
+ * 解码发生在流式热路径上，不能为了算行号同步读 2MB 文件；这里第一次只
+ * 返回 null 并在后台异步读取，后续同一文件的 tool_call 直接命中缓存。
+ * 行号缺失时展示层本来就会隐藏，不影响正确性。
+ */
+const textCache = new Map<
+  string,
+  { mtimeMs: number; size: number; content: string | null }
+>();
+const reading = new Set<string>();
+
 function readText(file: string): string | null {
   try {
-    if (statSync(file).size > MAX_FILE_BYTES) return null;
-    return readFileSync(file, "utf8");
+    const info = statSync(file);
+    if (info.size > MAX_FILE_BYTES) return null;
+
+    const cached = textCache.get(file);
+    if (
+      cached &&
+      cached.mtimeMs === info.mtimeMs &&
+      cached.size === info.size
+    ) {
+      return cached.content;
+    }
+
+    if (!reading.has(file)) {
+      reading.add(file);
+      void readFile(file, "utf8")
+        .then((content) => {
+          textCache.set(file, {
+            mtimeMs: info.mtimeMs,
+            size: info.size,
+            content,
+          });
+        })
+        .catch(() => {
+          textCache.set(file, {
+            mtimeMs: info.mtimeMs,
+            size: info.size,
+            content: null,
+          });
+        })
+        .finally(() => reading.delete(file));
+    }
+    return null;
   } catch {
     return null;
   }

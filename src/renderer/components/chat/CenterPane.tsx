@@ -4,13 +4,36 @@
  * 终端与其他中心视图一样保持挂载，仅切换显隐，避免切换标签时重启 PTY。
  */
 
+import { lazy, Suspense } from "react";
 import { useChatStore } from "../../stores/chat";
 import { useFileViewerStore } from "../../stores/fileViewer";
 import { useTerminalStore } from "../../stores/terminal";
 import { ChatArea } from "./ChatArea";
 import { CenterTabs } from "./CenterTabs";
-import { FilePreview } from "../files/FilePreview";
-import { TerminalView } from "../terminal/TerminalView";
+import { Spinner } from "../ui/Spinner";
+
+/*
+ * 文件预览与终端都是“打开标签后才需要”的重资源：
+ * - 终端会引入整个 xterm；
+ * - 文件预览会引入 PDF / 图片 / Markdown 预览链路。
+ * 懒加载后它们不再进入首屏 chunk，但组件仍然常驻挂载，切换标签不重启 PTY。
+ */
+const FilePreview = lazy(() =>
+  import("../files/FilePreview").then((m) => ({ default: m.FilePreview })),
+);
+const TerminalView = lazy(() =>
+  import("../terminal/TerminalView").then((m) => ({
+    default: m.TerminalView,
+  })),
+);
+
+function TabFallback() {
+  return (
+    <div className="flex h-full items-center justify-center text-text-muted">
+      <Spinner className="h-5 w-5" />
+    </div>
+  );
+}
 
 export function CenterPane() {
   const tabs = useFileViewerStore((s) => s.tabs);
@@ -38,7 +61,16 @@ export function CenterPane() {
             key={tab.id}
             className={activeTabId === tab.id ? "h-full" : "hidden"}
           >
-            <FilePreview tab={tab} />
+            {/*
+              非活动文件标签只保留元数据：FilePreview 会读取并保留最多 2MB
+              文本 / 图片 data URL，全部常驻会让打开十几个大文件后内存持续上涨。
+              切回该标签时重新读取即可。
+            */}
+            {activeTabId === tab.id && (
+              <Suspense fallback={<TabFallback />}>
+                <FilePreview tab={tab} />
+              </Suspense>
+            )}
           </div>
         ))}
         {terminals.map((tab) => (
@@ -46,11 +78,13 @@ export function CenterPane() {
             key={tab.id}
             className={activeTabId === tab.id ? "h-full" : "hidden"}
           >
-            <TerminalView
-              tab={tab}
-              showWorkspace={showWorkspace}
-              onToggleWorkspace={() => setShowWorkspace(!showWorkspace)}
-            />
+            <Suspense fallback={<TabFallback />}>
+              <TerminalView
+                tab={tab}
+                showWorkspace={showWorkspace}
+                onToggleWorkspace={() => setShowWorkspace(!showWorkspace)}
+              />
+            </Suspense>
           </div>
         ))}
       </div>

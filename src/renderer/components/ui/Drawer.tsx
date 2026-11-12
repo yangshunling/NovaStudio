@@ -28,6 +28,8 @@ const DRAWER_WIDTHS: Record<DrawerWidth, string> = {
 
 interface DrawerProps {
   onClose: () => void;
+  /** 用户主动关闭（遮罩 / Esc）；缺省等于 onClose。编辑类抽屉传带确认的实现 */
+  requestClose?: () => void;
   /** 抽屉的可读名称 */
   ariaLabel: string;
   /** 宽度档位；优先于 widthClass */
@@ -41,6 +43,7 @@ interface DrawerProps {
 
 export function Drawer({
   onClose,
+  requestClose,
   ariaLabel,
   width = "sm",
   widthClass,
@@ -50,9 +53,9 @@ export function Drawer({
   const panelRef = useRef<HTMLDivElement>(null);
   const layerRef = useRef({});
 
-  // onClose 每次渲染都是新函数，用 ref 持有，避免频繁重跑 effect
+  // onClose / requestClose 每次渲染都可能是新函数，用 ref 持有，避免频繁重跑 effect
   const onCloseRef = useRef(onClose);
-  onCloseRef.current = onClose;
+  onCloseRef.current = requestClose ?? onClose;
 
   useEffect(() => {
     const layer = layerRef.current;
@@ -85,7 +88,7 @@ export function Drawer({
   return (
     <div
       className="fixed inset-0 z-50 flex justify-end"
-      onClick={onClose}
+      onClick={onCloseRef.current}
       role="presentation"
     >
       <div className="absolute inset-0 bg-bg/60 backdrop-blur-sm" />

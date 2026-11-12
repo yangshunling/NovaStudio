@@ -70,12 +70,31 @@ export function TaskDetailDrawer({ task, onClose }: { task: AutomationTask; onCl
   // 桶里有数据优先用桶（含已完成但本次运行期间跑过的任务）；否则用读盘结果
   const messages = isRunning || hasBucket ? (liveMessages ?? []) : historyMessages;
 
-  // 执行中自动滚动到底部
+  /*
+   * 执行中自动跟随到底部，但用户上翻后暂停跟随：
+   * 长输出时强行吸底会让用户无法回看前面的工具调用或错误。
+   */
   const scrollRef = useRef<HTMLDivElement>(null);
+  const stickToBottom = useRef(true);
+  const [following, setFollowing] = useState(true);
+
   useEffect(() => {
-    if (isRunning && scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-    }
+    const element = scrollRef.current;
+    if (!element) return;
+    const onScroll = () => {
+      const nearBottom =
+        element.scrollHeight - element.scrollTop - element.clientHeight < 24;
+      stickToBottom.current = nearBottom;
+      setFollowing(nearBottom);
+    };
+    element.addEventListener("scroll", onScroll, { passive: true });
+    return () => element.removeEventListener("scroll", onScroll);
+  }, []);
+
+  useEffect(() => {
+    if (!isRunning || !stickToBottom.current) return;
+    const element = scrollRef.current;
+    if (element) element.scrollTop = element.scrollHeight;
   }, [liveMessages, isRunning]);
 
   const project = projects.find((p) => p.id === task.projectId);
@@ -149,6 +168,20 @@ export function TaskDetailDrawer({ task, onClose }: { task: AutomationTask; onCl
             </>
           )}
         </DrawerBody>
+        {!following && (
+          <button
+            type="button"
+            onClick={() => {
+              stickToBottom.current = true;
+              setFollowing(true);
+              const element = scrollRef.current;
+              if (element) element.scrollTop = element.scrollHeight;
+            }}
+            className="ui-glass-strong ui-ring absolute bottom-3 left-1/2 z-10 -translate-x-1/2 rounded-full px-3 py-1.5 ui-type-note text-text-secondary shadow-[var(--c-shadow-sm)] transition-colors hover:text-text"
+          >
+            回到最新
+          </button>
+        )}
     </Drawer>
   );
 }

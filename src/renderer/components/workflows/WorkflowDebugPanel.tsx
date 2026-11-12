@@ -8,9 +8,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { Check, FileText, FolderOpen, Pencil, Square, X } from "lucide-react";
 import type { WorkflowRunDetail } from "@shared/types";
-import { formatDuration } from "@shared/time";
 import { ACTIVE_RUN_STATUSES, RUN_STATUS } from "../../lib/workflow/status";
 import { Button } from "../ui/Button";
+import { Elapsed } from "../ui/Elapsed";
 
 export function WorkflowDebugPanel({
   detail,
@@ -38,13 +38,7 @@ export function WorkflowDebugPanel({
   const Icon = meta.icon;
   const active = ACTIVE_RUN_STATUSES.has(run.status);
 
-  const [now, setNow] = useState(Date.now());
   const [note, setNote] = useState("");
-  useEffect(() => {
-    if (!active) return;
-    const timer = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(timer);
-  }, [active]);
 
   const awaitingNodes = useMemo(
     () => nodes.filter((node) => node.status === "awaiting_approval"),
@@ -119,9 +113,11 @@ export function WorkflowDebugPanel({
           </span>
         )}
 
-        <span className="shrink-0 ui-type-code text-text-muted">
-          {formatDuration(run.startedAt, run.finishedAt, now)}
-        </span>
+        <Elapsed
+          startedAt={run.startedAt}
+          finishedAt={run.finishedAt}
+          className="shrink-0 ui-type-code text-text-muted"
+        />
 
         {run.error && (
           <span

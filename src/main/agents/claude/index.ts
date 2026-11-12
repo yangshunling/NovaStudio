@@ -38,6 +38,7 @@ import { probeVersion } from "../probe";
 import { manifest } from "./manifest";
 import { createDecoder, createStreamDecoder, extractSessionId } from "./parse";
 import { createLineStartsResolver } from "./file-lines";
+import { prepareClaudeChatRun } from "./chat-runtime";
 import { prepareClaudeWorkflowRun } from "./prepare";
 import { getClaudeSettingsView } from "./settings";
 import { formatModelEntry } from "./models";
@@ -97,11 +98,13 @@ function completeOnce(opts: CompleteOptions): Promise<string> {
     let settled = false;
     let transport: Transport | null = null;
     let timer: NodeJS.Timeout | null = null;
+    let removeAbortListener: (() => void) | null = null;
 
     const settle = (action: () => void) => {
       if (settled) return;
       settled = true;
       if (timer) clearTimeout(timer);
+      removeAbortListener?.();
       action();
     };
 
@@ -133,6 +136,7 @@ function completeOnce(opts: CompleteOptions): Promise<string> {
       {
         onData: (chunk) => {
           stdout += chunk;
+          opts.onChunk?.(chunk);
         },
         onStderr: (chunk) => {
           stderr = (stderr + chunk).slice(-COMPLETE_STDERR_LIMIT);
@@ -150,6 +154,25 @@ function completeOnce(opts: CompleteOptions): Promise<string> {
         },
       },
     );
+
+    /*
+     * 取消信号在 spawn 之后注册：这样 abort 时一定已经拿到真实进程，
+     * 不会出现「已 reject 但子进程仍在跑」的泄漏。
+     */
+    const signal = opts.signal;
+    if (signal) {
+      if (signal.aborted) {
+        settle(() => reject(new Error("已取消")));
+        transport.kill();
+        return;
+      }
+      const onAbort = () => {
+        settle(() => reject(new Error("已取消")));
+        transport?.kill();
+      };
+      signal.addEventListener("abort", onAbort);
+      removeAbortListener = () => signal.removeEventListener("abort", onAbort);
+    }
 
     transport.writeInput(opts.prompt);
   });
@@ -211,6 +234,10 @@ export const provider: AgentProvider = {
 
   prepareRun(input) {
     return prepareClaudeWorkflowRun(input);
+  },
+
+  prepareChatRun(input) {
+    return prepareClaudeChatRun(input);
   },
 
   start(opts: RunOptions): RunSession {

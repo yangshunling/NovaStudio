@@ -18,6 +18,7 @@
 import { create } from "zustand";
 import { ipc } from "../lib/ipc";
 import { newId } from "../lib/utils";
+import { toast } from "./toast";
 import { appendEvent } from "@shared/agent-events";
 import type { AgentInfo } from "@shared/contracts/agent";
 import type { AgentEvent, Message, Project, Session } from "@shared/types";
@@ -74,12 +75,23 @@ interface ChatState {
   currentSessionId: string | null;
   /** 每个会话的实时消息桶（含未落库的流式增量） */
   messagesBySession: Record<string, Message[]>;
+  /** 每个会话是否还有更早的消息未加载（分页游标） */
+  hasMoreBySession: Record<string, boolean>;
+  /** 每个会话是否正在向前加载更早消息 */
+  loadingEarlierBySession: Record<string, boolean>;
   /** 每个会话的 token 用量与上下文占用；随 usage 事件增量更新 */
   usageBySession: Record<string, SessionUsage>;
   /** 每个会话的输入草稿；切走再回来不丢，也不会串到别的会话 */
   draftsBySession: Record<string, string>;
   /** 每个会话是否正在流式运行（供会话列表并发指示、输入区按钮态） */
   streamingBySession: Record<string, boolean>;
+  /**
+   * 每个会话是否正在「停止中」。
+   *
+   * abort() 发出后进程可能还要几十毫秒到几秒才收尾；这段时间里不能再启动
+   * 新一轮，否则主进程会以「会话正在运行」拒绝。收到 agent:aborted 后复位。
+   */
+  stoppingBySession: Record<string, boolean>;
   /** 每个会话的暂存区：运行中继续发送的消息按顺序排在这里，本轮结束后自动发送 */
   queuedBySession: Record<string, QueuedMessage[]>;
   /** 正在回放历史的会话 id（供聊天区显示进度条；null 表示空闲） */
@@ -120,6 +132,8 @@ interface ChatState {
   // 会话
   loadSessions: () => Promise<void>;
   selectSession: (id: string) => Promise<void>;
+  /** 向前加载更早的一页消息；返回本次新增条数 */
+  loadEarlierMessages: (sessionId: string) => Promise<number>;
   renameSession: (id: string, title: string) => Promise<void>;
   deleteSession: (id: string) => Promise<void>;
   /** 置顶 / 取消置顶；只影响列表排序，不参与时间分组 */
@@ -166,9 +180,14 @@ interface ChatState {
   // 内部
   _onEvent: (payload: { sessionId: string; event: AgentEvent }) => void;
   _onDone: (data: { sessionId: string }) => void;
+  /** 中断的运行已真正收尾：复位运行态，但不自动消费暂存队列 */
+  _onAborted: (data: { sessionId: string }) => void;
 }
 
 const EMPTY: readonly Message[] = Object.freeze([]);
+
+/** 会话历史单页条数：与渲染层的首屏预算配合，200 条通常足够覆盖一屏上下文 */
+const SESSION_PAGE_SIZE = 200;
 
 /** 一次 usage 事件（整轮汇总或单次调用的上下文快照） */
 type UsageEvent = Extract<AgentEvent, { type: "usage" }>;
@@ -431,6 +450,7 @@ async function dispatchPrompt(
       [sessionId]: [...(s.messagesBySession[sessionId] ?? []), userMsg],
     },
     streamingBySession: { ...s.streamingBySession, [sessionId]: true },
+    stoppingBySession: { ...s.stoppingBySession, [sessionId]: false },
   }));
 
   // 本轮回答者：事件流回来时据此给新建的 assistant 消息打归属
@@ -496,9 +516,12 @@ export const useChatStore = create<ChatState>((set, get) => ({
   currentProjectId: null,
   currentSessionId: null,
   messagesBySession: {},
+  hasMoreBySession: {},
+  loadingEarlierBySession: {},
   usageBySession: {},
   draftsBySession: {},
   streamingBySession: {},
+  stoppingBySession: {},
   queuedBySession: {},
   loadingHistoryFor: null,
   selectedAgentId: "",
@@ -518,8 +541,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
   loadProjects: async () => {
     // 项目只作为「可绑定的工作目录」存在，不再自动选中第一个：
     // 新会话默认不绑定项目，用户需要时在输入框处选择。
-    const projects = await ipc.listProjects();
-    set({ projects, projectsLoaded: true });
+    try {
+      const projects = await ipc.listProjects();
+      set({ projects, projectsLoaded: true });
+    } catch (err) {
+      // 失败也要结束加载态，否则页面会永远停在骨架屏
+      set({ projectsLoaded: true });
+      throw err;
+    }
   },
 
   createProject: async (name, cwd) => {
@@ -537,14 +566,20 @@ export const useChatStore = create<ChatState>((set, get) => ({
       );
       const messagesBySession = { ...state.messagesBySession };
       const streamingBySession = { ...state.streamingBySession };
+      const stoppingBySession = { ...state.stoppingBySession };
       const usageBySession = { ...state.usageBySession };
+      const hasMoreBySession = { ...state.hasMoreBySession };
+      const loadingEarlierBySession = { ...state.loadingEarlierBySession };
       const draftsBySession = { ...state.draftsBySession };
       const queuedBySession = { ...state.queuedBySession };
       const employeeIdBySession = { ...state.employeeIdBySession };
       for (const sessionId of removed) {
         delete messagesBySession[sessionId];
         delete streamingBySession[sessionId];
+        delete stoppingBySession[sessionId];
         delete usageBySession[sessionId];
+        delete hasMoreBySession[sessionId];
+        delete loadingEarlierBySession[sessionId];
         delete draftsBySession[sessionId];
         delete queuedBySession[sessionId];
         delete employeeIdBySession[sessionId];
@@ -554,7 +589,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
         sessions: state.sessions.filter((s) => s.projectId !== id),
         messagesBySession,
         streamingBySession,
+        stoppingBySession,
         usageBySession,
+        hasMoreBySession,
+        loadingEarlierBySession,
         draftsBySession,
         queuedBySession,
         employeeIdBySession,
@@ -589,6 +627,20 @@ export const useChatStore = create<ChatState>((set, get) => ({
     if (!result) throw new Error("会话不存在");
     const { session, marker } = result;
 
+    /*
+     * 暂存队列绑定的是「旧工作区」里的任务。
+     *
+     * 主进程只在会话已有上下文时写分隔提示（marker），但队列与上下文无关：
+     * 中断后暂停的队列 + 换到一个没有上下文的新工作区时 marker 为空，
+     * 旧队列会留着，恢复发送就在新 cwd 下跑旧任务，可能写错文件。
+     * 所以只要 projectId 真的变了，队列一律作废。
+     */
+    const current = get();
+    const projectChanged = current.currentProjectId !== session.projectId;
+    const clearedQueueCount = projectChanged
+      ? (current.queuedBySession[sessionId] ?? []).length
+      : 0;
+
     set((s) => {
       const next: Partial<ChatState> = {
         currentProjectId: session.projectId,
@@ -620,6 +672,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
         const usage = { ...s.usageBySession };
         delete usage[sessionId];
         next.usageBySession = usage;
+      }
+
+      // 队列在「有分隔提示」或「工作区真的换了」时都要清（见上）
+      if ((marker || projectChanged) && s.queuedBySession[sessionId]) {
         const queued = { ...s.queuedBySession };
         delete queued[sessionId];
         next.queuedBySession = queued;
@@ -627,6 +683,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
       return next;
     });
+
+    if (clearedQueueCount > 0) {
+      toast.info("工作区已切换，暂存消息已清空", 4000);
+    }
   },
 
   newSession: () => {
@@ -662,8 +722,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
   // ==========================================================================
 
   loadSessions: async () => {
-    const sessions = await ipc.listSessions();
-    set({ sessions, sessionsLoaded: true });
+    try {
+      const sessions = await ipc.listSessions();
+      set({ sessions, sessionsLoaded: true });
+    } catch (err) {
+      // 失败也要结束加载态，否则会话列表会永远停在骨架屏
+      set({ sessionsLoaded: true });
+      throw err;
+    }
   },
 
   selectSession: async (id) => {
@@ -713,7 +779,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     // 否则 await 期间界面毫无反馈，用户会误以为没点上而反复点击。
     set({ loadingHistoryFor: id });
     try {
-      const session = await ipc.getSession(id);
+      const session = await ipc.getSession(id, { limit: SESSION_PAGE_SIZE });
       set((s) => {
         const history = session?.messages ?? [];
         const existing = s.messagesBySession[id];
@@ -727,6 +793,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
         const usage = summarizeUsage(merged);
         return {
           messagesBySession: { ...s.messagesBySession, [id]: merged },
+          hasMoreBySession: {
+            ...s.hasMoreBySession,
+            [id]: session?.hasMoreMessages ?? false,
+          },
           usageBySession: usage
             ? { ...s.usageBySession, [id]: usage }
             : s.usageBySession,
@@ -758,6 +828,53 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }
   },
 
+  loadEarlierMessages: async (sessionId) => {
+    if (get().loadingEarlierBySession[sessionId]) return 0;
+    const list = get().messagesBySession[sessionId] ?? [];
+    const oldest = list[0];
+    if (!oldest) return 0;
+
+    set((s) => ({
+      loadingEarlierBySession: {
+        ...s.loadingEarlierBySession,
+        [sessionId]: true,
+      },
+    }));
+    try {
+      const session = await ipc.getSession(sessionId, {
+        limit: SESSION_PAGE_SIZE,
+        before: oldest.timestamp,
+        beforeId: oldest.id,
+      });
+      const older = session?.messages ?? [];
+      const existingIds = new Set(list.map((message) => message.id));
+      const merged = [
+        ...older.filter((message) => !existingIds.has(message.id)),
+        ...list,
+      ];
+      const added = merged.length - list.length;
+      const usage = summarizeUsage(merged);
+      set((s) => ({
+        messagesBySession: { ...s.messagesBySession, [sessionId]: merged },
+        hasMoreBySession: {
+          ...s.hasMoreBySession,
+          [sessionId]: session?.hasMoreMessages ?? false,
+        },
+        ...(usage
+          ? { usageBySession: { ...s.usageBySession, [sessionId]: usage } }
+          : {}),
+      }));
+      return added;
+    } finally {
+      set((s) => ({
+        loadingEarlierBySession: {
+          ...s.loadingEarlierBySession,
+          [sessionId]: false,
+        },
+      }));
+    }
+  },
+
   renameSession: async (id, title) => {
     await ipc.renameSession(id, title);
     set((s) => ({
@@ -782,8 +899,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
       delete messagesBySession[id];
       const streamingBySession = { ...s.streamingBySession };
       delete streamingBySession[id];
+      const stoppingBySession = { ...s.stoppingBySession };
+      delete stoppingBySession[id];
       const usageBySession = { ...s.usageBySession };
       delete usageBySession[id];
+      const hasMoreBySession = { ...s.hasMoreBySession };
+      delete hasMoreBySession[id];
+      const loadingEarlierBySession = { ...s.loadingEarlierBySession };
+      delete loadingEarlierBySession[id];
       const draftsBySession = { ...s.draftsBySession };
       delete draftsBySession[id];
       const queuedBySession = { ...s.queuedBySession };
@@ -797,7 +920,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
         sessions: s.sessions.filter((se) => se.id !== id),
         messagesBySession,
         streamingBySession,
+        stoppingBySession,
         usageBySession,
+        hasMoreBySession,
+        loadingEarlierBySession,
         draftsBySession,
         queuedBySession,
         employeeIdBySession,
@@ -907,7 +1033,11 @@ export const useChatStore = create<ChatState>((set, get) => ({
        * 此时新消息应排在旧消息之后，避免打乱用户预期的顺序。
        */
       const queue = state.queuedBySession[currentId] ?? [];
-      if (state.streamingBySession[currentId] || queue.length > 0) {
+      if (
+        state.streamingBySession[currentId] ||
+        state.stoppingBySession[currentId] ||
+        queue.length > 0
+      ) {
         set((s) => ({
           queuedBySession: {
             ...s.queuedBySession,
@@ -970,10 +1100,34 @@ export const useChatStore = create<ChatState>((set, get) => ({
   abort: async (sessionId) => {
     const id = sessionId ?? get().currentSessionId;
     if (!id) return;
-    await ipc.abortAgent(id);
+
+    /*
+     * 先进入 stopping，等主进程把进程真正收尾（agent:aborted）后再回 idle。
+     * 如果直接置 streaming=false，用户马上发下一条会撞上仍在写库的上一轮，
+     * 主进程只能以「会话正在运行」拒绝。
+     */
+    set((s) => ({
+      stoppingBySession: { ...s.stoppingBySession, [id]: true },
+    }));
+
+    try {
+      const aborted = await ipc.abortAgent(id);
+      if (!aborted) {
+        // 没有命中运行中的会话（可能刚好自然结束）：立即恢复可发送状态
+        set((s) => ({
+          streamingBySession: { ...s.streamingBySession, [id]: false },
+          stoppingBySession: { ...s.stoppingBySession, [id]: false },
+        }));
+      }
+    } catch (err) {
+      set((s) => ({
+        stoppingBySession: { ...s.stoppingBySession, [id]: false },
+      }));
+      throw err;
+    }
+
     // 暂存区保持不动、且不自动开跑：用户点「停止」是明确的刹车，
     // 不应该马上又启动下一条。队列由输入区的「继续发送」恢复。
-    set((s) => ({ streamingBySession: { ...s.streamingBySession, [id]: false } }));
   },
 
   removeQueuedMessage: (id, sessionId) => {
@@ -1051,7 +1205,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
     if (event.type === "done") {
       flushPendingEvents();
       activeEmployeeBySession.delete(sessionId);
-      set((s) => ({ streamingBySession: { ...s.streamingBySession, [sessionId]: false } }));
+      set((s) => ({
+        streamingBySession: { ...s.streamingBySession, [sessionId]: false },
+        stoppingBySession: { ...s.stoppingBySession, [sessionId]: false },
+      }));
       drainQueue(sessionId);
       return;
     }
@@ -1076,7 +1233,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
     // 落库回填前必须先把缓冲里的增量应用完，否则会读到旧状态
     flushPendingEvents();
     activeEmployeeBySession.delete(data.sessionId);
-    set((s) => ({ streamingBySession: { ...s.streamingBySession, [data.sessionId]: false } }));
+    set((s) => ({
+      streamingBySession: { ...s.streamingBySession, [data.sessionId]: false },
+      stoppingBySession: { ...s.stoppingBySession, [data.sessionId]: false },
+    }));
 
     /*
      * 正常情况下不再回读整个会话。
@@ -1106,7 +1266,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
     void (async () => {
       try {
-        const session = await ipc.getSession(data.sessionId);
+        const session = await ipc.getSession(data.sessionId, {
+          limit: SESSION_PAGE_SIZE,
+        });
         // 期间用户可能已经发出下一条消息：此时不能覆盖新运行的实时状态
         if (session && !get().streamingBySession[data.sessionId]) {
           const history = session.messages ?? [];
@@ -1120,6 +1282,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
             messagesBySession: {
               ...s.messagesBySession,
               [data.sessionId]: history,
+            },
+            hasMoreBySession: {
+              ...s.hasMoreBySession,
+              [data.sessionId]: session.hasMoreMessages ?? false,
             },
             usageBySession: usage
               ? { ...s.usageBySession, [data.sessionId]: usage }
@@ -1141,6 +1307,23 @@ export const useChatStore = create<ChatState>((set, get) => ({
        */
       drainQueue(data.sessionId);
     });
+  },
+
+  _onAborted: (data: { sessionId: string }) => {
+    /*
+     * 用户中断的运行已经真正收尾（进程退出 + 消息落库完成）。
+     * 只复位运行态，不消费暂存队列：点「停止」是明确的刹车，
+     * 队列要等用户点「继续发送」才恢复。
+     */
+    flushPendingEvents();
+    activeEmployeeBySession.delete(data.sessionId);
+    set((s) => ({
+      streamingBySession: { ...s.streamingBySession, [data.sessionId]: false },
+      stoppingBySession: { ...s.stoppingBySession, [data.sessionId]: false },
+    }));
+    void get()
+      .loadSessions()
+      .catch((err) => console.warn("[chat] 会话列表刷新失败", err));
   },
 }));
 

@@ -36,10 +36,7 @@ import { useChatStore } from "../../stores/chat";
 import { useFileViewerStore } from "../../stores/fileViewer";
 import { useTerminalStore } from "../../stores/terminal";
 import { confirmDialog } from "../../stores/confirm";
-import {
-  requestComposerFocus,
-  requestWorkspaceMenu,
-} from "../../lib/chat-events";
+import { requestComposerFocus } from "../../lib/chat-events";
 import { clampMenuPosition } from "../../lib/popup";
 import { useDismissableLayer } from "../../hooks/useDismissableLayer";
 import { EmptyState } from "../ui/EmptyState";
@@ -154,6 +151,7 @@ function groupSessions(sessions: Session[], now = Date.now()): SessionGroup[] {
 
 export function SessionListPanel() {
   const sessions = useChatStore((s) => s.sessions);
+  const sessionsLoaded = useChatStore((s) => s.sessionsLoaded);
   const currentSessionId = useChatStore((s) => s.currentSessionId);
   const streamingBySession = useChatStore((s) => s.streamingBySession);
   const queuedBySession = useChatStore((s) => s.queuedBySession);
@@ -170,17 +168,15 @@ export function SessionListPanel() {
   const activateCenterTab = useFileViewerStore((s) => s.activateTab);
 
   /**
-   * 新建会话 = 先选工作区，再输入。
+   * 新建会话 = 直接开始输入。
    *
-   * 输入框常驻挂载，autoFocus 只在首次挂载时生效，点击按钮本身也不会把
-   * 焦点交给输入框；因此显式请求展开工作区选择器，由它接管焦点，
-   * 用户选定（或按 Esc 放弃）后再交还输入框。
-   * 同时切回「对话」标签：输入框被文件预览 / 终端盖住时选择器不可见。
+   * 工作区是可选的上下文，不再强制先选；需要时用输入框旁的选择器或
+   * `#` 快捷入口。同时切回「对话」标签，避免输入框被文件 / 终端盖住。
    */
   const startNewSession = () => {
     newSession();
     activateCenterTab(null);
-    requestWorkspaceMenu();
+    requestComposerFocus();
   };
 
   const groups = useMemo(() => groupSessions(sessions), [sessions]);
@@ -246,7 +242,9 @@ export function SessionListPanel() {
         />
       }
     >
-      {sessions.length === 0 ? (
+      {sessions.length === 0 && !sessionsLoaded ? (
+        <SessionListSkeleton />
+      ) : sessions.length === 0 ? (
         <EmptyState
           size="compact"
           icon={<MessageSquarePlus />}
@@ -538,6 +536,21 @@ function SessionRow({
           />
         </MenuPanel>
       )}
+    </div>
+  );
+}
+
+/** 首屏加载占位：避免冷启动时先闪一下「还没有会话」 */
+function SessionListSkeleton() {
+  return (
+    <div className="space-y-1.5 px-1 py-2" aria-label="正在加载会话列表">
+      {[0, 1, 2, 3, 4].map((item) => (
+        <div
+          key={item}
+          className="h-10 animate-pulse rounded-lg bg-surface-hover/60"
+          style={{ animationDelay: `${item * 60}ms` }}
+        />
+      ))}
     </div>
   );
 }

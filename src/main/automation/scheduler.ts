@@ -17,9 +17,21 @@
  */
 
 import type { AutomationTask } from "../../shared/types";
+import type { Emit } from "../../shared/contracts/ipc";
 import type { AgentService } from "../agents/agent-service";
 import * as db from "../db/sqlite";
-import { flushEvents, push } from "../ipc/push";
+
+/**
+ * 调度器的对外出口，由装配层注入。
+ *
+ * 与 AgentService 保持一致：本模块不感知 Electron / IPC，注入后可以脱离
+ * 窗口单测。flushEvents 单独给一份，是因为任务结束前必须把批量聚合的
+ * 流式事件冲掉，否则「完成」会先于最后几条事件到达渲染层。
+ */
+export interface SchedulerTransport {
+  emit: Emit;
+  flushEvents: () => void;
+}
 
 /** 轮询周期的兜底值（毫秒）：设置缺失或非法时使用 */
 const DEFAULT_POLL_INTERVAL_MS = 30000;
@@ -43,13 +55,6 @@ export interface AutomationScheduler {
   kick(): void;
 }
 
-/** 更新任务状态并推送变更 */
-function patchTask(id: string, patch: Parameters<typeof db.updateAutomationTask>[1]): void {
-  db.updateAutomationTask(id, patch);
-  const task = db.getAutomationTask(id);
-  if (task) push("automation:updated", task);
-}
-
 /** 读取轮询周期：来自设置（秒），非法值回退默认，并夹在硬下限内 */
 function pollIntervalMs(): number {
   const raw = db.getSetting("automationPollIntervalSec");
@@ -66,30 +71,44 @@ function concurrencyLimit(): number {
   return Math.min(Math.floor(n), MAX_CONCURRENCY);
 }
 
-/**
- * 清理上一个进程遗留的 running 任务。
- * 子进程随应用退出一同结束，所以启动瞬间不可能真的有任务在跑；
- * 不清理的话这些任务会永远停在「执行中」列转圈（既跑不了也停不下来）。
- */
-function recoverStuckTasks(): void {
-  for (const task of db.listAutomationTasks()) {
-    if (task.status !== "running") continue;
-    patchTask(task.id, {
-      status: "failed",
-      error: "应用已退出，执行被中断",
-      completedAt: Date.now(),
-    });
-  }
-}
-
-/** 基于给定 AgentService 创建一个轮询执行器 */
-export function createScheduler(agentService: AgentService): AutomationScheduler {
+/** 基于给定 AgentService 与出口创建一个轮询执行器 */
+export function createScheduler(
+  agentService: AgentService,
+  transport: SchedulerTransport,
+): AutomationScheduler {
+  const { emit, flushEvents } = transport;
   let timer: NodeJS.Timeout | null = null;
   let ticking = false;
   /** 正在执行的任务 id（并发上限据此计算剩余空位） */
   const running = new Set<string>();
   /** 已被用户请求停止的任务 id —— 防止 run 结束后覆写用户已看到的停止状态 */
   const stopping = new Set<string>();
+
+  /** 更新任务状态并推送变更 */
+  function patchTask(
+    id: string,
+    patch: Parameters<typeof db.updateAutomationTask>[1],
+  ): void {
+    db.updateAutomationTask(id, patch);
+    const task = db.getAutomationTask(id);
+    if (task) emit("automation:updated", task);
+  }
+
+  /**
+   * 清理上一个进程遗留的 running 任务。
+   * 子进程随应用退出一同结束，所以启动瞬间不可能真的有任务在跑；
+   * 不清理的话这些任务会永远停在「执行中」列转圈（既跑不了也停不下来）。
+   */
+  function recoverStuckTasks(): void {
+    for (const task of db.listAutomationTasks()) {
+      if (task.status !== "running") continue;
+      patchTask(task.id, {
+        status: "failed",
+        error: "应用已退出，执行被中断",
+        completedAt: Date.now(),
+      });
+    }
+  }
 
   function tick(): void {
     if (ticking) return;
@@ -170,7 +189,7 @@ export function createScheduler(agentService: AgentService): AutomationScheduler
     }
 
     db.touchSession(session.id, { countDelta: 1 });
-    push("agent:done", {
+    emit("agent:done", {
       sessionId: session.id,
       exitCode: outcome.exitCode,
       duration: outcome.duration,

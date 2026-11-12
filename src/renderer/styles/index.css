@@ -234,21 +234,35 @@ body {
 
 /* === 滚动条 ===
  *
- * 全站隐藏滚动条，但保留滚动能力（滚轮 / 触控板 / 键盘 / 拖动内容）。
- * 好处是面板与对话区不再被滚动条槽切掉一条边，纯白 / 纯黑表面能完整铺满；
- * 代价是失去「这里可以滚动」的静态提示，因此列表与消息区的留白要足够。
- *
- * 同时声明标准属性与 WebKit 伪元素：Electron 走 WebKit 分支，
- * 标准属性则避免将来切换内核时滚动条重新出现。
+ * 默认几乎不可见，悬停容器时浮出一条细滚动条：
+ * 既保留「这里可以滚动」的提示，又不让常驻滚动条槽切断纯色表面。
+ * Electron 走 WebKit 分支；标准属性兼容其它内核。
  */
 * {
-  scrollbar-width: none;
-  -ms-overflow-style: none;
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+}
+*:hover {
+  scrollbar-color: var(--c-scrollbar) transparent;
 }
 ::-webkit-scrollbar {
-  width: 0;
-  height: 0;
-  display: none;
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background-color: transparent;
+  border-radius: var(--c-radius-full);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+*:hover::-webkit-scrollbar-thumb {
+  background-color: var(--c-scrollbar);
+}
+::-webkit-scrollbar-thumb:hover {
+  background-color: var(--c-scrollbar-hover);
 }
 
 /* 隐藏滚动条但保留滚动能力：侧栏这类「滚动只是兜底」的容器用它，
@@ -616,6 +630,10 @@ body {
 .board-col[data-tone="running"] {
   --board-tone: var(--c-accent);
 }
+.board-col[data-tone="failed"] {
+  --board-tone: var(--c-error);
+}
+
 .board-col[data-tone="done"] {
   --board-tone: var(--c-success);
 }

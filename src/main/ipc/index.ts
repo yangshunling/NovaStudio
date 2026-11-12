@@ -14,6 +14,10 @@ import {
 } from "../workflow/runner";
 import { createScheduler, type AutomationScheduler } from "../automation/scheduler";
 import {
+  createTerminalManager,
+  type TerminalManager,
+} from "../terminal/manager";
+import {
   createTriggerScheduler,
   type TriggerScheduler,
 } from "../workflow/trigger-scheduler";
@@ -35,6 +39,7 @@ import { registerWorkflowRunHandlers } from "./handlers/workflow-run";
 import { purgeStaleWorkflowSessionFiles } from "../workflow/cleanup";
 import { registerTriggerHandlers } from "./handlers/trigger";
 import { registerTodoHandlers } from "./handlers/todo";
+import { registerReportHandlers } from "./handlers/report";
 import { registerPromptHandlers } from "./handlers/prompt";
 import { registerGitHandlers } from "./handlers/git";
 import { registerUpdaterHandlers } from "./handlers/updater";
@@ -51,6 +56,14 @@ let triggerScheduler: TriggerScheduler | null = null;
 
 /** Agent 服务实例；应用退出时需要中断所有运行中的会话 */
 let agentService: AgentService | null = null;
+
+/** 终端管理器；窗口关闭 / 渲染进程崩溃时需要回收全部 PTY */
+let terminalManager: TerminalManager | null = null;
+
+/** 回收全部终端进程（窗口销毁时调用） */
+export function stopTerminals(): void {
+  terminalManager?.stopAll();
+}
 
 /**
  * 把主进程推送绑定到窗口。
@@ -108,7 +121,8 @@ export function initIpcHandlers(window: BrowserWindow): void {
   registerSettingsHandlers();
   registerDialogHandlers();
   registerFileHandlers();
-  registerTerminalHandlers();
+  terminalManager = createTerminalManager(push);
+  registerTerminalHandlers(terminalManager);
   registerEmployeeHandlers(service, runner);
   registerMcpHandlers();
   registerSkillHandlers();
@@ -117,13 +131,14 @@ export function initIpcHandlers(window: BrowserWindow): void {
   registerWorkflowRunHandlers(service, runner);
   registerTriggerHandlers();
   registerTodoHandlers();
+  registerReportHandlers();
   registerPromptHandlers();
   registerGitHandlers();
   registerUpdaterHandlers();
   registerAppHandlers();
 
   // 调度器先于 handler 创建：停止任务的 handler 需要拿到调度器实例
-  scheduler = createScheduler(service);
+  scheduler = createScheduler(service, { emit: push, flushEvents });
   registerAutomationHandlers(service, scheduler);
   scheduler.start();
 
@@ -133,6 +148,13 @@ export function initIpcHandlers(window: BrowserWindow): void {
     emit: (trigger) => push("triggers:updated", trigger),
   });
   triggerScheduler.start();
+}
+
+/** 是否仍有需要保持全速运行的后台工作（聊天 / 自动化 / 工作流） */
+export function hasActiveBackgroundWork(): boolean {
+  return Boolean(
+    agentService?.hasRunningSessions() || workflowRunner?.hasActiveRuns(),
+  );
 }
 
 /** 停止后台任务（应用退出时调用，避免遗留定时器） */

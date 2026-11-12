@@ -12,7 +12,7 @@
     "verify:skins": "node scripts/verify-skin-tokens.mjs",
     "verify:type": "node scripts/verify-typography.mjs",
     "verify:type:strict": "node scripts/verify-typography.mjs --strict",
-    "test": "node --test tests/agent-events.test.ts tests/parse.test.ts tests/history.test.ts tests/protocol.test.ts tests/trigger-schedule.test.ts tests/graph.test.ts tests/mcp.test.ts tests/execution-report.test.ts tests/batch.test.ts tests/upgrade.test.ts tests/markdown-blocks.test.ts",
+    "test": "node --test tests/agent-events.test.ts tests/parse.test.ts tests/history.test.ts tests/protocol.test.ts tests/trigger-schedule.test.ts tests/graph.test.ts tests/mcp.test.ts tests/execution-report.test.ts tests/batch.test.ts tests/upgrade.test.ts tests/markdown-blocks.test.ts tests/report.test.ts",
     "package": "electron-vite build && electron-builder",
     "package:win": "electron-vite build && electron-builder --win",
     "package:win:publish": "electron-vite build && electron-builder --win --publish always"

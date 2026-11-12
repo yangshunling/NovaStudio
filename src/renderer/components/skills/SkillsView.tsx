@@ -440,9 +440,25 @@ function SkillDrawer({
     }
   };
 
+  /** 文件有未保存修改时，遮罩与 Esc 需要确认 */
+  const requestClose = async () => {
+    if (!dirty) {
+      onClose();
+      return;
+    }
+    const confirmed = await confirmDialog({
+      title: "放弃未保存的修改？",
+      message: "当前技能文件尚未保存。",
+      confirmLabel: "放弃修改",
+      tone: "danger",
+    });
+    if (confirmed) onClose();
+  };
+
   return (
     <Drawer
       onClose={onClose}
+      requestClose={requestClose}
       ariaLabel="技能详情"
       widthClass="w-[960px]"
     >
@@ -457,7 +473,7 @@ function SkillDrawer({
           </div>
           <div className="truncate ui-type-note text-text-muted">{skill.slug}</div>
         </div>
-        <DrawerCloseButton onClose={onClose} />
+        <DrawerCloseButton onClose={requestClose} />
       </DrawerHeader>
 
       <DrawerBody className="flex flex-col">

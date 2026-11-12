@@ -28,9 +28,11 @@ import {
 } from "@assistant-ui/react";
 import {
   Bug,
+  Copy,
   FileText,
   FolderTree,
   ListChecks,
+  RotateCcw,
   Sparkles,
   AlertTriangle,
 } from "lucide-react";
@@ -45,6 +47,8 @@ import {
 } from "../../stores/chat";
 import { useEmployeesStore } from "../../stores/employees";
 import { REVEAL_MESSAGE_EVENT } from "../../lib/chat-events";
+import { formatJson, toMessage } from "../../lib/utils";
+import { toast } from "../../stores/toast";
 import { CHAT_VIEWPORT_ID, scrollToMessage } from "../../lib/chat-scroll";
 import { StreamingMarkdown } from "../ui/MarkdownRenderer";
 import {
@@ -176,6 +180,17 @@ const ASSISTANT_PART_COMPONENTS = {
 /** system 消息只有纯文本，保持引用稳定以命中 assistant-ui 的 components 缓存 */
 const SYSTEM_PART_COMPONENTS = { Text: SystemTextPart };
 
+/**
+ * ThreadPrimitive.Messages 的组件表同样必须保持引用稳定。
+ * 内联对象会让 assistant-ui 在每次渲染时认为消息级组件变了，
+ * 从而跳过它对单条消息的缓存。
+ */
+const THREAD_MESSAGE_COMPONENTS = {
+  UserMessage,
+  AssistantMessage,
+  SystemMessage,
+};
+
 export function AssistantMessageList({
   onSuggestion,
 }: {
@@ -217,6 +232,8 @@ export function AssistantMessageList({
   }));
   /** 载入更早前的高度，用于抵消前插造成的滚动跳变 */
   const prependHeightRef = useRef<number | null>(null);
+  /** 远程分页前插后强制触发一次高度校正（start 可能本来就是 0） */
+  const [prependVersion, setPrependVersion] = useState(0);
   /** 需要展开窗口后滚动到的消息 id（问题导航点击未挂载消息时） */
   const revealIdRef = useRef<string | null>(null);
 
@@ -237,6 +254,15 @@ export function AssistantMessageList({
       ? messageWindow.start
       : defaultStart;
   const start = clamp(baseStart, 0, Math.max(0, total - 1));
+  const hasMore = useChatStore((s) =>
+    s.currentSessionId ? !!s.hasMoreBySession[s.currentSessionId] : false,
+  );
+  const loadingEarlier = useChatStore((s) =>
+    s.currentSessionId
+      ? !!s.loadingEarlierBySession[s.currentSessionId]
+      : false,
+  );
+  const loadEarlierMessages = useChatStore((s) => s.loadEarlierMessages);
   const visibleMessages = useMemo(
     () => messages.slice(start),
     [messages, start],
@@ -325,14 +351,36 @@ export function AssistantMessageList({
     const viewport = document.getElementById(CHAT_VIEWPORT_ID);
     if (!viewport) return;
     viewport.scrollTop += viewport.scrollHeight - previousHeight;
-  }, [start]);
+  }, [start, prependVersion]);
 
   const loadEarlier = () => {
-    if (start <= 0) return;
     const viewport = document.getElementById(CHAT_VIEWPORT_ID);
     prependHeightRef.current = viewport?.scrollHeight ?? null;
-    // 一次只展开「预算内」的一段：几屏很长的消息不会在点击时造成长卡顿
-    setWindowStart((base) => earlierStartFor(messages, base));
+
+    if (start > 0) {
+      // 本地窗口里还有更早的消息：按预算继续展开
+      setWindowStart((base) => earlierStartFor(messages, base));
+      return;
+    }
+
+    if (!hasMore || loadingEarlier || !currentSessionId) {
+      prependHeightRef.current = null;
+      return;
+    }
+
+    // 本地窗口已经到底：向主进程取更早的一页
+    void loadEarlierMessages(currentSessionId)
+      .then((added) => {
+        if (added > 0) {
+          setMessageWindow({ sessionId: currentSessionId, start: 0 });
+          setPrependVersion((value) => value + 1);
+        } else {
+          prependHeightRef.current = null;
+        }
+      })
+      .catch(() => {
+        prependHeightRef.current = null;
+      });
   };
 
   /*
@@ -372,27 +420,22 @@ export function AssistantMessageList({
           id={CHAT_VIEWPORT_ID}
           className="ui-chat-scale ui-chat-gutter h-full overflow-y-auto py-4"
         >
-          {start > 0 && (
+          {(start > 0 || hasMore) && (
             <div className="flex justify-center pb-3">
               <button
                 type="button"
                 onClick={loadEarlier}
-                className="rounded-full border border-border/60 bg-surface-2/40 px-3 py-1 ui-type-note text-text-secondary transition-colors hover:border-accent/40 hover:text-accent"
+                disabled={loadingEarlier}
+                className="rounded-full border border-border/60 bg-surface-2/40 px-3 py-1 ui-type-note text-text-secondary transition-colors hover:border-accent/40 hover:text-accent disabled:cursor-not-allowed disabled:opacity-50"
               >
-                载入更早的消息
+                {loadingEarlier ? "正在载入更早的消息…" : "载入更早的消息"}
               </button>
             </div>
           )}
           <ThreadPrimitive.Empty>
             <ThreadEmpty onSuggestion={onSuggestion} />
           </ThreadPrimitive.Empty>
-          <ThreadPrimitive.Messages
-            components={{
-              UserMessage: UserMessage,
-              AssistantMessage: AssistantMessage,
-              SystemMessage: SystemMessage,
-            }}
-          />
+          <ThreadPrimitive.Messages components={THREAD_MESSAGE_COMPONENTS} />
         </ThreadPrimitive.Viewport>
       </ThreadPrimitive.Root>
     </AssistantRuntimeProvider>
@@ -670,10 +713,58 @@ function ToolPart(props: ToolCallMessagePartProps) {
 }
 
 function ErrorPart(props: DataMessagePartProps<{ message: string }>) {
+  const retry = () => {
+    const state = useChatStore.getState();
+    const sessionId = state.currentSessionId;
+    if (!sessionId) {
+      toast.error("当前没有可重试的会话");
+      return;
+    }
+    const messages = state.messagesBySession[sessionId] ?? [];
+    const lastUser = [...messages].reverse().find((item) => item.role === "user");
+    const text = lastUser ? textFromEvents(lastUser.content) : "";
+    if (!text) {
+      toast.error("没有找到可重试的用户消息");
+      return;
+    }
+    void state.sendMessage(text).catch((err) => {
+      toast.error(toMessage(err), 5000);
+    });
+  };
+
+  const copy = () => {
+    void navigator.clipboard
+      .writeText(props.data.message)
+      .then(() => toast.success("错误信息已复制"))
+      .catch(() => toast.error("复制失败"));
+  };
+
   return (
     <div className="flex items-start gap-2.5 rounded-xl border border-error/30 bg-error-bg/70 px-3.5 py-2.5 ui-type-body text-error">
       <Bug className="mt-0.5 h-4 w-4 shrink-0" />
-      <span className="min-w-0">{props.data.message}</span>
+      <span className="min-w-0 flex-1 whitespace-pre-wrap">
+        {props.data.message}
+      </span>
+      <span className="flex shrink-0 items-center gap-0.5">
+        <button
+          type="button"
+          onClick={retry}
+          title="重试上一条消息"
+          aria-label="重试上一条消息"
+          className="rounded-sm p-1 text-error/80 transition-colors hover:bg-error/10 hover:text-error"
+        >
+          <RotateCcw className="h-3.5 w-3.5" />
+        </button>
+        <button
+          type="button"
+          onClick={copy}
+          title="复制错误信息"
+          aria-label="复制错误信息"
+          className="rounded-sm p-1 text-error/80 transition-colors hover:bg-error/10 hover:text-error"
+        >
+          <Copy className="h-3.5 w-3.5" />
+        </button>
+      </span>
     </div>
   );
 }
@@ -765,7 +856,7 @@ function assistantParts(
           toolCallId: event.callId ?? `${message.id}-tool-${parts.length}`,
           toolName: event.name,
           args: asJSONObject(event.input),
-          argsText: toolArgsText(event.input),
+          argsText: formatJson(event.input),
           providerMetadata: {
             nova: {
               kind: event.kind,
@@ -847,27 +938,6 @@ function findOpenTool(parts: any[], name: string, callId?: string): number {
   return -1;
 }
 
-/**
- * tool_call 参数的格式化文本。
- *
- * convertMessage 在每个流式刷新周期都会重建整条消息的 parts，而工具参数
- * 对象（event.input）本身是复用的。按对象缓存序列化结果，避免对同一份
- * 参数反复 stringify —— 大文件编辑参数可达数十 KB。WeakMap 不阻止回收。
- */
-const ARGS_TEXT_CACHE = new WeakMap<object, string>();
-
-function toolArgsText(input: unknown): string {
-  if (input && typeof input === "object") {
-    const key = input as object;
-    const cached = ARGS_TEXT_CACHE.get(key);
-    if (cached !== undefined) return cached;
-    const text = JSON.stringify(input, null, 2);
-    ARGS_TEXT_CACHE.set(key, text);
-    return text;
-  }
-  return JSON.stringify(input ?? {}, null, 2);
-}
-
 function textFromEvents(events: AgentEvent[]): string {
   return events
     .filter((event): event is Extract<AgentEvent, { type: "text" }> => event.type === "text")
@@ -926,9 +996,5 @@ function stringifyToolResult(result: unknown): string {
   ) {
     return (result as { output: string }).output;
   }
-  try {
-    return JSON.stringify(result, null, 2);
-  } catch {
-    return String(result);
-  }
+  return formatJson(result);
 }

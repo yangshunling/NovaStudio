@@ -276,10 +276,43 @@ async function scanRoot(
   return result;
 }
 
+/**
+ * 资产目录缓存。
+ *
+ * 技能扫描会逐个目录 stat + 读 SKILL.md；切换资产页 / 员工绑定页 / @ 提及
+ * 都会触发 listSkills，短时间内的重复扫描没有意义。TTL 内直接复用结果，
+ * 写操作后主动失效。
+ */
+let skillsCache: { at: number; items: SkillAsset[] } | null = null;
+let skillsInFlight: Promise<SkillAsset[]> | null = null;
+const SKILLS_CACHE_TTL_MS = 3000;
+
+export function invalidateSkillsCache(): void {
+  skillsCache = null;
+}
+
 /** 扫描技能目录，按名称排序 */
-export async function listSkills(): Promise<SkillAsset[]> {
+async function scanSkills(): Promise<SkillAsset[]> {
   const skills = await scanRoot(claudeSkillsDir(), "claude-global");
   return skills.sort((a, b) => a.slug.localeCompare(b.slug));
+}
+
+export function listSkills(): Promise<SkillAsset[]> {
+  if (skillsCache && Date.now() - skillsCache.at < SKILLS_CACHE_TTL_MS) {
+    return Promise.resolve(skillsCache.items);
+  }
+  if (skillsInFlight) return skillsInFlight;
+
+  const run = scanSkills()
+    .then((items) => {
+      skillsCache = { at: Date.now(), items };
+      return items;
+    })
+    .finally(() => {
+      skillsInFlight = null;
+    });
+  skillsInFlight = run;
+  return run;
 }
 
 /** 按 id 取单个资产；供 IPC 层打开目录等操作复用 */
@@ -438,6 +471,7 @@ export async function importSkillsFromPath(
     };
   }
 
+  invalidateSkillsCache();
   const wanted = new Set(importedPaths);
   const imported = (await listSkills()).filter((skill) => wanted.has(skill.path));
   return { ok: true, imported };
@@ -452,6 +486,7 @@ export async function deleteSkill(id: string): Promise<boolean> {
   if (!asset) return false;
 
   await rm(asset.path, { recursive: true, force: true });
+  invalidateSkillsCache();
   return true;
 }
 
@@ -567,6 +602,7 @@ export async function writeSkillFile(
   );
   if (!written.ok) return written;
 
+  invalidateSkillsCache();
   const updated = await getSkillAsset(id);
   return updated
     ? { ok: true, asset: updated }

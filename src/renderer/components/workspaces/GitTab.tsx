@@ -13,8 +13,10 @@
  */
 
 import {
+  forwardRef,
   memo,
   useEffect,
+  useImperativeHandle,
   useLayoutEffect,
   useMemo,
   useRef,
@@ -159,7 +161,15 @@ export function GitTab({
   const hasDiff = useMemo(() => diff.trim().length > 0, [diff]);
 
   const [busy, setBusy] = useState<string | null>(null);
-  const [message, setMessage] = useState("");
+  /**
+   * 提交正文由 CommitTextarea 自己持有。
+   * 之前它挂在 GitTab 根状态上，每敲一个字都会重渲染变更列表 / 提交历史 /
+   * diff 区域；这里只同步一个「是否为空」的布尔值。
+   */
+  const [hasMessage, setHasMessage] = useState(false);
+  const commitTextRef = useRef<CommitTextareaHandle>(null);
+  /** canCommit 依赖 hasMessage；键盘快捷键可能在状态提交前触发，用 ref 取最新值 */
+  const canCommitRef = useRef(false);
   const [commitError, setCommitError] = useState<string | null>(null);
   const [commitOutput, setCommitOutput] = useState<string | null>(null);
   /** 自动生成提交信息：独立于 busy，避免生成期间锁住整个 Git 面板 */
@@ -174,7 +184,6 @@ export function GitTab({
   const [newBranchOpen, setNewBranchOpen] = useState(false);
   const [newBranchName, setNewBranchName] = useState("");
   const commitBoxRef = useRef<HTMLDivElement>(null);
-  const commitInputRef = useRef<HTMLTextAreaElement>(null);
   /** 生成请求返回时用来确认工作区没被切走 */
   const projectIdRef = useRef(project.id);
 
@@ -215,7 +224,7 @@ export function GitTab({
   const conflicted = useMemo(() => conflictedFiles(status), [status]);
   const changes = status?.available ? status.files.length : 0;
   const canCommit =
-    Boolean(message.trim()) &&
+    hasMessage &&
     staged.length > 0 &&
     !busy &&
     !generatingMessage &&
@@ -228,18 +237,6 @@ export function GitTab({
     !busy &&
     !generatingMessage &&
     status?.available === true;
-
-  /**
-   * 提交框与会话页输入框一致：未输入时只占一行，随内容自动增高，
-   * 超过 max-h-48 后在框内滚动。
-   */
-  useLayoutEffect(() => {
-    const textarea = commitInputRef.current;
-    if (!textarea) return;
-    textarea.style.height = "auto";
-    textarea.style.height =
-      textarea.scrollHeight > 0 ? `${textarea.scrollHeight}px` : "";
-  }, [message]);
 
   // 提交 / 暂存后文件可能从列表消失：把已经不存在的勾选剔除
   useEffect(() => {
@@ -373,10 +370,13 @@ export function GitTab({
     }
   }, [status, selected]);
 
+  const clearCommitText = () => {
+    commitTextRef.current?.setText("");
+    setHasMessage(false);
+  };
+
   const focusCommitBox = () => {
-    requestAnimationFrame(() => {
-      commitBoxRef.current?.querySelector("textarea")?.focus();
-    });
+    requestAnimationFrame(() => commitTextRef.current?.focus());
   };
 
   // ==========================================================================
@@ -393,7 +393,7 @@ export function GitTab({
       }
       toast.success(`已切换到 ${branch}`);
       setSelected(null);
-      setMessage("");
+      clearCommitText();
       setCommitError(null);
       onAfterMutation();
     } catch (err) {
@@ -428,7 +428,7 @@ export function GitTab({
       setNewBranchOpen(false);
       setNewBranchName("");
       setSelected(null);
-      setMessage("");
+      clearCommitText();
       onAfterMutation();
     } catch (err) {
       toast.error(toMessage(err), 5000);
@@ -538,7 +538,7 @@ export function GitTab({
       }
       toast.success(deleteOnly ? "已删除文件" : "已放弃修改");
       setSelected(null);
-      setMessage("");
+      clearCommitText();
       setCommitError(null);
       setCommitOutput(null);
       setStagePicks(new Set());
@@ -565,7 +565,7 @@ export function GitTab({
       }
       toast.success("已继续 Git 操作");
       setSelected(null);
-      setMessage("");
+      clearCommitText();
       setCommitError(null);
       setCommitOutput(null);
       setStagePicks(new Set());
@@ -602,7 +602,7 @@ export function GitTab({
       }
       toast.success(isBisect ? "已结束二分查找" : "已中止 Git 操作");
       setSelected(null);
-      setMessage("");
+      clearCommitText();
       setCommitError(null);
       setCommitOutput(null);
       setStagePicks(new Set());
@@ -618,7 +618,7 @@ export function GitTab({
   /** 根据已暂存差异生成提交信息；已有草稿时先确认再覆盖 */
   const generateMessage = async () => {
     if (!canGenerate) return;
-    if (message.trim()) {
+    if ((commitTextRef.current?.getText() ?? "").trim()) {
       const confirmed = await confirmDialog({
         title: "替换当前提交信息？",
         message: "自动生成的内容会覆盖已经输入的文字。",
@@ -638,8 +638,9 @@ export function GitTab({
         toast.error(result.error ?? "生成提交信息失败", 6000);
         return;
       }
-      setMessage(result.message);
-      requestAnimationFrame(() => commitInputRef.current?.focus());
+      commitTextRef.current?.setText(result.message);
+      setHasMessage(Boolean(result.message.trim()));
+      requestAnimationFrame(() => commitTextRef.current?.focus());
     } catch (err) {
       if (projectIdRef.current === projectId) {
         toast.error(toMessage(err), 5000);
@@ -649,8 +650,11 @@ export function GitTab({
     }
   };
 
+  canCommitRef.current = canCommit;
+
   const commit = async () => {
-    if (!canCommit) return;
+    const message = commitTextRef.current?.getText() ?? "";
+    if (!canCommitRef.current || !message.trim()) return;
     setBusy("commit");
     setCommitError(null);
     setCommitOutput(null);
@@ -662,7 +666,7 @@ export function GitTab({
         return;
       }
       toast.success("提交成功");
-      setMessage("");
+      clearCommitText();
       setSelected(null);
       onRefresh();
 
@@ -1280,22 +1284,10 @@ export function GitTab({
             >
               <div className="mx-auto w-full max-w-[var(--c-layout-content)]">
                 <div className="rounded-input border border-border/80 bg-input-bg px-3 py-2 shadow-[var(--c-shadow-sm)] transition-[border-color,box-shadow] focus-within:border-accent/40 focus-within:shadow-[0_0_0_3px_var(--c-accent-soft)]">
-                  <textarea
-                    ref={commitInputRef}
-                    value={message}
-                    onChange={(event) => setMessage(event.target.value)}
-                    onKeyDown={(event) => {
-                      if (
-                        (event.metaKey || event.ctrlKey) &&
-                        event.key === "Enter"
-                      ) {
-                        event.preventDefault();
-                        void commit();
-                      }
-                    }}
-                    placeholder="描述这次变更…"
-                    rows={1}
-                    className="max-h-48 min-h-[40px] w-full resize-none bg-transparent px-1.5 py-1 ui-type-item leading-relaxed text-text placeholder-text-muted outline-none"
+                  <CommitTextarea
+                    ref={commitTextRef}
+                    onSubmit={() => void commit()}
+                    onNonEmptyChange={setHasMessage}
                   />
 
                   {checkoutAfterCommit && (
@@ -1328,7 +1320,7 @@ export function GitTab({
                         ? "正在根据暂存差异生成提交信息…"
                         : staged.length === 0
                           ? "先在左侧勾选要提交的文件"
-                          : message.trim()
+                          : hasMessage
                             ? `将提交 ${staged.length} 个文件`
                             : "填写提交信息后即可提交"}
                     </span>
@@ -2275,3 +2267,72 @@ function parentPath(relativePath: string): string {
   const index = relativePath.lastIndexOf("/");
   return index >= 0 ? relativePath.slice(0, index) : "";
 }
+
+// ============================================================================
+// 提交正文输入框
+// ============================================================================
+
+interface CommitTextareaHandle {
+  getText(): string;
+  setText(value: string): void;
+  focus(): void;
+}
+
+/**
+ * 提交正文独立成受控组件：打字只重渲染这一个 textarea，
+ * 不再触发 GitTab 根状态与变更列表 / diff 的整页更新。
+ */
+const CommitTextarea = memo(
+  forwardRef<
+    CommitTextareaHandle,
+    { onSubmit: () => void; onNonEmptyChange: (nonEmpty: boolean) => void }
+  >(function CommitTextarea({ onSubmit, onNonEmptyChange }, ref) {
+    const [value, setValue] = useState("");
+    const textareaRef = useRef<HTMLTextAreaElement>(null);
+    const nonEmptyRef = useRef(false);
+
+    const update = (next: string) => {
+      setValue(next);
+      const nonEmpty = Boolean(next.trim());
+      if (nonEmpty !== nonEmptyRef.current) {
+        nonEmptyRef.current = nonEmpty;
+        onNonEmptyChange(nonEmpty);
+      }
+    };
+
+    useImperativeHandle(
+      ref,
+      () => ({
+        getText: () => value,
+        setText: (next: string) => update(next),
+        focus: () => textareaRef.current?.focus(),
+      }),
+      [value],
+    );
+
+    useLayoutEffect(() => {
+      const textarea = textareaRef.current;
+      if (!textarea) return;
+      textarea.style.height = "auto";
+      textarea.style.height =
+        textarea.scrollHeight > 0 ? `${textarea.scrollHeight}px` : "";
+    }, [value]);
+
+    return (
+      <textarea
+        ref={textareaRef}
+        value={value}
+        onChange={(event) => update(event.target.value)}
+        onKeyDown={(event) => {
+          if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+            event.preventDefault();
+            onSubmit();
+          }
+        }}
+        placeholder="描述这次变更…"
+        rows={1}
+        className="max-h-48 min-h-[40px] w-full resize-none bg-transparent px-1.5 py-1 ui-type-item leading-relaxed text-text placeholder-text-muted outline-none"
+      />
+    );
+  }),
+);

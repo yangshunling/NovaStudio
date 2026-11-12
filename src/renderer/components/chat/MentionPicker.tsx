@@ -747,6 +747,8 @@ export function useMention({
   // ---- textarea onKeyDown：导航 / 选择 / 返回 / 关闭 ----
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent): boolean => {
+      // 输入法组合期间的 Enter / 方向键属于候选词选择，不能被弹窗消费
+      if (e.nativeEvent.isComposing || e.keyCode === 229) return false;
       if (!active) return false;
 
       // 查询为空时退格返回上一级（子目录 → 父目录 → 类型层）
@@ -801,6 +803,16 @@ export function useMention({
     setReferences([]);
   }, []);
 
+  /**
+   * 还原引用快照。
+   *
+   * 发送前置失败（会话创建失败、Agent 未安装）时消息并没有真正发出，
+   * 已清空的引用标签必须还回去，否则用户要重新挑一遍文件 / 技能 / 知识库。
+   */
+  const restoreReferences = useCallback((snapshot: MentionReference[]) => {
+    setReferences(snapshot);
+  }, []);
+
   return {
     active,
     /** 弹窗层级：类型层 / 条目层（员工列表按条目层渲染，但没有返回） */
@@ -821,6 +833,7 @@ export function useMention({
     selectEntry,
     removeReference,
     clearReferences,
+    restoreReferences,
   };
 }
 

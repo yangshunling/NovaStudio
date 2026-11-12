@@ -14,6 +14,7 @@ import type {
   AgentEvent,
   DigitalEmployee,
   Message,
+  Session,
   SessionOptions,
 } from "../../shared/types";
 import type {
@@ -123,6 +124,40 @@ export interface PreparedAgentRun {
   };
 }
 
+/**
+ * 聊天运行时的宿主路径。
+ *
+ * 由宿主分配，provider 不得自行推导 —— 同一 Agent 的会话数据必须始终
+ * 落在宿主指定的目录里，才能保证历史回放与 --resume 可定位。
+ */
+export interface ChatRuntimePaths {
+  /** 会话运行时根目录（provider 可在此创建自己的 home 子目录） */
+  root: string;
+  /** 所有 home 共享的 CLI 会话数据目录 */
+  projectsDir: string;
+}
+
+/** 一次聊天运行的环境准备输入 */
+export interface ChatRuntimeInput {
+  session: Session;
+  /** 本轮回答者；null 表示通用助手（不绑定员工） */
+  employee: DigitalEmployee | null;
+  paths: ChatRuntimePaths;
+  /**
+   * send：发送前完整准备（含系统提示词 / 知识库）；
+   * materialize：仅提前物化目录（切换员工时使用），可跳过知识库扫描。
+   */
+  purpose?: "send" | "materialize";
+}
+
+/** provider 为一次聊天运行准备好的环境 */
+export interface PreparedChatRun extends PreparedAgentRun {
+  /** 本轮使用的 CLI 配置目录；聊天运行时必须有确定的目录 */
+  configDir: string;
+  /** 本轮系统提示词（含员工人设 / 知识库） */
+  systemPrompt?: string;
+}
+
 /** 一次运行的终态 */
 export interface RunResult {
   exitCode: number;
@@ -163,6 +198,20 @@ export interface CompleteOptions {
   prompt: string;
   cwd: string;
   timeoutMs?: number;
+  /**
+   * 增量输出回调。
+   *
+   * provider 支持流式输出时逐段回传，调用方可以据此展示进度；
+   * 不支持时忽略即可，最终文本仍以 complete() 的返回值为准。
+   */
+  onChunk?: (chunk: string) => void;
+  /**
+   * 取消信号。
+   *
+   * abort 后 provider 应尽快终止子进程并 reject；调用方据 signal.aborted
+   * 区分「用户取消」与「真正的失败」。
+   */
+  signal?: AbortSignal;
 }
 
 export interface AgentProvider {
@@ -203,6 +252,20 @@ export interface AgentProvider {
   prepareRun?(
     input: AgentRunInput,
   ): PreparedAgentRun | Promise<PreparedAgentRun>;
+
+  /**
+   * 为一次聊天运行准备 provider 专属环境。
+   *
+   * 聊天与工作流的环境形态不同：聊天需要一份可持续复用的会话 home
+   * （多员工切换时共享同一份 CLI 会话数据），工作流节点则是一次性投影。
+   * 因此单独提供该能力，避免宿主直接感知 CLAUDE_CONFIG_DIR / mcp.json
+   * 等具体 CLI 细节。
+   *
+   * 缺省表示该 Agent 不需要会话级运行时，宿主直接沿用 CLI 默认配置。
+   */
+  prepareChatRun?(
+    input: ChatRuntimeInput,
+  ): PreparedChatRun | Promise<PreparedChatRun>;
 
   /** 发起一次对话（新建或恢复由 opts.sessionRef 决定） */
   start(opts: RunOptions): RunSession;

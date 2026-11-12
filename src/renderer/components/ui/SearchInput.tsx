@@ -55,6 +55,7 @@ export function SearchInput({
           type="button"
           onClick={() => onChange("")}
           title="清除搜索"
+          aria-label="清除搜索"
           className="shrink-0 rounded-full p-0.5 text-text-muted transition-colors hover:text-text"
         >
           <X className={md ? "h-3.5 w-3.5" : "h-3 w-3"} />

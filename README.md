@@ -1,8 +1,5 @@
 <p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="resources/banner-dark.svg">
-    <img src="resources/banner-light.svg" alt="Nova Studio——一个窗口，管理你的整个 AI 数字团队" width="100%">
-  </picture>
+  <img src="resources/banner-dark.svg" alt="Nova Studio——一个窗口，管理你的整个 AI 数字团队" width="100%">
 </p>
 
 <p align="center">

@@ -14,6 +14,7 @@ import type {
   SendAgentResult,
 } from "@shared/contracts/ipc";
 import type { AgentAuthMode, AgentSettingsDraft } from "@shared/contracts/agent";
+import type { WeeklyReportOptions } from "@shared/report";
 import type {
   AppSettings,
   DigitalEmployeeDraft,
@@ -149,7 +150,10 @@ export const ipc = {
     call("session:setEmployee", { sessionId, employeeId }),
   listSessions: () => call("session:list"),
   getDefaultCwd: () => call("session:defaultCwd"),
-  getSession: (id: string) => call("session:get", { id }),
+  getSession: (
+    id: string,
+    options?: { limit?: number; before?: number; beforeId?: string },
+  ) => call("session:get", { id, ...options }),
   renameSession: (id: string, title: string) => call("session:rename", { id, title }),
   deleteSession: (id: string) => call("session:delete", { id }),
   setSessionPinned: (id: string, pinned: boolean) =>
@@ -310,6 +314,18 @@ export const ipc = {
   clearCompletedTodos: () => call("todos:clearCompleted"),
   reorderTodos: (ids: string[]) => call("todos:reorder", { ids }),
 
+  // === 周报 ===
+  generateWeeklyReport: (
+    requestId: string,
+    start: number,
+    end: number,
+    options: WeeklyReportOptions,
+  ) => call("report:generate", { requestId, start, end, options }),
+  abortWeeklyReport: (requestId: string) =>
+    call("report:abort", { requestId }),
+  exportReport: (content: string, defaultName: string) =>
+    call("report:export", { content, defaultName }),
+
   // === 常用提示词 ===
   listPrompts: () => call("prompts:list"),
   createPrompt: (draft: PromptDraft) => call("prompts:create", { draft }),
@@ -322,6 +338,8 @@ export const ipc = {
     agentEvent: (cb: (payload: IpcPushMap["agent:event"]) => void) =>
       on("agent:event", cb),
     agentDone: (cb: (payload: IpcPushMap["agent:done"]) => void) => on("agent:done", cb),
+    agentAborted: (cb: (payload: IpcPushMap["agent:aborted"]) => void) =>
+      on("agent:aborted", cb),
     agentsDetected: (cb: (payload: IpcPushMap["agents:detected"]) => void) =>
       on("agents:detected", cb),
     agentUpgradeProgress: (
@@ -343,6 +361,8 @@ export const ipc = {
       on("triggers:updated", cb),
     todosChanged: (cb: (payload: IpcPushMap["todos:changed"]) => void) =>
       on("todos:changed", cb),
+    reportChunk: (cb: (payload: IpcPushMap["report:chunk"]) => void) =>
+      on("report:chunk", cb),
     updaterChanged: (cb: (payload: IpcPushMap["updater:changed"]) => void) =>
       on("updater:changed", cb),
   },

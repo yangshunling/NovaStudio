@@ -82,6 +82,9 @@ export function KnowledgeView() {
   const [docsError, setDocsError] = useState<string | null>(null);
   const [selectedPaths, setSelectedPaths] = useState<Set<string>>(new Set());
   const [version, setVersion] = useState(0);
+  /** 文档表可能很多，先展示 50 条，按需加载更多 */
+  const [visibleDocCount, setVisibleDocCount] = useState(50);
+  const visibleDocuments = documents.slice(0, visibleDocCount);
 
   const [query, setQuery] = useState("");
   const [scopeAll, setScopeAll] = useState(false);
@@ -150,6 +153,10 @@ export function KnowledgeView() {
     return () => {
       cancelled = true;
     };
+  }, [selectedId, subPath, version]);
+
+  useEffect(() => {
+    setVisibleDocCount(50);
   }, [selectedId, subPath, version]);
 
   // 全文检索：防抖 250ms；查询为空时回到文档列表
@@ -518,7 +525,7 @@ export function KnowledgeView() {
                   />
                 ) : (
                   <div className="overflow-hidden rounded-xl border border-border/60 bg-surface-2/40 shadow-[var(--c-shadow-sm)]">
-                    <div className="sticky top-0 z-10 grid grid-cols-[28px_minmax(0,1fr)_90px_130px_36px] items-center gap-3 border-b border-border/60 bg-surface-2/85 px-3.5 py-2.5 ui-type-sub font-semibold text-text-muted backdrop-blur-sm">
+                    <div className="sticky top-0 z-10 grid grid-cols-[28px_minmax(0,1fr)_90px_130px_36px] items-center gap-3 border-b border-border/60 bg-surface-2/95 px-3.5 py-2.5 ui-type-sub font-semibold text-text-muted">
                       <input
                         type="checkbox"
                         checked={allSelected}
@@ -541,7 +548,7 @@ export function KnowledgeView() {
                       <span />
                     </div>
 
-                    {documents.map((document) => {
+                    {visibleDocuments.map((document) => {
                       const checked = selectedPaths.has(document.relativePath);
                       return (
                         <div
@@ -632,6 +639,15 @@ export function KnowledgeView() {
                         </div>
                       );
                     })}
+                    {documents.length > visibleDocCount && (
+                      <button
+                        type="button"
+                        onClick={() => setVisibleDocCount((value) => value + 50)}
+                        className="w-full border-t border-border/40 py-2.5 ui-type-note text-text-muted transition-colors hover:bg-surface-hover hover:text-text"
+                      >
+                        加载更多（剩余 {documents.length - visibleDocCount}）
+                      </button>
+                    )}
                   </div>
                 )}
               </PageBody>
@@ -969,8 +985,28 @@ function KnowledgePreview({
     }
   };
 
+  /** 文档有未保存修改时，遮罩与 Esc 需要确认 */
+  const requestClose = async () => {
+    if (!dirty) {
+      onClose();
+      return;
+    }
+    const confirmed = await confirmDialog({
+      title: "放弃未保存的修改？",
+      message: "当前文档内容尚未保存。",
+      confirmLabel: "放弃修改",
+      tone: "danger",
+    });
+    if (confirmed) onClose();
+  };
+
   return (
-    <Drawer onClose={onClose} ariaLabel={name} width="lg">
+    <Drawer
+      onClose={onClose}
+      requestClose={requestClose}
+      ariaLabel={name}
+      width="lg"
+    >
       <DrawerHeader>
         <FileTypeIcon name={name} size={20} className="shrink-0" />
         <div className="min-w-0 flex-1">
@@ -993,7 +1029,7 @@ function KnowledgePreview({
         >
           用系统程序打开
         </Button>
-        <DrawerCloseButton onClose={onClose} />
+        <DrawerCloseButton onClose={requestClose} />
       </DrawerHeader>
 
       <DrawerBody className="flex flex-col">

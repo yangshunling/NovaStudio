@@ -11,7 +11,7 @@
  * 自行从 useTheme / useSkin 取值。
  */
 
-import { useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { useChatStore } from "./stores/chat";
 import { useFileViewerStore } from "./stores/fileViewer";
 import { useTerminalStore } from "./stores/terminal";
@@ -21,24 +21,86 @@ import { useAgentStream } from "./hooks/useAgentStream";
 import { loadSkinSettings } from "./hooks/useTheme";
 import { Sidebar } from "./components/app/Sidebar";
 import { SessionsView } from "./components/chat/SessionsView";
-import { AutomationView } from "./components/automation/AutomationView";
-import { EmployeesView } from "./components/employees/EmployeesView";
-import { AgentsView } from "./components/agents/AgentsView";
-import { SkillsView } from "./components/skills/SkillsView";
-import { McpView } from "./components/mcp/McpView";
-import { PromptsView } from "./components/prompts/PromptsView";
-import { KnowledgeView } from "./components/knowledge/KnowledgeView";
-import { WorkspacesView } from "./components/workspaces/WorkspacesView";
-import { WorkflowsView } from "./components/workflows/WorkflowsView";
-import { TriggersView } from "./components/triggers/TriggersView";
-import { TodosView } from "./components/todos/TodosView";
-import { SettingsModal } from "./components/app/SettingsModal";
 import { WorkspacePanel } from "./components/workspaces/WorkspacePanel";
 import { ErrorBoundary } from "./components/ui/ErrorBoundary";
 import { ToastViewport } from "./components/ui/ToastViewport";
 import { ConfirmDialog } from "./components/ui/ConfirmDialog";
+import { Spinner } from "./components/ui/Spinner";
 import { validateSkins } from "./skins/validate";
 import { toast } from "./stores/toast";
+
+/*
+ * 非首屏页面按需加载：它们本来就在 viewMode 切换时才挂载，改成 lazy 只改变
+ * 代码何时下载/解析，不改变挂载语义。首屏只保留侧栏、会话、工作流（常驻）
+ * 与工作区面板。
+ */
+const AutomationView = lazy(() =>
+  import("./components/automation/AutomationView").then((m) => ({
+    default: m.AutomationView,
+  })),
+);
+const EmployeesView = lazy(() =>
+  import("./components/employees/EmployeesView").then((m) => ({
+    default: m.EmployeesView,
+  })),
+);
+const AgentsView = lazy(() =>
+  import("./components/agents/AgentsView").then((m) => ({
+    default: m.AgentsView,
+  })),
+);
+const SkillsView = lazy(() =>
+  import("./components/skills/SkillsView").then((m) => ({
+    default: m.SkillsView,
+  })),
+);
+const McpView = lazy(() =>
+  import("./components/mcp/McpView").then((m) => ({ default: m.McpView })),
+);
+const PromptsView = lazy(() =>
+  import("./components/prompts/PromptsView").then((m) => ({
+    default: m.PromptsView,
+  })),
+);
+const KnowledgeView = lazy(() =>
+  import("./components/knowledge/KnowledgeView").then((m) => ({
+    default: m.KnowledgeView,
+  })),
+);
+const WorkspacesView = lazy(() =>
+  import("./components/workspaces/WorkspacesView").then((m) => ({
+    default: m.WorkspacesView,
+  })),
+);
+const WorkflowsView = lazy(() =>
+  import("./components/workflows/WorkflowsView").then((m) => ({
+    default: m.WorkflowsView,
+  })),
+);
+const TriggersView = lazy(() =>
+  import("./components/triggers/TriggersView").then((m) => ({
+    default: m.TriggersView,
+  })),
+);
+const TodosView = lazy(() =>
+  import("./components/todos/TodosView").then((m) => ({
+    default: m.TodosView,
+  })),
+);
+const SettingsModal = lazy(() =>
+  import("./components/app/SettingsModal").then((m) => ({
+    default: m.SettingsModal,
+  })),
+);
+
+/** 页面 chunk 加载中的占位：保持现有壳层，不闪整屏白 */
+function ViewFallback() {
+  return (
+    <div className="flex h-full min-h-0 flex-1 items-center justify-center text-text-muted">
+      <Spinner className="h-5 w-5" />
+    </div>
+  );
+}
 
 export default function App() {
   useAgentStream();
@@ -68,6 +130,12 @@ export default function App() {
    * 保留文件预览标签和 Git 提交草稿。
    */
   const [workspacesMounted, setWorkspacesMounted] = useState(false);
+  /**
+   * 工作流页首次进入才挂载：WorkflowsView 会拉工作流 / 触发器绑定并订阅运行
+   * 事件，启动时没必要为从未打开过的页面付这两次 IPC。首次挂载后保持常驻，
+   * 画布草稿与调试状态在切换侧栏时不会丢。
+   */
+  const [workflowMounted, setWorkflowMounted] = useState(false);
 
   useEffect(() => {
     // 开发期检查皮肤 token 完整性，避免新增皮肤时漏定义导致静默失效
@@ -96,35 +164,50 @@ export default function App() {
     });
     // 资产目录扫描一次即可：后续页面切换读缓存，外部变更由刷新按钮触发重扫
     preloadAssets();
+    /*
+     * 首屏稳定后再预热 Shiki（2.7MB 语言包 + 622KB wasm）。
+     * 动态 import 保证它不进入首屏依赖图。
+     */
+    const prewarmTimer = setTimeout(() => {
+      void import("./lib/shiki")
+        .then((module) => module.prewarmHighlighter())
+        .catch(() => {
+          // 预热失败不影响按需加载
+        });
+    }, 2000);
+    return () => clearTimeout(prewarmTimer);
   }, [detectAgents, loadProjects, loadSessions, loadTasks]);
 
   useEffect(() => {
     if (viewMode === "workspaces") setWorkspacesMounted(true);
+    if (viewMode === "workflow") setWorkflowMounted(true);
   }, [viewMode]);
 
   return (
     <ErrorBoundary>
       <div className="flex h-screen w-screen overflow-hidden bg-bg text-text">
         <Sidebar />
-        {viewMode === "todos" ? (
-          <TodosView />
-        ) : viewMode === "automation" ? (
-          <AutomationView />
-        ) : viewMode === "employees" ? (
-          <EmployeesView />
-        ) : viewMode === "skills" ? (
-          <SkillsView />
-        ) : viewMode === "mcp" ? (
-          <McpView />
-        ) : viewMode === "prompts" ? (
-          <PromptsView />
-        ) : viewMode === "knowledge" ? (
-          <KnowledgeView />
-        ) : viewMode === "triggers" ? (
-          <TriggersView />
-        ) : viewMode === "agents" ? (
-          <AgentsView />
-        ) : null}
+        <Suspense fallback={<ViewFallback />}>
+          {viewMode === "todos" ? (
+            <TodosView />
+          ) : viewMode === "automation" ? (
+            <AutomationView />
+          ) : viewMode === "employees" ? (
+            <EmployeesView />
+          ) : viewMode === "skills" ? (
+            <SkillsView />
+          ) : viewMode === "mcp" ? (
+            <McpView />
+          ) : viewMode === "prompts" ? (
+            <PromptsView />
+          ) : viewMode === "knowledge" ? (
+            <KnowledgeView />
+          ) : viewMode === "triggers" ? (
+            <TriggersView />
+          ) : viewMode === "agents" ? (
+            <AgentsView />
+          ) : null}
+        </Suspense>
 
         {/*
           会话页常驻挂载：切换侧栏菜单时只隐藏、不卸载。
@@ -153,9 +236,13 @@ export default function App() {
           工作流页常驻挂载：编辑器的画布草稿、未保存状态、调试面板都是
           组件内部状态。切到别的侧栏再回来不应该把它们清空。
         */}
-        <div className={viewMode === "workflow" ? "contents" : "hidden"}>
-          <WorkflowsView />
-        </div>
+        {workflowMounted && (
+          <div className={viewMode === "workflow" ? "contents" : "hidden"}>
+            <Suspense fallback={null}>
+              <WorkflowsView />
+            </Suspense>
+          </div>
+        )}
 
         {/*
           工作区页常驻挂载：文件预览标签、Git 提交草稿、选中的工作区
@@ -163,11 +250,17 @@ export default function App() {
         */}
         {workspacesMounted && (
           <div className={viewMode === "workspaces" ? "contents" : "hidden"}>
-            <WorkspacesView />
+            <Suspense fallback={null}>
+              <WorkspacesView />
+            </Suspense>
           </div>
         )}
 
-        {showSettings && <SettingsModal />}
+        {showSettings && (
+          <Suspense fallback={null}>
+            <SettingsModal />
+          </Suspense>
+        )}
         {/* 全局确认框：替代 window.confirm，避免原生对话框抢走键盘焦点 */}
         <ConfirmDialog />
         {/* 全局提醒：顶部居中，所有页面共用同一套 */}

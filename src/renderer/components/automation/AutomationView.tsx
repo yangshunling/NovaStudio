@@ -2,9 +2,9 @@
  * 自动化看板 — 三列看板式任务管理
  *
  * 列 1「待执行」：录入自然语言任务，绑定项目 + Agent，可删除；等待被轮询器拾取
- * 列 2「执行中」：主进程轮询器自动拾取 pending 任务并发执行，可停止、不可删除；
- *                执行失败 / 被停止的任务也停留在这一列（失败态 + 手动重试）
- * 列 3「已完成」：成功执行完毕，可删除 / 重试 / 查看详情
+ * 列 2「执行中」：主进程轮询器自动拾取 pending 任务并发执行，可停止、不可删除
+ * 列 3「需处理」：失败 / 被停止的任务，独立成列等待手动重试
+ * 列 4「已完成」：成功执行完毕，可删除 / 重试 / 查看详情
  *
  * UI 参考 Linear / GitHub Projects 的看板设计：
  * - 竖直列布局，三列横向并排
@@ -21,7 +21,13 @@
 
 import { useState } from "react";
 import {
-  Check, CircleDashed, Clock, ListChecks, Plus } from "lucide-react";
+  AlertTriangle,
+  Check,
+  CircleDashed,
+  Clock,
+  ListChecks,
+  Plus,
+} from "lucide-react";
 import { useAutomationStore } from "../../stores/automation";
 import { useChatStore } from "../../stores/chat";
 import { Page, PageHeader } from "../ui/Page";
@@ -48,9 +54,19 @@ export function AutomationView() {
   const [detailTask, setDetailTask] = useState<AutomationTask | null>(null);
 
   const pending = tasks.filter((t) => t.status === "pending");
-  // 失败/被停止的任务留在执行中列等待手动重试（它们不占用并发槽位）
-  const running = tasks.filter((t) => t.status === "running" || t.status === "failed");
+  const running = tasks.filter((t) => t.status === "running");
+  // 失败 / 被停止的任务单独成列：放在「执行中」里会让人误以为还在跑
+  const failed = tasks.filter((t) => t.status === "failed");
   const done = tasks.filter((t) => t.status === "completed");
+
+  /** 完成 / 失败列可能无限增长，先各显示 30 条，按需加载更多 */
+  const COLUMN_PAGE_SIZE = 30;
+  const [doneLimit, setDoneLimit] = useState(COLUMN_PAGE_SIZE);
+  const [failedLimit, setFailedLimit] = useState(COLUMN_PAGE_SIZE);
+  const visibleDone = done.slice(0, doneLimit);
+  const visibleFailed = failed.slice(0, failedLimit);
+  const moreButtonClass =
+    "w-full rounded-lg border border-dashed border-border bg-surface/40 py-2 ui-type-note text-text-muted transition-colors hover:border-accent/40 hover:text-accent";
   // 列头转圈只反映"真的有进程在跑"
   const hasRunning = tasks.some((t) => t.status === "running");
 
@@ -82,7 +98,7 @@ export function AutomationView() {
           }
         />
 
-        {/* 三列看板：列是独立圆角卡片，窄窗口横向滚动 */}
+        {/* 四列看板：列是独立圆角卡片，窄窗口横向滚动 */}
         <div className="relative z-10 flex min-h-0 flex-1 gap-3 overflow-x-auto p-4">
           <BoardColumn
             title="待执行"
@@ -121,11 +137,36 @@ export function AutomationView() {
             emptyHint="当前无执行中任务"
           />
           <BoardColumn
+            title="需处理"
+            count={failed.length}
+            icon={<AlertTriangle className="h-3.5 w-3.5" />}
+            tone="failed"
+            tasks={visibleFailed}
+            projects={projects}
+            agents={agents}
+            onDelete={deleteTask}
+            onRetry={retryTask}
+            onStop={stopTask}
+            onViewDetail={setDetailTask}
+            emptyHint="没有失败任务"
+            footer={
+              failed.length > failedLimit ? (
+                <button
+                  type="button"
+                  className={moreButtonClass}
+                  onClick={() => setFailedLimit((value) => value + COLUMN_PAGE_SIZE)}
+                >
+                  加载更多（剩余 {failed.length - failedLimit}）
+                </button>
+              ) : undefined
+            }
+          />
+          <BoardColumn
             title="已完成"
             count={done.length}
             icon={<Check className="h-3.5 w-3.5" />}
             tone="done"
-            tasks={done}
+            tasks={visibleDone}
             projects={projects}
             agents={agents}
             onDelete={deleteTask}
@@ -133,6 +174,17 @@ export function AutomationView() {
             onStop={stopTask}
             onViewDetail={setDetailTask}
             emptyHint="尚无已完成任务"
+            footer={
+              done.length > doneLimit ? (
+                <button
+                  type="button"
+                  className={moreButtonClass}
+                  onClick={() => setDoneLimit((value) => value + COLUMN_PAGE_SIZE)}
+                >
+                  加载更多（剩余 {done.length - doneLimit}）
+                </button>
+              ) : undefined
+            }
           />
         </div>
       </Page>

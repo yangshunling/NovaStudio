@@ -6,6 +6,7 @@
  */
 
 import { Component, type ErrorInfo, type ReactNode } from "react";
+import { Button } from "./Button";
 
 interface Props {
   children: ReactNode;
@@ -48,12 +49,12 @@ export class ErrorBoundary extends Component<Props, State> {
           {error.message}
         </pre>
         <div className="flex items-center gap-2">
-          <button className="ui-btn-ghost px-4 py-2 ui-type-note" onClick={this.handleReset}>
+          <Button variant="ghost" size="sm" onClick={this.handleReset}>
             重试
-          </button>
-          <button className="ui-btn-primary px-4 py-2 ui-type-note" onClick={this.handleReload}>
+          </Button>
+          <Button variant="primary" size="sm" onClick={this.handleReload}>
             重新加载
-          </button>
+          </Button>
         </div>
       </div>
     );

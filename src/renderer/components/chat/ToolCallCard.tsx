@@ -17,7 +17,7 @@ import {
   AlertTriangle, Check, ChevronRight, FileText, PenLine, Search, Terminal, Wrench } from "lucide-react";
 import type { ToolKind, ToolResultImage } from "@shared/types";
 import type { FileChange } from "../../lib/tool-diff";
-import { truncateText } from "../../lib/utils";
+import { formatJson, truncateText } from "../../lib/utils";
 import { ToolDiffView } from "./ToolDiffView";
 import { Spinner } from "../ui/Spinner";
 
@@ -186,10 +186,7 @@ export const ToolCallCard = memo(function ToolCallCard({
                 输入
               </div>
               <pre className="max-h-40 overflow-auto rounded-lg border border-border/60 bg-surface-2/50 px-2.5 py-2 ui-type-code-sm leading-relaxed text-text-secondary">
-                {truncateText(
-                  argsText ?? JSON.stringify(args ?? {}, null, 2),
-                  500,
-                )}
+                {truncateText(argsText ?? formatJson(args), 500)}
               </pre>
             </div>
           )}

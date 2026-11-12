@@ -37,6 +37,11 @@ interface ModalProps {
   className?: string;
   /** 没有 ModalHeader 时用的可读名称（可选） */
   ariaLabel?: string;
+  /**
+   * 用户主动关闭（点击遮罩 / 按 Esc）。
+   * 缺省等于 onClose；有未保存内容的弹窗应传入带确认的实现。
+   */
+  requestClose?: () => void;
   children: ReactNode;
 }
 
@@ -47,11 +52,13 @@ export function Modal({
   size,
   className = "",
   ariaLabel,
+  requestClose,
   children,
 }: ModalProps) {
   const panelRef = useRef<HTMLDivElement>(null);
   const layerRef = useRef({});
   const [titleId, setTitleId] = useState<string | null>(null);
+  const handleRequestClose = requestClose ?? onClose;
 
   // 入栈 / 出栈，保证 Esc 只关最顶层
   useEffect(() => {
@@ -68,11 +75,13 @@ export function Modal({
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && isTopOverlay(layerRef.current)) onClose();
+      if (e.key === "Escape" && isTopOverlay(layerRef.current)) {
+        handleRequestClose();
+      }
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [open, onClose]);
+  }, [open, handleRequestClose]);
 
   // 打开时把焦点交给弹窗，关闭时还给原来的元素。
   // 内部控件带 autoFocus 时以它为准，不抢焦点。
@@ -97,7 +106,7 @@ export function Modal({
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center"
-      onClick={onClose}
+      onClick={handleRequestClose}
     >
       <div className="absolute inset-0 bg-bg/60 backdrop-blur-sm" />
       <div

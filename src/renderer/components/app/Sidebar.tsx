@@ -87,9 +87,10 @@ export function Sidebar() {
       if (debounce) clearTimeout(debounce);
       debounce = setTimeout(() => void load(), 200);
     });
+    // 推送是主链路；轮询只做兜底，10 秒足够发现漏掉的终态，避免空闲耗电
     const timer = setInterval(() => {
       if (activeRunsRef.current.length > 0) void load();
-    }, 3000);
+    }, 10_000);
 
     return () => {
       alive = false;

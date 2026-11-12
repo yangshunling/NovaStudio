@@ -45,10 +45,43 @@ export function dirName(path: string): string {
   return parts[parts.length - 1] || path;
 }
 
-/** 路径末两级，用于卡片上的简短标识（完整路径放在 title 里） */
+/**
+ * 路径压缩展示：超过两级时只保留末两级并加 `…/` 前缀。
+ *
+ * 短路径原样返回（不带省略号），避免 `…/project` 这种没有省略任何内容的
+ * 前缀。完整路径由调用方放在 title / tooltip 里。
+ */
 export function shortPath(path: string): string {
   const parts = path.split(/[\\/]+/).filter(Boolean);
-  return parts.slice(-2).join(" / ") || path;
+  if (parts.length <= 2) return path;
+  return `…/${parts.slice(-2).join("/")}`;
+}
+
+/**
+ * JSON 美化输出，按对象缓存序列化结果。
+ *
+ * 流式刷新会反复重建 parts，而工具参数 / 服务定义这类对象本身是复用的；
+ * 大参数可达数十 KB，重复 stringify 会占用主线程。WeakMap 不阻止回收。
+ */
+const FORMAT_JSON_CACHE = new WeakMap<object, string>();
+
+export function formatJson(value: unknown): string {
+  if (value === null || value === undefined) return "{}";
+  if (typeof value !== "object") {
+    return JSON.stringify(value) ?? String(value);
+  }
+  const key = value as object;
+  const cached = FORMAT_JSON_CACHE.get(key);
+  if (cached !== undefined) return cached;
+  let text: string;
+  try {
+    text = JSON.stringify(value, null, 2);
+  } catch {
+    // 循环引用等无法序列化的情况：退化为字符串，不让展示层崩掉
+    text = String(value);
+  }
+  FORMAT_JSON_CACHE.set(key, text);
+  return text;
 }
 
 /** 相对时间：刚刚 / N分钟前 / N小时前 / N天前 */

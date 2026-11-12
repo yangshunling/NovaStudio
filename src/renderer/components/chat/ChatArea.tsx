@@ -9,7 +9,7 @@
  * - 助手正文为描边圆角卡片（外观由皮肤 token 决定）
  */
 
-import { useCallback, useEffect, useLayoutEffect, useRef } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
   EMPTY_QUEUE,
   NEW_SESSION_DRAFT_KEY,
@@ -27,6 +27,7 @@ import {
   Wrench,
   Library,
   ListOrdered,
+  Keyboard,
   X,
 } from "lucide-react";
 import { AgentSelector } from "./AgentSelector";
@@ -41,6 +42,8 @@ import { AssistantMessageList } from "./AssistantMessageList";
 import { ContextGauge } from "./ContextGauge";
 import { useWorkspacePicker } from "./WorkspacePicker";
 import { useInputHistory } from "../../hooks/useInputHistory";
+import { useDismissableLayer } from "../../hooks/useDismissableLayer";
+import { useComposerSubmit, usePasteNormalizer } from "./useComposer";
 import { WorkspaceMenuPanel } from "./WorkspaceMenu";
 import { QuestionNav } from "./QuestionNav";
 import { FileTypeIcon } from "../ui/FileTypeIcon";
@@ -48,7 +51,6 @@ import { PageHeader } from "../ui/Page";
 import { IconButton } from "../ui/IconButton";
 import { toast } from "../../stores/toast";
 import { toMessage } from "../../lib/utils";
-import { htmlToPlainText, normalizeLineBreaks } from "../../lib/paste-text";
 import { FOCUS_COMPOSER_EVENT } from "../../lib/chat-events";
 
 /** 引用标签的图标：文件按扩展名，其余按引用类型 */
@@ -71,6 +73,11 @@ function ReferenceIcon({ reference }: { reference: MentionReference }) {
 
 export function ChatArea({ embedded = false }: { embedded?: boolean } = {}) {
   const isStreaming = useChatStore(selectCurrentStreaming);
+  /** 已发出停止、但主进程还在收尾：此时发送应进入暂存区，不能开新轮 */
+  const isStopping = useChatStore((s) =>
+    s.currentSessionId ? !!s.stoppingBySession[s.currentSessionId] : false,
+  );
+  const isBusy = isStreaming || isStopping;
   const sendMessage = useChatStore((s) => s.sendMessage);
   const abort = useChatStore((s) => s.abort);
   /** 当前会话的暂存区：运行中继续发送的消息排在这里 */
@@ -210,79 +217,35 @@ export function ChatArea({ embedded = false }: { embedded?: boolean } = {}) {
     setInput,
     textareaRef,
   });
-  /**
-   * 粘贴时还原富文本的段落结构。
-   *
-   * textarea 只认剪贴板里的 text/plain；从网页 / Word 复制时，纯文本可能
-   * 被拼成一行（换行只存在于 HTML 的 <p>/<br> 里），或使用 \v 之类
-   * 非标准换行符。这里在需要时改用 HTML 重建文本，再交给输入框。
-   */
-  const handlePaste = (event: React.ClipboardEvent<HTMLTextAreaElement>) => {
-    const clipboard = event.clipboardData;
-    const plain = clipboard.getData("text/plain");
-    const html = clipboard.getData("text/html");
-    const normalized = normalizeLineBreaks(plain);
+  const handlePaste = usePasteNormalizer(setInput);
 
-    let text: string | null = null;
-    if (normalized !== plain && normalized.includes("\n")) {
-      // Word 的软换行 / Unicode 行分隔符：先规整成普通换行
-      text = normalized;
-    } else if (html && !plain.includes("\n")) {
-      // 纯文本没有换行时才用 HTML 重建，避免覆盖浏览器已经正确的粘贴结果
-      const converted = htmlToPlainText(html);
-      if (converted.includes("\n")) text = converted;
-    }
-    if (!text) return;
-
-    event.preventDefault();
-    try {
-      if (document.execCommand("insertText", false, text)) return;
-    } catch {
-      // 命令不可用 / 被禁用时走下面的手工插入
-    }
-
-    // execCommand 不可用时的兜底：手动替换选区并恢复光标
-    const textarea = event.currentTarget;
-    const start = textarea.selectionStart ?? 0;
-    const end = textarea.selectionEnd ?? 0;
-    const next =
-      textarea.value.slice(0, start) + text + textarea.value.slice(end);
-    setInput(next);
-    requestAnimationFrame(() => {
-      textarea.focus();
-      const caret = start + text.length;
-      textarea.setSelectionRange(caret, caret);
-    });
-  };
+  /** 输入快捷键帮助：完整说明放在弹层里，避免窄窗口下占位文本被截断 */
+  const [helpOpen, setHelpOpen] = useState(false);
+  const helpRef = useRef<HTMLDivElement>(null);
+  useDismissableLayer(helpOpen, () => setHelpOpen(false), [helpRef]);
+  const shortcutRows: Array<[string, string]> = [
+    ["Enter", "发送消息"],
+    ["Shift + Enter", "换行"],
+    ["@", "选择数字员工"],
+    ["/", "引用文件 / 技能 / 知识库"],
+    ["#", "切换工作区"],
+    ["↑ / ↓", "翻找已发送内容"],
+  ];
 
   /** 占位提示用独立的一行文本渲染：textarea 原生 placeholder 会自动折行 */
   const placeholder = currentProject
     ? "输入消息，@ 选数字员工，/ 引用内容，# 切换工作区，Enter 发送，Shift+Enter 换行"
     : "描述任务，@ 选数字员工，/ 引用内容，# 切换工作区，Enter 发送，Shift+Enter 换行";
 
-  const handleSend = () => {
-    const trimmed = input.trim();
-    const references = mention.references;
-    if (!trimmed && references.length === 0) return;
-    // 引用说明各自成行：除文件 @path 外都是完整句子，挤在一行里会连成一片
-    const referenceText = references
-      .map((reference) => reference.promptText)
-      .join("\n");
-    const prompt = [trimmed, referenceText].filter(Boolean).join("\n");
-    // 只记用户亲手输入的正文：引用说明是按引用标签拼出来的，回溯时无意义
-    history.push(trimmed);
-    setInput("");
-    mention.clearReferences();
-    /*
-     * 运行中发送不再被丢弃：chat store 会把它放进暂存区，
-     * 本轮结束后按顺序发送。展示正文只用用户输入，不铺开引用说明。
-     */
-    void sendMessage(prompt, trimmed || referenceText).catch((err) => {
-      // 会话创建 / Agent 缺失等前置失败不会进入消息流：把输入还给用户并提示
-      setInput(trimmed);
-      toast.error(toMessage(err), 5000);
-    });
-  };
+  const handleSend = useComposerSubmit({
+    input,
+    references: mention.references,
+    clearReferences: mention.clearReferences,
+    restoreReferences: mention.restoreReferences,
+    setInput,
+    pushHistory: history.push,
+    sendMessage,
+  });
 
   return (
     <main className="relative flex h-full min-h-0 flex-1 flex-col overflow-hidden">
@@ -353,16 +316,20 @@ export function ChatArea({ embedded = false }: { embedded?: boolean } = {}) {
                     <span className="flex min-w-0 items-center gap-1.5 ui-type-sub text-text-muted">
                       <span
                         className={`h-1.5 w-1.5 shrink-0 rounded-full ${
-                          isStreaming
+                          isBusy
                             ? "animate-pulse bg-accent"
                             : "bg-text-muted"
                         }`}
                       />
                       <span className="truncate">
-                        {isStreaming ? "本轮结束后自动发送" : "已暂停"}
+                        {isStopping
+                          ? "正在停止本轮…"
+                          : isStreaming
+                            ? "本轮结束后自动发送"
+                            : "已暂停"}
                       </span>
                     </span>
-                    {!isStreaming && (
+                    {!isBusy && (
                       <button
                         type="button"
                         onClick={() => resumeQueue()}
@@ -431,6 +398,7 @@ export function ChatArea({ embedded = false }: { embedded?: boolean } = {}) {
               <div className="relative">
                 <textarea
                   ref={textareaRef}
+                  aria-label="消息输入"
                   // 启动时把焦点留在输入框：否则 Chromium 的初始焦点会落到
                   // DOM 里第一个可聚焦元素（侧栏「新建会话」按钮）上。
                   // autoFocus 只在挂载时生效，不会在后续渲染里抢焦点。
@@ -442,11 +410,12 @@ export function ChatArea({ embedded = false }: { embedded?: boolean } = {}) {
                   }}
                   onPaste={handlePaste}
                   onKeyDown={(e) => {
+                    // 中文输入法选词时的回车 / 方向键不能当发送、翻历史或
+                    // 弹窗确认：否则会把还没上屏的拼音当成完整消息发出去。
+                    // 必须放在最前面，早于 @ / # 弹窗的按键处理。
+                    if (e.nativeEvent.isComposing || e.keyCode === 229) return;
                     if (mention.handleKeyDown(e)) return;
                     if (workspacePicker.handleKeyDown(e)) return;
-                    // 中文输入法选词时的回车 / 方向键不能当发送或翻历史：
-                    // 否则会把还没上屏的拼音当成完整消息发出去
-                    if (e.nativeEvent.isComposing || e.keyCode === 229) return;
                     // ↑ / ↓ 翻找历史发送正文（Esc 退出浏览并还原草稿）。
                     // 弹窗开着时方向键属于弹窗（哪怕列表为空），不接管
                     if (mention.active || workspacePicker.active) return;
@@ -514,6 +483,40 @@ export function ChatArea({ embedded = false }: { embedded?: boolean } = {}) {
                       onSelect={selectAgent}
                     />
                   )}
+                  <div className="relative" ref={helpRef}>
+                    <button
+                      type="button"
+                      onClick={() => setHelpOpen((value) => !value)}
+                      aria-label="输入快捷键说明"
+                      aria-expanded={helpOpen}
+                      title="输入快捷键说明"
+                      className={`rounded-md p-1.5 text-text-muted transition-colors hover:bg-surface-hover hover:text-text ${
+                        helpOpen ? "bg-surface-hover text-text" : ""
+                      }`}
+                    >
+                      <Keyboard className="h-3.5 w-3.5" />
+                    </button>
+                    {helpOpen && (
+                      <div className="absolute bottom-full left-0 z-50 mb-2 w-72 rounded-xl border border-border bg-surface p-3 shadow-[var(--c-shadow)]">
+                        <p className="mb-2 ui-type-sub font-semibold text-text-secondary">
+                          输入快捷键
+                        </p>
+                        <dl className="space-y-1.5">
+                          {shortcutRows.map(([key, label]) => (
+                            <div
+                              key={key}
+                              className="flex items-center justify-between gap-3 ui-type-note"
+                            >
+                              <dt className="text-text-muted">{label}</dt>
+                              <dd className="shrink-0 rounded-sm border border-border bg-surface-2 px-1.5 py-0.5 ui-type-code-sm text-text-secondary">
+                                {key}
+                              </dd>
+                            </div>
+                          ))}
+                        </dl>
+                      </div>
+                    )}
+                  </div>
                 </div>
 
                 <div className="flex shrink-0 items-center gap-3">
@@ -522,25 +525,36 @@ export function ChatArea({ embedded = false }: { embedded?: boolean } = {}) {
                     onClick={handleSend}
                     disabled={!input.trim() && mention.references.length === 0}
                     title={
-                      isStreaming
-                        ? "加入暂存区，本轮结束后自动发送"
-                        : "发送"
+                      isStopping
+                        ? "本轮正在停止，消息会进入暂存区"
+                        : isStreaming
+                          ? "加入暂存区，本轮结束后自动发送"
+                          : "发送"
                     }
-                    aria-label={isStreaming ? "排队发送" : "发送消息"}
+                    aria-label={isBusy ? "排队发送" : "发送消息"}
                     className="ui-btn ui-btn-sm ui-btn-primary shrink-0 disabled:cursor-not-allowed disabled:opacity-40"
                   >
                     <Send className="h-3.5 w-3.5" />
-                    {isStreaming ? "排队" : "发送"}
+                    {isBusy ? "排队" : "发送"}
                   </button>
-                  {isStreaming && (
+                  {(isStreaming || isStopping) && (
                     <button
-                      onClick={() => abort()}
-                      title="停止本轮运行（暂存区会暂停）"
+                      onClick={() => {
+                        void abort().catch((err) => {
+                          toast.error(toMessage(err), 5000);
+                        });
+                      }}
+                      disabled={isStopping}
+                      title={
+                        isStopping
+                          ? "正在等待上一轮收尾"
+                          : "停止本轮运行（暂存区会暂停）"
+                      }
                       aria-label="停止运行"
-                      className="ui-btn ui-btn-sm ui-btn-danger-soft shrink-0"
+                      className="ui-btn ui-btn-sm ui-btn-danger-soft shrink-0 disabled:cursor-not-allowed disabled:opacity-40"
                     >
                       <Square className="h-3.5 w-3.5" />
-                      停止
+                      {isStopping ? "停止中…" : "停止"}
                     </button>
                   )}
                 </div>

@@ -55,6 +55,16 @@ import {
   type ExecutionReportKnowledgeBase,
 } from "./execution-report";
 import { resolveEmployeeKnowledge } from "../knowledge/runtime";
+import {
+  createApprovalGate,
+  type ApprovalDecision,
+  type ApprovalMap,
+} from "./approval-gate";
+import {
+  buildPrompt,
+  buildRevisionPrompt,
+  buildSystemPrompt,
+} from "./prompts";
 import { errorMessage } from "../../shared/error";
 
 /** 单节点输出交给下游时的摘要上限 */
@@ -66,13 +76,6 @@ const LIVE_EVENT_LIMIT = 20_000;
 
 /** 同一工作流内并行执行的节点数上限。每个节点都是一个独立的 Agent 进程。 */
 const MAX_PARALLEL_NODES = 3;
-
-/**
- * 人工审核最长等待时间。
- * 超时只是「没人确认」，不是「人工驳回」：运行按中断收尾并保留产物，
- * 用户回来后可以继续执行；否则一个被遗忘的审批会把工作区永久锁住。
- */
-const APPROVAL_TIMEOUT_MS = 30 * 60 * 1000;
 
 /**
  * 节点实际生效的自动重试次数。
@@ -128,17 +131,6 @@ export class WorkspaceBusyError extends Error {
   }
 }
 
-interface ApprovalDecision {
-  /**
-   * - approve / reject：最终决定
-   * - revise：要求修改，复用当前会话再执行一轮
-   * - cancel：运行被终止
-   * - timeout：等待超时，既不是通过也不是人工驳回
-   */
-  action: "approve" | "reject" | "revise" | "cancel" | "timeout";
-  note: string;
-}
-
 interface ActiveRun {
   id: string;
   workflow: Workflow;
@@ -160,10 +152,7 @@ interface ActiveRun {
   stopping: boolean;
   /** 当前正在运行的节点会话；并行执行时可能有多个 */
   sessions: Set<string>;
-  approvals: Map<
-    string,
-    { resolve: (decision: ApprovalDecision) => void; timer: NodeJS.Timeout }
-  >;
+  approvals: ApprovalMap;
   /**
    * nodeRunId → 本次尝试的原始事件（不落库）。
    * 运行记录中途打开时用它回放已产生的对话，之后的增量走推送。
@@ -204,6 +193,8 @@ export interface WorkflowRunner {
   hasActiveRunUsingEmployee(employeeId: string): boolean;
   /** 某个运行是否正在启动 / 执行 / 删除（含异步校验期间的占位） */
   isRunBusy(runId: string): boolean;
+  /** 是否还有活跃工作流（供窗口后台节流开关判断） */
+  hasActiveRuns(): boolean;
   /**
    * 删除运行 / 工作流 / 工作区期间占位。
    *
@@ -255,6 +246,11 @@ export interface WorkflowRunnerDeps {
 
 export function createWorkflowRunner(deps: WorkflowRunnerDeps): WorkflowRunner {
   const activeRuns = new Map<string, ActiveRun>();
+
+  /** 人工审核门：等待 / 决定 / 超时（状态仍挂在每次运行的 approvals 上） */
+  const approvalGate = createApprovalGate((runId, nodeRunId, message) => {
+    emitEvent(runId, nodeRunId, "log", { level: "warning", message });
+  });
   /**
    * 已通过占位检查、但仍在异步校验（Agent 安装检测）中的运行。
    *
@@ -284,6 +280,10 @@ export function createWorkflowRunner(deps: WorkflowRunnerDeps): WorkflowRunner {
       reservations.has(runId) ||
       maintenanceRuns.has(runId)
     );
+  }
+
+  function hasActiveRuns(): boolean {
+    return activeRuns.size > 0 || reservations.size > 0;
   }
 
   function workspaceBusy(workspaceId: string): boolean {
@@ -780,11 +780,7 @@ export function createWorkflowRunner(deps: WorkflowRunnerDeps): WorkflowRunner {
 
   /** 结束所有等待中的审批，让它们从 waitApproval 正常返回 */
   function cancelApprovals(active: ActiveRun): void {
-    for (const entry of active.approvals.values()) {
-      clearTimeout(entry.timer);
-      entry.resolve({ action: "cancel", note: "" });
-    }
-    active.approvals.clear();
+    approvalGate.cancelAll(active.approvals);
   }
 
   /**
@@ -1940,25 +1936,7 @@ export function createWorkflowRunner(deps: WorkflowRunnerDeps): WorkflowRunner {
     active: ActiveRun,
     nodeRunId: string,
   ): Promise<ApprovalDecision> {
-    return new Promise((resolve) => {
-      const timer = setTimeout(() => {
-        if (!active.approvals.has(nodeRunId)) return;
-        active.approvals.delete(nodeRunId);
-        emitEvent(active.id, nodeRunId, "log", {
-          level: "warning",
-          message: `等待人工审核超过 ${Math.round(
-            APPROVAL_TIMEOUT_MS / 60000,
-          )} 分钟，本次运行按中断处理，可稍后继续执行`,
-        });
-        // 超时只是没人确认：交给调用方按「中断」收尾，不能写成人工驳回
-        resolve({
-          action: "timeout",
-          note: `超过 ${Math.round(APPROVAL_TIMEOUT_MS / 60000)} 分钟未确认`,
-        });
-      }, APPROVAL_TIMEOUT_MS);
-
-      active.approvals.set(nodeRunId, { resolve, timer });
-    });
+    return approvalGate.wait(active.approvals, active.id, nodeRunId);
   }
 
   function approve(
@@ -1969,13 +1947,7 @@ export function createWorkflowRunner(deps: WorkflowRunnerDeps): WorkflowRunner {
   ): boolean {
     const active = activeRuns.get(runId);
     if (!active) return false;
-    const entry = active.approvals.get(nodeRunId);
-    if (!entry) return false;
-
-    active.approvals.delete(nodeRunId);
-    clearTimeout(entry.timer);
-    entry.resolve({ action, note: note?.trim() ?? "" });
-    return true;
+    return approvalGate.settle(active.approvals, nodeRunId, action, note);
   }
 
   function cancel(runId: string): boolean {
@@ -2143,85 +2115,7 @@ export function createWorkflowRunner(deps: WorkflowRunnerDeps): WorkflowRunner {
     activeRuns.clear();
   }
 
-  // ==========================================================================
-  // 提示词
-  // ==========================================================================
-
-  function buildSystemPrompt(
-    employee: DigitalEmployee,
-    knowledgeSection: string,
-  ): string {
-    return [
-      employee.role
-        ? `你是「${employee.name}」，职位：${employee.role}。`
-        : `你是「${employee.name}」。`,
-      // 简介已从员工配置中移除，身份与职责统一由系统提示词表达
-      employee.systemPrompt,
-      knowledgeSection,
-      [
-        "## 工作流协作约定",
-        "你的最终回复会作为该节点的产物，交给下游节点使用。",
-        "请只输出最终结论或交付物说明，不要重复分析过程；",
-        "如果需要下游读取文件，请写出文件的完整路径。",
-      ].join("\n"),
-    ]
-      .filter((part) => part && part.trim())
-      .join("\n\n");
-  }
-
-  function buildPrompt(active: ActiveRun, node: WorkflowNode): string {
-    const parts: string[] = [];
-    parts.push(
-      node.config.taskDetail.trim() ||
-        `请完成节点「${node.name}」分配给你的任务。`,
-    );
-
-    const upstreamIds = active.predecessors.get(node.id) ?? [];
-    if (upstreamIds.length > 0) {
-      // 一次取出全部节点运行记录，避免每个上游节点都查一遍数据库
-      const nodeRuns = db.listWorkflowNodeRuns(active.id);
-      const blocks = upstreamIds.map((predecessorId) => {
-        const predecessor = active.order.find(
-          (item) => item.id === predecessorId,
-        );
-        const nodeRun = nodeRuns.find((item) => item.nodeId === predecessorId);
-        if (!nodeRun) return "";
-        if (nodeRun.status === "skipped") {
-          return `### 上游节点：${predecessor?.name ?? predecessorId}\n状态：已跳过，无产物。`;
-        }
-        return [
-          `### 上游节点：${predecessor?.name ?? predecessorId}`,
-          `状态：${nodeRun.status}`,
-          nodeRun.outputPath ? `产物文件：${nodeRun.outputPath}` : "",
-          nodeRun.artifactDir ? `产物目录：${nodeRun.artifactDir}` : "",
-          nodeRun.outputSummary
-            ? `输出摘要：\n${nodeRun.outputSummary}`
-            : "输出摘要：无",
-          "需要完整内容时，请直接读取上面的产物文件。",
-        ]
-          .filter(Boolean)
-          .join("\n");
-      });
-      parts.push(`## 上游产物\n\n${blocks.filter(Boolean).join("\n\n")}`);
-    }
-
-    return parts.join("\n\n---\n\n");
-  }
-
-  /**
-   * 人工要求修改时的输入。
-   *
-   * 复用同一个会话，因此不再重复上游产物与任务详情：Agent 上一轮已经看过。
-   * 只把评审意见交给它，并要求直接产出最终版本。
-   */
-  function buildRevisionPrompt(feedback: string): string {
-    const note = feedback.trim();
-    return [
-      "上一次输出未通过人工审核，请基于你上一次的产物直接修改，不要从头重做。",
-      note ? `审核意见：${note}` : "审核人未填写具体意见，请自行复核并改进。",
-      "修改完成后，只输出最终的完整版本。",
-    ].join("\n\n");
-  }
+  // 提示词构建集中在 ./prompts.ts，runner 只负责调用。
 
   async function delay(active: ActiveRun, ms: number): Promise<void> {
     const end = Date.now() + ms;
@@ -2240,6 +2134,7 @@ export function createWorkflowRunner(deps: WorkflowRunnerDeps): WorkflowRunner {
     hasActiveRunInWorkspace,
     hasActiveRunUsingEmployee,
     isRunBusy,
+    hasActiveRuns,
     withMaintenance,
     liveTranscript,
     shutdown,

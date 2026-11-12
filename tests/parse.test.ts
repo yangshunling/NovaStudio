@@ -56,6 +56,14 @@ function messageStart(): string {
   });
 }
 
+function messageStop(): string {
+  return line({
+    type: "stream_event",
+    session_id: SESSION,
+    event: { type: "message_stop" },
+  });
+}
+
 /** 按解码 → 合并的真实链路累积成一条 assistant 消息的内容 */
 function reduce(lines: string[]): AgentEvent[] {
   const decoder = parse.createDecoder();
@@ -242,6 +250,7 @@ test("同一段内的增量仍由 message_end 收敛，不产生重复", () => {
       },
     }),
     assistant([{ type: "text", text: "你好" }]),
+    messageStop(),
   ]);
 
   assert.deepEqual(
@@ -335,7 +344,7 @@ test("assistant 消息解析出单次 API 调用的上下文快照", () => {
   );
 
   assert.ok(Array.isArray(event));
-  assert.equal(event[0]?.type, "message_end");
+  assert.equal(event[0]?.type, "text");
   assert.deepEqual(event[1], {
     type: "usage",
     scope: "context",

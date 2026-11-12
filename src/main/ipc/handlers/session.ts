@@ -66,7 +66,7 @@ export function registerSessionHandlers(service: AgentService): void {
      */
     try {
       const baseHome = await ensureSessionBaseRuntime(session);
-      db.setSessionConfigDir(session.id, baseHome);
+      if (baseHome) db.setSessionConfigDir(session.id, baseHome);
       return db.getSession(session.id) ?? session;
     } catch (err) {
       console.warn("[session] 创建会话运行时失败，将在首次发送时重试：", err);
@@ -84,8 +84,16 @@ export function registerSessionHandlers(service: AgentService): void {
     service.resolveCwd(db.getSetting("defaultCwd"), homedir()),
   );
 
-  /** 详情：元数据 + provider 回放的历史 */
-  handle("session:get", ({ id }) => service.getSessionWithHistory(id));
+  /** 详情：元数据 + provider 回放的历史；带 limit 时走分页 */
+  handle("session:get", ({ id, limit, before, beforeId }) =>
+    limit
+      ? service.getSessionPage(id, {
+          limit,
+          beforeTimestamp: before,
+          beforeMessageId: beforeId,
+        })
+      : service.getSessionWithHistory(id),
+  );
 
   handle("session:rename", ({ id, title }) => {
     const next = title.trim();
@@ -115,7 +123,7 @@ export function registerSessionHandlers(service: AgentService): void {
    * 切换会话当前使用的数字员工；null 表示不使用员工。
    *
    * 语义是「下一条消息由谁回答」：运行中也可以切，只落库、不物化。
-   * 本轮进程在启动时已固定 CLAUDE_CONFIG_DIR / 系统提示词 / MCP / 技能，
+   * 本轮进程在启动时已固定配置目录 / 系统提示词 / MCP / 技能，
    * 改绑定影响不到它；下一轮 agent:send 的 prepareSessionChatRun 会按新员工
    * 重新准备运行时。
    */

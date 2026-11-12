@@ -262,10 +262,42 @@ async function scanClaudeConfigs(): Promise<McpServerAsset[]> {
   });
 }
 
+/**
+ * MCP 目录缓存。
+ *
+ * 读取 ~/.claude.json 并解析全部服务；资产页 / 员工绑定 / @ 提及都会调用，
+ * TTL 内复用结果，写操作后主动失效。
+ */
+let mcpCache: { at: number; items: McpServerAsset[] } | null = null;
+let mcpInFlight: Promise<McpServerAsset[]> | null = null;
+const MCP_CACHE_TTL_MS = 3000;
+
+export function invalidateMcpCache(): void {
+  mcpCache = null;
+}
+
 /** 聚合扫描，按名称排序 */
-export async function listMcpServers(): Promise<McpServerAsset[]> {
+async function scanMcpServers(): Promise<McpServerAsset[]> {
   const all = await scanClaudeConfigs();
   return all.sort((a, b) => a.slug.localeCompare(b.slug));
+}
+
+export function listMcpServers(): Promise<McpServerAsset[]> {
+  if (mcpCache && Date.now() - mcpCache.at < MCP_CACHE_TTL_MS) {
+    return Promise.resolve(mcpCache.items);
+  }
+  if (mcpInFlight) return mcpInFlight;
+
+  const run = scanMcpServers()
+    .then((items) => {
+      mcpCache = { at: Date.now(), items };
+      return items;
+    })
+    .finally(() => {
+      mcpInFlight = null;
+    });
+  mcpInFlight = run;
+  return run;
 }
 
 export async function getMcpServer(id: string): Promise<McpServerAsset | null> {
@@ -416,7 +448,9 @@ export async function saveMcpServer(
   id: string | null,
   draft: McpServerDraft,
 ): Promise<McpWriteResult> {
-  return saveWithCatalog(id, draft, await listMcpServers());
+  const result = await saveWithCatalog(id, draft, await listMcpServers());
+  if (result.ok) invalidateMcpCache();
+  return result;
 }
 
 /**
@@ -467,6 +501,7 @@ export async function saveMcpDefinition(
   const written = commitMcpServer(oldName, trimmedName, value);
   if (!written.ok) return written;
 
+  invalidateMcpCache();
   return {
     ok: true,
     asset: savedAsset(trimmedName, parsed, value),
@@ -504,6 +539,7 @@ export async function deleteMcpServer(id: string): Promise<boolean> {
   }
 
   dropEmployeeMcpRefs(asset.slug);
+  invalidateMcpCache();
   return true;
 }
 
@@ -558,7 +594,7 @@ export async function importMcpServers(json: string): Promise<McpImportResult> {
   const errors: string[] = [];
 
   // 一次扫描，后续逐条在内存快照上做重名判断
-  const all = await listMcpServers();
+  const all = [...(await listMcpServers())];
   for (const [name, config] of entries) {
     const parsed = parseServerObject(config, name);
     const result = await saveWithCatalog(
@@ -591,6 +627,7 @@ export async function importMcpServers(json: string): Promise<McpImportResult> {
     };
   }
 
+  invalidateMcpCache();
   return {
     ok: true,
     imported,

@@ -9,8 +9,14 @@
  * 这里只统一视觉与交互细节。
  */
 
+import { useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
-import type { ReactNode, RefObject } from "react";
+import type {
+  KeyboardEvent as ReactKeyboardEvent,
+  MutableRefObject,
+  ReactNode,
+  RefObject,
+} from "react";
 import type { LucideIcon } from "lucide-react";
 
 export const MENU_WIDTH = 192;
@@ -30,9 +36,48 @@ export function MenuPanel({
   children: ReactNode;
   className?: string;
 }) {
+  const localRef = useRef<HTMLDivElement | null>(null);
+
+  // 打开后把焦点交给第一项，键盘用户可直接用方向键浏览
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => {
+      localRef.current
+        ?.querySelector<HTMLElement>('[role="menuitem"]:not([disabled])')
+        ?.focus();
+    });
+    return () => cancelAnimationFrame(frame);
+  }, []);
+
+  const handleKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    const keys = ["ArrowDown", "ArrowUp", "Home", "End"];
+    if (!keys.includes(event.key)) return;
+    event.preventDefault();
+    const items = Array.from(
+      event.currentTarget.querySelectorAll<HTMLButtonElement>(
+        '[role="menuitem"]:not([disabled])',
+      ),
+    );
+    if (items.length === 0) return;
+    const current = items.indexOf(document.activeElement as HTMLButtonElement);
+    let next = 0;
+    if (event.key === "ArrowDown") next = (current + 1) % items.length;
+    else if (event.key === "ArrowUp") {
+      next = (current - 1 + items.length) % items.length;
+    } else if (event.key === "End") next = items.length - 1;
+    items[next]?.focus();
+  };
+
   return createPortal(
     <div
-      ref={menuRef}
+      ref={(node) => {
+        localRef.current = node;
+        if (menuRef) {
+          (menuRef as MutableRefObject<HTMLDivElement | null>).current = node;
+        }
+      }}
+      role="menu"
+      aria-orientation="vertical"
+      onKeyDown={handleKeyDown}
       style={{ top: y, left: x, width }}
       className={`ui-dropdown-in ui-glass-strong ui-ring fixed z-[60] rounded-xl p-1.5 ${className}`.trim()}
     >
@@ -58,6 +103,8 @@ export function MenuItem({
   return (
     <button
       type="button"
+      role="menuitem"
+      aria-disabled={disabled || undefined}
       onClick={onClick}
       disabled={disabled}
       className={`flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left ui-type-note transition-colors disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent ${

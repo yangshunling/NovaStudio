@@ -876,16 +876,6 @@ export async function syncKnowledgeIndex(kbId?: string): Promise<void> {
   }
 }
 
-/**
- * 检索前同步磁盘的最小间隔。
- *
- * 每次输入都全量扫描一遍磁盘代价太高；上传 / 删除已经即时更新索引，
- * 这里只负责吸收“外部编辑”的情况，2 秒的延迟对搜索体验没有影响。
- */
-const SYNC_MIN_INTERVAL_MS = 2000;
-/** 节流按知识库分别计时：否则在 A 库搜索完，2 秒内切到 B 库搜索会跳过 B 的同步 */
-const lastIndexSyncAt = new Map<string, number>();
-
 export async function searchKnowledge(
   query: string,
   kbId?: string,
@@ -895,12 +885,8 @@ export async function searchKnowledge(
     return { hits: [], total: 0, query: trimmed, degraded: false };
   }
 
-  const syncKey = kbId ?? "*";
-  if (Date.now() - (lastIndexSyncAt.get(syncKey) ?? 0) >= SYNC_MIN_INTERVAL_MS) {
-    await syncKnowledgeIndex(kbId);
-    lastIndexSyncAt.set(syncKey, Date.now());
-  }
-
+  // 索引同步已移出搜索路径（见 main/index.ts 的后台定时同步），
+  // 搜索只读现有索引；上传 / 编辑 / 删除会在写入时立即更新索引。
   const assets = await listKnowledgeBases();
   const byId = new Map(assets.map((asset) => [asset.id, asset]));
   const { rows, degraded } = searchKnowledgeDocuments({

@@ -63,21 +63,51 @@ export function stripAnsi(text: string): string {
   );
 }
 
+/**
+ * 单行上限：超过后丢弃该行，避免一条畸形 JSON 把内存拖垮。
+ * 16MB 远大于正常 stream-json 行（通常几十 KB）。
+ */
+const MAX_LINE_CHARS = 16 * 1024 * 1024;
+
 /** 行缓冲：把任意分片的输出切成完整行，尾部残片留到下次 */
 export function createLineBuffer() {
   let buffer = "";
+  /** 下次从 buffer 的哪个位置开始找换行；避免每来一个 chunk 都从头重扫 */
+  let searchFrom = 0;
   return {
-    /** 追加一段输出，返回本次凑齐的完整行（不含结尾换行） */
+    /**
+     * 追加一段输出，返回本次凑齐的完整行（不含结尾换行）。
+     *
+     * 先只在新增内容里找 `\n`，再把最后一个换行之前的部分切走：
+     * 跨多个 chunk 的超长行不会每次都被从头扫描（旧实现最坏 O(n²)）。
+     */
     push(chunk: string): string[] {
       buffer += chunk;
-      const lines = buffer.split("\n");
-      buffer = lines.pop() ?? "";
+      const lines: string[] = [];
+      let start = 0;
+      let index = buffer.indexOf("\n", searchFrom);
+      while (index >= 0) {
+        lines.push(buffer.slice(start, index));
+        start = index + 1;
+        index = buffer.indexOf("\n", start);
+      }
+      if (start > 0) {
+        buffer = buffer.slice(start);
+      }
+      if (buffer.length > MAX_LINE_CHARS) {
+        console.warn(
+          `[transport] 单行输出超过 ${MAX_LINE_CHARS} 字符，已丢弃该行`,
+        );
+        buffer = "";
+      }
+      searchFrom = buffer.length;
       return lines;
     },
     /** 取走尾部残片（进程退出时调用） */
     take(): string {
       const rest = buffer;
       buffer = "";
+      searchFrom = 0;
       return rest;
     },
   };
