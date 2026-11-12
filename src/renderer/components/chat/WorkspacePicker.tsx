@@ -14,14 +14,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useChatStore } from "../../stores/chat";
-import { toast } from "../../stores/toast";
-import {
-  isWorkspaceLocked,
-  isWorkspaceSwitchBlocked,
-  switchWorkspace,
-  WORKSPACE_LOCKED_HINT,
-  WORKSPACE_RUNNING_HINT,
-} from "../../lib/workspace-switch";
+import { switchWorkspace } from "../../lib/workspace-switch";
 import {
   buildWorkspaceItems,
   openWorkspaceManager,
@@ -145,21 +138,17 @@ export function useWorkspacePicker({
         openWorkspaceManager();
         return;
       }
-      // 会话已开始 / 运行中先拦下：不清掉正文里的 `#query`，用户还能看到自己输入的内容
-      if (isWorkspaceLocked()) {
-        toast.error(WORKSPACE_LOCKED_HINT, 5000);
-        close();
-        return;
-      }
-      if (isWorkspaceSwitchBlocked()) {
-        toast.error(WORKSPACE_RUNNING_HINT, 5000);
-        close();
-        return;
-      }
-      // 先把 `#query` 从正文里清掉，再执行切换（可能弹确认框）
-      replaceQuery("", true);
+      // 先收起列表；确认框 / 运行中提示由 switchWorkspace 统一处理
       close();
-      void switchWorkspace(entry.id);
+      void switchWorkspace(entry.id).then((result) => {
+        /*
+         * 只有真的切换、或目标本来就是当前工作区时才清掉正文里的
+         * `#query`。取消确认 / 运行中被拒时保留用户输入，方便重新选择。
+         */
+        if (result === "switched" || result === "unchanged") {
+          replaceQuery("", true);
+        }
+      });
     },
     [replaceQuery, close],
   );

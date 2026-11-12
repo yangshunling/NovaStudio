@@ -16,6 +16,8 @@ import {
   listBranches,
   pullBranch,
   pushBranch,
+  readCommitFileDiff,
+  readCommitFiles,
   readDiff,
   readLog,
   readStatusDetail,
@@ -41,8 +43,14 @@ export function registerGitHandlers(): void {
   handle("git:log", ({ projectId, limit }) =>
     readLog(projectCwd(projectId), limit),
   );
+  handle("git:commitFiles", ({ projectId, hash }) =>
+    readCommitFiles(projectCwd(projectId), hash),
+  );
   handle("git:diff", ({ projectId, relativePath, staged }) =>
     readDiff(projectCwd(projectId), relativePath, staged),
+  );
+  handle("git:commitFileDiff", ({ projectId, hash, relativePath, oldPath }) =>
+    readCommitFileDiff(projectCwd(projectId), hash, relativePath, oldPath),
   );
   handle("git:stage", ({ projectId, paths }) =>
     stagePaths(projectCwd(projectId), paths),

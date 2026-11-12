@@ -14,8 +14,9 @@ import * as db from "../../db/sqlite";
 import { flushEvents, push } from "../push";
 import { handle } from "../register";
 import { revealPath } from "../nativeUi";
-import { prepareEmployeeChatRun } from "../../employees/runtime";
+import { BASE_CHAT_NAME, prepareSessionChatRun } from "../../sessions/runtime";
 import { errorMessage } from "../../../shared/error";
+import type { DigitalEmployee } from "../../../shared/types";
 
 export function registerAgentHandlers(service: AgentService): void {
   handle("agent:detect", async () => {
@@ -77,95 +78,127 @@ export function registerAgentHandlers(service: AgentService): void {
    * 统一发送：主进程按会话是否已存会话引用、以及 provider 是否支持多轮，
    * 决定新建还是恢复（判断逻辑在 AgentService 内，此处不重复）。
    */
-  handle("agent:send", async ({ sessionId, prompt }): Promise<SendAgentResult> => {
-    const session = db.getSession(sessionId);
-    if (!session) return { ok: false, error: `会话不存在: ${sessionId}` };
+  handle(
+    "agent:send",
+    async ({ sessionId, prompt, employeeId }): Promise<SendAgentResult> => {
+      const session = db.getSession(sessionId);
+      if (!session) return { ok: false, error: `会话不存在: ${sessionId}` };
 
-    const cwd = service.resolveCwd(session.cwd, db.getSetting("defaultCwd"));
+      const cwd = service.resolveCwd(session.cwd, db.getSetting("defaultCwd"));
 
-    /*
-     * 数字员工分支：把员工引用的资产还原到常驻运行时目录，
-     * 再让 CLI 以该目录作为配置根启动。
-     *
-     * 未绑定员工的会话完全走原有逻辑（不传任何额外参数，使用 ~/.claude）。
-     */
-    let employeeRun: Awaited<ReturnType<typeof prepareEmployeeChatRun>> | null =
-      null;
-    if (session.employeeId) {
-      const employee = db.getDigitalEmployee(session.employeeId);
-      if (!employee) {
-        return {
-          ok: false,
-          error: "本次会话绑定的数字员工已不存在，请新建会话重新选择员工",
-        };
+      /*
+       * 本轮回答者：显式传入优先，否则沿用会话当前的员工。
+       * null 表示不指定员工，使用会话的 base-home。
+       */
+      const requestedEmployeeId =
+        employeeId !== undefined ? employeeId : (session.employeeId ?? null);
+
+      let employee: DigitalEmployee | null = null;
+      if (requestedEmployeeId) {
+        const found = db.getDigitalEmployee(requestedEmployeeId);
+        if (!found) {
+          return {
+            ok: false,
+            error: "本次会话选择的数字员工已不存在，请重新选择员工",
+          };
+        }
+        if (!found.enabled) {
+          return {
+            ok: false,
+            error: `数字员工「${found.name}」已停用，请启用后再继续本次会话`,
+          };
+        }
+        employee = found;
       }
-      if (!employee.enabled) {
-        return {
-          ok: false,
-          error: `数字员工「${employee.name}」已停用，请启用后再继续本次会话`,
-        };
-      }
 
-      try {
-        employeeRun = await prepareEmployeeChatRun(employee);
-      } catch (err) {
-        return {
-          ok: false,
-          error: `数字员工「${employee.name}」运行环境准备失败：${errorMessage(err)}`,
-        };
+      // 显式选择在运行前落库，保证本轮与界面选择一致
+      if (
+        employeeId !== undefined &&
+        requestedEmployeeId !== session.employeeId
+      ) {
+        db.setSessionEmployee(sessionId, requestedEmployeeId);
       }
 
       /*
-       * 必须先落库再启动：历史回放与 --resume 都按 configDir 定位
-       * claude-home/projects 下的会话 JSONL，晚一步就会找错目录。
+       * 一个会话一份 projects：base-home / 员工 home 只切 CLAUDE_CONFIG_DIR。
+       * 必须先落库 active home 再启动，历史回放与 --resume 都按 config_dir
+       * 定位 projects 下的 CLI 会话文件。
        */
-      db.setSessionConfigDir(sessionId, employeeRun.configDir);
-      if (employeeRun.warnings.length > 0) {
+      let run: Awaited<ReturnType<typeof prepareSessionChatRun>>;
+      try {
+        run = await prepareSessionChatRun(session, employee);
+      } catch (err) {
+        return {
+          ok: false,
+          error: `会话运行环境准备失败：${errorMessage(err)}`,
+        };
+      }
+      db.setSessionConfigDir(sessionId, run.configDir);
+      if (run.warnings.length > 0) {
         console.warn(
-          `[agent:send] 员工「${employee.name}」同步警告：\n${employeeRun.warnings.join("\n")}`,
+          `[agent:send] 会话运行时警告：\n${run.warnings.join("\n")}`,
         );
       }
-    }
 
-    // 记录用户消息：刷新索引（首条消息写标题），正文不入库
-    db.touchSession(sessionId, {
-      title: (session.messageCount ?? 0) === 0 ? prompt.slice(0, 40) : undefined,
-      countDelta: 1,
-    });
+      // 记录用户消息：刷新索引（首条消息写标题），正文不入库
+      db.touchSession(sessionId, {
+        title:
+          (session.messageCount ?? 0) === 0 ? prompt.slice(0, 40) : undefined,
+        countDelta: 1,
+      });
 
-    const outcome = await service.run({
-      sessionId,
-      prompt,
-      cwd,
-      ...(employeeRun
-        ? {
-            env: employeeRun.env,
-            extraArgs: employeeRun.extraArgs,
-            opts: { systemPrompt: employeeRun.systemPrompt },
-          }
-        : {}),
-    });
-    if (!outcome.ok) {
-      // 运行没起来：把刚才记的用户消息撤回，避免消息数虚增导致
-      // 「首条消息自动命名」和侧栏计数都失真。
-      db.touchSession(sessionId, { countDelta: -1 });
-      return { ok: false, error: outcome.error ?? "运行失败" };
-    }
+      /*
+       * 发言者前缀只加在送入 CLI 的上下文里。
+       *
+       * 同一会话的 projects 由员工与通用助手共用，历史消息本身不带身份；
+       * 切换员工后，上一位的「你是谁」自述仍留在上下文中。每轮用户消息前
+       * 标注 @回答者，模型才能从上下文区分哪句话由谁说出，避免串台。
+       * 落库与界面展示仍使用原始 prompt。
+       */
+      const speaker = employee?.name ?? BASE_CHAT_NAME;
+      const contextPrompt = prompt.startsWith(`@${speaker}`)
+        ? prompt
+        : `@${speaker} ${prompt}`;
 
-    flushEvents();
-
-    // 被用户中断的会话不记为完成，也不推送 done
-    if (!outcome.aborted) {
-      db.touchSession(sessionId, { countDelta: 1 });
-      push("agent:done", {
+      const outcome = await service.run({
         sessionId,
+        prompt,
+        contextPrompt,
+        cwd,
+        // 落库时记到本轮消息上：历史回复按当时的回答者显示头像
+        employeeId: requestedEmployeeId,
+        env: { CLAUDE_CONFIG_DIR: run.configDir },
+        extraArgs: run.extraArgs,
+        ...(run.systemPrompt
+          ? { opts: { systemPrompt: run.systemPrompt } }
+          : {}),
+      });
+      if (!outcome.ok) {
+        // 运行没起来：把刚才记的用户消息撤回，避免消息数虚增导致
+        // 「首条消息自动命名」和侧栏计数都失真。
+        db.touchSession(sessionId, { countDelta: -1 });
+        return { ok: false, error: outcome.error ?? "运行失败" };
+      }
+
+      flushEvents();
+
+      // 被用户中断的会话不记为完成，也不推送 done
+      if (!outcome.aborted) {
+        db.touchSession(sessionId, { countDelta: 1 });
+        push("agent:done", {
+          sessionId,
+          exitCode: outcome.exitCode,
+          duration: outcome.duration,
+        });
+      }
+
+      return {
+        ok: true,
         exitCode: outcome.exitCode,
         duration: outcome.duration,
-      });
-    }
-
-    return { ok: true, exitCode: outcome.exitCode, duration: outcome.duration };
-  });
+      };
+    },
+  );
 
   /** 中断指定会话（多会话并发时互不影响） */
   handle("agent:abort", ({ sessionId }) => {

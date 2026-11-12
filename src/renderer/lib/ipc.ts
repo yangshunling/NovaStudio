@@ -67,8 +67,12 @@ export const ipc = {
   checkAgentUpgrade: (agentId: string) =>
     call("agent:upgrade:check", { agentId }),
   upgradeAgent: (agentId: string) => call("agent:upgrade:run", { agentId }),
-  sendAgent: (sessionId: string, prompt: string): Promise<SendAgentResult> =>
-    call("agent:send", { sessionId, prompt }),
+  sendAgent: (
+    sessionId: string,
+    prompt: string,
+    employeeId?: string | null,
+  ): Promise<SendAgentResult> =>
+    call("agent:send", { sessionId, prompt, employeeId }),
   abortAgent: (sessionId: string) => call("agent:abort", { sessionId }),
 
   // === 项目 ===
@@ -84,8 +88,17 @@ export const ipc = {
   listGitBranches: (projectId: string) => call("git:branches", { projectId }),
   listGitLog: (projectId: string, limit?: number) =>
     call("git:log", { projectId, limit }),
+  listGitCommitFiles: (projectId: string, hash: string) =>
+    call("git:commitFiles", { projectId, hash }),
   getGitDiff: (projectId: string, relativePath: string, staged: boolean) =>
     call("git:diff", { projectId, relativePath, staged }),
+  getGitCommitFileDiff: (
+    projectId: string,
+    hash: string,
+    relativePath: string,
+    oldPath?: string,
+  ) =>
+    call("git:commitFileDiff", { projectId, hash, relativePath, oldPath }),
   stageGitPaths: (projectId: string, paths: string[]) =>
     call("git:stage", { projectId, paths }),
   unstageGitPaths: (projectId: string, paths: string[]) =>
@@ -132,6 +145,8 @@ export const ipc = {
     agentId: string,
     employeeId?: string | null,
   ) => call("session:create", { projectId, agentId, employeeId }),
+  setSessionEmployee: (sessionId: string, employeeId: string | null) =>
+    call("session:setEmployee", { sessionId, employeeId }),
   listSessions: () => call("session:list"),
   getDefaultCwd: () => call("session:defaultCwd"),
   getSession: (id: string) => call("session:get", { id }),

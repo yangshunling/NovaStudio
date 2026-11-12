@@ -203,6 +203,8 @@ export function initDatabase(): void {
       id TEXT PRIMARY KEY,
       session_id TEXT NOT NULL,
       role TEXT NOT NULL,
+      -- 本条回复的数字员工；NULL 表示 Agent 全局配置
+      employee_id TEXT,
       content_json TEXT NOT NULL,
       timestamp INTEGER NOT NULL,
       FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
@@ -417,6 +419,7 @@ export function initDatabase(): void {
 
   // 已发版的库不会因版本号相同而重建；这里幂等补列，避免清空用户数据
   ensureColumn(conn, "sessions", "employee_id", "TEXT");
+  ensureColumn(conn, "messages", "employee_id", "TEXT");
 
   ensureKnowledgeFts();
 
@@ -612,6 +615,23 @@ export function updateAgentSessionId(sessionId: string, agentSessionId: string):
 }
 
 /**
+ * 切换会话当前使用的数字员工。
+ *
+ * 只改 employee_id，不触碰 agent_session_id / config_dir：
+ * 会话的 CLI 上下文由会话级 projects 目录承载，换员工不能丢上下文。
+ * 也不更新 updated_at，避免仅切换员工就把会话顶到列表最前。
+ */
+export function setSessionEmployee(
+  sessionId: string,
+  employeeId: string | null,
+): void {
+  prepare("UPDATE sessions SET employee_id = ? WHERE id = ?").run(
+    employeeId,
+    sessionId,
+  );
+}
+
+/**
  * 记录会话实际使用的 CLI 配置目录（数字员工 home）。
  *
  * 必须在启动进程前落库：历史回放 / --resume 都按这个目录定位会话 JSONL，
@@ -658,15 +678,15 @@ export function listSessionsByEmployee(employeeId: string): Session[] {
 }
 
 /**
- * 员工被强制删除后，解除其会话绑定并清空 CLI 引用。
+ * 员工被强制删除后，解除其会话绑定。
  *
- * 运行时目录会随员工一起删除，旧会话文件不再存在；保留本地 messages，
- * 这些会话退回普通模式（使用 Agent 全局配置）继续可用。
+ * config_dir / agent_session_id 属于会话本身，不能随员工清除：
+ * 会话级 projects 里还有完整的 CLI 对话，下一次发送会切到 base-home 继续。
  */
 export function clearEmployeeBindings(employeeId: string): void {
-  prepare(
-    "UPDATE sessions SET employee_id = NULL, config_dir = NULL, agent_session_id = NULL WHERE employee_id = ?",
-  ).run(employeeId);
+  prepare("UPDATE sessions SET employee_id = NULL WHERE employee_id = ?").run(
+    employeeId,
+  );
 }
 
 /** 更新会话标题 */
@@ -695,8 +715,15 @@ export function setSessionPinned(sessionId: string, pinned: boolean): void {
  */
 export function saveSessionMessage(sessionId: string, msg: Message): void {
   prepare(
-    "INSERT INTO messages (id, session_id, role, content_json, timestamp) VALUES (?, ?, ?, ?, ?)",
-  ).run(msg.id, sessionId, msg.role, JSON.stringify(msg.content), msg.timestamp);
+    "INSERT INTO messages (id, session_id, role, employee_id, content_json, timestamp) VALUES (?, ?, ?, ?, ?, ?)",
+  ).run(
+    msg.id,
+    sessionId,
+    msg.role,
+    msg.employeeId ?? null,
+    JSON.stringify(msg.content),
+    msg.timestamp,
+  );
 }
 
 /** 读取会话的全部持久化消息（按时间正序）。无数据时返回 null，表示回退到 provider 回放。 */
@@ -714,6 +741,12 @@ export function readSessionMessages(sessionId: string): Message[] | null {
         role: row.role,
         content: JSON.parse(row.content_json),
         timestamp: row.timestamp,
+        /*
+         * NULL 视为「没有记录」而不是「当时就没用员工」：
+         * 补列前的历史消息都是 NULL，交给渲染层回退到会话当前绑定，
+         * 否则升级后老会话的回复会全部退回 Claude 头像。
+         */
+        employeeId: row.employee_id ?? undefined,
       });
     } catch {
       // 单条消息损坏不应让整个会话打不开：跳过它，其余历史照常回放
@@ -738,7 +771,7 @@ export function importSessionMessages(
 ): void {
   if (messages.length === 0) return;
   const insert = prepare(
-    "INSERT OR IGNORE INTO messages (id, session_id, role, content_json, timestamp) VALUES (?, ?, ?, ?, ?)",
+    "INSERT OR IGNORE INTO messages (id, session_id, role, employee_id, content_json, timestamp) VALUES (?, ?, ?, ?, ?, ?)",
   );
   db!.transaction(() => {
     for (const message of messages) {
@@ -746,6 +779,7 @@ export function importSessionMessages(
         message.id || randomUUID(),
         sessionId,
         message.role,
+        message.employeeId ?? null,
         JSON.stringify(message.content),
         message.timestamp,
       );

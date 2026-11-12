@@ -8,7 +8,7 @@
  *
  * 节点会话的 CLI 文件（JSONL）已由 runner 在每次 attempt 结束时删除，
  * 这里的 releaseSession 只作为兜底，幂等且找不到文件时静默返回。
- * 员工常驻运行时目录（~/.novastudio/employee-runtime/<id>）属于员工资产，
+ * 员工资产（~/.novastudio/employee/<id>）与运行时（~/.novastudio/runtime/<id>）
  * 不随运行 / 工作流删除，只在删除员工时清理。
  *
  * 工作区本身（用户的项目文件夹）永远不删，只清理 Nova 生成的内容。
@@ -19,6 +19,7 @@ import { readdir, rm } from "fs/promises";
 import { join } from "path";
 import type { AgentService } from "../agents/agent-service";
 import * as db from "../db/sqlite";
+import { removeSessionRuntime } from "../sessions/runtime";
 import type { Workflow } from "../../shared/types";
 
 export interface CleanupDeps {
@@ -94,8 +95,14 @@ export async function deleteWorkspaceData(
   }
 
   // 剩余的是普通聊天会话：先中断并等待运行收尾，再删项目（会话行级联删除）
+  const projectSessionIds = db.listSessionIdsByProject(projectId);
   await deps.service.releaseProject(projectId);
   db.deleteProject(projectId);
+
+  // 会话级运行时目录随会话一起清理；工作流会话没有这类目录，幂等
+  await Promise.all(
+    projectSessionIds.map((sessionId) => removeSessionRuntime(sessionId)),
+  );
 
   if (project?.cwd) {
     await removeWorkspaceArtifacts(project.cwd);

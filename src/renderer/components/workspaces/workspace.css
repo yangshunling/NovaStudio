@@ -921,11 +921,6 @@
   color: var(--c-text-muted);
 }
 
-.ws-diff-line[data-kind="hunk"] {
-  background: var(--c-accent-soft);
-  color: var(--c-accent);
-}
-
 .ws-diff-line[data-kind="add"] {
   border-left-color: var(--c-diff-add);
   background: color-mix(in srgb, var(--c-diff-add-bg) 55%, var(--c-surface));
@@ -964,11 +959,88 @@
   height: 28px;
   padding-right: 6px;
   border-radius: var(--c-radius-md);
+  cursor: pointer;
   transition: background-color var(--c-motion-fast) var(--c-ease-standard);
 }
 
-.ws-commit-item:hover {
+.ws-commit-item:hover,
+.ws-commit-item[data-expanded="true"] {
   background: var(--c-surface-hover);
+}
+
+.ws-commit-item:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--c-accent) 45%, transparent);
+  outline-offset: -2px;
+}
+
+/* 展开的文件清单：缩进到提交标题下方，并用左侧竖线延续 Git 图 */
+.ws-commit-files {
+  position: relative;
+  padding: 1px 6px 4px 26px;
+}
+
+.ws-commit-files::before {
+  content: "";
+  position: absolute;
+  left: 10px;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: var(--c-accent);
+}
+
+.ws-commit-files[data-tone="pushed"]::before {
+  background: var(--c-agent-violet);
+}
+
+/* 最老的提交下方不再连线 */
+.ws-commit-files[data-last="true"]::before {
+  display: none;
+}
+
+.ws-commit-file {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  height: 24px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: var(--c-radius-md);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color var(--c-motion-fast) var(--c-ease-standard);
+}
+
+.ws-commit-file:hover {
+  background: var(--c-surface-hover);
+}
+
+.ws-commit-file[data-active="true"] {
+  background: var(--c-accent-soft);
+}
+
+.ws-commit-file:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--c-accent) 45%, transparent);
+  outline-offset: -2px;
+}
+
+/* 文件清单比变更列表更紧凑：文件名小一档 */
+.ws-commit-file .ws-file-name {
+  font-size: var(--c-font-size-caption);
+}
+
+.ws-commit-files-state {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 24px;
+  padding: 0 6px;
+  font-size: var(--c-font-size-caption);
+  color: var(--c-text-muted);
 }
 
 .ws-commit-subject {

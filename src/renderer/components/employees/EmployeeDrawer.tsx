@@ -140,6 +140,7 @@ export function EmployeeDrawer({
     setError(null);
     try {
       const payload = { ...draft, name };
+      // 保存只落库；员工目录在下次运行前按最新定义物化
       if (employee) await ipc.updateEmployee(employee.id, payload);
       else await ipc.createEmployee(payload);
       await onSaved();
@@ -270,7 +271,7 @@ export function EmployeeDrawer({
 
         {/* 底部：删除 / 取消 / 保存 */}
         <DrawerFooter>
-          <div className="min-w-0">
+          <div className="flex min-w-0 items-center gap-1">
             {employee && (
               <Button
                 size="sm"

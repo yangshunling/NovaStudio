@@ -109,7 +109,7 @@ export function initIpcHandlers(window: BrowserWindow): void {
   registerDialogHandlers();
   registerFileHandlers();
   registerTerminalHandlers();
-  registerEmployeeHandlers(runner);
+  registerEmployeeHandlers(service, runner);
   registerMcpHandlers();
   registerSkillHandlers();
   registerKnowledgeHandlers();

@@ -257,8 +257,8 @@ export function ChatArea({ embedded = false }: { embedded?: boolean } = {}) {
 
   /** 占位提示用独立的一行文本渲染：textarea 原生 placeholder 会自动折行 */
   const placeholder = currentProject
-    ? "输入消息，@ 引用内容，# 切换工作区，Enter 发送，Shift+Enter 换行，↑↓ 翻历史"
-    : "描述任务，@ 引用内容，# 切换工作区，Enter 发送，Shift+Enter 换行，↑↓ 翻历史";
+    ? "输入消息，@ 选数字员工，/ 引用内容，# 切换工作区，Enter 发送，Shift+Enter 换行"
+    : "描述任务，@ 选数字员工，/ 引用内容，# 切换工作区，Enter 发送，Shift+Enter 换行";
 
   const handleSend = () => {
     const trimmed = input.trim();
@@ -458,7 +458,7 @@ export function ChatArea({ embedded = false }: { embedded?: boolean } = {}) {
                   }}
                   placeholder=""
                   rows={1}
-                  className="max-h-48 min-h-[40px] w-full resize-none bg-transparent px-1.5 py-1 ui-type-item leading-relaxed text-text placeholder-text-muted outline-none"
+                  className="max-h-48 min-h-[36px] w-full resize-none bg-transparent px-1.5 py-1 ui-type-item leading-relaxed text-text placeholder-text-muted outline-none"
                 />
                 {input.length === 0 && (
                   <span
@@ -470,6 +470,7 @@ export function ChatArea({ embedded = false }: { embedded?: boolean } = {}) {
                 )}
                 {mention.active ? (
                   <MentionPopup
+                    kind={mention.kind}
                     entries={mention.entries}
                     hoverIdx={mention.hoverIdx}
                     loading={mention.loading}
@@ -495,8 +496,10 @@ export function ChatArea({ embedded = false }: { embedded?: boolean } = {}) {
                 ) : null}
               </div>
 
-              {/* 操作栏：左边是上下文，右边是仪表与发送 */}
-              <div className="mt-0 flex items-center justify-between gap-3 border-t border-border/60 pt-1">
+              {/* 操作栏：左边是上下文，右边是仪表与发送。
+                  分隔线与上下内容的间距对齐（正文尾部 ~9px / 按钮上方 8px），
+                  线条大致落在留白中间，而不是紧贴按钮。 */}
+              <div className="mt-0 flex items-center justify-between gap-3 border-t border-border/60 pt-2">
                 <div className="flex min-w-0 items-center gap-1">
                   {/* 工作目录：可选。绑定后 Agent 在该工作区目录运行 */}
                   <ProjectSelector />

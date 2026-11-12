@@ -179,9 +179,27 @@ export interface Session {
 
 export interface Message {
   id: string;
-  role: "user" | "assistant";
+  /**
+   * system 是宿主写入的分隔提示（如切换工作区后「以上为旧对话」），
+   * 不属于 Agent 的对话内容，也不参与上下文。
+   */
+  role: "user" | "assistant" | "system";
   content: AgentEvent[];
   timestamp: number;
+  /**
+   * 本条助手回复由哪位数字员工产生；缺省 / null 表示走 Agent 全局配置。
+   *
+   * 记录在消息上而不是只读会话绑定：会话中途换人时，只影响之后的回复，
+   * 历史回复仍显示当时的回答者头像。
+   */
+  employeeId?: string | null;
+}
+
+/** 切换会话工作区的结果 */
+export interface SessionProjectSwitch {
+  session: Session;
+  /** 上下文被重置时写入的分隔提示（已落库）；未重置时为 null */
+  marker: Message | null;
 }
 
 // ============================================================================
@@ -596,6 +614,7 @@ export interface DigitalEmployee extends DigitalEmployeeDraft {
   createdAt: number;
   updatedAt: number;
 }
+
 
 // ============================================================================
 // 工作流

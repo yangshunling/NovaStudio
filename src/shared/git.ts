@@ -85,6 +85,15 @@ export interface GitCommitSummary {
   refs: string[];
 }
 
+/** 提交中涉及的文件；用于在最近提交列表里展开查看文件清单 */
+export interface GitCommitFile {
+  /** 相对工作区根目录的 POSIX 路径 */
+  path: string;
+  /** 重命名 / 复制前的路径；仅 R / C 时存在 */
+  oldPath?: string;
+  status: GitStatusKind;
+}
+
 export interface GitDiffResult {
   ok: boolean;
   diff: string;

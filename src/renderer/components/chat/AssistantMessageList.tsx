@@ -40,12 +40,18 @@ import { TOOL_TARGET_KEYS, readStringField } from "@shared/tool-input";
 import {
   selectCurrentMessages,
   selectEffectiveAgentId,
+  selectEffectiveEmployeeId,
   useChatStore,
 } from "../../stores/chat";
+import { useEmployeesStore } from "../../stores/employees";
 import { REVEAL_MESSAGE_EVENT } from "../../lib/chat-events";
 import { CHAT_VIEWPORT_ID, scrollToMessage } from "../../lib/chat-scroll";
 import { StreamingMarkdown } from "../ui/MarkdownRenderer";
-import { AgentAvatar, NovaAvatar } from "../ui/MessageAvatar";
+import {
+  AgentAvatar,
+  EmployeeChatAvatar,
+  NovaAvatar,
+} from "../ui/MessageAvatar";
 import { UserBubble } from "../ui/UserBubble";
 import { extractFileChanges } from "../../lib/tool-diff";
 import { markdownInterval, useThrottledValue } from "../../hooks/useThrottledValue";
@@ -167,6 +173,9 @@ const ASSISTANT_PART_COMPONENTS = {
   tools: { Fallback: ToolPart },
 };
 
+/** system 消息只有纯文本，保持引用稳定以命中 assistant-ui 的 components 缓存 */
+const SYSTEM_PART_COMPONENTS = { Text: SystemTextPart };
+
 export function AssistantMessageList({
   onSuggestion,
 }: {
@@ -177,6 +186,15 @@ export function AssistantMessageList({
   const streaming = useChatStore(
     (s) => !!s.streamingBySession[s.currentSessionId ?? ""],
   );
+
+  /*
+   * 回复头像要解析数字员工档案（头像 / 名称）。
+   * 聊天页不一定进过员工页，这里兜底拉一次；store 内部已做过加载去重。
+   */
+  const loadEmployees = useEmployeesStore((s) => s.load);
+  useEffect(() => {
+    void loadEmployees();
+  }, [loadEmployees]);
 
   /*
    * 窗口化：只把最近一段消息交给 assistant-ui。
@@ -372,6 +390,7 @@ export function AssistantMessageList({
             components={{
               UserMessage: UserMessage,
               AssistantMessage: AssistantMessage,
+              SystemMessage: SystemMessage,
             }}
           />
         </ThreadPrimitive.Viewport>
@@ -471,9 +490,49 @@ function UserTextPart() {
   return <>{part.text}</>;
 }
 
+/**
+ * system 消息：时间线上的上下文分界。
+ *
+ * 切换工作区后由主进程写入，显示为一条安静的分界提示。
+ * 不带头像，也不套助手回复的气泡。
+ */
+function SystemMessage() {
+  return (
+    <MessagePrimitive.Root className="mx-auto mb-4 flex max-w-[var(--c-layout-content)] items-center gap-3 last:mb-0">
+      <span aria-hidden className="h-px min-w-4 flex-1 bg-border/80" />
+      <div className="min-w-0 shrink-0 px-1 text-center ui-type-sub leading-relaxed text-text-muted">
+        <MessagePrimitive.Parts components={SYSTEM_PART_COMPONENTS} />
+      </div>
+      <span aria-hidden className="h-px min-w-4 flex-1 bg-border/80" />
+    </MessagePrimitive.Root>
+  );
+}
+
+function SystemTextPart() {
+  const part = useMessagePartText();
+  return <>{part.text}</>;
+}
+
 function AssistantMessage() {
   const agents = useChatStore((s) => s.agents);
   const agentId = useChatStore(selectEffectiveAgentId);
+  const employees = useEmployeesStore((s) => s.employees);
+  /*
+   * 回答者优先级：消息自己记录 > 会话当前绑定。
+   *
+   * 消息上记的是「这条回复当时谁答的」，所以中途换员工不会把历史回复的
+   * 头像一起改掉；undefined 才是真的没有记录（旧数据 / CLI 回放），
+   * 此时回退到会话绑定。显式 null 表示当时就没用数字员工。
+   */
+  const sessionEmployeeId = useChatStore(selectEffectiveEmployeeId);
+  const messageEmployeeId = useAuiState((s) => {
+    const value = s.message.metadata.custom.employeeId;
+    return typeof value === "string" || value === null ? value : undefined;
+  });
+  const employee = useMemo(() => {
+    const id = messageEmployeeId === undefined ? sessionEmployeeId : messageEmployeeId;
+    return id ? (employees.find((item) => item.id === id) ?? null) : null;
+  }, [messageEmployeeId, sessionEmployeeId, employees]);
   /*
    * 用消息级状态而不是某个 part 的状态：思考 / 调工具 / 写正文都算「在跑」。
    * 挂在 part 上时，只要当前正在产出思考块，正文 part 就处于完成态，
@@ -483,11 +542,18 @@ function AssistantMessage() {
 
   return (
     <MessagePrimitive.Root className="relative mx-auto mb-4 max-w-[var(--c-layout-content)] last:mb-0">
-      <AgentAvatar
-        agents={agents}
-        agentId={agentId}
-        className="ui-chat-avatar-left"
-      />
+      {employee ? (
+        <EmployeeChatAvatar
+          employee={employee}
+          className="ui-chat-avatar-left"
+        />
+      ) : (
+        <AgentAvatar
+          agents={agents}
+          agentId={agentId}
+          className="ui-chat-avatar-left"
+        />
+      )}
       {/* 同一回复内的 part 间距统一由 gap 控制，part 自身不再带下边距，
           否则「最后一块是什么」会改变消息尾部的留白。 */}
       <div className="flex w-full min-w-0 flex-col gap-2">
@@ -622,6 +688,16 @@ function WarningPart(props: DataMessagePartProps<{ message: string }>) {
 }
 
 function toThreadMessage(message: Message, streaming: boolean): ThreadMessageLike {
+  if (message.role === "system") {
+    // 宿主写入的分隔提示：不是 Agent 回复，渲染成时间线上的分界线
+    return {
+      id: message.id,
+      role: "system",
+      createdAt: new Date(message.timestamp),
+      content: textFromEvents(message.content),
+    };
+  }
+
   if (message.role === "user") {
     return {
       id: message.id,
@@ -639,6 +715,14 @@ function toThreadMessage(message: Message, streaming: boolean): ThreadMessageLik
       ? { type: "running" }
       : { type: "complete", reason: "stop" },
     content: assistantParts(message),
+    /*
+     * 回答者随消息一起带进 assistant-ui 的展示层。
+     * 只有「确实记录过」才写这个键：undefined 要留给渲染时回退到会话绑定，
+     * 直接写成 null 会被误读成「当时就没用员工」。
+     */
+    ...(message.employeeId !== undefined
+      ? { metadata: { custom: { employeeId: message.employeeId } } }
+      : {}),
   };
 }
 

@@ -11,6 +11,7 @@ import { handle } from "../register";
 import { removeEmployeeRuntime } from "../../employees/runtime";
 import { EMPLOYEE_SESSION_IN_USE } from "../../../shared/contracts/ipc";
 import type { DigitalEmployeeDraft } from "../../../shared/types";
+import type { AgentService } from "../../agents/agent-service";
 import type { WorkflowRunner } from "../../workflow/runner";
 
 /** 主进程侧的最低校验：UI 之外也可能直接调用 IPC */
@@ -33,9 +34,19 @@ function findWorkflowsUsingEmployee(employeeId: string): string[] {
     .map((workflow) => workflow.name);
 }
 
-export function registerEmployeeHandlers(runner: WorkflowRunner): void {
+export function registerEmployeeHandlers(
+  service: AgentService,
+  runner: WorkflowRunner,
+): void {
   handle("employees:list", () => db.listDigitalEmployees());
 
+  /*
+   * 保存只落库，不碰磁盘。
+   *
+   * 员工目录是派生物：下一次聊天 / 工作流运行前，主进程会按数据库里的
+   * 最新定义重新物化（见 sessions/runtime 与 agents/claude/prepare）。
+   * 这样反复编辑不会在磁盘上留下半成品，也不会和正在运行的进程抢文件。
+   */
   handle("employees:create", ({ draft }) =>
     db.createDigitalEmployee(normalizeDraft(draft)),
   );
@@ -49,14 +60,23 @@ export function registerEmployeeHandlers(runner: WorkflowRunner): void {
     if (!employee) return true;
 
     /*
-     * 员工运行时目录（~/.novastudio/employee-runtime/<id>）由聊天与工作流
-     * 共享。删除会直接抽掉正在执行节点的 CLAUDE_CONFIG_DIR，必须先拦住。
-     * 用运行启动时的图快照判断，运行期间改节点也绕不过去。
+     * 员工资产（~/.novastudio/employee/<id>）与运行时（~/.novastudio/runtime/<id>）
+     * 由聊天与工作流共享。删除会直接抽掉正在执行节点的 CLAUDE_CONFIG_DIR，
+     * 必须先拦住。用运行启动时的图快照判断，运行期间改节点也绕不过去。
      */
     if (runner.hasActiveRunUsingEmployee(id)) {
       throw new Error(
         "无法删除：该数字员工正在被工作流运行使用，请先终止运行",
       );
+    }
+
+    /*
+     * 聊天运行中也不能删：运行时目录里是它正在使用的配置与认证副本。
+     * 不能按会话当前绑定判断 —— 运行中允许把回答者切给别人，绑定的员工
+     * 已经不是本轮实际在用的那个；这里按运行快照（run 启动时的员工）判断。
+     */
+    if (service.isEmployeeInUse(id)) {
+      throw new Error("无法删除：该数字员工正在被会话使用，请先停止运行");
     }
 
     // 删除前必须确认没有工作流仍在使用：否则这些节点会在下次运行时
@@ -87,7 +107,7 @@ export function registerEmployeeHandlers(runner: WorkflowRunner): void {
       );
     }
 
-    // 强制删除后，会话退回普通模式：清掉员工绑定、配置目录与旧 CLI 引用
+    // 强制删除后，会话退回普通模式：只清员工绑定，保留会话自己的 CLI 上下文
     if (sessions.length > 0) db.clearEmployeeBindings(id);
     db.deleteDigitalEmployee(id);
     await removeEmployeeRuntime(id);

@@ -1,20 +1,24 @@
 /**
- * 引用选择器 (@ mention)
+ * 输入框快捷引用 —— 三个触发字符各管一件事
  *
- * 输入 @ 后先进入「引用类型」这一层，选中类型后再列出该类型下的条目：
- *   文件 / 数字员工 / 工具（MCP） / 技能 / 提示词 / 知识库
+ *   @  引用数字员工（谁来回这一轮）
+ *   /  引用内容（文件 / 工具 / 技能 / 提示词 / 知识库，仍是分类 → 条目两层）
+ *   #  引用工作区（实现见 WorkspacePicker）
+ *
+ * 为什么把员工单独拆出来：@ 员工是高频动作，而内容和员工的选中语义完全不同
+ * —— 内容是一段要发给 Agent 的引用，员工是「下一条消息由谁回答」的选择。
+ * 混在一个弹窗里，选员工要先在类型层里翻一层；拆开后 `@需` + Enter 就能切换。
  *
  * 交互：
- *   1. 行首或空格后输入 @ → 弹出引用类型列表
- *   2. 输入字符 → 在类型层过滤；选中类型后改为过滤该类型下的条目
- *   3. 文件类型保留目录下钻：继续输入 / 或选中目录进入子目录
+ *   1. 行首 / 空格 / 非邮箱字符后输入 @ 或 / → 弹出对应列表
+ *   2. @：只列已启用的员工，选中即绑定（与输入框旁「指定员工」同一处状态）
+ *   3. /：先选引用类型，再选条目；文件类型保留目录下钻
  *   4. ↑↓ 导航，Enter 确认；Backspace 在空查询时返回上一级
  *   5. Tab 强制选择、Esc / 外部点击关闭
  *
- * 选择结果：
+ * 内容的选择结果：
  *   - 文件 / 工具 / 技能 / 知识库 → 作为引用标签挂在输入框上方，发送时转成提示词
  *   - 提示词 → 正文直接插入输入框，由用户确认后发送
- *   - 数字员工 → 与输入框旁的「指定员工」同一套逻辑：绑定本次会话使用的员工
  *
  * 文件列表通过 IPC 从主进程读取（带缓存）；工具 / 技能 / 知识库复用
  * assets store 的扫描结果；数字员工复用 employees store，与输入框旁的
@@ -40,10 +44,14 @@ import {
   useSkillsStore,
 } from "../../stores/assets";
 import { useEmployeesStore } from "../../stores/employees";
-import { chooseEmployee } from "../../lib/employee-switch";
+import {
+  chooseEmployee,
+  DEFAULT_ASSISTANT,
+} from "../../lib/employee-switch";
 import { ipc } from "../../lib/ipc";
 import type { FileEntry, PromptItem } from "@shared/types";
 import { EmployeeAvatar } from "../employees/EmployeeAvatar";
+import claudeAvatarUrl from "../../assets/claude.png";
 import { FileTypeIcon } from "../ui/FileTypeIcon";
 import { FolderTypeIcon } from "../ui/FolderTypeIcon";
 import { Spinner } from "../ui/Spinner";
@@ -59,6 +67,9 @@ export type MentionCategory =
   | "skill"
   | "prompt"
   | "knowledge";
+
+/** 触发字符：@ 选员工，/ 引用内容 */
+export type MentionTrigger = "@" | "/";
 
 /**
  * 发送时会转成提示词的引用（提示词正文直接插入，不走标签）。
@@ -119,22 +130,74 @@ const CATEGORY_META: Record<
   },
 };
 
-const CATEGORY_ORDER: readonly MentionCategory[] = [
+/**
+ * `/` 内容引用的类型顺序。
+ * 数字员工不在这里：它由 `@` 单独承载。
+ */
+const CONTENT_CATEGORIES: readonly MentionCategory[] = [
   "file",
-  "employee",
   "tool",
   "skill",
   "prompt",
   "knowledge",
 ];
 
-function isMentionCategory(value: string): value is MentionCategory {
-  return Object.prototype.hasOwnProperty.call(CATEGORY_META, value);
+function isContentCategory(value: string): value is MentionCategory {
+  return CONTENT_CATEGORIES.some((key) => key === value);
 }
 
 /** 提示词正文压成单行摘要，避免长文把列表行撑开 */
 function snippet(text: string): string {
   return text.replace(/\s+/g, " ").trim().slice(0, 80);
+}
+
+// ============================================================================
+// Trigger 解析
+// ============================================================================
+
+interface TriggerMatch {
+  trigger: MentionTrigger;
+  /** 触发字符之后的查询串 */
+  query: string;
+  /** 触发字符所在下标 */
+  start: number;
+}
+
+/**
+ * 从光标前的文本里找最近的触发字符。
+ *
+ * `@` 前面不能是邮箱本地部分（`a@b.com` 不触发）；`/` 前面不能是路径里
+ * 的字符（`src/main` 不触发）。两者都以「非单词字符」作为边界，因此中文
+ * 正文里直接写 `请@需求开发` 也能触发。
+ *
+ * 同一时刻可能两个都能命中（如 `@/file/`），取最左边那个：右边的 `/`
+ * 属于 `@` 的查询串，不该另起一个弹窗。
+ */
+function findTrigger(before: string): TriggerMatch | null {
+  const candidates: TriggerMatch[] = [];
+
+  const at = before.match(/(?:^|[^A-Za-z0-9._%+\-@])@([^\s]*)$/);
+  if (at) {
+    const query = at[1];
+    candidates.push({
+      trigger: "@",
+      query,
+      start: before.length - query.length - 1,
+    });
+  }
+
+  const slash = before.match(/(?:^|[^A-Za-z0-9._%+\-])\/([^\s]*)$/);
+  if (slash) {
+    const query = slash[1];
+    candidates.push({
+      trigger: "/",
+      query,
+      start: before.length - query.length - 1,
+    });
+  }
+
+  if (candidates.length === 0) return null;
+  return candidates.reduce((left, item) => (item.start < left.start ? item : left));
 }
 
 // ============================================================================
@@ -160,6 +223,7 @@ export function useMention({
 }: UseMentionOpts) {
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
   const [mentionStart, setMentionStart] = useState(-1);
+  const [trigger, setTrigger] = useState<MentionTrigger | null>(null);
   const [fileItems, setFileItems] = useState<FileEntry[]>([]);
   const [fileLoading, setFileLoading] = useState(false);
   const [promptItems, setPromptItems] = useState<PromptItem[]>([]);
@@ -190,18 +254,24 @@ export function useMention({
   const loadEmployees = useEmployeesStore((s) => s.load);
 
   const active = mentionQuery !== null;
+  /** `@` 打开的是员工列表；结构上等价于「已经选完分类」，但没有返回上一级 */
+  const employeeMode = trigger === "@";
 
   // ---- 解析 query：`file/src/` → 分类 file、子目录 src ----
   const parsed = useMemo(() => {
-    if (mentionQuery === null) {
-      return { category: null as MentionCategory | null, filter: "", subPath: "" };
+    if (mentionQuery === null || employeeMode) {
+      return {
+        category: null as MentionCategory | null,
+        filter: mentionQuery ?? "",
+        subPath: "",
+      };
     }
     const slash = mentionQuery.indexOf("/");
     if (slash < 0) {
       return { category: null as MentionCategory | null, filter: mentionQuery, subPath: "" };
     }
     const key = mentionQuery.slice(0, slash);
-    if (!isMentionCategory(key)) {
+    if (!isContentCategory(key)) {
       // 不认识的分类前缀仍按类型层过滤，避免输入被吞
       return { category: null as MentionCategory | null, filter: mentionQuery, subPath: "" };
     }
@@ -215,7 +285,7 @@ export function useMention({
       };
     }
     return { category: key, filter: rest, subPath: "" };
-  }, [mentionQuery]);
+  }, [mentionQuery, employeeMode]);
 
   // ---- 文件：子目录变化时从主进程加载（带缓存）----
   useEffect(() => {
@@ -257,11 +327,15 @@ export function useMention({
 
   // ---- 数字员工 / 工具 / 技能 / 知识库：进入分类时确保已加载 ----
   useEffect(() => {
-    if (parsed.category === "employee") void loadEmployees();
-    else if (parsed.category === "tool") void loadMcp();
+    if (!active) return;
+    if (employeeMode) {
+      void loadEmployees();
+      return;
+    }
+    if (parsed.category === "tool") void loadMcp();
     else if (parsed.category === "skill") void loadSkills();
     else if (parsed.category === "knowledge") void loadKnowledge();
-  }, [parsed.category, loadEmployees, loadMcp, loadSkills, loadKnowledge]);
+  }, [active, employeeMode, parsed.category, loadEmployees, loadMcp, loadSkills, loadKnowledge]);
 
   // ---- 提示词：每次进入分类都重新读取，保证内容是最新的 ----
   useEffect(() => {
@@ -293,6 +367,7 @@ export function useMention({
     loadedSubPathRef.current = null;
     setMentionQuery(null);
     setMentionStart(-1);
+    setTrigger(null);
     setFileItems([]);
     setReferences([]);
   }, [projectId]);
@@ -302,6 +377,7 @@ export function useMention({
     setReferences([]);
     setMentionQuery(null);
     setMentionStart(-1);
+    setTrigger(null);
     setFileItems([]);
     loadedSubPathRef.current = null;
     setHoverIdx(0);
@@ -309,10 +385,43 @@ export function useMention({
 
   // ---- 组装当前层的候选行 ----
   const entries = useMemo<MentionEntry[]>(() => {
+    const keyword = parsed.filter.trim().toLowerCase();
+    const hit = (...texts: (string | undefined)[]) =>
+      !keyword || texts.some((text) => (text ?? "").toLowerCase().includes(keyword));
+
+    /*
+     * @ 员工：只列已启用的员工。
+     * 「通用助手」默认项始终保留、且排在最后：没有数字员工时它仍然可用，
+     * 放在末尾又能避免 `@` + Enter 误解除当前绑定。
+     */
+    if (employeeMode) {
+      const list: MentionEntry[] = employees
+        .filter((employee) => employee.enabled)
+        .filter((employee) => hit(employee.name, employee.role))
+        .map((employee) => ({
+          key: `employee:${employee.id}`,
+          category: "employee",
+          name: employee.name,
+          detail: employee.role || "数字员工",
+          employeeId: employee.id,
+          avatar: employee.avatar,
+        }));
+      // 默认项：不绑定员工，由 Agent 全局配置（通用助手）作答
+      if (hit(DEFAULT_ASSISTANT.name, "助手", "默认", "default")) {
+        list.push({
+          key: "employee:default",
+          category: "employee",
+          name: DEFAULT_ASSISTANT.name,
+          detail: DEFAULT_ASSISTANT.detail,
+          employeeId: null,
+        });
+      }
+      return list;
+    }
+
     // 类型层
     if (!parsed.category) {
-      const keyword = parsed.filter.trim().toLowerCase();
-      return CATEGORY_ORDER.filter((key) => {
+      return CONTENT_CATEGORIES.filter((key) => {
         if (!keyword) return true;
         const meta = CATEGORY_META[key];
         return (
@@ -340,28 +449,6 @@ export function useMention({
           relativePath: item.relativePath,
           promptText: `@${item.relativePath}`,
         }));
-        break;
-      case "employee":
-        // 与输入框旁的「指定员工」一致：只列已启用的员工，并保留「不使用」
-        list = [
-          {
-            key: "employee:none",
-            category: "employee",
-            name: "不使用数字员工",
-            detail: "直接使用 Agent 的全局配置",
-            employeeId: null,
-          },
-          ...employees
-            .filter((employee) => employee.enabled)
-            .map((employee) => ({
-              key: `employee:${employee.id}`,
-              category: "employee" as const,
-              name: employee.name,
-              detail: employee.role || "数字员工",
-              employeeId: employee.id,
-              avatar: employee.avatar,
-            })),
-        ];
         break;
       case "tool":
         list = mcpServers.map((server) => ({
@@ -411,7 +498,6 @@ export function useMention({
         list = [];
     }
 
-    const keyword = parsed.filter.trim().toLowerCase();
     if (!keyword) return list;
     return list.filter(
       (entry) =>
@@ -419,10 +505,20 @@ export function useMention({
         entry.detail.toLowerCase().includes(keyword) ||
         (entry.content?.toLowerCase().includes(keyword) ?? false),
     );
-  }, [parsed, fileItems, employees, mcpServers, skills, promptItems, knowledgeBases]);
+  }, [
+    parsed,
+    employeeMode,
+    fileItems,
+    employees,
+    mcpServers,
+    skills,
+    promptItems,
+    knowledgeBases,
+  ]);
 
-  const loading =
-    parsed.category === "file"
+  const loading = employeeMode
+    ? employeesLoading
+    : parsed.category === "file"
       ? fileLoading
       : parsed.category === "prompt"
         ? promptLoading
@@ -432,11 +528,14 @@ export function useMention({
             ? skillsLoading
             : parsed.category === "knowledge"
               ? knowledgeLoading
-              : parsed.category === "employee"
-                ? employeesLoading
-                : false;
+              : false;
 
   const emptyHint = useMemo(() => {
+    if (employeeMode) {
+      return keywordHint(parsed.filter)
+        ? "没有匹配的数字员工"
+        : "没有已启用的数字员工，请先在「数字员工」页面启用";
+    }
     if (!parsed.category) return "没有匹配的引用类型";
     if (parsed.filter) {
       return `没有匹配的${CATEGORY_META[parsed.category].label}`;
@@ -457,13 +556,15 @@ export function useMention({
       case "employee":
         return "没有已启用的数字员工，请先在「数字员工」页面启用";
     }
-  }, [parsed, projectId]);
+  }, [employeeMode, parsed, projectId]);
 
-  const headerLabel = parsed.category
-    ? [CATEGORY_META[parsed.category].label, parsed.subPath]
-        .filter(Boolean)
-        .join(" / ")
-    : "选择引用类型";
+  const headerLabel = employeeMode
+    ? "选择回答者"
+    : parsed.category
+      ? [CATEGORY_META[parsed.category].label, parsed.subPath]
+          .filter(Boolean)
+          .join(" / ")
+      : "选择引用类型";
 
   // ---- items 变化时重置 hover ----
   useEffect(() => {
@@ -490,6 +591,12 @@ export function useMention({
     }
   });
 
+  const closeMention = useCallback(() => {
+    setMentionQuery(null);
+    setMentionStart(-1);
+    setTrigger(null);
+  }, []);
+
   // ---- 外部点击关闭 ----
   useEffect(() => {
     if (!active) return;
@@ -501,25 +608,20 @@ export function useMention({
         textareaRef.current &&
         !textareaRef.current.contains(target)
       ) {
-        setMentionQuery(null);
-        setMentionStart(-1);
+        closeMention();
       }
     };
     document.addEventListener("mousedown", onDown);
     return () => document.removeEventListener("mousedown", onDown);
-  }, [active, textareaRef]);
+  }, [active, textareaRef, closeMention]);
 
-  const closeMention = useCallback(() => {
-    setMentionQuery(null);
-    setMentionStart(-1);
-  }, []);
-
-  /** 用 replacement 替换当前 `@query`；eatSpace 会顺带吞掉一个连续空格 */
+  /** 用 replacement 替换当前 `[trigger]query`；eatSpace 会顺带吞掉一个连续空格 */
   const replaceMention = useCallback(
     (replacement: string, eatSpace = false) => {
       const ta = textareaRef.current;
       const cursor = ta?.selectionStart ?? input.length;
-      if (cursor < mentionStart) {
+      // mentionStart 无效时绝不能走 slice(0, -1)，那会误删正文最后一个字符
+      if (mentionStart < 0 || cursor < mentionStart) {
         closeMention();
         return;
       }
@@ -532,46 +634,54 @@ export function useMention({
     [input, mentionStart, setInput, textareaRef, closeMention],
   );
 
+  /**
+   * 把弹窗里的查询写回正文。
+   * 触发字符要保留：`/` 不能丢，否则下一次 change 就解析不回分类了。
+   */
+  const writeQuery = useCallback(
+    (query: string) => {
+      replaceMention(`${trigger ?? ""}${query}`);
+      setMentionQuery(query);
+    },
+    [replaceMention, trigger],
+  );
+
   /** 返回上一级：子目录 → 父目录 → 类型层 */
   const goBack = useCallback(() => {
-    if (!parsed.category) return;
+    if (employeeMode || !parsed.category) return;
     let query = "";
     if (parsed.category === "file" && parsed.subPath) {
       const parent = parsed.subPath.split("/").slice(0, -1).join("/");
       query = `file/${parent ? `${parent}/` : ""}`;
     }
-    replaceMention(`@${query}`);
-    setMentionQuery(query);
-  }, [parsed.category, parsed.subPath, replaceMention]);
+    writeQuery(query);
+  }, [employeeMode, parsed.category, parsed.subPath, writeQuery]);
 
   // ---- 选择一行 ----
   const selectEntry = useCallback(
     (entry: MentionEntry) => {
-      // 类型层：把 `@查` 换成 `@file/` 这类分类前缀，继续在弹窗里选条目
-      if (!parsed.category) {
-        const query = `${entry.category}/`;
-        replaceMention(`@${query}`);
-        setMentionQuery(query);
-        return;
-      }
-
       /*
        * 数字员工：不生成引用标签，直接写进当前会话的员工绑定，
        * 与输入框旁「指定员工」的选择结果是同一处状态。
+       * `@` 只是入口，不进入正文，所以整段 `@查询` 一并清掉。
        */
       if (entry.category === "employee") {
         replaceMention("", true);
-        // 运行中由 chooseEmployee 统一拦截并提示，与输入框旁的选择器一致
+        // 运行中也可以切换（下一轮生效），提示文案由 chooseEmployee 统一给出
         chooseEmployee(entry.employeeId ?? null);
         closeMention();
         return;
       }
 
+      // 类型层：把 `/查` 换成 `/file/` 这类分类前缀，继续在弹窗里选条目
+      if (!parsed.category) {
+        writeQuery(`${entry.category}/`);
+        return;
+      }
+
       // 文件目录：继续下钻
       if (entry.category === "file" && entry.isDirectory) {
-        const query = `file/${entry.relativePath}/`;
-        replaceMention(`@${query}`);
-        setMentionQuery(query);
+        writeQuery(`file/${entry.relativePath}/`);
         return;
       }
 
@@ -582,7 +692,7 @@ export function useMention({
         return;
       }
 
-      // 其余类型：清掉 @query，用标签承载引用
+      // 其余类型：清掉查询，用标签承载引用
       replaceMention("", true);
       const reference: MentionReference = {
         key: entry.key,
@@ -599,25 +709,37 @@ export function useMention({
       );
       closeMention();
     },
-    [parsed.category, replaceMention, closeMention],
+    [parsed.category, replaceMention, writeQuery, closeMention],
   );
 
-  // ---- textarea onChange：检测 @ mention ----
+  // ---- textarea onChange：检测 @ / 触发 ----
   const handleChange = useCallback(
     (e: React.ChangeEvent<HTMLTextAreaElement>) => {
       const value = e.target.value;
       const cursor = e.target.selectionStart ?? value.length;
       setInput(value);
 
-      const before = value.slice(0, cursor);
-      const match = before.match(/(?:^|\s)@([^\s]*)$/);
-      if (match) {
-        const query = match[1];
-        setMentionStart(cursor - query.length - 1);
-        setMentionQuery(query);
-      } else {
+      const found = findTrigger(value.slice(0, cursor));
+      if (!found) {
         closeMention();
+        return;
       }
+
+      /*
+       * `/` 兼作路径分隔符：`/usr/bin`、`src/main.ts` 这类不是引用意图。
+       * 只有查询本身就是空的，或者以已知分类开头（`/file/src`）才弹窗。
+       */
+      if (found.trigger === "/" && found.query) {
+        const slash = found.query.indexOf("/");
+        if (slash >= 0 && !isContentCategory(found.query.slice(0, slash))) {
+          closeMention();
+          return;
+        }
+      }
+
+      setTrigger(found.trigger);
+      setMentionStart(found.start);
+      setMentionQuery(found.query);
     },
     [setInput, closeMention],
   );
@@ -681,12 +803,14 @@ export function useMention({
 
   return {
     active,
+    /** 弹窗层级：类型层 / 条目层（员工列表按条目层渲染，但没有返回） */
+    kind: employeeMode || parsed.category ? ("entries" as const) : ("category" as const),
     entries,
     hoverIdx,
     loading,
     emptyHint,
     headerLabel,
-    canBack: parsed.category !== null,
+    canBack: !employeeMode && parsed.category !== null,
     goBack,
     popupRef,
     itemRefs,
@@ -700,14 +824,31 @@ export function useMention({
   };
 }
 
+/** filter 是否非空（用于区分「没搜到」和「本来就没有」） */
+function keywordHint(filter: string): boolean {
+  return filter.trim().length > 0;
+}
+
 // ============================================================================
 // Popup
 // ============================================================================
 
 /** 条目图标：文件按扩展名，其余按引用类型 */
 function EntryIcon({ entry }: { entry: MentionEntry }) {
-  // 数字员工优先展示头像；「不使用」没有员工实体，回落到类型图标
-  if (entry.category === "employee" && entry.employeeId) {
+  if (entry.category === "employee") {
+    // 默认项（不绑定员工）用 Claude 头像，与消息区左侧保持一致
+    if (!entry.employeeId) {
+      return (
+        <img
+          src={claudeAvatarUrl}
+          alt={DEFAULT_ASSISTANT.name}
+          width={16}
+          height={16}
+          draggable={false}
+          className="h-4 w-4 shrink-0 rounded-full object-cover"
+        />
+      );
+    }
     return (
       <EmployeeAvatar
         employee={{ name: entry.name, avatar: entry.avatar ?? null }}
@@ -727,6 +868,7 @@ function EntryIcon({ entry }: { entry: MentionEntry }) {
 }
 
 export function MentionPopup({
+  kind,
   entries,
   hoverIdx,
   loading,
@@ -739,6 +881,8 @@ export function MentionPopup({
   popupRef,
   itemRefs,
 }: {
+  /** category = 类型层（行可进入下一级）；entries = 条目层 */
+  kind: "category" | "entries";
   entries: MentionEntry[];
   hoverIdx: number;
   loading: boolean;
@@ -751,7 +895,7 @@ export function MentionPopup({
   popupRef: React.RefObject<HTMLDivElement>;
   itemRefs: React.MutableRefObject<(HTMLButtonElement | null)[]>;
 }) {
-  const isCategoryLevel = !canBack;
+  const isCategoryLevel = kind === "category";
 
   return (
     <div
@@ -775,11 +919,9 @@ export function MentionPopup({
         <span className="min-w-0 flex-1 truncate ui-type-sub text-text-muted">
           {headerLabel}
         </span>
-        {isCategoryLevel && (
-          <span className="shrink-0 ui-type-sub text-text-muted/70">
-            ↑↓ 选择
-          </span>
-        )}
+        <span className="shrink-0 ui-type-sub text-text-muted/70">
+          ↑↓ 选择
+        </span>
       </div>
 
       {loading && entries.length === 0 ? (

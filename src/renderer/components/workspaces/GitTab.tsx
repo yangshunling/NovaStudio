@@ -23,10 +23,11 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import {
-  AlertTriangle, ArrowDown, ArrowUp, Check, CheckCircle2, ChevronDown, CircleDot, Cloud, GitBranch, GitBranchPlus, Minus, Plus, RefreshCw, Sparkles, Tag, Undo2, type LucideIcon } from "lucide-react";
+  AlertTriangle, ArrowDown, ArrowUp, Check, CheckCircle2, ChevronDown, ChevronRight, CircleDot, Cloud, GitBranch, GitBranchPlus, Minus, Plus, RefreshCw, Sparkles, Tag, Undo2, type LucideIcon } from "lucide-react";
 import type { Project } from "@shared/types";
 import type {
   GitBranchInfo,
+  GitCommitFile,
   GitCommitSummary,
   GitFileStatus,
   GitStatusDetail,
@@ -67,11 +68,24 @@ export interface GitTabProps {
   onOpenFile: (relativePath: string) => void;
 }
 
-type SelectedFile = {
+/** 工作区文件：查看暂存区 / 工作区 diff */
+type WorktreeSelection = {
+  kind: "worktree";
   relativePath: string;
   staged: boolean;
   untracked: boolean;
 };
+
+/** 提交里的文件：查看该提交对这个文件所做的改动 */
+type CommitFileSelection = {
+  kind: "commit";
+  hash: string;
+  shortHash: string;
+  relativePath: string;
+  oldPath?: string;
+};
+
+type SelectedFile = WorktreeSelection | CommitFileSelection;
 
 /** 可折叠的区域：四个变更分组 + 最近提交 */
 type GroupKey = "conflict" | "staged" | "unstaged" | "commits";
@@ -242,9 +256,10 @@ export function GitTab({
     setUnstagePicks((prev) => intersectPaths(prev, stagedPaths));
   }, [status, staged, unstaged, untracked]);
 
-  // 切换工作区后旧勾选不再有意义；进行中的生成结果也不再属于当前面板
+  // 切换工作区后旧勾选 / 选中文件不再有意义；生成结果也不再属于当前面板
   useEffect(() => {
     projectIdRef.current = project.id;
+    setSelected(null);
     setStagePicks(new Set());
     setUnstagePicks(new Set());
     setGeneratingMessage(false);
@@ -266,39 +281,58 @@ export function GitTab({
     setDiffLoading(true);
     setDiffError(null);
     setDiffBinary(false);
-    setDiffNewFile(selected.untracked);
+    setDiffNewFile(selected.kind === "worktree" && selected.untracked);
     setDiffTruncated(false);
 
-    const request = selected.untracked
-      ? ipc.readFile(project.id, selected.relativePath).then((result) => {
-          if (cancelled) return;
-          if (!result.ok) {
-            setDiff("");
-            setDiffError(result.error);
-            return;
-          }
-          const file = result.file;
-          // content 缺失表示图片 / PDF / 二进制文件
-          if (file.content === undefined) {
-            setDiff("");
-            setDiffBinary(true);
-            return;
-          }
-          setDiff(file.content);
-          setDiffTruncated(Boolean(file.truncated));
-        })
-      : ipc
-          .getGitDiff(project.id, selected.relativePath, selected.staged)
-          .then((result) => {
-            if (cancelled) return;
-            if (!result.ok) {
-              setDiff("");
-              setDiffError(result.error ?? "无法读取 diff");
-              return;
-            }
-            setDiff(result.diff);
-            setDiffBinary(result.binary);
-          });
+    const request =
+      selected.kind === "commit"
+        ? ipc
+            .getGitCommitFileDiff(
+              project.id,
+              selected.hash,
+              selected.relativePath,
+              selected.oldPath,
+            )
+            .then((result) => {
+              if (cancelled) return;
+              if (!result.ok) {
+                setDiff("");
+                setDiffError(result.error ?? "无法读取该提交的文件 diff");
+                return;
+              }
+              setDiff(result.diff);
+              setDiffBinary(result.binary);
+            })
+        : selected.untracked
+          ? ipc.readFile(project.id, selected.relativePath).then((result) => {
+              if (cancelled) return;
+              if (!result.ok) {
+                setDiff("");
+                setDiffError(result.error);
+                return;
+              }
+              const file = result.file;
+              // content 缺失表示图片 / PDF / 二进制文件
+              if (file.content === undefined) {
+                setDiff("");
+                setDiffBinary(true);
+                return;
+              }
+              setDiff(file.content);
+              setDiffTruncated(Boolean(file.truncated));
+            })
+          : ipc
+              .getGitDiff(project.id, selected.relativePath, selected.staged)
+              .then((result) => {
+                if (cancelled) return;
+                if (!result.ok) {
+                  setDiff("");
+                  setDiffError(result.error ?? "无法读取 diff");
+                  return;
+                }
+                setDiff(result.diff);
+                setDiffBinary(result.binary);
+              });
 
     request
       .catch((err) => {
@@ -316,9 +350,12 @@ export function GitTab({
     };
   }, [project.id, selected]);
 
-  // 文件被提交 / 取消暂存后可能从列表消失，或从未跟踪变成已暂存
+  // 文件被提交 / 取消暂存后可能从列表消失，或从未跟踪变成已暂存。
+  // 提交里的文件不属于工作区状态，不参与这里的同步。
   useEffect(() => {
-    if (!selected || !status?.available) return;
+    if (!selected || selected.kind !== "worktree" || !status?.available) {
+      return;
+    }
     const entry = status.files.find(
       (file) => file.relativePath === selected.relativePath,
     );
@@ -328,6 +365,7 @@ export function GitTab({
     }
     if (entry.untracked !== selected.untracked) {
       setSelected({
+        kind: "worktree",
         relativePath: selected.relativePath,
         staged: entry.untracked ? false : entry.indexStatus !== null,
         untracked: entry.untracked,
@@ -409,8 +447,12 @@ export function GitTab({
         return;
       }
       setStagePicks((prev) => dropPaths(prev, paths));
-      if (selected && paths.includes(selected.relativePath)) {
+      if (
+        selected?.kind === "worktree" &&
+        paths.includes(selected.relativePath)
+      ) {
         setSelected({
+          kind: "worktree",
           relativePath: selected.relativePath,
           staged: true,
           untracked: false,
@@ -434,8 +476,12 @@ export function GitTab({
         return;
       }
       setUnstagePicks((prev) => dropPaths(prev, paths));
-      if (selected && paths.includes(selected.relativePath)) {
+      if (
+        selected?.kind === "worktree" &&
+        paths.includes(selected.relativePath)
+      ) {
         setSelected({
+          kind: "worktree",
           relativePath: selected.relativePath,
           staged: false,
           untracked: false,
@@ -769,14 +815,34 @@ export function GitTab({
     void discard(files);
   };
 
-  const selectedEntry = selected
+  /** 变更分组只关心工作区选中；提交里的文件不会高亮变更行 */
+  const worktreeSelected = selected?.kind === "worktree" ? selected : null;
+  const selectedEntry = worktreeSelected
     ? (status.files.find(
-        (file) => file.relativePath === selected.relativePath,
+        (file) => file.relativePath === worktreeSelected.relativePath,
       ) ?? null)
     : null;
   const selectedDeleted =
     selectedEntry?.worktreeStatus === "deleted" ||
     selectedEntry?.indexStatus === "deleted";
+
+  /** 点提交里的文件：右侧改成预览该提交对它的改动 */
+  const selectCommitFile = (commit: GitCommitSummary, file: GitCommitFile) => {
+    setSelected({
+      kind: "commit",
+      hash: commit.hash,
+      shortHash: commit.shortHash,
+      relativePath: file.path,
+      oldPath: file.oldPath,
+    });
+  };
+
+  /** 顶栏路径：提交文件带上短哈希，避免和工作区同名文件混淆 */
+  const selectionLabel = selected
+    ? selected.kind === "commit"
+      ? `${selected.shortHash} · ${selected.relativePath}`
+      : selected.relativePath
+    : null;
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -1030,7 +1096,7 @@ export function GitTab({
                     title="冲突"
                     files={conflicted}
                     kind="conflict"
-                    selected={selected}
+                    selected={worktreeSelected}
                     busy={busy}
                     collapsed={isCollapsed("conflict")}
                     onToggleCollapsed={() => toggleGroup("conflict")}
@@ -1046,7 +1112,7 @@ export function GitTab({
                     title="已暂存"
                     files={staged}
                     kind="staged"
-                    selected={selected}
+                    selected={worktreeSelected}
                     busy={busy}
                     collapsed={isCollapsed("staged")}
                     onToggleCollapsed={() => toggleGroup("staged")}
@@ -1072,7 +1138,7 @@ export function GitTab({
                     title="未暂存"
                     files={workingFiles}
                     kind="unstaged"
-                    selected={selected}
+                    selected={worktreeSelected}
                     busy={busy}
                     collapsed={isCollapsed("unstaged")}
                     onToggleCollapsed={() => toggleGroup("unstaged")}
@@ -1127,10 +1193,13 @@ export function GitTab({
                 </p>
               ) : (
                 <CommitGraph
+                  projectId={project.id}
                   commits={commits}
                   ahead={status.ahead}
                   branch={status.branch}
                   branches={branches}
+                  selected={selected?.kind === "commit" ? selected : null}
+                  onSelectFile={selectCommitFile}
                 />
               )}
             </div>
@@ -1143,11 +1212,11 @@ export function GitTab({
             <div className="ws-diff-head">
               <span
                 className="ws-diff-path"
-                title={selected?.relativePath}
+                title={selectionLabel ?? undefined}
               >
-                {selected?.relativePath ?? "选择左侧变更文件查看 diff"}
+                {selectionLabel ?? "选择左侧变更文件查看 diff"}
               </span>
-              {selected && !selectedDeleted && (
+              {selected?.kind === "worktree" && !selectedDeleted && (
                 <button
                   type="button"
                   className="ws-tool"
@@ -1410,11 +1479,11 @@ function ChangeGroup({
   title: string;
   files: GitFileStatus[];
   kind: "staged" | "unstaged" | "conflict";
-  selected: SelectedFile | null;
+  selected: WorktreeSelection | null;
   busy: string | null;
   collapsed: boolean;
   onToggleCollapsed: () => void;
-  onSelect: (file: SelectedFile) => void;
+  onSelect: (file: WorktreeSelection) => void;
   /** 本分组的勾选集合；勾选只表示选中，不会立即执行 Git 操作 */
   picked: ReadonlySet<string>;
   onTogglePick: (file: GitFileStatus) => void;
@@ -1525,6 +1594,7 @@ function ChangeGroup({
                 type="button"
                 onClick={() =>
                   onSelect({
+                    kind: "worktree",
                     relativePath: file.relativePath,
                     staged: stagedFlag,
                     untracked: untrackedFlag,
@@ -1604,17 +1674,30 @@ interface CommitHoverState {
   left: number;
 }
 
+/** 提交文件清单：按哈希懒加载，展开过的提交会缓存结果 */
+type CommitFilesEntry =
+  | { state: "loading" }
+  | { state: "error"; error: string }
+  | { state: "ready"; files: GitCommitFile[] };
+
 function CommitGraph({
+  projectId,
   commits,
   ahead,
   branch,
   branches,
+  selected,
+  onSelectFile,
 }: {
+  projectId: string;
   commits: GitCommitSummary[];
   /** 相对 upstream 领先的提交数；窗口内截断使用 */
   ahead: number;
   branch: string | null;
   branches: GitBranchInfo[];
+  /** 当前正在预览的提交文件，用于高亮 */
+  selected: CommitFileSelection | null;
+  onSelectFile: (commit: GitCommitSummary, file: GitCommitFile) => void;
 }) {
   const localBranches = new Set(branches.map((item) => item.name));
   const outgoing = clamp(ahead, 0, commits.length);
@@ -1623,6 +1706,61 @@ function CommitGraph({
 
   const [hovered, setHovered] = useState<CommitHoverState | null>(null);
   const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  /** 展开的提交（哈希）与各自的文件清单缓存 */
+  const [expandedHashes, setExpandedHashes] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const [commitFiles, setCommitFiles] = useState<
+    Record<string, CommitFilesEntry>
+  >({});
+  /** 请求返回时确认工作区没被切走 */
+  const projectIdRef = useRef(projectId);
+
+  useEffect(() => {
+    projectIdRef.current = projectId;
+    setExpandedHashes(new Set());
+    setCommitFiles({});
+  }, [projectId]);
+
+  const loadCommitFiles = (hash: string) => {
+    const requestedProject = projectIdRef.current;
+    setCommitFiles((current) => ({
+      ...current,
+      [hash]: { state: "loading" },
+    }));
+
+    ipc
+      .listGitCommitFiles(requestedProject, hash)
+      .then((files) => {
+        if (projectIdRef.current !== requestedProject) return;
+        setCommitFiles((current) => ({
+          ...current,
+          [hash]: { state: "ready", files },
+        }));
+      })
+      .catch((err) => {
+        if (projectIdRef.current !== requestedProject) return;
+        setCommitFiles((current) => ({
+          ...current,
+          [hash]: { state: "error", error: toMessage(err) },
+        }));
+      });
+  };
+
+  /** 点提交行展开 / 收起文件清单；首次展开时再请求 */
+  const toggleCommit = (hash: string) => {
+    setHovered(null);
+    if (!expandedHashes.has(hash) && !commitFiles[hash]) {
+      loadCommitFiles(hash);
+    }
+    setExpandedHashes((current) => {
+      const next = new Set(current);
+      if (next.has(hash)) next.delete(hash);
+      else next.add(hash);
+      return next;
+    });
+  };
 
   const cancelHide = () => {
     if (hideTimer.current !== null) {
@@ -1703,30 +1841,63 @@ function CommitGraph({
         const tone: GraphTone = index < outgoing ? "outgoing" : "pushed";
         const badges = parseCommitRefs(commit.refs, localBranches);
         const rest = badges.slice(2);
+        const expanded = expandedHashes.has(commit.hash);
 
         return (
-          <div
-            key={commit.hash}
-            className="ws-commit-item ui-cv-row"
-            data-head={isHead}
-            onMouseEnter={(event) => showCard(event, commit, tone)}
-            onMouseLeave={scheduleHide}
-          >
-            <GraphRail
-              tone={tone}
-              head={isHead}
-              isFirst={index === 0 && !showOutgoing}
-              isLast={index === commits.length - 1}
-            />
-            <span className="ws-commit-subject">{commit.subject}</span>
-            {badges.slice(0, 2).map((badge) => (
-              <CommitRefChip
-                key={`${badge.kind}:${badge.label}`}
-                badge={badge}
+          <div key={commit.hash}>
+            <div
+              className="ws-commit-item ui-cv-row"
+              data-head={isHead}
+              data-expanded={expanded}
+              role="button"
+              tabIndex={0}
+              aria-expanded={expanded}
+              onClick={() => toggleCommit(commit.hash)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault();
+                  toggleCommit(commit.hash);
+                }
+              }}
+              onMouseEnter={(event) => showCard(event, commit, tone)}
+              onMouseLeave={scheduleHide}
+            >
+              <GraphRail
+                tone={tone}
+                head={isHead}
+                isFirst={index === 0 && !showOutgoing}
+                isLast={index === commits.length - 1}
               />
-            ))}
-            {rest.length > 0 && (
-              <span className="ws-counter">+{rest.length}</span>
+              <span className="ws-commit-subject">{commit.subject}</span>
+              {badges.slice(0, 2).map((badge) => (
+                <CommitRefChip
+                  key={`${badge.kind}:${badge.label}`}
+                  badge={badge}
+                />
+              ))}
+              {rest.length > 0 && (
+                <span className="ws-counter">+{rest.length}</span>
+              )}
+              <ChevronRight
+                className={`h-3 w-3 shrink-0 text-text-muted transition-transform ${
+                  expanded ? "rotate-90" : ""
+                }`}
+              />
+            </div>
+
+            {expanded && (
+              <CommitFileList
+                entry={commitFiles[commit.hash]}
+                tone={tone}
+                isLast={index === commits.length - 1}
+                selectedPath={
+                  selected?.hash === commit.hash
+                    ? selected.relativePath
+                    : null
+                }
+                onSelect={(file) => onSelectFile(commit, file)}
+                onRetry={() => loadCommitFiles(commit.hash)}
+              />
             )}
           </div>
         );
@@ -1769,6 +1940,85 @@ function CommitGraph({
           </div>,
           document.body,
         )}
+    </div>
+  );
+}
+
+/** 提交文件清单：加载中 / 失败 / 空 / 文件列表 */
+function CommitFileList({
+  entry,
+  tone,
+  isLast,
+  selectedPath,
+  onSelect,
+  onRetry,
+}: {
+  entry: CommitFilesEntry | undefined;
+  tone: GraphTone;
+  /** 最老的提交下方没有连线 */
+  isLast: boolean;
+  /** 当前提交里正在预览的文件路径 */
+  selectedPath: string | null;
+  onSelect: (file: GitCommitFile) => void;
+  onRetry: () => void;
+}) {
+  return (
+    <div className="ws-commit-files" data-tone={tone} data-last={isLast}>
+      {!entry || entry.state === "loading" ? (
+        <div className="ws-commit-files-state">
+          <Spinner className="h-3 w-3" />
+          正在读取文件…
+        </div>
+      ) : entry.state === "error" ? (
+        <div className="ws-commit-files-state">
+          <span className="min-w-0 truncate text-error">{entry.error}</span>
+          <button
+            type="button"
+            className="shrink-0 font-medium underline underline-offset-2"
+            onClick={(event) => {
+              event.stopPropagation();
+              onRetry();
+            }}
+          >
+            重试
+          </button>
+        </div>
+      ) : entry.files.length === 0 ? (
+        <div className="ws-commit-files-state">本次提交没有文件变更</div>
+      ) : (
+        entry.files.map((file) => {
+          const meta = GIT_STATUS_META[file.status];
+          const name = file.path.split("/").pop() ?? file.path;
+          const parent = parentPath(file.path);
+          const title = file.oldPath
+            ? `${file.oldPath} → ${file.path}`
+            : file.path;
+
+          const active = selectedPath === file.path;
+
+          return (
+            <button
+              key={file.path}
+              type="button"
+              className="ws-commit-file"
+              data-active={active}
+              aria-pressed={active}
+              title={`${title} · 查看该提交对这个文件的修改`}
+              onClick={() => onSelect(file)}
+            >
+              <span
+                className="ws-status"
+                data-status={file.status}
+                title={meta.text}
+              >
+                {meta.label}
+              </span>
+              <span className="ws-file-name">{name}</span>
+              {parent && <span className="ws-file-path">{parent}</span>}
+            </button>
+          );
+        })
+      )}
     </div>
   );
 }
@@ -1878,6 +2128,33 @@ function parseCommitRefs(
  * 重渲染。没有 memo 时，几千行 diff 的 split/filter 与逐行 VDOM diff
  * 会在每次击键时重跑，输入明显发涩。
  */
+/**
+ * diff 的文件级元信息行：`diff --git` / `index` / `---` / `+++` 以及
+ * 模式、重命名、相似度等。单文件预览里这些是重复噪音，渲染时整行隐藏。
+ */
+const DIFF_META_PREFIXES = [
+  "diff --git",
+  "index ",
+  "---",
+  "+++",
+  "\\",
+  "old mode ",
+  "new mode ",
+  "new file mode ",
+  "deleted file mode ",
+  "similarity index ",
+  "dissimilarity index ",
+  "rename from ",
+  "rename to ",
+  "copy from ",
+  "copy to ",
+  "Binary files ",
+];
+
+function isDiffMetaLine(line: string): boolean {
+  return DIFF_META_PREFIXES.some((prefix) => line.startsWith(prefix));
+}
+
 const DiffView = memo(function DiffView({
   diff,
   newFile = false,
@@ -1903,6 +2180,12 @@ const DiffView = memo(function DiffView({
     ? 0
     : lines.filter((line) => line.startsWith("-") && !line.startsWith("---"))
         .length;
+  /** 实际会渲染的行数：文件头与 hunk 头都被隐藏，不计入 */
+  const visibleCount = newFile
+    ? lines.length
+    : lines.filter(
+        (line) => !isDiffMetaLine(line) && !line.startsWith("@@"),
+      ).length;
 
   /** 当前 hunk 的旧 / 新行号；遇到 hunk 头时重置 */
   let oldNo: number | null = null;
@@ -1914,12 +2197,17 @@ const DiffView = memo(function DiffView({
         <span className="ws-diff-stat ws-diff-add">+{added}</span>
         <span className="ws-diff-stat ws-diff-del">-{removed}</span>
         <span className="ml-auto ui-type-sub ui-num text-text-muted">
-          {lines.length} 行
+          {visibleCount} 行
         </span>
       </div>
       <div className="min-h-0 flex-1 overflow-auto">
-        <pre className="ws-diff-body min-w-max py-2">
-          {lines.map((line, index) => {
+        {visibleCount === 0 ? (
+          <p className="m-0 px-3 py-2 ui-type-sub text-text-muted">
+            该文件只有模式 / 重命名等元信息变更，没有可显示的代码差异。
+          </p>
+        ) : (
+          <pre className="ws-diff-body min-w-max py-2">
+            {lines.map((line, index) => {
             if (newFile) {
               return (
                 <div key={index} className="ws-diff-line" data-kind="add">
@@ -1935,21 +2223,17 @@ const DiffView = memo(function DiffView({
             let oldLine: number | null = null;
             let newLine: number | null = null;
 
-            if (
-              line.startsWith("diff --git") ||
-              line.startsWith("index ") ||
-              line.startsWith("---") ||
-              line.startsWith("+++") ||
-              line.startsWith("\\")
-            ) {
-              kind = "meta";
+            if (isDiffMetaLine(line)) {
+              // 文件头信息单文件预览里没有意义，不渲染
+              return null;
             } else if (line.startsWith("@@")) {
+              // hunk 头只用来重置后续行号，本身不展示
               const match = line.match(/^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/);
               if (match) {
                 oldNo = Number(match[1]);
                 newNo = Number(match[2]);
               }
-              kind = "hunk";
+              return null;
             } else if (line.startsWith("+")) {
               kind = "add";
               newLine = newNo;
@@ -1974,8 +2258,9 @@ const DiffView = memo(function DiffView({
                 <span className="ws-diff-code">{line || " "}</span>
               </div>
             );
-          })}
-        </pre>
+            })}
+          </pre>
+        )}
         {truncated && (
           <p className="m-0 border-t border-border px-3 py-2 ui-type-sub text-text-muted">
             文件过大，仅显示前一部分。

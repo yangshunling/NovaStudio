@@ -53,6 +53,11 @@ export interface QueuedMessage {
   /** 暂存区里展示的正文：只放用户输入，引用说明另起行 */
   display: string;
   createdAt: number;
+  /**
+   * 入队时选定的回答者。出队时按这个值发送，
+   * 避免用户在排队期间切换员工影响已经排好的消息。
+   */
+  employeeId: string | null;
 }
 
 /** 空队列的稳定引用：selector 返回新数组会让 zustand 每帧都认为变了 */
@@ -84,13 +89,13 @@ interface ChatState {
   /** 新会话要使用的数字员工；null 表示不使用（走全局配置） */
   selectedEmployeeId: string | null;
   /**
-   * 本次进程内「会话 → 数字员工」的绑定快照。
+   * 本次进程内「会话 → 当前回答者」的快照。
    *
-   * 会话表还没有 employee_id 字段，先把绑定关系留在渲染层，
-   * 保证同一会话切走再回来、选择器仍能显示正确的员工并保持锁定。
-   * 接入主进程后由 Session.employeeId 取代。
+   * 值为 null 表示明确选择了默认回答者（通用助手，不绑定数字员工）；
+   * 键不存在时才回退到会话记录。用于选择器的乐观更新，
+   * 避免主进程写回前界面先闪回旧员工。
    */
-  employeeIdBySession: Record<string, string>;
+  employeeIdBySession: Record<string, string | null>;
   /** 视图模式：会话 / 待办 / 任务中心 / 数字员工 / 工作流 …（终端在会话页内） */
   viewMode: ViewMode;
   /** 设置弹框是否展开 */
@@ -125,8 +130,11 @@ interface ChatState {
   selectAgent: (id: string) => void;
 
   // 数字员工
-  /** 选择新会话要使用的员工；null 表示不使用 */
-  selectEmployee: (id: string | null) => void;
+  /**
+   * 选择下一条消息的回答者；null 表示默认回答者（Agent 全局配置）。
+   * 已有会话会同步写回主进程，新会话只更新默认选择。
+   */
+  selectEmployee: (id: string | null) => Promise<void>;
 
   // 对话
   /**
@@ -288,6 +296,16 @@ let pendingEvents: Array<{ sessionId: string; event: AgentEvent }> = [];
 let pendingFlushTimer: ReturnType<typeof setTimeout> | null = null;
 
 /**
+ * 每个会话当前这一轮的作答员工。
+ *
+ * 事件流里不带员工信息，而回答者是在发送时确定的；同一会话同时最多只有
+ * 一轮在跑（dispatchPrompt 用 streamingBySession 拦截并发），所以按
+ * sessionId 记一份就足够给新建的 assistant 消息打上归属。
+ * done / 发送失败时清掉，避免会话切换后残留上一轮的值。
+ */
+const activeEmployeeBySession = new Map<string, string | null>();
+
+/**
  * 结构性事件：工具调用 / 结果 / 错误 / 整轮收敛。
  * 这类事件数量少、必须及时落到界面，不跟文本一起等 48ms。
  * usage 是纯元数据，归入文本批次即可。
@@ -361,7 +379,13 @@ function flushPendingEvents(): void {
       for (const event of events) content = appendEvent(content, event);
       messagesBySession[sessionId] = [
         ...msgs,
-        { id: newId(), role: "assistant", content, timestamp: Date.now() },
+        {
+          id: newId(),
+          role: "assistant",
+          content,
+          timestamp: Date.now(),
+          employeeId: activeEmployeeBySession.get(sessionId) ?? null,
+        },
       ];
       // 未知会话收到事件（例如运行中刷新）：恢复“正在执行”状态
       if (!streamingBySession) {
@@ -388,7 +412,11 @@ function flushPendingEvents(): void {
  * 调用方保证该会话当前空闲。运行标记在第一个 await 之前同步写入，
  * 因此多次调用不会并发启动同一会话。
  */
-async function dispatchPrompt(sessionId: string, prompt: string): Promise<void> {
+async function dispatchPrompt(
+  sessionId: string,
+  prompt: string,
+  employeeId: string | null,
+): Promise<void> {
   if (useChatStore.getState().streamingBySession[sessionId]) return;
 
   const userMsg: Message = {
@@ -405,14 +433,18 @@ async function dispatchPrompt(sessionId: string, prompt: string): Promise<void> 
     streamingBySession: { ...s.streamingBySession, [sessionId]: true },
   }));
 
+  // 本轮回答者：事件流回来时据此给新建的 assistant 消息打归属
+  activeEmployeeBySession.set(sessionId, employeeId);
+
   try {
-    // 运行方式完全由 Agent 平台的本机配置决定，会话不再单独传运行参数
-    const result = await ipc.sendAgent(sessionId, prompt);
+    // 回答者随消息一起传入：队列里的消息始终用入队时选定的员工
+    const result = await ipc.sendAgent(sessionId, prompt, employeeId);
     if (!result.ok) throw new Error(result.error);
     // done 事件会复位 streaming；此处不提前复位，避免中间闪烁
   } catch (err) {
     // 发送失败：写进消息流，并让暂存区保持暂停，
     // 剩余消息等用户确认后再继续，避免连续失败刷屏。
+    activeEmployeeBySession.delete(sessionId);
     useChatStore.setState((s) => ({
       streamingBySession: { ...s.streamingBySession, [sessionId]: false },
       messagesBySession: {
@@ -424,6 +456,7 @@ async function dispatchPrompt(sessionId: string, prompt: string): Promise<void> 
             role: "assistant",
             content: [{ type: "error", message: String(err) }],
             timestamp: Date.now(),
+            employeeId,
           },
         ],
       },
@@ -453,7 +486,7 @@ function drainQueue(sessionId: string): void {
     return { queuedBySession };
   });
 
-  void dispatchPrompt(sessionId, head.prompt);
+  void dispatchPrompt(sessionId, head.prompt, head.employeeId);
 }
 
 export const useChatStore = create<ChatState>((set, get) => ({
@@ -507,12 +540,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
       const usageBySession = { ...state.usageBySession };
       const draftsBySession = { ...state.draftsBySession };
       const queuedBySession = { ...state.queuedBySession };
+      const employeeIdBySession = { ...state.employeeIdBySession };
       for (const sessionId of removed) {
         delete messagesBySession[sessionId];
         delete streamingBySession[sessionId];
         delete usageBySession[sessionId];
         delete draftsBySession[sessionId];
         delete queuedBySession[sessionId];
+        delete employeeIdBySession[sessionId];
       }
       return {
         projects: state.projects.filter((p) => p.id !== id),
@@ -522,6 +557,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         usageBySession,
         draftsBySession,
         queuedBySession,
+        employeeIdBySession,
         currentProjectId: state.currentProjectId === id ? null : state.currentProjectId,
         currentSessionId:
           state.currentSessionId && removed.has(state.currentSessionId)
@@ -549,23 +585,48 @@ export const useChatStore = create<ChatState>((set, get) => ({
       throw new Error("会话正在运行，请先停止再切换项目");
     }
 
-    const session = await ipc.setSessionProject(sessionId, projectId);
-    if (!session) throw new Error("会话不存在");
+    const result = await ipc.setSessionProject(sessionId, projectId);
+    if (!result) throw new Error("会话不存在");
+    const { session, marker } = result;
 
-    set((s) => ({
-      currentProjectId: session.projectId,
-      sessions: s.sessions.map((se) =>
-        se.id === session.id
-          ? {
-              ...se,
-              projectId: session.projectId,
-              cwd: session.cwd,
-              agentSessionId: session.agentSessionId,
-              updatedAt: session.updatedAt,
-            }
-          : se,
-      ),
-    }));
+    set((s) => {
+      const next: Partial<ChatState> = {
+        currentProjectId: session.projectId,
+        sessions: s.sessions.map((se) =>
+          se.id === session.id
+            ? {
+                ...se,
+                projectId: session.projectId,
+                cwd: session.cwd,
+                agentSessionId: session.agentSessionId,
+                updatedAt: session.updatedAt,
+              }
+            : se,
+        ),
+      };
+
+      if (marker) {
+        /*
+         * 主进程已经落库分隔提示；这里补进当前会话的消息桶，
+         * 并把旧上下文相关的用量与暂存区一起清掉。
+         */
+        next.messagesBySession = {
+          ...s.messagesBySession,
+          [sessionId]: [
+            ...(s.messagesBySession[sessionId] ?? []),
+            marker,
+          ],
+        };
+        const usage = { ...s.usageBySession };
+        delete usage[sessionId];
+        next.usageBySession = usage;
+        const queued = { ...s.queuedBySession };
+        delete queued[sessionId];
+        next.queuedBySession = queued;
+      }
+
+      return next;
+    });
   },
 
   newSession: () => {
@@ -574,7 +635,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     // 显式「新建」意味着放弃上一份未发送草稿，避免下次进来又看到旧内容。
     set((state) => {
       /*
-       * 每次新建会话都回到「不使用员工」：员工是按任务派的，
+       * 每次新建会话都回到默认回答者「通用助手」：员工是按任务派的，
        * 沿用上一次的选择容易让人以为新任务仍然带着旧人设。
        */
       const cleared = {
@@ -611,7 +672,16 @@ export const useChatStore = create<ChatState>((set, get) => ({
     // projectId 从 store 里已持有的 sessions 查，不必等 ipc.getSession。
     const known = get().sessions.find((s) => s.id === id);
     if (known) {
-      set({ currentSessionId: id, currentProjectId: known.projectId });
+      set((s) => {
+        // 以会话记录为准回填员工快照（null 也要写入，避免回退到过期的会话列表）
+        const employeeIdBySession = { ...s.employeeIdBySession };
+        employeeIdBySession[id] = known.employeeId ?? null;
+        return {
+          currentSessionId: id,
+          currentProjectId: known.projectId,
+          employeeIdBySession,
+        };
+      });
     } else {
       set({ currentSessionId: id });
     }
@@ -718,6 +788,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
       delete draftsBySession[id];
       const queuedBySession = { ...s.queuedBySession };
       delete queuedBySession[id];
+      const employeeIdBySession = { ...s.employeeIdBySession };
+      delete employeeIdBySession[id];
       const wasCurrent = s.currentSessionId === id;
       // 删除当前会话后输入区回到「新会话」态：不要翻出更早遗留的新会话草稿
       if (wasCurrent) delete draftsBySession[NEW_SESSION_DRAFT_KEY];
@@ -728,6 +800,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         usageBySession,
         draftsBySession,
         queuedBySession,
+        employeeIdBySession,
         currentSessionId: wasCurrent ? null : s.currentSessionId,
         currentProjectId: wasCurrent ? null : s.currentProjectId,
       };
@@ -760,20 +833,50 @@ export const useChatStore = create<ChatState>((set, get) => ({
     void ipc.setSettings({ defaultAgent: id });
   },
 
-  selectEmployee: (id) =>
-    set((s) => {
-      /*
-       * 已开会话改员工时写进该会话的快照；否则只更新「新会话默认员工」。
-       * 两处分开写，切换会话后才能回显各自绑定的员工。
-       */
-      if (s.currentSessionId) {
-        const employeeIdBySession = { ...s.employeeIdBySession };
-        if (id) employeeIdBySession[s.currentSessionId] = id;
-        else delete employeeIdBySession[s.currentSessionId];
-        return { employeeIdBySession };
-      }
-      return { selectedEmployeeId: id };
-    }),
+  selectEmployee: async (id) => {
+    const { currentSessionId, employeeIdBySession } = get();
+
+    // 新会话：只更新默认选择，首条消息创建会话时再落库
+    if (!currentSessionId) {
+      set({ selectedEmployeeId: id });
+      return;
+    }
+
+    // 记录乐观更新前的快照状态，失败时精确回滚
+    const hadSnapshot = currentSessionId in employeeIdBySession;
+    const previousSnapshot = employeeIdBySession[currentSessionId] ?? null;
+
+    /*
+     * 乐观更新：选择器和下一条消息立即使用新员工（null 也要写入，
+     * 表示明确选择默认回答者，而不是回退到会话列表里的旧值）。
+     */
+    set((s) => ({
+      employeeIdBySession: {
+        ...s.employeeIdBySession,
+        [currentSessionId]: id,
+      },
+    }));
+
+    try {
+      const session = await ipc.setSessionEmployee(currentSessionId, id);
+      if (!session) throw new Error("会话不存在");
+      set((s) => ({
+        sessions: s.sessions.map((item) =>
+          item.id === session.id
+            ? { ...item, employeeId: session.employeeId ?? null }
+            : item,
+        ),
+      }));
+    } catch (err) {
+      set((s) => {
+        const next = { ...s.employeeIdBySession };
+        if (hadSnapshot) next[currentSessionId] = previousSnapshot;
+        else delete next[currentSessionId];
+        return { employeeIdBySession: next };
+      });
+      throw err;
+    }
+  },
 
   // ==========================================================================
   // 对话
@@ -785,6 +888,16 @@ export const useChatStore = create<ChatState>((set, get) => ({
     const label = display ?? prompt;
 
     if (currentId) {
+      /*
+       * 当前回答者：优先用选择器的乐观快照，其次用会话记录。
+       * 这条消息从入队到真正发送都锁定这个值，避免中途换人串台。
+       */
+      const employeeId =
+        currentId in state.employeeIdBySession
+          ? state.employeeIdBySession[currentId]
+          : (state.sessions.find((session) => session.id === currentId)
+              ?.employeeId ?? null);
+
       /*
        * 运行中不再丢弃消息：主进程同一会话只允许一个运行句柄，
        * 但用户完全可以在等待期间继续提问。这里把消息放进暂存区，
@@ -805,6 +918,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
                 prompt,
                 display: label,
                 createdAt: Date.now(),
+                employeeId,
               },
             ],
           },
@@ -814,7 +928,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         return;
       }
 
-      await dispatchPrompt(currentId, prompt);
+      await dispatchPrompt(currentId, prompt, employeeId);
       return;
     }
 
@@ -840,16 +954,17 @@ export const useChatStore = create<ChatState>((set, get) => ({
       currentProjectId: session.projectId,
       messagesBySession: { ...s.messagesBySession, [sessionId]: [] },
       streamingBySession: { ...s.streamingBySession, [sessionId]: false },
-      employeeIdBySession: employeeId
-        ? { ...s.employeeIdBySession, [sessionId]: employeeId }
-        : s.employeeIdBySession,
+      employeeIdBySession: {
+        ...s.employeeIdBySession,
+        [sessionId]: employeeId ?? null,
+      },
     }));
     // 立即刷新会话列表，让新会话出现（不等跑完）
     void get()
       .loadSessions()
       .catch((err) => console.warn("[chat] 会话列表刷新失败", err));
 
-    await dispatchPrompt(sessionId, prompt);
+    await dispatchPrompt(sessionId, prompt, employeeId);
   },
 
   abort: async (sessionId) => {
@@ -935,6 +1050,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     // done 仅复位流状态，不入消息；先冲掉此前累积的增量，保证不丢内容
     if (event.type === "done") {
       flushPendingEvents();
+      activeEmployeeBySession.delete(sessionId);
       set((s) => ({ streamingBySession: { ...s.streamingBySession, [sessionId]: false } }));
       drainQueue(sessionId);
       return;
@@ -959,6 +1075,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   _onDone: (data: { sessionId: string }) => {
     // 落库回填前必须先把缓冲里的增量应用完，否则会读到旧状态
     flushPendingEvents();
+    activeEmployeeBySession.delete(data.sessionId);
     set((s) => ({ streamingBySession: { ...s.streamingBySession, [data.sessionId]: false } }));
 
     /*
@@ -1050,4 +1167,19 @@ export function selectEffectiveAgentId(s: ChatState): string {
     if (session) return session.agentId;
   }
   return s.selectedAgentId;
+}
+
+/**
+ * 选择器：当前会话绑定的数字员工 id。
+ *
+ * 与 EmployeeSelector 的口径一致：先读本次进程内的快照（乐观更新），
+ * 再回退到会话记录。只作为消息没带员工信息时的兜底（旧数据 / CLI 回放）。
+ */
+export function selectEffectiveEmployeeId(s: ChatState): string | null {
+  const sessionId = s.currentSessionId;
+  if (!sessionId) return s.selectedEmployeeId;
+  if (sessionId in s.employeeIdBySession) {
+    return s.employeeIdBySession[sessionId] ?? null;
+  }
+  return s.sessions.find((x) => x.id === sessionId)?.employeeId ?? null;
 }

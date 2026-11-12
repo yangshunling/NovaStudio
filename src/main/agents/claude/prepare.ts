@@ -1,10 +1,13 @@
 /**
  * 工作流节点的 Claude 运行准备
  *
- * 聊天与工作流共用同一套「员工常驻运行时」：
- *   <DATA_DIR>/employee-runtime/<employeeId>/
+ * 聊天与工作流共用同一套「员工运行时」：
+ *   <DATA_DIR>/runtime/<employeeId>/
  *     claude-home/   ← CLAUDE_CONFIG_DIR
  *     mcp.json
+ *
+ * 员工资产（skills / mcp）在 <DATA_DIR>/employee/<employeeId>/，
+ * 运行时目录由它派生；两者分离，避免把 Claude 配置副本写进员工目录。
  *
  * 工作流不再为每个执行尝试生成临时投影目录。同步是增量的（settings /
  * 凭证按 mtime，skills 按目录指纹），同一员工的多次同步会串行执行；

@@ -32,6 +32,7 @@ import type {
   ReadEmbeddedImageResult,
   ReadFileResult,
   Session,
+  SessionProjectSwitch,
   SkillAsset,
   TodoDraft,
   TodoItem,
@@ -64,6 +65,7 @@ import type {
 } from "./agent";
 import type {
   GitBranchInfo,
+  GitCommitFile,
   GitCommitMessageResult,
   GitCommitSummary,
   GitDiffResult,
@@ -125,7 +127,17 @@ export interface IpcInvokeMap {
   };
   /** 统一发送：主进程按会话是否已有会话引用决定新建 / 恢复 */
   "agent:send": {
-    args: [{ sessionId: string; prompt: string }];
+    args: [
+      {
+        sessionId: string;
+        prompt: string;
+        /**
+         * 本轮回答者；不传则沿用会话当前的 employee_id。
+         * 传入时会在运行前写回会话，保证“所选即本轮所用”。
+         */
+        employeeId?: string | null;
+      },
+    ];
     result: SendAgentResult;
   };
   /** 中断指定会话（多会话并发时互不影响） */
@@ -153,8 +165,25 @@ export interface IpcInvokeMap {
     args: [{ projectId: string; limit?: number }];
     result: GitCommitSummary[];
   };
+  /** Git：单个提交涉及的文件清单（最近提交展开用） */
+  "git:commitFiles": {
+    args: [{ projectId: string; hash: string }];
+    result: GitCommitFile[];
+  };
   "git:diff": {
     args: [{ projectId: string; relativePath: string; staged: boolean }];
+    result: GitDiffResult;
+  };
+  /** Git：某个提交内单个文件的 diff（最近提交展开后的文件预览） */
+  "git:commitFileDiff": {
+    args: [
+      {
+        projectId: string;
+        hash: string;
+        relativePath: string;
+        oldPath?: string;
+      },
+    ];
     result: GitDiffResult;
   };
   "git:stage": {
@@ -253,17 +282,26 @@ export interface IpcInvokeMap {
   "session:rename": { args: [{ id: string; title: string }]; result: boolean };
   "session:delete": { args: [{ id: string }]; result: boolean };
   /** 置顶 / 取消置顶会话；不改变 updated_at，不影响时间分组 */
+  /**
+   * 切换会话当前使用的数字员工；null 表示不使用员工。
+   * 语义是「下一条消息由谁回答」，运行中也可以切换（下一轮生效）。
+   */
+  "session:setEmployee": {
+    args: [{ sessionId: string; employeeId: string | null }];
+    result: Session | null;
+  };
   "session:setPinned": {
     args: [{ id: string; pinned: boolean }];
     result: boolean;
   };
   /**
    * 绑定 / 切换 / 解绑会话的项目（工作目录）。
-   * 会话已有 Agent 上下文时切换目录会清空 CLI 会话引用，开启新上下文。
+   * 会话已有 Agent 上下文时切换目录会清空 CLI 会话引用，开启新上下文，
+   * 同时在消息流里写入一条 system 分隔提示。
    */
   "session:setProject": {
     args: [{ sessionId: string; projectId: string | null }];
-    result: Session | null;
+    result: SessionProjectSwitch | null;
   };
   /** 未绑定工作区时实际使用的默认目录（供选择器展示具体路径） */
   "session:defaultCwd": { args: []; result: string };
@@ -302,6 +340,7 @@ export interface IpcInvokeMap {
   "employees:list": { args: []; result: DigitalEmployee[] };
   "employees:create": {
     args: [{ draft: DigitalEmployeeDraft }];
+    /** 只落库；员工目录在下一次运行时按数据库内容物化 */
     result: DigitalEmployee;
   };
   "employees:update": {

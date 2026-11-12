@@ -51,6 +51,42 @@ export function AgentAvatar({
   );
 }
 
+/**
+ * 回复方头像：数字员工。
+ *
+ * 消息归属到员工时优先于 Agent 品牌头像 —— 用户 @ 了谁，回复就显示谁。
+ * 没设置头像的员工用名称首字兜底，与员工列表里的展示口径一致。
+ */
+export function EmployeeChatAvatar({
+  employee,
+  className = "",
+}: {
+  employee: { name: string; avatar: string | null };
+  className?: string;
+}) {
+  const initial = employee.name.trim().slice(0, 1).toUpperCase();
+
+  return (
+    <span
+      title={employee.name}
+      className={`${AVATAR_BASE} bg-surface-2 ring-1 ring-border/60 ${className}`}
+    >
+      {employee.avatar ? (
+        <img
+          src={employee.avatar}
+          alt={employee.name}
+          className="h-full w-full object-cover"
+          draggable={false}
+        />
+      ) : initial ? (
+        <span className="text-[13px] font-semibold text-accent">{initial}</span>
+      ) : (
+        <Bot className="h-4 w-4 text-text-muted" />
+      )}
+    </span>
+  );
+}
+
 /** 发起方头像：Nova */
 export function NovaAvatar({ className = "" }: { className?: string }) {
   return (

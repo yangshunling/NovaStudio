@@ -16,6 +16,7 @@ import { clamp } from "../../shared/math";
 import {
   GIT_OPERATION_LABELS,
   type GitBranchInfo,
+  type GitCommitFile,
   type GitCommitSummary,
   type GitDiffResult,
   type GitFileStatus,
@@ -463,6 +464,145 @@ export async function readLog(
       };
     })
     .filter((commit) => Boolean(commit.hash));
+}
+
+/**
+ * 读取单个提交涉及的文件列表。
+ *
+ * - `--relative`：工作区可能是仓库子目录，路径统一相对工作区
+ * - `--first-parent`：合并提交按与第一父提交的差异展示，否则合并提交会列出空清单
+ * - `-z`：路径不转义，避免中文 / 空格文件名被加上引号
+ */
+export async function readCommitFiles(
+  cwd: string,
+  hash: string,
+): Promise<GitCommitFile[]> {
+  const target = hash.trim();
+  // 只接受提交哈希：既防止非法输入，也避免被当成命令行参数
+  if (!/^[0-9a-f]{4,64}$/i.test(target)) return [];
+
+  const result = await runGit(cwd, [
+    "show",
+    "--no-color",
+    "--no-ext-diff",
+    "--format=",
+    "--name-status",
+    "-z",
+    "--find-renames",
+    "--first-parent",
+    "--relative",
+    target,
+  ]);
+  if (!result.ok) return [];
+
+  const records = result.stdout.split("\0");
+  const files: GitCommitFile[] = [];
+  for (let i = 0; i < records.length; i += 1) {
+    const token = records[i];
+    if (!token) continue;
+
+    const status = mapStatusChar(token[0]);
+    if (!status) continue;
+
+    let path = records[i + 1];
+    i += 1;
+    if (path === undefined) break;
+
+    // 重命名 / 复制记录带两个路径：旧路径在前，新路径在后
+    let oldPath: string | undefined;
+    if (status === "renamed" || status === "copied") {
+      oldPath = path;
+      path = records[i + 1] ?? path;
+      i += 1;
+    }
+
+    if (path) files.push({ path, oldPath, status });
+  }
+
+  return files;
+}
+
+/**
+ * 读取某个提交内单个文件的 diff（最近提交展开后的文件预览）。
+ *
+ * 重命名 / 复制会同时带上旧路径：只给新路径时，Git 的 pathspec 可能把
+ * 重命名拆成「删除 + 新增」，预览里就看不到相似度与旧文件名。
+ */
+export async function readCommitFileDiff(
+  cwd: string,
+  hash: string,
+  relativePath: string,
+  oldPath?: string,
+): Promise<GitDiffResult> {
+  const target = hash.trim();
+  // 与 readCommitFiles 一致：只接受提交哈希，避免被当成命令行参数
+  if (!/^[0-9a-f]{4,64}$/i.test(target)) {
+    return {
+      ok: false,
+      diff: "",
+      binary: false,
+      truncated: false,
+      error: "提交哈希不合法",
+    };
+  }
+
+  let paths: string[];
+  try {
+    paths = [validatePath(cwd, relativePath)];
+    if (oldPath) {
+      const previous = validatePath(cwd, oldPath);
+      if (previous !== paths[0]) paths.push(previous);
+    }
+  } catch (err) {
+    return {
+      ok: false,
+      diff: "",
+      binary: false,
+      truncated: false,
+      error: errorMessage(err),
+    };
+  }
+
+  const result = await runGit(
+    cwd,
+    [
+      "show",
+      "--no-color",
+      "--no-ext-diff",
+      "--format=",
+      "--find-renames",
+      "--first-parent",
+      "--relative",
+      target,
+      "--",
+      ...paths,
+    ],
+    GIT_TIMEOUT_MS,
+    { GIT_LITERAL_PATHSPECS: "1" },
+  );
+  if (!result.ok) {
+    return {
+      ok: false,
+      diff: "",
+      binary: false,
+      truncated: false,
+      error: result.stderr.trim() || "无法读取该提交的文件 diff",
+    };
+  }
+
+  const diff = result.stdout;
+  const binary =
+    diff.includes("Binary files") || diff.includes("GIT binary patch");
+  const truncated = diff.length > MAX_DIFF_CHARS;
+
+  return {
+    ok: true,
+    diff: truncated
+      ? `${diff.slice(0, MAX_DIFF_CHARS)}\n\n…（diff 过大，已截断）`
+      : diff,
+    binary,
+    truncated,
+  };
 }
 
 /** 读取单个文件的 diff：staged=true 看暂存区，否则看工作区 */

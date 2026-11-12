@@ -17,8 +17,8 @@
  * 这些文件系统细节全部收敛在本文件，宿主不感知。
  */
 
-import { readFile, readdir, rm, rmdir, stat } from "fs/promises";
-import { dirname, join } from "path";
+import { cp, mkdir, readFile, readdir, rm, rmdir, stat } from "fs/promises";
+import { basename, dirname, join } from "path";
 import type { AgentEvent, Message } from "../../../shared/types";
 import {
   mapAssistantBlocks,
@@ -80,6 +80,44 @@ export async function locateSessionFile(
     if (await exists(candidate)) return candidate;
   }
   return null;
+}
+
+/**
+ * 把旧配置目录里的会话 JSONL 复制到新的共享 projects 目录。
+ *
+ * 会话运行时切换 home 后，所有 home 的 projects 都指向同一个目录；
+ * 迁移老会话时只需把文件搬到这里一次。
+ * 目标已存在时直接返回 true，避免把新产生的对话覆盖成旧文件。
+ */
+export async function copySessionFileToProjects(
+  ref: string,
+  cwd: string,
+  configDir: string | null,
+  projectsDir: string,
+): Promise<boolean> {
+  // 快路径：新会话已经是按当前 cwd 编码写入的
+  const encoded = encodeCwd(cwd);
+  const fastTarget = join(projectsDir, encoded, `${ref}.jsonl`);
+  if (await exists(fastTarget)) return true;
+
+  const source = await locateSessionFile(cwd, ref, configDir);
+  if (!source) return false;
+
+  /*
+   * 保留旧文件所在的目录名，而不是重新编码 cwd。
+   * Windows 上 claude 生成的目录名大小写不稳定，沿用旧名字能让
+   * --resume 的快路径继续命中。
+   */
+  const target = join(
+    projectsDir,
+    basename(dirname(source)),
+    `${ref}.jsonl`,
+  );
+  if (await exists(target)) return true;
+
+  await mkdir(dirname(target), { recursive: true });
+  await cp(source, target, { force: true });
+  return true;
 }
 
 /** 文件版本号（mtime），供历史缓存失效使用；引用定位不到时返回 null */

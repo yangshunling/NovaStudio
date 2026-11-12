@@ -6,8 +6,10 @@
  * - run 目录名：完整运行 id（本身就是唯一标识，不再叠加时间戳）
  * - node 目录名：执行序号 + 节点名称；重试使用同级的 `<node>.try-N`
  *
- * 员工运行时（settings / 凭证 / skills / mcp）由 employees/runtime 统一维护：
- *   ~/.novastudio/employee-runtime/<employeeId>/
+ * 员工资产（skills / mcp）与运行时（settings / 凭证 / projects）由
+ * employees/runtime 统一维护：
+ *   ~/.novastudio/employee/<employeeId>/   ← 资产
+ *   ~/.novastudio/runtime/<employeeId>/    ← 运行时
  * 聊天与工作流共用，不再为每个执行尝试生成临时投影目录。
  *
  * 旧版本曾在 <userData>/workflow-runs 下按 attempt 复制配置与凭证，

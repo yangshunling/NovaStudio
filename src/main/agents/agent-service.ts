@@ -46,6 +46,14 @@ function resolveTimeoutMs(): number {
 export interface RunParams {
   sessionId: string;
   prompt: string;
+  /**
+   * 实际送入 CLI 上下文的文本；缺省等于 prompt。
+   *
+   * 同一会话由多位员工共享一份 CLI 上下文，历史里的消息本身没有发言者标记。
+   * 聊天入口会在正文前加上「@回答者」再作为 contextPrompt 传入，而落库 / 界面
+   * 展示仍使用原始 prompt，避免把上下文标记写进用户可见的历史。
+   */
+  contextPrompt?: string;
   cwd: string;
   opts?: SessionOptions;
   /** 子进程追加环境变量（工作流节点的独立配置目录等） */
@@ -54,6 +62,8 @@ export interface RunParams {
   envRemove?: string[];
   /** provider 额外命令行参数（工作流节点的 MCP / 会话持久化等） */
   extraArgs?: string[];
+  /** 本轮回答者：数字员工 id；null / 缺省表示走 Agent 全局配置 */
+  employeeId?: string | null;
   /** 宿主侧旁路监听：除推送到渲染层外，引擎也需要实时拿到事件 */
   onEvent?: (event: AgentEvent) => void;
   /**
@@ -99,6 +109,13 @@ export interface AgentService {
   abort(sessionId: string): boolean;
   /** 指定会话是否仍有运行中的 Agent 进程（含尚未完成落库的收尾阶段） */
   isRunning(sessionId: string): boolean;
+  /**
+   * 是否有正在运行的会话使用该数字员工。
+   *
+   * 会话的 employee_id 会被「下一轮回答者」覆盖，运行中切走后就不再指向
+   * 本轮员工，因此不能用绑定关系判断「谁在运行」，必须按运行快照判断。
+   */
+  isEmployeeInUse(employeeId: string): boolean;
   /** 取会话元数据 + 回放历史 */
   getSessionWithHistory(sessionId: string): Promise<Session | null>;
   /**
@@ -134,6 +151,13 @@ function lastAssistantText(content: AgentEvent[]): string {
 export function createAgentService(emit: Emit): AgentService {
   /** 并发运行表：sessionId → 运行句柄。仅在 run() 的 finally 中移除 */
   const running = new Map<string, RunSession>();
+  /**
+   * 运行快照：sessionId → 本轮实际使用的员工 id（null 表示通用助手）。
+   *
+   * 会话绑定可能在运行中被改成「下一轮回答者」，这里单独记录本轮的真实归属，
+   * 删除员工 / 诊断时才有可靠依据。与 running 同生共死。
+   */
+  const runningEmployees = new Map<string, string | null>();
 
   /** 历史缓存：provider + 配置目录 + 会话引用 → { 版本, 消息 } */
   const historyCache = new Map<string, { version: string; messages: Message[] }>();
@@ -286,6 +310,7 @@ export function createAgentService(emit: Emit): AgentService {
       const {
         sessionId,
         prompt,
+        contextPrompt = prompt,
         cwd,
         opts,
         env,
@@ -353,7 +378,8 @@ export function createAgentService(emit: Emit): AgentService {
       let runSession: RunSession;
       try {
         runSession = provider.start({
-          prompt,
+          // 上下文里用带发言者前缀的文本；落库与界面仍用原始 prompt
+          prompt: contextPrompt,
           cwd,
           mode: session.source === "workflow" ? "workflow" : "chat",
           sessionRef,
@@ -388,6 +414,7 @@ export function createAgentService(emit: Emit): AgentService {
         };
       }
       running.set(sessionId, runSession);
+      runningEmployees.set(sessionId, params.employeeId ?? null);
 
       try {
         const result = await runSession.done;
@@ -442,6 +469,7 @@ export function createAgentService(emit: Emit): AgentService {
             role: "assistant",
             content: assistantContent,
             timestamp: Date.now(),
+            employeeId: params.employeeId ?? null,
           });
         }
 
@@ -477,11 +505,19 @@ export function createAgentService(emit: Emit): AgentService {
           // 应用退出时数据库可能已关闭：不能因此丢失 running 表的清理
         }
         running.delete(sessionId);
+        runningEmployees.delete(sessionId);
       }
     },
 
     isRunning(sessionId: string): boolean {
       return running.has(sessionId);
+    },
+
+    isEmployeeInUse(employeeId: string): boolean {
+      for (const id of runningEmployees.values()) {
+        if (id === employeeId) return true;
+      }
+      return false;
     },
 
     abort(sessionId: string): boolean {

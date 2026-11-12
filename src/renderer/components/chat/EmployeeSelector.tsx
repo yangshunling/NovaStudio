@@ -1,34 +1,43 @@
 /**
  * 数字员工选择器 — 输入框旁、工作区右侧的紧凑下拉
  *
- * 语义：选择「这次任务由哪位数字员工来答」。
- *   - 未选员工 → 不使用员工，走 Agent 全局配置
- *   - 选中员工 → 本次会话使用该员工的提示词 / MCP / 技能 / 知识库
+ * 语义：选择「这次任务由谁来答」。
+ *   - 默认项「通用助手」→ 不绑定数字员工，直接走 Agent 全局配置
+ *   - 选中员工 → 下一条消息使用该员工的提示词 / MCP / 技能 / 知识库
  *
  * 列表只展示已启用的员工：停用员工在运行时不可用，放进来只会让人选了才发现。
  * 选中后立即回显到触发器；已开会话的绑定写进该会话的快照，切换会话仍能还原。
  *
  * 行样式与「指定工作区」保持一致：单行、紧凑高度，名称与副标题同一行。
- * 运行中与工作区一样禁止切换。
+ * 员工不随会话锁定，随时可以换下一条消息的回答者；运行中切换也允许，
+ * 只是本轮进程已按旧配置启动，新选择从下一轮生效。
  */
 
 import { useEffect, useRef, useState } from "react";
-import {
-  Check,
-  ChevronDown,
-  Lock,
-  Settings2,
-  UserMinus,
-  UserRound,
-} from "lucide-react";
+import { Check, ChevronDown, Settings2, UserRound } from "lucide-react";
 import { useChatStore } from "../../stores/chat";
 import { useEmployeesStore } from "../../stores/employees";
-import { chooseEmployee } from "../../lib/employee-switch";
+import { chooseEmployee, DEFAULT_ASSISTANT } from "../../lib/employee-switch";
 import { EmployeeAvatar } from "../employees/EmployeeAvatar";
+import claudeAvatarUrl from "../../assets/claude.png";
+
+/** 默认回答者头像：与消息区左侧的 Agent 头像同一份图 */
+function DefaultAnswererIcon({ size = 16 }: { size?: number }) {
+  return (
+    <img
+      src={claudeAvatarUrl}
+      alt={DEFAULT_ASSISTANT.name}
+      width={size}
+      height={size}
+      draggable={false}
+      className="shrink-0 rounded-full object-cover"
+    />
+  );
+}
 
 /** 弹窗里的一行，字段对齐工作区菜单的「图标 + 名称 + 副标题 + 当前标记」 */
 type EmployeeRow =
-  | { kind: "none"; key: string; name: string; detail: string }
+  | { kind: "default"; key: string; name: string; detail: string }
   | {
       kind: "employee";
       key: string;
@@ -48,13 +57,10 @@ export function EmployeeSelector() {
   const selectedEmployeeId = useChatStore((s) => s.selectedEmployeeId);
   const employeeIdBySession = useChatStore((s) => s.employeeIdBySession);
   const setViewMode = useChatStore((s) => s.setViewMode);
-  /** 当前会话正在跑 Agent：运行中改员工会被拒绝，这里提前拦住 */
+  /** 当前会话正在跑 Agent：允许切换，但只对下一轮生效，用于给用户说明 */
   const streaming = useChatStore((s) =>
     s.currentSessionId ? !!s.streamingBySession[s.currentSessionId] : false,
   );
-
-  /** 会话已开始：员工随会话固定，与 Agent 一致 */
-  const locked = currentSessionId !== null;
 
   /**
    * 已开会话优先读前端快照（会话刚创建、列表还没刷新），
@@ -74,16 +80,18 @@ export function EmployeeSelector() {
   const rootRef = useRef<HTMLDivElement>(null);
   const itemRefs = useRef<(HTMLElement | null)[]>([]);
 
-  /** 行顺序与工作区菜单一致：解绑（仅已绑定时）→ 员工 → 管理 */
-  const rows: EmployeeRow[] = [];
-  if (employeeId) {
-    rows.push({
-      kind: "none",
-      key: "employee:none",
-      name: "不使用数字员工",
-      detail: "直接使用 Agent 的全局配置",
-    });
-  }
+  /**
+   * 行顺序：默认回答者 → 员工 → 管理。
+   * 默认项始终在，新建会话没有绑定员工时它就是当前项。
+   */
+  const rows: EmployeeRow[] = [
+    {
+      kind: "default",
+      key: "employee:default",
+      name: DEFAULT_ASSISTANT.name,
+      detail: DEFAULT_ASSISTANT.detail,
+    },
+  ];
   for (const employee of enabledEmployees) {
     rows.push({
       kind: "employee",
@@ -110,11 +118,6 @@ export function EmployeeSelector() {
   useEffect(() => {
     setOpen(false);
   }, [currentSessionId]);
-
-  // 运行开始时收起已展开的菜单，避免在其中选到一半被拒绝
-  useEffect(() => {
-    if (streaming) setOpen(false);
-  }, [streaming]);
 
   // 展开时：外部点击 / Esc 关闭
   useEffect(() => {
@@ -153,7 +156,7 @@ export function EmployeeSelector() {
       setViewMode("employees");
       return;
     }
-    chooseEmployee(row.kind === "none" ? null : row.id);
+    chooseEmployee(row.kind === "default" ? null : row.id);
   };
 
   const onKeyDown = (e: React.KeyboardEvent) => {
@@ -182,52 +185,42 @@ export function EmployeeSelector() {
     ? selected.name
     : employeeId
       ? "员工已失效"
-      : "指定员工";
+      : DEFAULT_ASSISTANT.name;
 
   return (
     <div ref={rootRef} className="relative shrink-0">
       <button
         type="button"
-        /* 与 AgentSelector 一致：会话开始后锁定，不再响应点击 */
-        disabled={locked}
         onClick={() => setOpen((value) => !value)}
         onKeyDown={onKeyDown}
         title={
-          locked
-            ? selected
-              ? `本次会话使用数字员工「${selected.name}」，会话开始后不可更换`
-              : "本次会话未绑定数字员工；换人请新建会话"
-            : selected
-              ? `本次会话使用数字员工「${selected.name}」`
-              : "选择本次会话使用的数字员工（可选）"
+          selected
+            ? `下一条消息由「${selected.name}」回答`
+            : employeeId
+              ? "绑定的数字员工已失效，请重新选择"
+              : `下一条消息由 ${DEFAULT_ASSISTANT.name} 回答（默认）`
         }
         aria-haspopup="menu"
         aria-expanded={open}
         className={`flex h-8 shrink-0 items-center gap-1.5 rounded-md px-2 ui-type-note text-text-muted outline-none transition-colors hover:bg-surface-hover hover:text-text ${
-          locked ? "cursor-default" : ""
-        } ${open ? "bg-surface-hover text-text" : ""}`}
+          open ? "bg-surface-hover text-text" : ""
+        }`}
       >
         {selected ? (
           <EmployeeAvatar employee={selected} size={16} />
+        ) : employeeId ? (
+          <UserRound className="h-3.5 w-3.5 shrink-0 text-error" />
         ) : (
-          <UserRound
-            className={`h-3.5 w-3.5 shrink-0 ${
-              employeeId ? "text-error" : "text-accent"
-            }`}
-          />
+          <DefaultAnswererIcon />
         )}
         <span className="max-w-[120px] truncate font-medium text-text">
           {label}
         </span>
-        {locked ? (
-          <Lock className="h-3 w-3 shrink-0 text-text-muted" />
-        ) : (
-          <ChevronDown
-            className={`h-3.5 w-3.5 shrink-0 text-text-muted transition-transform ${
-              open ? "rotate-180" : ""
-            }`}
-          />
-        )}
+        <ChevronDown
+          className={`h-3.5 w-3.5 shrink-0 text-text-muted transition-transform ${
+            open ? "rotate-180" : ""
+          }`}
+        />
       </button>
 
       {open && (
@@ -238,7 +231,7 @@ export function EmployeeSelector() {
         >
           <div className="flex items-center gap-1 px-2 pb-1 pt-0.5">
             <span className="min-w-0 flex-1 truncate ui-type-sub text-text-muted">
-              选择数字员工
+              {streaming ? "本轮运行中，切换从下一轮生效" : "下一条消息由谁回答"}
             </span>
             <span className="shrink-0 ui-type-sub text-text-muted/70">
               ↑↓ 选择
@@ -250,7 +243,9 @@ export function EmployeeSelector() {
               const manage = row.kind === "manage";
               if (manage) return null;
               const current =
-                row.kind === "employee" && row.id === employeeId;
+                row.kind === "default"
+                  ? employeeId === null
+                  : row.kind === "employee" && row.id === employeeId;
               const hovered = index === hoverIdx;
               return (
                 <button
@@ -272,8 +267,8 @@ export function EmployeeSelector() {
                         : "text-text-secondary hover:bg-surface-hover hover:text-text"
                   }`}
                 >
-                  {row.kind === "none" ? (
-                    <UserMinus className="h-4 w-4 shrink-0 text-text-muted" />
+                  {row.kind === "default" ? (
+                    <DefaultAnswererIcon />
                   ) : (
                     <EmployeeAvatar
                       employee={{ name: row.name, avatar: row.avatar }}
