@@ -81,6 +81,16 @@ interface ChatState {
   loadingHistoryFor: string | null;
   /** 当前选中的 Agent；空字符串表示尚未确定 */
   selectedAgentId: string;
+  /** 新会话要使用的数字员工；null 表示不使用（走全局配置） */
+  selectedEmployeeId: string | null;
+  /**
+   * 本次进程内「会话 → 数字员工」的绑定快照。
+   *
+   * 会话表还没有 employee_id 字段，先把绑定关系留在渲染层，
+   * 保证同一会话切走再回来、选择器仍能显示正确的员工并保持锁定。
+   * 接入主进程后由 Session.employeeId 取代。
+   */
+  employeeIdBySession: Record<string, string>;
   /** 视图模式：会话 / 待办 / 任务中心 / 数字员工 / 工作流 …（终端在会话页内） */
   viewMode: ViewMode;
   /** 设置弹框是否展开 */
@@ -113,6 +123,10 @@ interface ChatState {
   // Agent
   detectAgents: () => Promise<void>;
   selectAgent: (id: string) => void;
+
+  // 数字员工
+  /** 选择新会话要使用的员工；null 表示不使用 */
+  selectEmployee: (id: string | null) => void;
 
   // 对话
   /**
@@ -455,6 +469,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
   queuedBySession: {},
   loadingHistoryFor: null,
   selectedAgentId: "",
+  selectedEmployeeId: null,
+  employeeIdBySession: {},
   viewMode: "chat",
   showSettings: false,
   showWorkspace: false,
@@ -557,14 +573,22 @@ export const useChatStore = create<ChatState>((set, get) => ({
     // 避免产生大量空会话。新会话默认不绑定项目。
     // 显式「新建」意味着放弃上一份未发送草稿，避免下次进来又看到旧内容。
     set((state) => {
+      /*
+       * 每次新建会话都回到「不使用员工」：员工是按任务派的，
+       * 沿用上一次的选择容易让人以为新任务仍然带着旧人设。
+       */
+      const cleared = {
+        currentSessionId: null,
+        currentProjectId: null,
+        selectedEmployeeId: null,
+      };
       if (!(NEW_SESSION_DRAFT_KEY in state.draftsBySession)) {
-        return { currentSessionId: null, currentProjectId: null };
+        return cleared;
       }
       const draftsBySession = { ...state.draftsBySession };
       delete draftsBySession[NEW_SESSION_DRAFT_KEY];
       return {
-        currentSessionId: null,
-        currentProjectId: null,
+        ...cleared,
         draftsBySession,
       };
     });
@@ -736,6 +760,21 @@ export const useChatStore = create<ChatState>((set, get) => ({
     void ipc.setSettings({ defaultAgent: id });
   },
 
+  selectEmployee: (id) =>
+    set((s) => {
+      /*
+       * 已开会话改员工时写进该会话的快照；否则只更新「新会话默认员工」。
+       * 两处分开写，切换会话后才能回显各自绑定的员工。
+       */
+      if (s.currentSessionId) {
+        const employeeIdBySession = { ...s.employeeIdBySession };
+        if (id) employeeIdBySession[s.currentSessionId] = id;
+        else delete employeeIdBySession[s.currentSessionId];
+        return { employeeIdBySession };
+      }
+      return { selectedEmployeeId: id };
+    }),
+
   // ==========================================================================
   // 对话
   // ==========================================================================
@@ -787,14 +826,23 @@ export const useChatStore = create<ChatState>((set, get) => ({
     // 抛给调用方：此时还没有会话，无法把错误写进消息流
     if (!picked) throw new Error("未检测到可用的 Agent，请先完成安装或在 Agent 配置中选择");
 
-    // 项目可空：未绑定时主进程会回退到默认目录
-    const session = await ipc.createSession(state.currentProjectId, picked);
+    // 项目可空：未绑定时主进程会回退到默认目录；员工随会话一起落库
+    const employeeId = state.selectedEmployeeId;
+    const session = await ipc.createSession(
+      state.currentProjectId,
+      picked,
+      employeeId,
+    );
     const sessionId = session.id;
+    // 主进程已持久化 employeeId；这里同步一份，保证列表刷新前也能正确显示
     set((s) => ({
       currentSessionId: sessionId,
       currentProjectId: session.projectId,
       messagesBySession: { ...s.messagesBySession, [sessionId]: [] },
       streamingBySession: { ...s.streamingBySession, [sessionId]: false },
+      employeeIdBySession: employeeId
+        ? { ...s.employeeIdBySession, [sessionId]: employeeId }
+        : s.employeeIdBySession,
     }));
     // 立即刷新会话列表，让新会话出现（不等跑完）
     void get()

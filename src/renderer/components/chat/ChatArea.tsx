@@ -30,6 +30,7 @@ import {
   X,
 } from "lucide-react";
 import { AgentSelector } from "./AgentSelector";
+import { EmployeeSelector } from "./EmployeeSelector";
 import { ProjectSelector } from "./ProjectSelector";
 import {
   useMention,
@@ -499,6 +500,8 @@ export function ChatArea({ embedded = false }: { embedded?: boolean } = {}) {
                 <div className="flex min-w-0 items-center gap-1">
                   {/* 工作目录：可选。绑定后 Agent 在该工作区目录运行 */}
                   <ProjectSelector />
+                  {/* 数字员工：可选。选中后本次会话使用其提示词与能力 */}
+                  <EmployeeSelector />
                   {/* 有多个可用 Agent 时才需要选择；否则自动使用唯一的那个 */}
                   {hasAgentChoice && (
                     <AgentSelector

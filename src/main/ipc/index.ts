@@ -5,7 +5,7 @@
  * 具体业务逻辑全部在 engine / automation / db，本目录只做「接线」。
  */
 
-import { app, BrowserWindow } from "electron";
+import { BrowserWindow } from "electron";
 import * as db from "../db/sqlite";
 import { createAgentService, type AgentService } from "../agents/agent-service";
 import {
@@ -32,6 +32,7 @@ import { registerSkillHandlers } from "./handlers/skill";
 import { registerKnowledgeHandlers } from "./handlers/knowledge";
 import { registerWorkflowHandlers } from "./handlers/workflow";
 import { registerWorkflowRunHandlers } from "./handlers/workflow-run";
+import { purgeStaleWorkflowSessionFiles } from "../workflow/cleanup";
 import { registerTriggerHandlers } from "./handlers/trigger";
 import { registerTodoHandlers } from "./handlers/todo";
 import { registerPromptHandlers } from "./handlers/prompt";
@@ -78,7 +79,6 @@ export function initIpcHandlers(window: BrowserWindow): void {
     emit: (event) => push("workflow:run:event", event),
     emitAgentEvent: (payload) => push("workflow:run:agentEvent", payload),
     flushEvents,
-    userDataDir: app.getPath("userData"),
     // 触发器启动的运行结束后，把结果回写到触发器卡片
     onRunFinished: (run) => {
       if (run.source !== "trigger" || !run.triggerId) return;
@@ -94,6 +94,14 @@ export function initIpcHandlers(window: BrowserWindow): void {
   });
   workflowRunner = runner;
 
+  /*
+   * 异常退出可能在工作流会话的 CLI 目录里留下 JSONL。工作流运行详情
+   * 从 messages 表回放，不需要这些文件，启动时兜底删除。
+   */
+  void purgeStaleWorkflowSessionFiles(service).catch((err) => {
+    console.warn("[workflow] 清理遗留会话文件失败：", err);
+  });
+
   registerAgentHandlers(service);
   registerSessionHandlers(service);
   registerProjectHandlers(service, runner);
@@ -101,7 +109,7 @@ export function initIpcHandlers(window: BrowserWindow): void {
   registerDialogHandlers();
   registerFileHandlers();
   registerTerminalHandlers();
-  registerEmployeeHandlers();
+  registerEmployeeHandlers(runner);
   registerMcpHandlers();
   registerSkillHandlers();
   registerKnowledgeHandlers();

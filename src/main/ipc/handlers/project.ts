@@ -2,7 +2,6 @@
  * 项目相关 IPC：列表 / 创建 / 删除
  */
 
-import { app } from "electron";
 import { existsSync, statSync } from "fs";
 import type { AgentService } from "../../agents/agent-service";
 import * as db from "../../db/sqlite";
@@ -59,10 +58,7 @@ export function registerProjectHandlers(
     // 工作区 = 项目：会话、工作流、运行记录、产物、配置副本一起清理。
     // 清理期间占住工作区，避免触发器 / 另一个页面在此刻启动工作流。
     await runner.withMaintenance({ workspaceId: id }, () =>
-      deleteWorkspaceData(id, {
-        service,
-        userDataDir: app.getPath("userData"),
-      }),
+      deleteWorkspaceData(id, { service }),
     );
     return true;
   });

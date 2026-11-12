@@ -14,6 +14,8 @@ import * as db from "../../db/sqlite";
 import { flushEvents, push } from "../push";
 import { handle } from "../register";
 import { revealPath } from "../nativeUi";
+import { prepareEmployeeChatRun } from "../../employees/runtime";
+import { errorMessage } from "../../../shared/error";
 
 export function registerAgentHandlers(service: AgentService): void {
   handle("agent:detect", async () => {
@@ -81,13 +83,68 @@ export function registerAgentHandlers(service: AgentService): void {
 
     const cwd = service.resolveCwd(session.cwd, db.getSetting("defaultCwd"));
 
+    /*
+     * 数字员工分支：把员工引用的资产还原到常驻运行时目录，
+     * 再让 CLI 以该目录作为配置根启动。
+     *
+     * 未绑定员工的会话完全走原有逻辑（不传任何额外参数，使用 ~/.claude）。
+     */
+    let employeeRun: Awaited<ReturnType<typeof prepareEmployeeChatRun>> | null =
+      null;
+    if (session.employeeId) {
+      const employee = db.getDigitalEmployee(session.employeeId);
+      if (!employee) {
+        return {
+          ok: false,
+          error: "本次会话绑定的数字员工已不存在，请新建会话重新选择员工",
+        };
+      }
+      if (!employee.enabled) {
+        return {
+          ok: false,
+          error: `数字员工「${employee.name}」已停用，请启用后再继续本次会话`,
+        };
+      }
+
+      try {
+        employeeRun = await prepareEmployeeChatRun(employee);
+      } catch (err) {
+        return {
+          ok: false,
+          error: `数字员工「${employee.name}」运行环境准备失败：${errorMessage(err)}`,
+        };
+      }
+
+      /*
+       * 必须先落库再启动：历史回放与 --resume 都按 configDir 定位
+       * claude-home/projects 下的会话 JSONL，晚一步就会找错目录。
+       */
+      db.setSessionConfigDir(sessionId, employeeRun.configDir);
+      if (employeeRun.warnings.length > 0) {
+        console.warn(
+          `[agent:send] 员工「${employee.name}」同步警告：\n${employeeRun.warnings.join("\n")}`,
+        );
+      }
+    }
+
     // 记录用户消息：刷新索引（首条消息写标题），正文不入库
     db.touchSession(sessionId, {
       title: (session.messageCount ?? 0) === 0 ? prompt.slice(0, 40) : undefined,
       countDelta: 1,
     });
 
-    const outcome = await service.run({ sessionId, prompt, cwd });
+    const outcome = await service.run({
+      sessionId,
+      prompt,
+      cwd,
+      ...(employeeRun
+        ? {
+            env: employeeRun.env,
+            extraArgs: employeeRun.extraArgs,
+            opts: { systemPrompt: employeeRun.systemPrompt },
+          }
+        : {}),
+    });
     if (!outcome.ok) {
       // 运行没起来：把刚才记的用户消息撤回，避免消息数虚增导致
       // 「首条消息自动命名」和侧栏计数都失真。

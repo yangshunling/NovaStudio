@@ -21,7 +21,7 @@ import {
 } from "./ipc";
 import { initDatabase, closeDatabase } from "./db/sqlite";
 import { stopTerminals } from "./terminal/manager";
-import { purgeStaleWorkflowRuntimes } from "./workflow/artifacts";
+import { purgeLegacyWorkflowRuntimes } from "./workflow/artifacts";
 import { migrateLegacyAssets } from "./migration/legacy-assets";
 import { syncKnowledgeIndex } from "./knowledge/catalog";
 import { initUpdater } from "./updater";
@@ -135,9 +135,9 @@ async function bootstrap(): Promise<void> {
   purgeStaleTempDirs("novastudio-system-");
   await migrateLegacyAssets();
 
-  // 先清理异常退出遗留的运行时目录（可能含凭证副本），再开放 IPC：
+  // 清理旧版本遗留的 workflow-runs（含凭证副本），再开放 IPC：
   // 单实例下启动瞬间不可能有活跃运行，可以安全地全部删除。
-  await purgeStaleWorkflowRuntimes(app.getPath("userData"));
+  await purgeLegacyWorkflowRuntimes(app.getPath("userData"));
 
   // IPC 层持有窗口引用（initIpcHandlers 内部会绑定窗口），
   // 因此必须先把窗口创建出来再注册，顺序不能反。

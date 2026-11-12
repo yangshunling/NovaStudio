@@ -5,15 +5,17 @@
  * - DAG 调度：节点在前置节点全部进入终态后启动，独立分支并行执行
  *   （并发上限 MAX_PARALLEL_NODES，汇合语义为 AND）
  * - 每节点独立会话；上下文只通过上游节点的输出摘要传递
- * - Claude 节点使用独立 CLAUDE_CONFIG_DIR，MCP 走独立配置文件
+ * - Claude 节点共用员工的常驻 CLAUDE_CONFIG_DIR（与聊天同一套环境），
+ *   MCP 走该员工目录下的 mcp.json
+ * - 会话 JSONL 只在同一 attempt 的多轮修正期间需要；attempt 结束后删除，
+ *   运行详情统一从 messages 表回放
  *
  * 运行状态全部落库，事件同时推送渲染层；渲染层断线后可重新拉取回放。
  */
 
 import { randomUUID } from "crypto";
 import { existsSync } from "fs";
-import { rm, rmdir } from "fs/promises";
-import { dirname, join } from "path";
+import { join } from "path";
 import { clamp } from "../../shared/math";
 import { getProvider, listProviders } from "../agents/registry";
 import type { AgentInvocationInfo, PreparedAgentRun } from "../agents/types";
@@ -193,6 +195,13 @@ export interface WorkflowRunner {
   /** 删除工作流 / 工作区前检查是否有活跃运行 */
   hasActiveRunForWorkflow(workflowId: string): boolean;
   hasActiveRunInWorkspace(workspaceId: string): boolean;
+  /**
+   * 是否有活跃运行仍在用该员工的运行时目录。
+   *
+   * 员工目录现在是聊天与工作流共享的常驻资产：运行期间删除员工会
+   * 直接抽掉正在使用的 CLAUDE_CONFIG_DIR，必须在删除入口先拦住。
+   */
+  hasActiveRunUsingEmployee(employeeId: string): boolean;
   /** 某个运行是否正在启动 / 执行 / 删除（含异步校验期间的占位） */
   isRunBusy(runId: string): boolean;
   /**
@@ -230,7 +239,6 @@ export interface WorkflowRunnerDeps {
     seq: number;
     event: AgentEvent;
   }) => void;
-  userDataDir: string;
   /**
    * 冲掉推送层缓冲区里尚未发送的流式事件。
    *
@@ -1132,13 +1140,12 @@ export function createWorkflowRunner(deps: WorkflowRunnerDeps): WorkflowRunner {
    *
    * 同一 attempt 内的多轮修正必须复用：
    * - sessionId：Nova 会话（消息落库与前端事件路由）
-   * - runtimeDir / prepared：临时 CLAUDE_CONFIG_DIR 与 MCP 投影
+   * - prepared：员工常驻 CLAUDE_CONFIG_DIR 与 MCP 配置
    * 这样下一轮才能靠 --resume 接上同一个 CLI 会话。
    */
   interface AttemptChain {
     attempt: number;
     sessionId: string;
-    runtimeDir: string;
     prepared: PreparedAgentRun;
     warnings: string[];
     agentLabel: string;
@@ -1147,29 +1154,12 @@ export function createWorkflowRunner(deps: WorkflowRunnerDeps): WorkflowRunner {
     knowledge: ExecutionReportKnowledgeBase[];
   }
 
-  async function cleanupRuntimeDir(runtimeDir: string): Promise<void> {
-    try {
-      await rm(runtimeDir, {
-        recursive: true,
-        force: true,
-        maxRetries: 4,
-        retryDelay: 120,
-      });
-    } catch {
-      // 清理失败不影响节点结果
-    }
-    try {
-      await rmdir(dirname(runtimeDir));
-    } catch {
-      // run 目录下还有其它节点时保留
-    }
-  }
-
   /**
-   * 为一次执行尝试创建会话与运行时投影。
+   * 为一次执行尝试创建会话与员工运行时环境。
    *
-   * 只在 attempt 开始时调用一次；人工要求修改不会重建，否则会得到新的
-   * CLAUDE_CONFIG_DIR，CLI 会话文件随之消失，--resume 就失效了。
+   * 只在 attempt 开始时调用一次：人工要求修改复用同一会话与同一套配置，
+   * 这样下一轮才能 --resume。员工配置使用运行开始时的快照，运行期间的
+   * 编辑不会影响本次执行。
    */
   async function createAttemptChain(
     active: ActiveRun,
@@ -1183,14 +1173,6 @@ export function createWorkflowRunner(deps: WorkflowRunnerDeps): WorkflowRunner {
     if (!provider) {
       throw new Error(`Agent「${agentId}」不存在或未注册`);
     }
-
-    // 运行时投影目录：一个 attempt 一份，整条修正链共用，结束统一删除
-    const runtimeDir = join(
-      deps.userDataDir,
-      "workflow-runs",
-      active.id,
-      `${node.id}-attempt-${attempt}`,
-    );
 
     let runtimeConfig: Record<string, string> = {};
     try {
@@ -1220,9 +1202,6 @@ export function createWorkflowRunner(deps: WorkflowRunnerDeps): WorkflowRunner {
 
     const systemPrompt = buildSystemPrompt(employee, knowledge.promptSection);
 
-    // 运行时投影目录：一个 attempt 一份，整条修正链共用，结束统一删除
-    await ensureDir(runtimeDir);
-
     const session = db.createSession(
       agentId,
       active.workspaceId,
@@ -1238,24 +1217,31 @@ export function createWorkflowRunner(deps: WorkflowRunnerDeps): WorkflowRunner {
 
     let prepared: PreparedAgentRun;
     try {
-      // 由 provider 决定是否需要运行时投影（Claude 按员工 MCP/Skill 子集生成临时配置）
+      /*
+       * provider 按员工快照准备共享配置（Claude 直接同步常驻目录）。
+       * 同一员工的并发同步由 employees/runtime 内部按员工串行排队。
+       */
       prepared =
         (await provider.prepareRun?.({
           mode: "workflow",
           sessionId: session.id,
           cwd: active.workspacePath,
-          runtimeDir,
           employee,
           opts,
         })) ?? {};
     } catch (err) {
-      // 投影失败：会话还没有任何消息，直接回收，避免留下隐形空会话；
-      // 临时目录可能已复制了凭证 / 技能，也必须在这里清掉。
+      // 准备失败：会话还没有任何消息，直接回收，避免留下隐形空会话。
+      // 员工常驻目录是共享资产，不能在这里删除。
       active.sessions.delete(session.id);
       db.deleteSession(session.id);
-      await cleanupRuntimeDir(runtimeDir);
       throw err;
     }
+
+    /*
+     * 会话的 CLI 文件定位依赖 config_dir：删除运行 / 历史回放都按它找。
+     * 必须在启动进程前落库，否则运行结束后找不到本次的 JSONL。
+     */
+    db.setSessionConfigDir(session.id, prepared.configDir ?? null);
 
     warnings.push(...(prepared.warnings ?? []));
     for (const message of warnings) {
@@ -1269,7 +1255,6 @@ export function createWorkflowRunner(deps: WorkflowRunnerDeps): WorkflowRunner {
     return {
       attempt,
       sessionId: session.id,
-      runtimeDir,
       prepared,
       warnings,
       agentLabel: `${provider.manifest.displayName}（${provider.manifest.id}）`,
@@ -1356,7 +1341,6 @@ export function createWorkflowRunner(deps: WorkflowRunnerDeps): WorkflowRunner {
         sessionRef: reportState.sessionRef,
         agentLabel: chain.agentLabel,
         runtimeConfig: chain.runtimeConfig,
-        runtimeDir: chain.runtimeDir,
         prepared: chain.prepared,
         invocation: reportState.invocation,
         knowledge: chain.knowledge,
@@ -1791,7 +1775,18 @@ export function createWorkflowRunner(deps: WorkflowRunnerDeps): WorkflowRunner {
     } finally {
       if (chain) {
         active.sessions.delete(chain.sessionId);
-        await cleanupRuntimeDir(chain.runtimeDir);
+        /*
+         * 工作流不保留 CLI 会话文件：运行详情统一从 messages 表回放，
+         * JSONL 只在同一 attempt 的多轮修正期间用于 --resume。
+         * 这里删除本次会话的 CLI 文件；员工常驻目录本身继续保留。
+         * releaseSession 会等进程真正退出后再删，避免 Windows 文件占用。
+         */
+        try {
+          await deps.service.releaseSession(chain.sessionId);
+          db.clearSessionCliRef(chain.sessionId);
+        } catch {
+          // 退出竞态下清理失败不影响节点结果；残留引用由启动清理兜底
+        }
       }
     }
   }
@@ -2046,6 +2041,27 @@ export function createWorkflowRunner(deps: WorkflowRunnerDeps): WorkflowRunner {
   }
 
   /**
+   * 活跃运行是否仍引用该员工。
+   *
+   * 用运行启动时的图快照判断：即使运行期间用户把节点上的员工改掉，
+   * 删除操作也不能绕过这条保护、抽掉正在使用的运行时目录。
+   */
+  function hasActiveRunUsingEmployee(employeeId: string): boolean {
+    const uses = (graph: Workflow["graph"]): boolean =>
+      graph.nodes.some((node) => node.config.employeeId === employeeId);
+
+    for (const run of activeRuns.values()) {
+      if (uses(run.workflow.graph)) return true;
+    }
+    // 启动校验中的占位还没有挂到 activeRuns，退回当前工作流定义判断
+    for (const reservation of reservations.values()) {
+      const workflow = db.getWorkflow(reservation.workflowId);
+      if (workflow && uses(workflow.graph)) return true;
+    }
+    return false;
+  }
+
+  /**
    * 删除期间占位。
    *
    * 在同步路径里写入 reservation / maintenanceRuns，之后的 start / resume
@@ -2222,6 +2238,7 @@ export function createWorkflowRunner(deps: WorkflowRunnerDeps): WorkflowRunner {
     approve,
     hasActiveRunForWorkflow,
     hasActiveRunInWorkspace,
+    hasActiveRunUsingEmployee,
     isRunBusy,
     withMaintenance,
     liveTranscript,

@@ -1,11 +1,11 @@
 /**
  * 设置弹框 — 基于通用 Modal 的模态框
  *
- * 皮肤切换已移到侧栏头部的昼夜切换按钮，这里只保留通用设置。
+ * 皮肤切换属于低频设置，统一收进「外观」分组；侧栏不再放昼夜切换按钮。
  */
 
 import { useEffect, useRef, useState } from "react";
-import { Info, SlidersHorizontal } from "lucide-react";
+import { Check, Info, Palette, SlidersHorizontal } from "lucide-react";
 import logoUrl from "../../assets/logo.png";
 import { Modal, ModalHeader } from "../ui/Modal";
 import { Select } from "../ui/Select";
@@ -489,6 +489,100 @@ function AboutPanel() {
 }
 
 // ============================================================================
+// 外观面板
+// ============================================================================
+
+function AppearancePanel() {
+  const { currentTheme, setTheme, skins } = useTheme();
+
+  return (
+    <div className="mx-auto max-w-2xl">
+      <div className="mb-6">
+        <h2 className="ui-type-heading text-text">外观</h2>
+        <p className="mt-1 ui-type-body text-text-muted">
+          选择界面主题，修改后立即应用到所有窗口。
+        </p>
+      </div>
+
+      <div>
+        <h3 className="ui-type-body font-semibold text-text">主题</h3>
+        <p className="mt-1 mb-3 ui-type-note text-text-muted">
+          昼间适合明亮环境；夜间降低整体亮度，适合长时间在暗光下工作。
+        </p>
+
+        <div className="grid grid-cols-2 gap-3">
+          {skins.map((skin) => {
+            const active = skin.id === currentTheme;
+            return (
+              <button
+                key={skin.id}
+                type="button"
+                onClick={() => setTheme(skin.id)}
+                aria-pressed={active}
+                className={`rounded-xl border p-3 text-left transition-colors ${
+                  active
+                    ? "border-accent bg-accent-soft"
+                    : "border-border hover:border-border-strong hover:bg-surface-hover"
+                }`}
+              >
+                {/* 预览直接用皮肤自己的 token：data-theme 让变量在子树内生效 */}
+                <span
+                  data-theme={skin.id}
+                  className="flex h-20 items-stretch gap-1.5 overflow-hidden rounded-lg border p-2"
+                  style={{
+                    background: "var(--c-bg)",
+                    borderColor: "var(--c-border)",
+                  }}
+                >
+                  <span
+                    className="flex w-8 shrink-0 flex-col gap-1 rounded-md p-1"
+                    style={{ background: "var(--c-surface-2)" }}
+                  >
+                    <span
+                      className="h-1 w-full rounded-full"
+                      style={{ background: "var(--c-text-muted)" }}
+                    />
+                    <span
+                      className="h-1 w-3/4 rounded-full"
+                      style={{ background: "var(--c-text-muted)" }}
+                    />
+                  </span>
+                  <span
+                    className="flex min-w-0 flex-1 flex-col justify-between rounded-md p-1.5"
+                    style={{ background: "var(--c-surface)" }}
+                  >
+                    <span
+                      className="h-1.5 w-12 rounded-full"
+                      style={{ background: "var(--c-accent)" }}
+                    />
+                    <span
+                      className="h-1.5 w-8 rounded-full"
+                      style={{ background: "var(--c-text-secondary)" }}
+                    />
+                  </span>
+                </span>
+
+                <span className="mt-2.5 flex items-center justify-between gap-2">
+                  <span className="ui-type-body font-medium text-text">
+                    {skin.displayName}
+                  </span>
+                  {active && (
+                    <Check className="h-3.5 w-3.5 shrink-0 text-accent" />
+                  )}
+                </span>
+                <span className="mt-0.5 block ui-type-note text-text-muted">
+                  {skin.description}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================================
 // 通用面板
 // ============================================================================
 
@@ -513,7 +607,7 @@ function GeneralPanel() {
 // 设置弹框主组件
 // ============================================================================
 
-type SettingsSection = "general" | "about";
+type SettingsSection = "general" | "appearance" | "about";
 
 /** 左侧菜单项：新增设置分组只需在这里加一行 */
 const SETTINGS_SECTIONS: Array<{
@@ -522,6 +616,7 @@ const SETTINGS_SECTIONS: Array<{
   Icon: typeof SlidersHorizontal;
 }> = [
   { id: "general", label: "通用", Icon: SlidersHorizontal },
+  { id: "appearance", label: "外观", Icon: Palette },
   { id: "about", label: "关于", Icon: Info },
 ];
 
@@ -586,7 +681,9 @@ export function SettingsModal() {
 
         {/* 右侧内容区 */}
         <div className="flex-1 overflow-y-auto p-section">
-          {section === "general" ? <GeneralPanel /> : <AboutPanel />}
+          {section === "general" && <GeneralPanel />}
+          {section === "appearance" && <AppearancePanel />}
+          {section === "about" && <AboutPanel />}
         </div>
       </div>
     </Modal>

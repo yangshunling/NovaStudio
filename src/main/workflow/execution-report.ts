@@ -46,7 +46,6 @@ export interface ExecutionReportInput {
   sessionRef: string | null;
   agentLabel: string;
   runtimeConfig: Record<string, string>;
-  runtimeDir: string | null;
   prepared: {
     configDir?: string | null;
     env?: Record<string, string>;
@@ -262,11 +261,11 @@ export function buildExecutionReport(input: ExecutionReportInput): string {
     }
   }
 
-  if (input.runtimeDir) {
-    lines.push(`运行时投影目录（节点结束后删除）：${input.runtimeDir}`, "");
-  }
   if (input.prepared?.configDir) {
-    lines.push(`本次 CLI 配置目录：${input.prepared.configDir}`, "");
+    lines.push(
+      `员工运行时目录（CLI 配置目录，常驻）：${input.prepared.configDir}`,
+      "",
+    );
   }
 
   lines.push(

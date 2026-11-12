@@ -22,6 +22,7 @@ import {
 } from "lucide-react";
 import { ipc } from "../../lib/ipc";
 import { confirmDialog } from "../../stores/confirm";
+import { EMPLOYEE_SESSION_IN_USE } from "@shared/contracts/ipc";
 import {
   Drawer,
   DrawerBody,
@@ -160,7 +161,25 @@ export function EmployeeDrawer({
     if (!confirmed) return;
 
     try {
-      await ipc.deleteEmployee(employee.id);
+      try {
+        await ipc.deleteEmployee(employee.id);
+      } catch (err) {
+        const message = errorMessage(err);
+        /*
+         * 仍有聊天会话绑定该员工：主进程给出明确影响，
+         * 用户确认后再带 force 重试。工作流引用不在这个分支，
+         * 它会继续抛错并保持阻断。
+         */
+        if (!message.includes(EMPLOYEE_SESSION_IN_USE)) throw err;
+        const proceed = await confirmDialog({
+          title: "仍有会话在使用该员工",
+          message,
+          confirmLabel: "仍然删除",
+          tone: "danger",
+        });
+        if (!proceed) return;
+        await ipc.deleteEmployee(employee.id, true);
+      }
       await onSaved();
       onClose();
     } catch (err) {

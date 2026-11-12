@@ -71,6 +71,12 @@ import type {
   GitStatusDetail,
 } from "../git";
 
+/**
+ * 「仍有聊天会话绑定该员工」的错误提示前缀。
+ * 主进程用它在删除时给出明确影响；渲染层据此决定是否二次确认后强制删除。
+ */
+export const EMPLOYEE_SESSION_IN_USE = "会话仍在使用该员工";
+
 /** agent:send 的返回：显式区分成功与业务失败 */
 export type SendAgentResult =
   | { ok: true; exitCode: number; duration: number }
@@ -231,7 +237,14 @@ export interface IpcInvokeMap {
 
   /** 预创建空会话，拿到 sessionId 后再 agent:send，事件才能按会话路由 */
   "session:create": {
-    args: [{ projectId: string | null; agentId: string }];
+    args: [
+      {
+        projectId: string | null;
+        agentId: string;
+        /** 绑定的数字员工；null / 缺省表示普通会话 */
+        employeeId?: string | null;
+      },
+    ];
     result: Session;
   };
   "session:list": { args: []; result: Session[] };
@@ -295,7 +308,19 @@ export interface IpcInvokeMap {
     args: [{ id: string; draft: DigitalEmployeeDraft }];
     result: DigitalEmployee | null;
   };
-  "employees:delete": { args: [{ id: string }]; result: boolean };
+  "employees:delete": {
+    args: [
+      {
+        id: string;
+        /**
+         * 有会话仍绑定该员工时，必须显式确认后才继续。
+         * 工作流节点引用无论如何都不允许强制删除。
+         */
+        force?: boolean;
+      },
+    ];
+    result: boolean;
+  };
 
   /** MCP 资产：扫描 / 新建 / 更新 / 删除 / 导入 / 打开目录 */
   "mcp:list": { args: []; result: McpServerAsset[] };

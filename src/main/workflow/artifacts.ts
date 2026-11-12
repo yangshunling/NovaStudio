@@ -1,14 +1,17 @@
 /**
- * 工作流产物与临时运行目录
+ * 工作流产物与遗留运行目录
  *
  * 产物（用户可见、可追溯）落在工作区：
  *   <workspace>/.novastudio/workflows/<workflowId>/<runId>/<node>/
  * - run 目录名：完整运行 id（本身就是唯一标识，不再叠加时间戳）
  * - node 目录名：执行序号 + 节点名称；重试使用同级的 `<node>.try-N`
  *
- * Provider 的运行时投影（临时 mcp.json / 配置目录副本）落在应用数据目录：
- *   <userData>/workflow-runs/<runId>/<node>-attempt-N/
- * 节点结束后由运行器删除；这里只负责启动时的异常退出兜底清理。
+ * 员工运行时（settings / 凭证 / skills / mcp）由 employees/runtime 统一维护：
+ *   ~/.novastudio/employee-runtime/<employeeId>/
+ * 聊天与工作流共用，不再为每个执行尝试生成临时投影目录。
+ *
+ * 旧版本曾在 <userData>/workflow-runs 下按 attempt 复制配置与凭证，
+ * 这里只负责启动时一次性清理这批遗留目录。
  */
 
 import { mkdir, readdir, rm, rmdir, writeFile } from "fs/promises";
@@ -101,13 +104,14 @@ export function truncate(text: string, max: number): string {
 }
 
 /**
- * 启动时清理异常退出遗留的运行时目录。
+ * 启动时清理旧版本遗留的临时运行目录。
  *
- * 应用只允许单实例，且这里在注册首个工作流之前执行：
- * 启动瞬间不可能有活跃节点，所以可以无条件删除全部残留目录。
- * 这些目录里可能有复制出来的凭证副本，尽早清掉比按时间保留更安全。
+ * 旧版为每个 attempt 在 `<userData>/workflow-runs` 下复制一份配置与凭证；
+ * 改用员工常驻目录后这里不会再产生新内容。应用只允许单实例，且这里在
+ * 注册首个工作流之前执行，启动瞬间不可能有活跃节点，可以安全地全部删除；
+ * 尽早清掉也能避免旧凭证副本长期留在磁盘。
  */
-export async function purgeStaleWorkflowRuntimes(
+export async function purgeLegacyWorkflowRuntimes(
   userDataDir: string,
 ): Promise<void> {
   const root = join(userDataDir, "workflow-runs");

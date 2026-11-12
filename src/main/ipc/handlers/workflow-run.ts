@@ -5,7 +5,7 @@
  * 运行状态与事件都已在引擎里落库，这里只做查询与转发。
  */
 
-import { app, shell } from "electron";
+import { shell } from "electron";
 import { readdir, stat } from "fs/promises";
 import { join } from "path";
 import * as db from "../../db/sqlite";
@@ -106,10 +106,7 @@ export function registerWorkflowRunHandlers(
       throw new Error("该运行正在启动或删除，请稍后重试");
     }
     return runner.withMaintenance({ runId }, () =>
-      deleteRunData(runId, {
-        service,
-        userDataDir: app.getPath("userData"),
-      }),
+      deleteRunData(runId, { service }),
     );
   });
 

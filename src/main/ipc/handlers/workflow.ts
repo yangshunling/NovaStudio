@@ -5,7 +5,6 @@
  * 解析与校验责任在渲染进程，避免主进程理解 UI 布局细节。
  */
 
-import { app } from "electron";
 import type { AgentService } from "../../agents/agent-service";
 import * as db from "../../db/sqlite";
 import { deleteWorkflowData } from "../../workflow/cleanup";
@@ -45,10 +44,7 @@ export function registerWorkflowHandlers(
     await runner.withMaintenance(
       { workspaceId: workflow.workspaceId, workflowId: workflow.id },
       () =>
-        deleteWorkflowData(workflow, {
-          service,
-          userDataDir: app.getPath("userData"),
-        }),
+        deleteWorkflowData(workflow, { service }),
     );
     return true;
   });

@@ -143,6 +143,11 @@ export interface Session {
   id: string;
   /** 绑定的项目；null 表示未绑定（使用默认工作目录） */
   projectId: string | null;
+  /**
+   * 绑定的数字员工；null 表示普通会话。
+   * 会话发出第一条消息后锁定，换人只能新建会话。
+   */
+  employeeId?: string | null;
   /** 未声明时视为 chat（兼容旧数据） */
   source?: SessionSource;
   /** 对应 AgentManifest.id */

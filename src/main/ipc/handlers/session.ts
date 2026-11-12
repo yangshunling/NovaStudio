@@ -15,18 +15,41 @@ export function registerSessionHandlers(service: AgentService): void {
    *
    * projectId 可为 null：会话不强制绑定项目，未绑定时在默认目录运行。
    */
-  handle("session:create", ({ projectId, agentId }) => {
+  handle("session:create", ({ projectId, agentId, employeeId }) => {
     if (!getProvider(agentId)) {
       throw new Error(`未知 Agent：${agentId}`);
     }
     const project = projectId ? db.getProject(projectId) : null;
     if (projectId && !project) throw new Error("项目不存在");
+
+    /*
+     * 员工绑定在建会话时就固化：停用 / 不存在的员工不应该等到
+     * 第一次运行时才失败。运行目录仍然推迟到首次发送时才物化。
+     */
+    let boundEmployeeId: string | null = null;
+    if (employeeId) {
+      const employee = db.getDigitalEmployee(employeeId);
+      if (!employee) throw new Error("数字员工不存在");
+      if (!employee.enabled) {
+        throw new Error(`数字员工「${employee.name}」已停用，无法开始会话`);
+      }
+      boundEmployeeId = employee.id;
+    }
+
     const cwd = service.resolveCwd(
       project?.cwd,
       db.getSetting("defaultCwd"),
       homedir(),
     );
-    return db.createSession(agentId, project?.id ?? null, cwd, "新会话");
+    return db.createSession(
+      agentId,
+      project?.id ?? null,
+      cwd,
+      "新会话",
+      null,
+      "chat",
+      boundEmployeeId,
+    );
   });
 
   handle("session:list", () => db.listSessions());

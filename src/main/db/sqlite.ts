@@ -142,6 +142,25 @@ function resetLegacyDatabase(): void {
   openDatabase();
 }
 
+/**
+ * 幂等补列。
+ *
+ * 发版后的库不能靠「版本不一致就重建」来加字段——那会把用户数据整体丢掉。
+ * 新字段统一走这里：已存在则跳过，不存在才 ALTER。
+ */
+function ensureColumn(
+  conn: Database.Database,
+  table: string,
+  column: string,
+  definition: string,
+): void {
+  const columns = conn
+    .prepare(`PRAGMA table_info(${table})`)
+    .all() as Array<{ name: string }>;
+  if (columns.some((item) => item.name === column)) return;
+  conn.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+}
+
 /** 初始化数据库连接和表结构 */
 export function initDatabase(): void {
   ensureDataDirs();
@@ -162,6 +181,8 @@ export function initDatabase(): void {
     CREATE TABLE IF NOT EXISTS sessions (
       id TEXT PRIMARY KEY,
       project_id TEXT,
+      -- 会话绑定的数字员工；NULL 表示普通会话（走 Agent 全局配置）
+      employee_id TEXT,
       agent_id TEXT NOT NULL,
       agent_session_id TEXT,
       title TEXT NOT NULL,
@@ -394,6 +415,9 @@ export function initDatabase(): void {
       ON knowledge_documents (kb_id);
   `);
 
+  // 已发版的库不会因版本号相同而重建；这里幂等补列，避免清空用户数据
+  ensureColumn(conn, "sessions", "employee_id", "TEXT");
+
   ensureKnowledgeFts();
 
   // 上次进程遗留的运行不可能还活着：统一标记为中断
@@ -404,6 +428,8 @@ export function initDatabase(): void {
       ON sessions (updated_at DESC) WHERE source <> 'workflow';
     CREATE INDEX IF NOT EXISTS idx_sessions_project
       ON sessions (project_id);
+    CREATE INDEX IF NOT EXISTS idx_sessions_employee
+      ON sessions (employee_id);
     -- 节点详情 / 尝试列表按节点过滤
     CREATE INDEX IF NOT EXISTS idx_workflow_node_attempts_node
       ON workflow_node_attempts (node_run_id, attempt, round);
@@ -503,16 +529,18 @@ export function createSession(
   title?: string,
   configDir?: string | null,
   source: SessionSource = "chat",
+  employeeId?: string | null,
 ): Session {
   const id = randomUUID();
   const now = Date.now();
   const resolvedTitle = title || "新会话";
 
   prepare(
-    "INSERT INTO sessions (id, project_id, agent_id, agent_session_id, title, cwd, config_dir, source, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    "INSERT INTO sessions (id, project_id, employee_id, agent_id, agent_session_id, title, cwd, config_dir, source, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
   ).run(
     id,
     projectId,
+    employeeId ?? null,
     agentId,
     null,
     resolvedTitle,
@@ -526,6 +554,7 @@ export function createSession(
   return {
     id,
     projectId,
+    employeeId: employeeId ?? null,
     source,
     agentId,
     agentSessionId: null,
@@ -580,6 +609,64 @@ export function updateAgentSessionId(sessionId: string, agentSessionId: string):
   prepare(
     "UPDATE sessions SET agent_session_id = ?, updated_at = ? WHERE id = ?",
   ).run(agentSessionId, Date.now(), sessionId);
+}
+
+/**
+ * 记录会话实际使用的 CLI 配置目录（数字员工 home）。
+ *
+ * 必须在启动进程前落库：历史回放 / --resume 都按这个目录定位会话 JSONL，
+ * 晚一步就等于在旧目录里找一个不存在的会话。
+ */
+export function setSessionConfigDir(
+  sessionId: string,
+  configDir: string | null,
+): void {
+  prepare("UPDATE sessions SET config_dir = ? WHERE id = ?").run(
+    configDir,
+    sessionId,
+  );
+}
+
+/**
+ * 清除会话的 CLI 引用（config_dir + agent_session_id）。
+ *
+ * 工作流 attempt 结束时 JSONL 已删除，本地 messages 仍然保留，
+ * 因此可以安全地丢掉这两个定位字段，避免后续反复扫描 projects 目录。
+ */
+export function clearSessionCliRef(sessionId: string): void {
+  prepare(
+    "UPDATE sessions SET agent_session_id = NULL, config_dir = NULL WHERE id = ?",
+  ).run(sessionId);
+}
+
+/** 仍持有 CLI 引用的工作流会话（启动时清理异常退出遗留的 JSONL） */
+export function listWorkflowSessionIdsWithCliRef(): string[] {
+  const rows = prepare(
+    "SELECT id FROM sessions WHERE source = 'workflow' AND agent_session_id IS NOT NULL",
+  ).all() as Array<{ id: string }>;
+  return rows.map((row) => row.id);
+}
+
+/** 使用某数字员工的会话（用于删除前的影响提示） */
+export function listSessionsByEmployee(employeeId: string): Session[] {
+  const rows = db!
+    .prepare(
+      "SELECT * FROM sessions WHERE employee_id = ? AND source <> 'workflow' ORDER BY updated_at DESC",
+    )
+    .all(employeeId) as any[];
+  return rows.map(rowToSession);
+}
+
+/**
+ * 员工被强制删除后，解除其会话绑定并清空 CLI 引用。
+ *
+ * 运行时目录会随员工一起删除，旧会话文件不再存在；保留本地 messages，
+ * 这些会话退回普通模式（使用 Agent 全局配置）继续可用。
+ */
+export function clearEmployeeBindings(employeeId: string): void {
+  prepare(
+    "UPDATE sessions SET employee_id = NULL, config_dir = NULL, agent_session_id = NULL WHERE employee_id = ?",
+  ).run(employeeId);
 }
 
 /** 更新会话标题 */
@@ -707,6 +794,7 @@ function rowToSession(row: any): Session {
   return {
     id: row.id,
     projectId: row.project_id,
+    employeeId: row.employee_id ?? null,
     source: (row.source ?? "chat") as Session["source"],
     agentId: row.agent_id,
     agentSessionId: row.agent_session_id,

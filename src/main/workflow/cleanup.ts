@@ -5,7 +5,11 @@
  * 1. 运行事件、节点运行、运行主记录
  * 2. 节点运行对应的会话（含 CLI 侧数据与消息）
  * 3. 工作区里的 .novastudio 产物
- * 4. 用户数据目录里的运行配置副本
+ *
+ * 节点会话的 CLI 文件（JSONL）已由 runner 在每次 attempt 结束时删除，
+ * 这里的 releaseSession 只作为兜底，幂等且找不到文件时静默返回。
+ * 员工常驻运行时目录（~/.novastudio/employee-runtime/<id>）属于员工资产，
+ * 不随运行 / 工作流删除，只在删除员工时清理。
  *
  * 工作区本身（用户的项目文件夹）永远不删，只清理 Nova 生成的内容。
  */
@@ -19,7 +23,6 @@ import type { Workflow } from "../../shared/types";
 
 export interface CleanupDeps {
   service: AgentService;
-  userDataDir: string;
 }
 
 /** 删除单个工作流的全部数据；返回是否需要继续清理工作区根目录 */
@@ -27,7 +30,7 @@ export async function deleteWorkflowData(
   workflow: Workflow,
   deps: CleanupDeps,
 ): Promise<void> {
-  const { runIds, sessionIds } = db.deleteWorkflowRuns(workflow.id);
+  const { sessionIds } = db.deleteWorkflowRuns(workflow.id);
 
   // 先释放 CLI 侧会话数据（需要 session.configDir），再删索引行
   for (const sessionId of sessionIds) {
@@ -43,14 +46,6 @@ export async function deleteWorkflowData(
       join(project.cwd, ".novastudio", "workflows", workflow.id),
       { recursive: true, force: true },
     );
-  }
-
-  // 每个运行的独立配置目录（含凭证副本、会话副本）
-  for (const runId of runIds) {
-    await rm(join(deps.userDataDir, "workflow-runs", runId), {
-      recursive: true,
-      force: true,
-    });
   }
 }
 
@@ -68,11 +63,22 @@ export async function deleteRunData(
   }
 
   await rm(run.artifactDir, { recursive: true, force: true }).catch(() => {});
-  await rm(join(deps.userDataDir, "workflow-runs", runId), {
-    recursive: true,
-    force: true,
-  }).catch(() => {});
   return true;
+}
+
+/**
+ * 启动时清理异常退出遗留的工作流会话 JSONL。
+ *
+ * 正常路径下 attempt 结束就会删除；这里兜底崩溃 / 强制结束留下的文件。
+ * 工作流会话不需要 CLI 文件，运行详情统一从 messages 表回放。
+ */
+export async function purgeStaleWorkflowSessionFiles(
+  service: AgentService,
+): Promise<void> {
+  for (const sessionId of db.listWorkflowSessionIdsWithCliRef()) {
+    await service.releaseSession(sessionId);
+    db.clearSessionCliRef(sessionId);
+  }
 }
 
 /** 删除工作区（复用项目实体）及其下所有工作流；返回被删工作流数量 */

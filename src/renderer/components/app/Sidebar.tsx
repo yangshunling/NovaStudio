@@ -26,7 +26,6 @@ import {
   Waypoints,
   Workflow,
 } from "lucide-react";
-import { ThemeToggle } from "./ThemeToggle";
 
 /** 导航项字号 */
 const FONT_BODY = "ui-type-item";
@@ -133,20 +132,20 @@ export function Sidebar() {
 
   return (
     <aside className="ui-sidebar relative flex h-full w-[var(--c-layout-sidebar)] flex-col border-r-0">
-      {/* 头部：艺术字品牌（无 logo / 图标） */}
+      {/* 头部：艺术字品牌（无 logo / 图标）。
+          皮肤切换已移入「设置 → 外观」，刊头独占整行，因此居中排布。 */}
       <div
         style={{ zIndex: 30 }}
-        className="relative flex h-[var(--c-layout-header)] items-center justify-between gap-2 overflow-hidden border-b border-border px-3"
+        className="relative flex h-[var(--c-layout-header)] items-center justify-center overflow-hidden border-b border-border px-3"
       >
         {/* 刊头式座右铭：斜体衬线引子 + 正体粗字主词，单行排布。
             高端感来自真实斜体、字重对比与留白，不用渐变 / 光晕 / 装饰。 */}
-        <div className="relative flex min-w-0 items-center">
+        <div className="relative flex min-w-0 items-center justify-center">
           <span className="ui-type-brand select-none whitespace-nowrap leading-none tracking-tight text-text">
             <span className="font-normal italic text-text-secondary">Work is</span>{" "}
             <span className="font-bold">Agentic</span>
           </span>
         </div>
-        <ThemeToggle />
       </div>
 
       {/* 导航区：窗口较矮时可滚动，保证底部设置入口始终可见 */}

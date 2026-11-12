@@ -97,7 +97,9 @@ export interface AgentRunInput {
   cwd: string;
   /**
    * 本次运行专用的可写临时目录（工作流节点使用）。
-   * provider 可以在这里放临时 mcp.json / 配置投影；运行结束由宿主删除。
+   *
+   * Claude provider 已改用员工常驻运行时目录（与聊天共用），不再使用它；
+   * 保留该字段供其它 provider 放临时配置投影，运行结束由宿主删除。
    */
   runtimeDir?: string;
   /** 工作流节点绑定的数字员工 */

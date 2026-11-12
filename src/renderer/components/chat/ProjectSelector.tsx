@@ -15,13 +15,11 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ChevronDown, Folder } from "lucide-react";
+import { ChevronDown, Folder, Lock } from "lucide-react";
 import { useChatStore } from "../../stores/chat";
-import { toast } from "../../stores/toast";
 import {
-  isWorkspaceSwitchBlocked,
+  isWorkspaceLocked,
   switchWorkspace,
-  WORKSPACE_RUNNING_HINT,
 } from "../../lib/workspace-switch";
 import {
   OPEN_WORKSPACE_MENU_EVENT,
@@ -47,15 +45,14 @@ export function ProjectSelector() {
   const itemRefs = useRef<(HTMLElement | null)[]>([]);
 
   const currentProject = projects.find((p) => p.id === currentProjectId);
-  /** 当前会话正在跑 Agent：运行中切换工作区会被主进程拒绝，这里提前拦住 */
-  const streaming = useChatStore((s) =>
-    s.currentSessionId ? !!s.streamingBySession[s.currentSessionId] : false,
-  );
+  const currentSessionId = useChatStore((s) => s.currentSessionId);
+  /** 会话已开始：工作区随会话固定，与员工的锁定规则一致 */
+  const locked = currentSessionId !== null;
 
-  // 运行开始时收起已展开的菜单，避免在其中选到一半被拒绝
+  // 会话开始时收起已展开的菜单，避免在其中选到一半被拒绝
   useEffect(() => {
-    if (streaming) setOpen(false);
-  }, [streaming]);
+    if (locked) setOpen(false);
+  }, [locked]);
 
   /**
    * 菜单项顺序与 `#` 快捷切换完全一致：
@@ -114,7 +111,7 @@ export function ProjectSelector() {
   openMenuRef.current = openMenu;
   useEffect(() => {
     const onRequest = () => {
-      if (isWorkspaceSwitchBlocked()) return;
+      if (isWorkspaceLocked()) return;
       requestAnimationFrame(() => {
         openMenuRef.current();
         triggerRef.current?.focus();
@@ -173,26 +170,22 @@ export function ProjectSelector() {
       <button
         ref={triggerRef}
         type="button"
-        aria-disabled={streaming}
+        disabled={locked}
         onClick={() => {
-          // 不用 disabled：禁用按钮在部分浏览器里连 title 提示都不显示，
-          // 点一下给出 5 秒的明确原因，比灰掉却无法解释更清楚。
-          if (streaming) {
-            toast.error(WORKSPACE_RUNNING_HINT, 5000);
-            return;
-          }
           if (open) setOpen(false);
           else openMenu();
         }}
         onKeyDown={(e) => {
           if (e.key === "ArrowDown" || e.key === "ArrowUp") {
             e.preventDefault();
-            if (!streaming && !open) openMenu();
+            if (!open) openMenu();
           }
         }}
         title={
-          streaming
-            ? "Agent 正在运行，本轮结束后才能切换工作区"
+          locked
+            ? currentProject
+              ? `本次会话使用工作区「${currentProject.name}」，会话开始后不可更换`
+              : "本次会话未绑定工作区；换工作区请新建会话"
             : currentProject
               ? `工作目录：${currentProject.cwd}`
               : "为本次会话指定一个工作区（可选）"
@@ -201,7 +194,7 @@ export function ProjectSelector() {
         aria-expanded={open}
         className={`flex h-8 shrink-0 items-center gap-1.5 rounded-md px-2 ui-type-note text-text-muted outline-none transition-colors hover:bg-surface-hover hover:text-text ${
           open ? "bg-surface-hover text-text" : ""
-        } ${streaming ? "cursor-not-allowed opacity-60" : ""}`}
+        } ${locked ? "cursor-default" : ""}`}
       >
         <Folder
           className={`h-3.5 w-3.5 shrink-0 ${
@@ -211,11 +204,15 @@ export function ProjectSelector() {
         <span className="max-w-[120px] truncate font-medium text-text">
           {currentProject?.name ?? "指定工作区"}
         </span>
-        <ChevronDown
-          className={`h-3.5 w-3.5 shrink-0 text-text-muted transition-transform ${
-            open ? "rotate-180" : ""
-          }`}
-        />
+        {locked ? (
+          <Lock className="h-3 w-3 shrink-0 text-text-muted" />
+        ) : (
+          <ChevronDown
+            className={`h-3.5 w-3.5 shrink-0 text-text-muted transition-transform ${
+              open ? "rotate-180" : ""
+            }`}
+          />
+        )}
       </button>
 
       {open && (

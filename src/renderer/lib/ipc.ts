@@ -127,8 +127,11 @@ export const ipc = {
   killTerminal: (id: string) => call("terminal:kill", { id }),
 
   // === 会话 ===
-  createSession: (projectId: string | null, agentId: string) =>
-    call("session:create", { projectId, agentId }),
+  createSession: (
+    projectId: string | null,
+    agentId: string,
+    employeeId?: string | null,
+  ) => call("session:create", { projectId, agentId, employeeId }),
   listSessions: () => call("session:list"),
   getDefaultCwd: () => call("session:defaultCwd"),
   getSession: (id: string) => call("session:get", { id }),
@@ -169,7 +172,8 @@ export const ipc = {
     call("employees:create", { draft }),
   updateEmployee: (id: string, draft: DigitalEmployeeDraft) =>
     call("employees:update", { id, draft }),
-  deleteEmployee: (id: string) => call("employees:delete", { id }),
+  deleteEmployee: (id: string, force?: boolean) =>
+    call("employees:delete", { id, force }),
 
   // === MCP 资产 ===
   listMcpServers: () => call("mcp:list"),

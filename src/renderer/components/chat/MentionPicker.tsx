@@ -2,7 +2,7 @@
  * 引用选择器 (@ mention)
  *
  * 输入 @ 后先进入「引用类型」这一层，选中类型后再列出该类型下的条目：
- *   文件 / 工具（MCP） / 技能 / 提示词 / 知识库
+ *   文件 / 数字员工 / 工具（MCP） / 技能 / 提示词 / 知识库
  *
  * 交互：
  *   1. 行首或空格后输入 @ → 弹出引用类型列表
@@ -14,21 +14,36 @@
  * 选择结果：
  *   - 文件 / 工具 / 技能 / 知识库 → 作为引用标签挂在输入框上方，发送时转成提示词
  *   - 提示词 → 正文直接插入输入框，由用户确认后发送
+ *   - 数字员工 → 与输入框旁的「指定员工」同一套逻辑：绑定本次会话使用的员工
  *
  * 文件列表通过 IPC 从主进程读取（带缓存）；工具 / 技能 / 知识库复用
- * assets store 的扫描结果；提示词每次进入分类时重新读取，保证刚改过就能看到。
+ * assets store 的扫描结果；数字员工复用 employees store，与输入框旁的
+ * 「指定员工」读写同一份会话绑定；提示词每次进入分类时重新读取，
+ * 保证刚改过就能看到。
  */
 
 import { useState, useEffect, useRef, useMemo, useCallback, } from "react";
 import type { LucideIcon } from "lucide-react";
-import { ChevronLeft, ChevronRight, FileText, Library, MessageSquareText, Sparkles, Wrench } from "lucide-react";
+import {
+  ChevronLeft,
+  ChevronRight,
+  FileText,
+  Library,
+  MessageSquareText,
+  Sparkles,
+  UserRound,
+  Wrench,
+} from "lucide-react";
 import {
   useKnowledgeBasesStore,
   useMcpServersStore,
   useSkillsStore,
 } from "../../stores/assets";
+import { useEmployeesStore } from "../../stores/employees";
+import { chooseEmployee } from "../../lib/employee-switch";
 import { ipc } from "../../lib/ipc";
 import type { FileEntry, PromptItem } from "@shared/types";
+import { EmployeeAvatar } from "../employees/EmployeeAvatar";
 import { FileTypeIcon } from "../ui/FileTypeIcon";
 import { FolderTypeIcon } from "../ui/FolderTypeIcon";
 import { Spinner } from "../ui/Spinner";
@@ -37,12 +52,23 @@ import { Spinner } from "../ui/Spinner";
 // 类型与常量
 // ============================================================================
 
-export type MentionCategory = "file" | "tool" | "skill" | "prompt" | "knowledge";
+export type MentionCategory =
+  | "file"
+  | "employee"
+  | "tool"
+  | "skill"
+  | "prompt"
+  | "knowledge";
 
-/** 发送时会转成提示词的引用（提示词正文直接插入，不走标签） */
+/**
+ * 发送时会转成提示词的引用（提示词正文直接插入，不走标签）。
+ *
+ * 数字员工不在其中：它不是一段提示词，而是本次会话的执行者，
+ * 选中后直接写进会话绑定，与输入框旁的「指定员工」行为一致。
+ */
 export interface MentionReference {
   key: string;
-  category: Exclude<MentionCategory, "prompt">;
+  category: "file" | "tool" | "skill" | "knowledge";
   name: string;
   detail: string;
   promptText: string;
@@ -63,6 +89,10 @@ export interface MentionEntry {
   content?: string;
   /** 非提示词条目：发送时追加到 prompt 的文本 */
   promptText?: string;
+  /** 数字员工：绑定到当前会话的员工 id；null 表示解除绑定 */
+  employeeId?: string | null;
+  /** 数字员工：头像 data URL，列表里优先展示头像 */
+  avatar?: string | null;
 }
 
 const CATEGORY_META: Record<
@@ -70,6 +100,11 @@ const CATEGORY_META: Record<
   { label: string; description: string; icon: LucideIcon }
 > = {
   file: { label: "文件", description: "工作区中的文件与目录", icon: FileText },
+  employee: {
+    label: "数字员工",
+    description: "指定本次会话由谁执行",
+    icon: UserRound,
+  },
   tool: { label: "工具", description: "已接入的 MCP 服务", icon: Wrench },
   skill: { label: "技能", description: "已安装的 skill 技能", icon: Sparkles },
   prompt: {
@@ -86,6 +121,7 @@ const CATEGORY_META: Record<
 
 const CATEGORY_ORDER: readonly MentionCategory[] = [
   "file",
+  "employee",
   "tool",
   "skill",
   "prompt",
@@ -148,6 +184,10 @@ export function useMention({
   const knowledgeBases = useKnowledgeBasesStore((s) => s.items);
   const knowledgeLoading = useKnowledgeBasesStore((s) => s.loading);
   const loadKnowledge = useKnowledgeBasesStore((s) => s.load);
+  // 数字员工与输入框旁的「指定员工」共用同一份列表与会话绑定
+  const employees = useEmployeesStore((s) => s.employees);
+  const employeesLoading = useEmployeesStore((s) => s.loading);
+  const loadEmployees = useEmployeesStore((s) => s.load);
 
   const active = mentionQuery !== null;
 
@@ -215,12 +255,13 @@ export function useMention({
     };
   }, [parsed.category, parsed.subPath, projectId]);
 
-  // ---- 工具 / 技能 / 知识库：进入分类时确保已加载 ----
+  // ---- 数字员工 / 工具 / 技能 / 知识库：进入分类时确保已加载 ----
   useEffect(() => {
-    if (parsed.category === "tool") void loadMcp();
+    if (parsed.category === "employee") void loadEmployees();
+    else if (parsed.category === "tool") void loadMcp();
     else if (parsed.category === "skill") void loadSkills();
     else if (parsed.category === "knowledge") void loadKnowledge();
-  }, [parsed.category, loadMcp, loadSkills, loadKnowledge]);
+  }, [parsed.category, loadEmployees, loadMcp, loadSkills, loadKnowledge]);
 
   // ---- 提示词：每次进入分类都重新读取，保证内容是最新的 ----
   useEffect(() => {
@@ -300,6 +341,28 @@ export function useMention({
           promptText: `@${item.relativePath}`,
         }));
         break;
+      case "employee":
+        // 与输入框旁的「指定员工」一致：只列已启用的员工，并保留「不使用」
+        list = [
+          {
+            key: "employee:none",
+            category: "employee",
+            name: "不使用数字员工",
+            detail: "直接使用 Agent 的全局配置",
+            employeeId: null,
+          },
+          ...employees
+            .filter((employee) => employee.enabled)
+            .map((employee) => ({
+              key: `employee:${employee.id}`,
+              category: "employee" as const,
+              name: employee.name,
+              detail: employee.role || "数字员工",
+              employeeId: employee.id,
+              avatar: employee.avatar,
+            })),
+        ];
+        break;
       case "tool":
         list = mcpServers.map((server) => ({
           key: `tool:${server.id}`,
@@ -356,7 +419,7 @@ export function useMention({
         entry.detail.toLowerCase().includes(keyword) ||
         (entry.content?.toLowerCase().includes(keyword) ?? false),
     );
-  }, [parsed, fileItems, mcpServers, skills, promptItems, knowledgeBases]);
+  }, [parsed, fileItems, employees, mcpServers, skills, promptItems, knowledgeBases]);
 
   const loading =
     parsed.category === "file"
@@ -369,7 +432,9 @@ export function useMention({
             ? skillsLoading
             : parsed.category === "knowledge"
               ? knowledgeLoading
-              : false;
+              : parsed.category === "employee"
+                ? employeesLoading
+                : false;
 
   const emptyHint = useMemo(() => {
     if (!parsed.category) return "没有匹配的引用类型";
@@ -389,6 +454,8 @@ export function useMention({
         return "提示词库还是空的";
       case "knowledge":
         return "还没有创建知识库";
+      case "employee":
+        return "没有已启用的数字员工，请先在「数字员工」页面启用";
     }
   }, [parsed, projectId]);
 
@@ -485,6 +552,18 @@ export function useMention({
         const query = `${entry.category}/`;
         replaceMention(`@${query}`);
         setMentionQuery(query);
+        return;
+      }
+
+      /*
+       * 数字员工：不生成引用标签，直接写进当前会话的员工绑定，
+       * 与输入框旁「指定员工」的选择结果是同一处状态。
+       */
+      if (entry.category === "employee") {
+        replaceMention("", true);
+        // 运行中由 chooseEmployee 统一拦截并提示，与输入框旁的选择器一致
+        chooseEmployee(entry.employeeId ?? null);
+        closeMention();
         return;
       }
 
@@ -627,6 +706,15 @@ export function useMention({
 
 /** 条目图标：文件按扩展名，其余按引用类型 */
 function EntryIcon({ entry }: { entry: MentionEntry }) {
+  // 数字员工优先展示头像；「不使用」没有员工实体，回落到类型图标
+  if (entry.category === "employee" && entry.employeeId) {
+    return (
+      <EmployeeAvatar
+        employee={{ name: entry.name, avatar: entry.avatar ?? null }}
+        size={16}
+      />
+    );
+  }
   if (entry.category === "file") {
     return entry.isDirectory ? (
       <FolderTypeIcon />
