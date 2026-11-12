@@ -345,6 +345,7 @@
 | `scripts/verify-typography.mjs` | 排版守卫：字号档位 / 字体族 / 废弃类扫描 |
 | `scripts/generate-vscode-file-icons.mjs` | 生成 VSCode 图标数据 |
 | `resources/logo.png` | 应用 / 安装包图标 |
-| `resources/banner.svg` | README 横幅 |
+| `resources/banner-light.svg` | README 横幅（日间） |
+| `resources/banner-dark.svg` | README 横幅（夜间） |
 | `resources/NOTICE.md` | 第三方许可 |
 | `resources/preview/` | 界面预览截图 |

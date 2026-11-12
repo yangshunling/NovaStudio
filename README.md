@@ -1,32 +1,17 @@
 <p align="center">
-  <img src="resources/banner.svg" alt="Nova Studio" width="100%">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="resources/banner-dark.svg">
+    <img src="resources/banner-light.svg" alt="Nova Studio——一个窗口，管理你的整个 AI 数字团队" width="100%">
+  </picture>
 </p>
 
-<div align="center">
-
-### 一个窗口，管理你的整个 AI 数字团队
-
-Nova Studio 是本地优先的桌面 AI 工作台。它不提供模型，也不要求注册账号——<br>
-模型能力来自你本机已安装的 Claude Code，它负责把对话组织成一条能跑起来的生产线。
-
-<p>
-<img alt="Electron 31" src="https://img.shields.io/badge/Electron-31-00B4D8?style=flat-square&logo=electron&logoColor=white">
-<img alt="React 18" src="https://img.shields.io/badge/React-18-00D8FF?style=flat-square&logo=react&logoColor=black">
-<img alt="TypeScript 5.5" src="https://img.shields.io/badge/TypeScript-5.5-2563EB?style=flat-square&logo=typescript&logoColor=white">
-<img alt="Local first" src="https://img.shields.io/badge/Local--first-0EA5E9?style=flat-square">
-<img alt="License MIT" src="https://img.shields.io/badge/License-MIT-22C55E?style=flat-square">
+<p align="center">
+  <a href="#它是什么">它是什么</a>&nbsp;&nbsp;·&nbsp;&nbsp;<a href="#界面一览">界面一览</a>&nbsp;&nbsp;·&nbsp;&nbsp;<a href="#核心能力">核心能力</a>&nbsp;&nbsp;·&nbsp;&nbsp;<a href="#快速开始">快速开始</a>&nbsp;&nbsp;·&nbsp;&nbsp;<a href="#本地优先">本地优先</a>&nbsp;&nbsp;·&nbsp;&nbsp;<a href="#技术栈">技术栈</a>
 </p>
 
-<p>
-<a href="#它是什么">它是什么</a> ·
-<a href="#界面一览">界面一览</a> ·
-<a href="#核心能力">核心能力</a> ·
-<a href="#快速开始">快速开始</a> ·
-<a href="#本地优先">本地优先</a> ·
-<a href="#技术栈">技术栈</a>
+<p align="center">
+  <sub>Electron 31&nbsp;&nbsp;·&nbsp;&nbsp;React 18&nbsp;&nbsp;·&nbsp;&nbsp;TypeScript 5.5&nbsp;&nbsp;·&nbsp;&nbsp;SQLite&nbsp;&nbsp;·&nbsp;&nbsp;MIT License</sub>
 </p>
-
-</div>
 
 ---
 
@@ -34,41 +19,43 @@ Nova Studio 是本地优先的桌面 AI 工作台。它不提供模型，也不�
 
 > **当你有多个项目、多个角色、多道工序时，如何让 AI 真正参与进来，并且每一步都看得见、接得住、留得下。**
 
-大多数 AI 工具只解决「聊天」这一件事。Nova Studio 解决的是另一半：把一次性的对话，变成**可复用的角色、可编排的流程和可追溯的产物**。你仍然在用 Claude Code，只是不再需要在终端、编辑器、文档和文件夹之间来回搬运上下文。
+大多数 AI 工具只解决「聊天」这一件事。Nova Studio 解决的是另一半：把一次性的对话，变成**可复用的角色、可编排的流程和可追溯的产物**。
+
+你仍然在用 Claude Code，只是不再需要在终端、编辑器、文档和文件夹之间来回搬运上下文。
 
 | 你正在经历的 | Nova 的解法 |
 | :--- | :--- |
-| 同时维护多个项目，会话、终端和文件散落各处 | **会话工作台**：一个窗口容纳全部会话、文件、Git 与终端 |
-| 每次都要把同一套角色设定重新粘贴给 AI | **数字员工**：人设、职责与可用能力固化成可复用角色 |
-| 多步骤任务靠人把上一轮结果搬给下一轮 | **工作流**：可视化 DAG，节点自动流转、并行与汇合 |
-| 只想拿到最终答案，却不知道中间发生了什么 | **全程留痕**：思考、工具调用、产物与运行记录完整落库 |
-| 不希望项目资料和对话记录上云 | **本地优先**：数据只存在本机 `~/.novastudio/` 与工作区 |
+| 项目一多，会话、终端和文件就散落各处 | **会话工作台** —— 一个窗口容纳全部会话、文件、Git 与终端 |
+| 同一套角色设定，每次都要重新粘贴给 AI | **数字员工** —— 把职责与能力固化成可复用的角色 |
+| 多步骤任务，靠人把上一轮结果搬给下一轮 | **工作流** —— 可视化 DAG，节点自动流转、并行与汇合 |
+| 只要结果，却不知道中间发生了什么 | **全程留痕** —— 思考、工具调用、产物与运行记录完整落库 |
+| 不希望项目资料和对话记录上云 | **本地优先** —— 数据只存在本机 `~/.novastudio/` 与工作区 |
 
 ### 一条完整的工作链路
 
-| 步骤 | 做什么 | 对应模块 |
-| :---: | :--- | :--- |
-| **① 对话** | 在一个窗口里完成问答、读写文件与命令执行 | 会话工作台 |
-| **② 配置角色** | 把人设、职责与可用能力固化成可复用角色 | 数字员工 |
-| **③ 编排流程** | 把角色连成 DAG，配置并行、审核与失败策略 | 工作流 |
-| **④ 沉淀资产** | 统一管理 Skill、MCP、知识库与提示词 | 资产库 |
-| **⑤ 自动运行** | 按时间触发，或用自然语言交给任务中心 | 自动化 |
+| # | 步骤 | 做什么 | 对应模块 |
+| :---: | :--- | :--- | :--- |
+| ① | **对话** | 在一个窗口里完成问答、读写文件与命令执行 | 会话工作台 |
+| ② | **配置角色** | 把人设、职责与可用能力固化成可复用角色 | 数字员工 |
+| ③ | **编排流程** | 把角色连成 DAG，配置并行、审核与失败策略 | 工作流 |
+| ④ | **沉淀资产** | 统一管理 Skill、MCP、知识库与提示词 | 资产库 |
+| ⑤ | **自动运行** | 按时间触发，或用自然语言交给任务中心 | 自动化 |
 
 ---
 
 ## 界面一览
 
-<p align="center"><sub>经典 · 日间 / 夜间，点击图片查看原图</sub></p>
+<p align="center"><sub>经典皮肤 · 昼夜双主题，代码高亮随皮肤联动 · 点击图片查看原图</sub></p>
 
-<table width="100%" style="width:100%">
+<table width="100%">
 <tr>
 <td align="center" width="50%">
 <a href="resources/preview/经典昼.png"><img src="resources/preview/经典昼.png" alt="Nova Studio 经典日间界面" width="100%"></a>
-<br><sub><b>经典 · 日间</b></sub>
+<br><sub>图 01 · 经典 · 日间</sub>
 </td>
 <td align="center" width="50%">
 <a href="resources/preview/经典夜.png"><img src="resources/preview/经典夜.png" alt="Nova Studio 经典夜间界面" width="100%"></a>
-<br><sub><b>经典 · 夜间</b></sub>
+<br><sub>图 02 · 经典 · 夜间</sub>
 </td>
 </tr>
 </table>
@@ -83,13 +70,11 @@ Nova Studio 是本地优先的桌面 AI 工作台。它不提供模型，也不�
 
 *把 Claude Code 从终端搬进一个完整的桌面工作台。*
 
-| 能力 | 说明 |
-| :--- | :--- |
-| **复用本机 Claude Code** | 自动检测安装位置，直接沿用登录、模型、权限、MCP 与 Skill，不维护第二套配置 |
-| **完整过程呈现** | 思考过程、工具调用与正文流式输出；工具调用带分类图标与调用摘要，diff 直接展开 |
-| **会话与工作区解耦** | 不必先建项目；需要读写文件时再绑定工作区，多个会话可同时运行、互不阻塞 |
-| **消息暂存** | 运行中继续发消息不会丢失，进入暂存区后按顺序排队发送 |
-| **内容与回放** | 支持 `@` 提及文件、GFM 表格与代码高亮；历史事件完整落库，重启后可回放含思考与工具调用的对话 |
+- **复用本机 Claude Code** —— 自动检测安装位置，直接沿用登录、模型、权限、MCP 与 Skill，不维护第二套配置。
+- **完整过程呈现** —— 思考过程、工具调用与正文流式输出；工具调用带分类图标与调用摘要，diff 直接展开。
+- **会话与工作区解耦** —— 不必先建项目；需要读写文件时再绑定工作区，多个会话可同时运行、互不阻塞。
+- **消息暂存** —— 运行中继续发消息不会丢失，进入暂存区后按顺序排队发送。
+- **内容与回放** —— 支持 `@` 提及文件、GFM 表格与代码高亮；历史事件完整落库，重启后可回放含思考与工具调用的对话。
 
 ### 数字员工
 
@@ -98,14 +83,14 @@ Nova Studio 是本地优先的桌面 AI 工作台。它不提供模型，也不�
 <p align="center">
   <img src="resources/preview/数字员工.png" alt="Nova Studio 数字员工" width="100%">
 </p>
-<p align="center"><sub>数字员工 · 按引用组合 MCP、Skill 与知识库，不在员工里复制资产</sub></p>
+<p align="center"><sub>图 03 · 数字员工 —— 按引用组合 MCP、Skill 与知识库，不在员工里复制资产</sub></p>
 
 - 头像、姓名、职位与系统提示词，写清职责边界和输出要求；
 - 按需勾选 MCP、Skill 与知识库，同一个人可在多个工作流节点复用；
 - 资产统一在各自的页面管理，员工只保存引用，不产生重复副本；
 - 一键启用 / 停用；工作流节点直接引用员工，不用重复填写角色信息。
 
-常见角色：产品经理、需求分析师、业务架构师、前端 / 后端工程师、代码评审员、测试工程师、数据分析师。
+<p align="center"><sub>常见角色：产品经理 · 需求分析师 · 业务架构师 · 前端 / 后端工程师 · 代码评审员 · 测试工程师 · 数据分析师</sub></p>
 
 ### 工作流
 
@@ -114,24 +99,20 @@ Nova Studio 是本地优先的桌面 AI 工作台。它不提供模型，也不�
 <p align="center">
   <img src="resources/preview/工作流.png" alt="Nova Studio 工作流画布" width="100%">
 </p>
-<p align="center"><sub>工作流画布 · 可视化编排、并行分支与人工审核</sub></p>
+<p align="center"><sub>图 04 · 工作流画布 —— 可视化编排、并行分支与人工审核</sub></p>
 
-| 能力 | 说明 |
-| :--- | :--- |
-| **可视化画布** | 拖拽节点、缩放、平移、自动布局、撤销 / 重做、16px 网格吸附与对齐参考线 |
-| **并行与汇合** | 分支并行（并发上限 3 个节点）与 AND 汇合，汇合节点等待全部上游完成 |
-| **节点策略** | 任务详情、失败策略（停止 / 跳过 / 重试）与人工审核门禁 |
-| **人工审核** | 执行后暂停；「要求修改」在同一会话继续重做（最多 3 轮），驳回则终止运行 |
-| **画布内调试** | 节点实时显示执行中、等待审核、成功、失败、跳过、取消 |
-| **运行记录** | 继续运行、从任意节点重跑，保留每次执行的对话、结果与产物文件 |
+- **可视化画布** —— 拖拽节点、缩放、平移、自动布局、撤销 / 重做、16px 网格吸附与对齐参考线。
+- **并行与汇合** —— 分支并行（并发上限 3 个节点）与 AND 汇合，汇合节点等待全部上游完成。
+- **节点策略** —— 任务详情、失败策略（停止 / 跳过 / 重试）与人工审核门禁。
+- **人工审核** —— 执行后暂停；「要求修改」在同一会话继续重做（最多 3 轮），驳回则终止运行。
+- **画布内调试** —— 节点实时显示执行中、等待审核、成功、失败、跳过、取消。
+- **运行记录** —— 继续运行、从任意节点重跑，保留每次执行的对话、结果与产物文件。
 
 一条常见的研发流水线：
 
-| 顺序 | 节点 |
-| :---: | :--- |
-| ① | 开始 → 需求分析 → 架构设计 |
-| ② | 后端实现 / 前端实现（并行分支） |
-| ③ | 代码评审（AND 汇合）→ 结束 |
+<p align="center">
+  <b>开始</b> → 需求分析 → 架构设计 → <b>后端实现 / 前端实现</b>（并行分支）→ 代码评审（AND 汇合）→ <b>结束</b>
+</p>
 
 每次运行都会在工作区 `.novastudio/` 下生成独立目录，按工作流与运行 ID 隔离，互不覆盖，也不污染业务仓库。
 
@@ -142,7 +123,7 @@ Nova Studio 是本地优先的桌面 AI 工作台。它不提供模型，也不�
 <p align="center">
   <img src="resources/preview/MCP.png" alt="Nova Studio MCP 管理" width="100%">
 </p>
-<p align="center"><sub>MCP · 统一管理 stdio / HTTP / SSE 服务，支持 ${VAR} 占位符与密钥标记</sub></p>
+<p align="center"><sub>图 05 · MCP —— 统一管理 stdio / HTTP / SSE 服务，支持 ${VAR} 占位符与密钥标记</sub></p>
 
 | 资产 | 做什么 |
 | :--- | :--- |
@@ -157,21 +138,21 @@ Nova Studio 是本地优先的桌面 AI 工作台。它不提供模型，也不�
 
 *让流程在你不在的时候也能跑。*
 
-<table width="100%" style="width:100%">
+<table width="100%">
 <tr>
 <td align="center" width="50%">
 <a href="resources/preview/任务中心.png"><img src="resources/preview/任务中心.png" alt="任务中心看板" width="100%"></a>
-<br><sub><b>任务中心</b> · 自然语言建任务，看板管理执行状态</sub>
+<br><sub>图 06 · 任务中心 —— 自然语言建任务，看板管理执行状态</sub>
 </td>
 <td align="center" width="50%">
 <a href="resources/preview/触发器.png"><img src="resources/preview/触发器.png" alt="工作流触发器" width="100%"></a>
-<br><sub><b>触发器</b> · 每天 / 每周 / 每 N 分钟启动工作流</sub>
+<br><sub>图 07 · 触发器 —— 每天 / 每周 / 每 N 分钟启动工作流</sub>
 </td>
 </tr>
 </table>
 
-- **任务中心**：用自然语言创建任务，后台自动拾取、创建会话并执行，以看板管理待执行 / 执行中 / 已完成 / 失败；
-- **触发器**：按每天、每周或每隔 N 分钟启动工作流；一个触发器可绑定多条工作流，卡片展示上次与下次触发时间。
+- **任务中心** —— 用自然语言创建任务，后台自动拾取、创建会话并执行，以看板管理待执行 / 执行中 / 已完成 / 失败。
+- **触发器** —— 按每天、每周或每隔 N 分钟启动工作流；一个触发器可绑定多条工作流，卡片展示上次与下次触发时间。
 
 ### 工作区与开发工具
 
@@ -180,7 +161,7 @@ Nova Studio 是本地优先的桌面 AI 工作台。它不提供模型，也不�
 <p align="center">
   <img src="resources/preview/工作区.png" alt="Nova Studio 工作区与 Git" width="100%">
 </p>
-<p align="center"><sub>工作区 · 变更列表、diff、分支与提交都在同一个控制台</sub></p>
+<p align="center"><sub>图 08 · 工作区 —— 变更列表、diff、分支与提交都在同一个控制台</sub></p>
 
 | 工具 | 说明 |
 | :--- | :--- |
@@ -203,21 +184,19 @@ Nova Studio 是本地优先的桌面 AI 工作台。它不提供模型，也不�
 > **环境要求**：Node.js 20+、npm 9+，以及本机安装好的 Claude Code CLI。
 > 当前主要面向 Windows；其他平台可通过源码运行，但未做完整验证。
 
-| 用途 | 命令 | 产物 |
-| :--- | :--- | :--- |
-| 安装依赖 | `npm install` | — |
-| 开发模式 | `npm run dev` | 热更新窗口 |
-| 构建 | `npm run build` | `out/` |
-| 打包 Windows 安装包 | `npm run package:win` | `release/` |
+```bash
+npm install           # 安装依赖
+npm run dev           # 开发模式：热更新窗口
+npm run build         # 构建到 out/
+npm run package:win   # 打包 Windows 安装包到 release/
+```
 
 首次启动后：
 
-| # | 做什么 | 结果 |
-| :---: | :--- | :--- |
-| 1 | 启动 Nova | 自动检测本机 Claude Code，未安装时给出安装命令 |
-| 2 | 点击「会话管理 → 新建会话」 | 直接开始对话 |
-| 3 | 在「工作区」登记文件夹，并在输入框旁绑定 | Agent 可读写代码 |
-| 4 | 创建数字员工、连成工作流，在画布点「调试」 | 跑完整流程 |
+1. **启动 Nova** —— 自动检测本机 Claude Code，未安装时给出安装命令。
+2. **新建会话** —— 点击「会话管理 → 新建会话」，直接开始对话。
+3. **绑定工作区** —— 在「工作区」登记文件夹，并在输入框旁绑定，Agent 即可读写代码。
+4. **跑起来** —— 创建数字员工、连成工作流，在画布点「调试」，跑完整流程。
 
 ---
 
@@ -251,6 +230,19 @@ Nova Studio 是本地优先的桌面 AI 工作台。它不提供模型，也不�
 | 内容渲染 | react-markdown · remark-gfm · Shiki |
 | 终端 | xterm.js 6 · node-pty |
 | 更新发布 | electron-updater（GitHub Releases） |
+
+---
+
+## 工程文档
+
+[docs/](docs/README.md) 记录了完整的产品定位、架构决策与实现细节，共 27 篇：
+
+- [产品定位与功能全景](docs/00-产品定位与功能全景.md)
+- [系统架构与关键决策](docs/02-系统架构与关键决策.md)
+- [数据模型与数据库](docs/03-数据模型与数据库.md)
+- [工作流调度与执行](docs/09-工作流-调度与执行.md)
+- [设计系统与皮肤](docs/19-设计系统与皮肤.md)
+- [复刻实施指南](docs/24-复刻实施指南.md)
 
 ---
 
@@ -289,6 +281,6 @@ Nova Studio 是本地优先的桌面 AI 工作台。它不提供模型，也不�
 
 ---
 
-<div align="center">
-<sub><b>Nova Studio</b> · 让每个数字员工都有自己的工位</sub>
-</div>
+<p align="center">
+  <sub><b>Nova Studio</b> · 让每个数字员工都有自己的工位</sub>
+</p>
