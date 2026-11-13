@@ -1,6 +1,6 @@
 # NOTICE
 
-**Nova Studio 0.2.0**
+**Nova Studio 0.3.0**
 
 本文件列出 Nova Studio 随安装包分发的第三方软件与资源，以及各自的许可条款。
 打包时 `resources/` 会被整体复制到安装目录，最终用户可在
@@ -469,7 +469,7 @@ npx license-checker --production --json > licenses.json
 
 ## 四、维护
 
-本文件依据 `package-lock.json` 生成，对应 `package.json` 中的版本 `0.2.0`。
+本文件依据 `package-lock.json` 生成，对应 `package.json` 中的版本 `0.3.0`。
 
 新增或升级依赖后：
 
