@@ -672,7 +672,7 @@ export function WorkflowRunView({
                       驳回会立即终止本次运行，且不能重试。
                     </p>
                     {awaitingNode.outputSummary && (
-                      <pre className="mt-3 max-h-40 overflow-y-auto whitespace-pre-wrap rounded-lg bg-surface/60 p-3 font-sans ui-type-body leading-relaxed text-text">
+                      <pre className="mt-3 max-h-40 overflow-y-auto whitespace-pre-wrap rounded-lg bg-surface/60 p-3 ui-type-body leading-relaxed text-text">
                         {awaitingNode.outputSummary}
                       </pre>
                     )}
@@ -1115,7 +1115,7 @@ function NodeDetailPanel({
                       ? "审核"
                       : "提示"}
                 </span>
-                <span className="font-mono">
+                <span className="tabular-nums">
                   {formatDateTime(notice.createdAt)}
                 </span>
               </div>
@@ -1124,7 +1124,7 @@ function NodeDetailPanel({
           ))}
         </div>
       ) : (
-        <pre className="max-h-[60vh] overflow-auto whitespace-pre-wrap rounded-xl border border-border bg-surface-2/50 p-4 font-sans ui-type-note leading-relaxed text-text-secondary">
+        <pre className="max-h-[60vh] overflow-auto whitespace-pre-wrap rounded-xl border border-border bg-surface-2/50 p-4 ui-type-note leading-relaxed text-text-secondary">
           {detail?.execution || "（没有执行信息）"}
         </pre>
       )}

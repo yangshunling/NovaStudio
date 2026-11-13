@@ -1,9 +1,13 @@
 /**
- * 外观设置：主题与界面字号
+ * 外观设置：主题、字体与界面字号
  */
 
 import { Check } from "lucide-react";
 import { useTheme } from "../../hooks/useTheme";
+import {
+  FONT_PRESETS,
+  fontPresetPreview,
+} from "../../skins/typography";
 import {
   OptionButton,
   SettingsCard,
@@ -94,6 +98,58 @@ function ThemeCard() {
   );
 }
 
+function FontCard() {
+  const { fontFamily, setFontFamily } = useTheme();
+  // 已移除的预设（如老版本保存的「苹方」）按系统默认显示，避免没有任何选中项
+  const activeId = FONT_PRESETS.some((option) => option.id === fontFamily)
+    ? fontFamily
+    : "system";
+
+  return (
+    <SettingsCard
+      title="字体"
+      description="使用系统已安装的字体，缺失时自动回退；代码、路径与终端仍使用系统等宽字体。"
+    >
+      <div className="grid grid-cols-2 gap-2 p-4 sm:grid-cols-3">
+        {FONT_PRESETS.map((option) => {
+          const active = option.id === activeId;
+          return (
+            <button
+              key={option.id}
+              type="button"
+              onClick={() => setFontFamily(option.id)}
+              aria-pressed={active}
+              className={`rounded-lg border p-2.5 text-left transition-colors ${
+                active
+                  ? "border-accent bg-accent-soft"
+                  : "border-border hover:border-border-strong hover:bg-surface-hover"
+              }`}
+            >
+              {/* 预览直接用该字体的字体栈，选之前就能看出字形差异 */}
+              <span
+                className="block truncate ui-type-body text-text"
+                style={{ fontFamily: fontPresetPreview(option.id) }}
+              >
+                Aa 汉字 123
+              </span>
+              <span className="mt-1.5 flex items-center justify-between gap-2">
+                <span
+                  className={`ui-type-note ${
+                    active ? "text-accent" : "text-text-muted"
+                  }`}
+                >
+                  {option.label}
+                </span>
+                {active && <Check className="h-3.5 w-3.5 shrink-0 text-accent" />}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+    </SettingsCard>
+  );
+}
+
 function FontSizeCard() {
   const { fontSize, chatFontSize, setFontSize, setChatFontSize } = useTheme();
 
@@ -134,8 +190,9 @@ function FontSizeCard() {
 
 export function AppearancePanel() {
   return (
-    <SettingsPage title="外观" description="主题与界面字号。">
+    <SettingsPage title="外观" description="主题、字体与界面字号。">
       <ThemeCard />
+      <FontCard />
       <FontSizeCard />
     </SettingsPage>
   );

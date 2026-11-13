@@ -22,6 +22,7 @@ import {
 } from "@shared/contracts/agent";
 import { PERMISSION_MODE_OPTIONS } from "@shared/permission";
 import { ipc } from "../../lib/ipc";
+import { notifyAgentSettingsChanged } from "../../lib/agent-events";
 import { toMessage } from "../../lib/utils";
 import { useChatStore } from "../../stores/chat";
 import { toast } from "../../stores/toast";
@@ -352,6 +353,7 @@ export function AgentsView() {
       const view = await ipc.getAgentSettings(CLAUDE_ID);
       setSettings(view);
       setForm(toForm(view));
+      notifyAgentSettingsChanged(CLAUDE_ID);
       toast.success("已重新读取本机配置");
     } catch (err) {
       const message = toMessage(err);
@@ -383,6 +385,7 @@ export function AgentsView() {
       const updated = await ipc.saveAgentSettings(draft);
       setSettings(updated);
       setForm(toForm(updated));
+      notifyAgentSettingsChanged(CLAUDE_ID);
       toast.success("已写入 ~/.claude/settings.json，Claude 与 Nova 同步生效");
     } catch (err) {
       toast.error(toMessage(err));
@@ -1097,7 +1100,7 @@ function AgentListItem({
       {active && (
         <span
           aria-hidden
-          className="absolute left-0 top-1/2 h-5 w-[2px] -translate-y-1/2 rounded-full bg-accent"
+          className="absolute left-0 top-1/2 h-5 w-indicator -translate-y-1/2 rounded-full bg-accent"
         />
       )}
       <span

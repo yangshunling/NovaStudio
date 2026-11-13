@@ -257,7 +257,7 @@ export function FilesTab({ project, git, request, revision }: FilesTabProps) {
     <div ref={rootRef} className="flex h-full min-h-0 flex-col">
       <div className="flex min-h-0 flex-1">
         {/* 树 */}
-        <div className="flex w-[340px] shrink-0 flex-col border-r border-border">
+        <div className="flex w-side-panel shrink-0 flex-col border-r border-border">
           <div className="ws-tree min-h-0 flex-1 overflow-y-auto">
             {treeError ? (
               <div className="m-2 rounded-md border border-error/25 bg-error-bg px-2.5 py-2 ui-type-sub text-error">

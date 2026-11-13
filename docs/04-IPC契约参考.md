@@ -24,12 +24,13 @@ export type IpcResult<C extends IpcInvokeChannel> = IpcInvokeMap[C]["result"];
 ### 1.2 preload 桥
 
 ```ts
-const api = { invoke, subscribe };
+const api = { invoke, subscribe, getPathForFile };
 contextBridge.exposeInMainWorld("nova", api);
 ```
 
 - `invoke(channel, ...args)` → `ipcRenderer.invoke`；
-- `subscribe(channel, callback)` → `ipcRenderer.on`，返回取消订阅函数。
+- `subscribe(channel, callback)` → `ipcRenderer.on`，返回取消订阅函数；
+- `getPathForFile(file)` → `webUtils.getPathForFile`，用于拖入文件时取真实路径（Electron 32 起 `File.path` 已移除）。
 
 ### 1.3 主进程注册
 
@@ -49,13 +50,20 @@ export function handle<C extends IpcInvokeChannel>(channel: C, handler: Handler<
 |---|---|---|---|
 | `agent:event` | `{ sessionId, event: AgentEvent }` | 聊天流式事件 | 16ms |
 | `agent:done` | `{ sessionId, exitCode, duration }` | 一轮聊天结束 | 立即 |
+| `agent:aborted` | `{ sessionId }` | 被中断的运行已真正收尾（不触发“完成”语义） | 立即 |
+| `agent:permission:request` | `PermissionPromptView` | 工具授权询问（必须即时送达） | 立即 |
+| `agent:permission:resolved` | `PermissionPromptResolved` | 授权请求已失效（已回答 / 超时 / 中断） | 立即 |
 | `agents:detected` | `AgentInfo[]` | Agent 检测结果 | 立即 |
+| `agent:upgrade:progress` | `{ agentId, chunk }` | 升级过程文本（已去除控制序列） | 立即 |
 | `automation:updated` | `AutomationTask` | 任务状态变更 | 立即 |
 | `terminal:data` | `{ id, data }` | PTY 输出 | 立即 |
 | `terminal:exit` | `{ id, exitCode, signal? }` | PTY 退出 | 立即 |
 | `workflow:run:event` | `WorkflowRunEvent` | 运行状态事件（已落库） | 立即 |
 | `workflow:run:agentEvent` | `{ runId, nodeRunId, attempt, round, seq, event }` | 节点实时对话（不落库） | 16ms |
 | `triggers:updated` | `WorkflowTrigger` | 触发器状态变更 | 立即 |
+| `todos:changed` | `{ pending: number }` | 待办增删改后推送未完成数量 | 立即 |
+| `workspace:changed` | `{ projectId, dirs: string[] }` | 已监听目录内有文件变化 | 立即 |
+| `report:chunk` | `{ requestId, chunk }` | 周报生成增量文本 | 立即 |
 | `updater:changed` | `UpdaterState` | 更新状态 | 立即 |
 
 ### 2.1 批量聚合
@@ -79,9 +87,9 @@ const BATCH_WINDOWS = {
 
 ## 3. invoke 通道总表
 
-> 共 98 个通道。下表按业务域分组。参数列写对象形状；无参写 `—`。
+> 共 139 个 invoke 通道、17 个 push 通道。下表按业务域分组。参数列写对象形状；无参写 `—`。
 
-### 3.1 Agent（7）
+### 3.1 Agent（11）
 
 | 通道 | 参数 | 返回 |
 |---|---|---|
@@ -90,8 +98,12 @@ const BATCH_WINDOWS = {
 | `agent:settings:get` | `{ agentId }` | `AgentSettingsView` |
 | `agent:settings:save` | `{ draft: AgentSettingsDraft }` | `AgentSettingsView` |
 | `agent:models:list` | `{ agentId, baseUrl, apiKey, authMode?, customHeaders? }` | `AgentModelOption[]` |
-| `agent:send` | `{ sessionId, prompt }` | `SendAgentResult` |
+| `agent:upgrade:check` | `{ agentId }` | `AgentUpgradeCheck` |
+| `agent:upgrade:run` | `{ agentId }` | `AgentUpgradeResult` |
+| `agent:send` | `{ sessionId, prompt, images?, employeeId? }` | `SendAgentResult` |
 | `agent:abort` | `{ sessionId }` | `boolean` |
+| `agent:permission:respond` | `{ sessionId, requestId, decision }` | `PermissionRespondResult` |
+| `agent:permission:list` | — | `PermissionPromptView[]` |
 
 `SendAgentResult`：
 
@@ -101,7 +113,7 @@ type SendAgentResult =
   | { ok: false; error: string };
 ```
 
-### 3.2 项目 / 工作区（6）
+### 3.2 项目 / 工作区（7）
 
 | 通道 | 参数 | 返回 |
 |---|---|---|
@@ -109,8 +121,32 @@ type SendAgentResult =
 | `project:create` | `{ name, cwd }` | `Project` |
 | `project:delete` | `{ id }` | `boolean` |
 | `project:listFiles` | `{ projectId, subPath? }` | `FileEntry[]` |
+| `workspace:watch` | `{ projectId, dirs: string[] }` | `void` |
 | `project:reveal` | `{ id }` | `boolean` |
 | `project:gitStatus` | `{ projectId }` | `GitStatusSummary` |
+
+### 3.2.1 Git（18）
+
+| 通道 | 参数 | 返回 |
+|---|---|---|
+| `git:statusDetail` | `{ projectId }` | `GitStatusDetail` |
+| `git:branches` | `{ projectId }` | `GitBranchInfo[]` |
+| `git:log` | `{ projectId, limit? }` | `GitCommitSummary[]` |
+| `git:commitFiles` | `{ projectId, hash }` | `GitCommitFile[]` |
+| `git:diff` | `{ projectId, relativePath, staged }` | `GitDiffResult` |
+| `git:commitFileDiff` | `{ projectId, hash, relativePath, oldPath? }` | `GitDiffResult` |
+| `git:stage` | `{ projectId, paths: string[] }` | `GitOperationResult` |
+| `git:unstage` | `{ projectId, paths: string[] }` | `GitOperationResult` |
+| `git:commit` | `{ projectId, message }` | `GitOperationResult` |
+| `git:generateCommitMessage` | `{ projectId }` | `GitCommitMessageResult` |
+| `git:checkoutBranch` | `{ projectId, branch }` | `GitOperationResult` |
+| `git:createBranch` | `{ projectId, name }` | `GitOperationResult` |
+| `git:init` | `{ projectId }` | `GitOperationResult` |
+| `git:push` | `{ projectId, branch }` | `GitOperationResult` |
+| `git:pull` | `{ projectId }` | `GitOperationResult` |
+| `git:discard` | `{ projectId, paths: string[] }` | `GitOperationResult` |
+| `git:continueOperation` | `{ projectId }` | `GitOperationResult` |
+| `git:abortOperation` | `{ projectId }` | `GitOperationResult` |
 
 ### 3.3 文件（3）
 
@@ -129,16 +165,23 @@ type SendAgentResult =
 | `terminal:resize` | `{ id, cols, rows }` | `boolean` |
 | `terminal:kill` | `{ id }` | `boolean` |
 
-### 3.5 会话（6）
+### 3.5 会话（11）
 
 | 通道 | 参数 | 返回 |
 |---|---|---|
-| `session:create` | `{ projectId: string \| null, agentId }` | `Session` |
+| `session:create` | `{ projectId: string \| null, agentId, employeeId?, permissionMode?, model? }` | `Session` |
 | `session:list` | — | `Session[]` |
-| `session:get` | `{ id }` | `Session \| null` |
+| `session:get` | `{ id, limit?, before?, beforeId? }` | `Session \| null` |
 | `session:rename` | `{ id, title }` | `boolean` |
 | `session:delete` | `{ id }` | `boolean` |
-| `session:setProject` | `{ sessionId, projectId: string \| null }` | `Session \| null` |
+| `session:setEmployee` | `{ sessionId, employeeId: string \| null }` | `Session \| null` |
+| `session:setPermissionMode` | `{ sessionId, permissionMode }` | `Session \| null` |
+| `session:setModel` | `{ sessionId, model: string \| null }` | `Session \| null` |
+| `session:setPinned` | `{ id, pinned }` | `boolean` |
+| `session:setProject` | `{ sessionId, projectId: string \| null }` | `SessionProjectSwitch \| null` |
+| `session:defaultCwd` | — | `string` |
+
+`session:get` 传 `limit` 时按页返回最近 N 条并给出 `hasMoreMessages`，更早消息用 `before` / `beforeId` 游标继续取。
 
 ### 3.6 对话框 / 设置 / 应用（5）
 
@@ -176,7 +219,9 @@ type SendAgentResult =
 | `employees:list` | — | `DigitalEmployee[]` |
 | `employees:create` | `{ draft: DigitalEmployeeDraft }` | `DigitalEmployee` |
 | `employees:update` | `{ id, draft: DigitalEmployeeDraft }` | `DigitalEmployee \| null` |
-| `employees:delete` | `{ id }` | `boolean` |
+| `employees:delete` | `{ id, force? }` | `boolean` |
+
+有会话仍绑定该员工时必须显式 `force`；工作流节点引用不允许强制删除。
 
 ### 3.10 MCP（8）
 
@@ -261,6 +306,37 @@ type SendAgentResult =
 | `triggers:bindings` | — | `WorkflowTriggerBinding[]` |
 | `triggers:bindingsForWorkflow` | `{ workflowId }` | `string[]` |
 | `triggers:setForWorkflow` | `{ workflowId, triggerIds: string[] }` | `boolean` |
+
+### 3.16 个人待办（7）
+
+| 通道 | 参数 | 返回 |
+|---|---|---|
+| `todos:list` | — | `TodoItem[]` |
+| `todos:create` | `{ draft: TodoDraft }` | `TodoItem` |
+| `todos:update` | `{ id, draft: TodoDraft }` | `TodoItem \| null` |
+| `todos:toggle` | `{ id, done }` | `TodoItem \| null` |
+| `todos:delete` | `{ id }` | `boolean` |
+| `todos:clearCompleted` | — | `number` |
+| `todos:reorder` | `{ ids: string[] }` | `boolean` |
+
+### 3.17 周报生成（3）
+
+| 通道 | 参数 | 返回 |
+|---|---|---|
+| `report:generate` | `{ requestId, start, end, options: WeeklyReportOptions }` | `WeeklyReportResult` |
+| `report:abort` | `{ requestId }` | `boolean` |
+| `report:export` | `{ content, defaultName }` | `string \| null` |
+
+周报走一次性文本生成，不创建会话、不写聊天历史；增量文本经 `report:chunk` 推送。
+
+### 3.18 常用提示词（4）
+
+| 通道 | 参数 | 返回 |
+|---|---|---|
+| `prompts:list` | — | `PromptItem[]` |
+| `prompts:create` | `{ draft: PromptDraft }` | `PromptItem` |
+| `prompts:update` | `{ id, draft: PromptDraft }` | `PromptItem \| null` |
+| `prompts:delete` | `{ id }` | `boolean` |
 
 ---
 
@@ -370,7 +446,8 @@ ping: (text: string) => call("demo:ping", { text }),
 |---|---|
 | agent | `src/main/ipc/handlers/agent.ts` |
 | session | `src/main/ipc/handlers/session.ts` |
-| project | `src/main/ipc/handlers/project.ts` |
+| project / workspace:watch | `src/main/ipc/handlers/project.ts` |
+| git | `src/main/ipc/handlers/git.ts` |
 | file | `src/main/ipc/handlers/file.ts` |
 | terminal | `src/main/ipc/handlers/terminal.ts` |
 | settings | `src/main/ipc/handlers/settings.ts` |
@@ -385,6 +462,9 @@ ping: (text: string) => call("demo:ping", { text }),
 | workflow | `src/main/ipc/handlers/workflow.ts` |
 | workflow-run | `src/main/ipc/handlers/workflow-run.ts` |
 | trigger | `src/main/ipc/handlers/trigger.ts` |
+| todo | `src/main/ipc/handlers/todo.ts` |
+| report | `src/main/ipc/handlers/report.ts` |
+| prompt | `src/main/ipc/handlers/prompt.ts` |
 
 ---
 
@@ -392,8 +472,8 @@ ping: (text: string) => call("demo:ping", { text }),
 
 - [ ] `IpcInvokeMap` / `IpcPushMap` 是唯一通道定义，三处消费。
 - [ ] preload 只暴露 `invoke` / `subscribe`。
-- [ ] 98 个 invoke 通道全部注册，无遗漏、无重复。
-- [ ] 10 个 push 通道全部可订阅、可取消。
+- [ ] 139 个 invoke 通道全部注册，无遗漏、无重复。
+- [ ] 17 个 push 通道全部可订阅、可取消。
 - [ ] `agent:event` 与 `workflow:run:agentEvent` 走 16ms 聚合。
 - [ ] 状态事件前调用 `flushEvents()`。
 - [ ] handler 抛错能被渲染层捕获并提示。

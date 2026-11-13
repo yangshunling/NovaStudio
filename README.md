@@ -179,7 +179,7 @@ npm run package:win   # 打包 Windows 安装包到 release/
 
 <h2 align="center">文档</h2>
 
-<p align="center"><sub>26 篇工程文档，覆盖产品定位、架构决策与实现细节。</sub></p>
+<p align="center"><sub>27 篇工程文档，覆盖产品定位、架构决策与实现细节。</sub></p>
 
 <details open>
 <summary><b>工程文档</b></summary>
@@ -204,7 +204,7 @@ npm run package:win   # 打包 Windows 安装包到 release/
 
 - [工作流：图模型与校验](docs/08-工作流-图模型与校验.md)
 - [工作流：调度与执行](docs/09-工作流-调度与执行.md)
-- [工作流：审核续跑与产物](docs/10-工作流-审核续跑与产物.md)
+- [工作流：审核、续跑与产物](docs/10-工作流-审核续跑与产物.md)
 
 **能力资产**
 
@@ -213,6 +213,10 @@ npm run package:win   # 打包 Windows 安装包到 release/
 - [Skill 技能管理](docs/13-Skill技能管理.md)
 - [知识库与全文检索](docs/14-知识库与全文检索.md)
 - [任务中心与触发器](docs/16-任务中心与触发器.md)
+
+**个人工作**
+
+- [待办、提示词与周报](docs/26-待办提示词与周报.md)
 
 **工作区与界面**
 
@@ -226,7 +230,7 @@ npm run package:win   # 打包 Windows 安装包到 release/
 **工程保障**
 
 - [安全与数据隔离](docs/21-安全与数据隔离.md)
-- [构建打包发布与更新](docs/22-构建打包发布与更新.md)
+- [构建、打包、发布与更新](docs/22-构建打包发布与更新.md)
 - [测试与质量保障](docs/23-测试与质量保障.md)
 - [复刻实施指南](docs/24-复刻实施指南.md)
 

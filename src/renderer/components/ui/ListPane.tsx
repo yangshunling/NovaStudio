@@ -99,7 +99,7 @@ export function ListItem({
       {active && (
         <span
           aria-hidden
-          className="absolute left-0 top-1/2 h-5 w-[2px] -translate-y-1/2 rounded-full bg-accent"
+          className="absolute left-0 top-1/2 h-5 w-indicator -translate-y-1/2 rounded-full bg-accent"
         />
       )}
 

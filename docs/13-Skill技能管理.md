@@ -17,7 +17,7 @@ Nova 不维护自己的技能主库：
 - 新增 / 导入直接写入 `~/.claude/skills`；
 - 目录下所有技能都可以在 Nova 中编辑 / 删除；
 - 保存时直接写回文件；
-- 运行时按员工选择复制子集到临时配置目录。
+- 运行时按员工选择把子集投影到运行时 home：优先创建目录链接，失败时回退复制。
 
 ---
 
@@ -101,7 +101,7 @@ function parseFrontmatter(raw: string): { name: string; description: string } {
 - 多行块：`key: >`（折叠为空格）/ `key: |`（保留换行）
 - 省略指示符的缩进续行
 - 中文全角冒号 `：`（输入法误输入）
-- 行尾注释 `# ...`
+- `>` / `|` 指示符后的行尾注释 `# ...`
 - CRLF 文件（归一化后 `.` 才能匹配）
 
 **为什么不用完整 YAML**：技能 frontmatter 只需要两个字段，完整解析器增加依赖与攻击面。
@@ -325,23 +325,29 @@ async function deleteSkill(id) {
 
 ### 8.1 聊天
 
-普通聊天直接使用 `~/.claude/skills` 全部技能，不做投影。
+- 未指定员工时，base home `~/.novastudio/runtime/<sessionId>/claude-home/` 通过链接使用 `~/.claude/skills` 的全部技能；
+- `@` 员工时，员工 home `~/.novastudio/runtime/<sessionId>/employees/<employeeId>/claude-home/skills` 只投影该员工启用的技能，其余全局技能不泄漏。
 
 ### 8.2 工作流节点
 
-Claude provider 的 `prepareRun`：
+Claude provider 的 `prepareRun`（投影逻辑在 `src/main/employees/runtime.ts`）：
 
-1. 创建 `<runtimeDir>/claude-home/skills`；
+1. 创建 `~/.novastudio/runtime/<employeeId>/claude-home/skills`；
 2. 遍历员工 `skills` 中 `enabled` 的项；
 3. 新版 `assetId` → `~/.claude/skills/<key>`；
-4. 旧版 `source` → 直接用该路径；
+4. 旧版 `source` 存在 → 直接用该路径，目标目录名取 `basename(source)`；
 5. 不存在 → warning 并跳过；
-6. 复制到 `<runtimeDir>/claude-home/skills/<targetKey>`；
-7. `CLAUDE_CONFIG_DIR` 指向 `<runtimeDir>/claude-home`。
+6. 在 `skills/<targetKey>` 创建指向源目录的链接（Windows 为 junction）；跨盘 / 权限失败时回退复制；
+7. 每次同步都会删除不再被员工选中的链接或旧副本；
+8. `CLAUDE_CONFIG_DIR` 指向 `~/.novastudio/runtime/<employeeId>/claude-home`。
 
-**为什么只复制子集**：员工只应看到自己绑定的技能，不能让全局技能泄漏给节点。
+**为什么只投影子集**：员工只应看到自己绑定的技能，不能让全局技能泄漏给节点。
+
+**目录生命周期**：`~/.novastudio/runtime/<employeeId>/` 是员工常驻运行时，不是 attempt 临时目录；运行结束不删除，删除员工时才整体清理。旧目录 `~/.novastudio/employee/<employeeId>/`、`employee-runtime/<employeeId>/` 会在首次运行时迁移，`claude-home/projects` 整体保留，skills 等派生物按数据库重新生成。
 
 ### 8.3 去重
+
+`src/main/employees/assets.ts` 的 `resolveEmployeeSkills` 负责去重：
 
 ```ts
 const seenSkills = new Set<string>();
@@ -376,8 +382,8 @@ return {
 
 `components/skills/SkillsView.tsx`：
 
-- 技能卡片：名称、描述、来源、文件数、是否含脚本、校验状态；
-- 异常技能标「需处理」并展示 `problems`；
+- 技能卡片：名称、目录名（slug）、描述、文件数、是否含脚本、校验状态、使用人数；
+- 异常技能标「需处理」并在卡片上直接展示第一条 `problems`；
 - 详情：
   - 基本信息；
   - 文件树；
@@ -397,7 +403,8 @@ return {
 | 资产扫描 / 导入 / 编辑 | `src/main/skills/catalog.ts` |
 | 路径安全 | `src/main/utils/paths.ts` |
 | 文件读写上限 | `src/main/utils/fs.ts` |
-| 运行时复制 | `src/main/agents/claude/prepare.ts` |
+| 运行时投影 | `src/main/employees/runtime.ts`、`src/main/employees/assets.ts` |
+| Claude 接入 | `src/main/agents/claude/prepare.ts`、`src/main/agents/claude/chat-runtime.ts` |
 | IPC | `src/main/ipc/handlers/skill.ts` |
 | UI | `src/renderer/components/skills/SkillsView.tsx` |
 
@@ -419,4 +426,6 @@ return {
 - [ ] 只覆盖已存在文件，不新建。
 - [ ] 超过 1MB 截断，截断时禁止保存。
 - [ ] 删除整个技能目录。
-- [ ] 工作流只复制员工选中的技能，结束即删。
+- [ ] 工作流只投影员工选中的技能；优先链接、失败复制，运行结束不删除员工 home。
+- [ ] 聊天 base 环境使用全部全局技能，`@` 员工时只投影员工选中的子集。
+- [ ] 旧运行时目录 `employee/<id>`、`employee-runtime/<id>` 自动迁移并清理。

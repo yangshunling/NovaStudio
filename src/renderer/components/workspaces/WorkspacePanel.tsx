@@ -724,7 +724,7 @@ function TreeNode({
   const fileTabId = `${projectId}:${entry.relativePath}`;
   const isActiveFile = !entry.isDirectory && activeTabId === fileTabId;
   const rowClass =
-    "ui-cv-row flex h-7 w-full items-center gap-1.5 rounded-sm pr-1.5 text-left ui-type-body transition-colors";
+    "ui-cv-row flex h-control-sm w-full items-center gap-1.5 rounded-sm pr-1.5 text-left ui-type-body transition-colors";
 
   return (
     <div>

@@ -87,6 +87,13 @@ export interface RunParams {
    */
   permissionMode?: string;
   /**
+   * 本轮模型覆盖（完整模型 ID）。
+   *
+   * 缺省时取会话记录里的选择；两者都没有则不传 `--model`，
+   * 沿用 CLI 本机配置的默认模型。
+   */
+  model?: string;
+  /**
    * 本轮是否把工具授权询问交给宿主（弹出允许 / 拒绝）。
    *
    * 只有聊天入口传 true；工作流与自动化是无人值守运行，保持 false，
@@ -492,6 +499,13 @@ export function createAgentService(
         session.permissionMode ??
         provider.defaultPermissionMode?.();
 
+      /*
+       * 模型解析顺序：调用方显式覆盖 → 会话记录 → 不传。
+       * 不传时由 CLI 读取本机 settings.json，保持「改全局默认影响未显式
+       * 选过模型的会话」这一预期。
+       */
+      const model = params.model?.trim() || session.model?.trim() || undefined;
+
       // 能力驱动：不支持多轮的 provider 永远按新会话发起
       const canResume =
         provider.manifest.capabilities.resume && !!session.agentSessionId;
@@ -553,6 +567,7 @@ export function createAgentService(
           envRemove,
           extraArgs,
           ...(permissionMode ? { permissionMode } : {}),
+          ...(model ? { model } : {}),
           allowPermissionPrompts: params.interactivePermissions === true,
           onControl: (control) => {
             if (control.type === "permission_cancel") {

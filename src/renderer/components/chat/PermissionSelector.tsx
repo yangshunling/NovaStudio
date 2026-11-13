@@ -144,20 +144,20 @@ export function PermissionSelector() {
         }
         aria-haspopup="listbox"
         aria-expanded={open}
-        className={`flex h-8 shrink-0 items-center gap-1.5 rounded-md px-2 ui-type-note text-text-muted outline-none transition-colors hover:bg-surface-hover hover:text-text ${
+        className={`ui-toolbar-chip shrink-0 text-text-muted hover:bg-surface-hover hover:text-text ${
           open ? "bg-surface-hover text-text" : ""
         }`}
       >
         <Icon
-          className={`h-3.5 w-3.5 shrink-0 ${
+          className={`h-icon-sm w-icon-sm shrink-0 ${
             value === "bypassPermissions" ? "text-error" : "text-text-muted"
           }`}
         />
-        <span className="max-w-[140px] truncate font-medium text-text">
+        <span className="min-w-0 truncate text-left font-medium text-text">
           {selected?.label ?? value}
         </span>
         <ChevronDown
-          className={`h-3.5 w-3.5 shrink-0 text-text-muted transition-transform ${
+          className={`h-icon-sm w-icon-sm shrink-0 text-text-muted transition-transform ${
             open ? "rotate-180" : ""
           }`}
         />
@@ -166,7 +166,7 @@ export function PermissionSelector() {
       {open && (
         <div
           role="listbox"
-          className="ui-dropdown-in ui-glass-strong ui-ring absolute bottom-full left-0 z-50 mb-2 w-[22rem] max-w-[calc(100vw-2rem)] rounded-xl p-1.5"
+          className="ui-dropdown-in ui-glass-strong ui-ring absolute bottom-full left-0 z-50 mb-2 w-dropdown max-w-[calc(100vw-2rem)] rounded-xl p-1.5"
           style={{ boxShadow: "var(--c-shadow)" }}
         >
           <div className="flex items-center gap-1 px-2 pb-1 pt-0.5">

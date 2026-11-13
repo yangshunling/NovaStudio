@@ -209,8 +209,8 @@
 .ws-head-icon {
   display: grid;
   place-items: center;
-  width: 28px;
-  height: 28px;
+  width: var(--c-size-control-sm);
+  height: var(--c-size-control-sm);
   flex: none;
   border: 1px solid var(--c-border);
   border-radius: var(--c-radius-md);
@@ -432,7 +432,7 @@
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  height: 28px;
+  height: var(--c-size-control-sm);
   padding: 0 8px;
   border-radius: var(--c-radius-md);
   font-size: var(--c-font-size-caption);
@@ -490,7 +490,7 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  height: 28px;
+  height: var(--c-size-control-sm);
   max-width: 260px;
   padding: 0 8px;
   border: 1px solid var(--c-border);
@@ -530,7 +530,7 @@
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  height: 28px;
+  height: var(--c-size-control-sm);
   padding: 0 8px;
   border: 1px solid color-mix(in srgb, var(--c-agent-amber) 30%, var(--c-border));
   border-radius: var(--c-radius-md);
@@ -585,7 +585,7 @@
   display: flex;
   align-items: center;
   gap: 4px;
-  height: 28px;
+  height: var(--c-size-control-sm);
   margin-bottom: 4px;
   border-radius: var(--c-radius-md);
   background: var(--c-surface-2);
@@ -692,7 +692,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  height: 28px;
+  height: var(--c-size-control-sm);
   padding: 0 6px;
   border-radius: var(--c-radius-md);
   transition: background-color var(--c-motion-fast) var(--c-ease-standard);
@@ -804,7 +804,7 @@
   flex: none;
   border-radius: var(--c-radius-sm);
   font-family: var(--c-font-mono);
-  font-size: 10px;
+  font-size: var(--c-font-size-micro);
   font-weight: 600;
   line-height: 1;
   background: var(--c-surface-hover);
@@ -956,7 +956,7 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  height: 28px;
+  height: var(--c-size-control-sm);
   padding-right: 6px;
   border-radius: var(--c-radius-md);
   cursor: pointer;
@@ -1068,7 +1068,7 @@
   border: 1px solid var(--c-border);
   border-radius: var(--c-radius-sm);
   font-family: var(--c-font-mono);
-  font-size: 10px;
+  font-size: var(--c-font-size-micro);
   line-height: 1;
   color: var(--c-text-muted);
 }
@@ -1214,7 +1214,7 @@
   align-items: center;
   gap: 6px;
   width: 100%;
-  height: 28px;
+  height: var(--c-size-control-sm);
   padding-right: 6px;
   border-radius: var(--c-radius-md);
   text-align: left;

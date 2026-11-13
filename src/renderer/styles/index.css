@@ -158,6 +158,19 @@
   --spacing-field: var(--c-space-field);
   --spacing-avatar: var(--c-size-avatar);
   --spacing-icon-btn: var(--c-size-icon-btn);
+  /* 高频结构尺寸：h-control / size-icon-sm / max-w-toolbar 等工具类 */
+  --spacing-control: var(--c-size-control);
+  --spacing-control-sm: var(--c-size-control-sm);
+  --spacing-chip-x: var(--c-size-chip-x);
+  --spacing-chip-gap: var(--c-size-chip-gap);
+  --spacing-icon-sm: var(--c-size-icon-sm);
+  --spacing-icon-xs: var(--c-size-icon-xs);
+  --spacing-badge: var(--c-size-badge);
+  --spacing-indicator: var(--c-size-indicator);
+  --spacing-dropdown: var(--c-size-dropdown);
+  --spacing-dropdown-wide: var(--c-size-dropdown-wide);
+  --spacing-side-panel: var(--c-size-side-panel);
+  --container-toolbar: var(--c-size-toolbar-max);
 
   /* 交互过渡的默认节奏：组件只声明过渡属性（transition-colors 等），
    * 时长与缓动由皮肤统一决定 —— 「整套动效可调」的单一入口。
@@ -614,6 +627,30 @@ body {
 .ui-type-brand {
   font-family: var(--c-font-display);
   font-size: var(--c-font-size-hero);
+}
+
+/* ============================================================================
+ * 工具条选择器
+ *
+ * 工作区 / 数字员工 / 权限 / 模型共用同一套盒子：高度、最大宽度、内边距、
+ * 图标与文字的间隙、字号、圆角全部来自 token。组件只负责内容与展开状态，
+ * 需要单独调试某个选择器时，再在组件上显式覆盖对应属性。
+ * ============================================================================ */
+@layer components {
+  .ui-toolbar-chip {
+    display: inline-flex;
+    height: var(--c-size-control);
+    max-width: var(--c-size-toolbar-max);
+    align-items: center;
+    gap: var(--c-size-chip-gap);
+    padding-inline: var(--c-size-chip-x);
+    border-radius: var(--c-radius-md);
+    font-size: var(--c-font-size-caption);
+    outline: none;
+    transition:
+      background-color var(--c-motion-fast) var(--c-ease-standard),
+      color var(--c-motion-fast) var(--c-ease-standard);
+  }
 }
 
 /* ============================================================================

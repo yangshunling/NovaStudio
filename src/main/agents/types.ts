@@ -89,6 +89,13 @@ export interface RunOptions {
    * 缺省表示不覆盖，沿用 provider 的本机配置。
    */
   permissionMode?: string;
+  /**
+   * 本次运行的模型覆盖（完整模型 ID）。
+   *
+   * 缺省表示不覆盖，沿用 CLI 本机配置里的默认模型。provider 应把它映射成
+   * 自己的模型开关（Claude 为 `--model`），而不是改写配置文件。
+   */
+  model?: string;
   /** CLI 配置目录；用于会话历史定位（没有则用用户默认目录） */
   configDir?: string | null;
   /** 事件回调。provider 保证事件已归一、语义正确 */

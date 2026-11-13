@@ -30,6 +30,7 @@ import type { LucideIcon } from "lucide-react";
 import {
   ChevronLeft,
   ChevronRight,
+  FilePlus2,
   FileText,
   Library,
   MessageSquareText,
@@ -48,6 +49,8 @@ import {
   DEFAULT_ASSISTANT,
 } from "../../lib/employee-switch";
 import { ipc } from "../../lib/ipc";
+import { toMessage } from "../../lib/utils";
+import { toast } from "../../stores/toast";
 import type { FileEntry, PromptItem } from "@shared/types";
 import { EmployeeAvatar } from "../employees/EmployeeAvatar";
 import claudeAvatarUrl from "../../assets/claude.png";
@@ -103,13 +106,18 @@ export interface MentionEntry {
   employeeId?: string | null;
   /** 数字员工：头像 data URL，列表里优先展示头像 */
   avatar?: string | null;
+  /**
+   * 文件分类顶部的动作行（不是可引用条目）。
+   * 选中后打开原生文件选择框，把工作区外的文件加成绝对路径引用。
+   */
+  action?: "pick-external-files";
 }
 
 const CATEGORY_META: Record<
   MentionCategory,
   { label: string; description: string; icon: LucideIcon }
 > = {
-  file: { label: "文件", description: "工作区中的文件与目录", icon: FileText },
+  file: { label: "文件", description: "工作区中的文件，或从本机选择", icon: FileText },
   employee: {
     label: "数字员工",
     description: "指定本次会话由谁执行",
@@ -421,7 +429,7 @@ export function useMention({
 
     // 类型层
     if (!parsed.category) {
-      return CONTENT_CATEGORIES.filter((key) => {
+      const categories: MentionEntry[] = CONTENT_CATEGORIES.filter((key) => {
         if (!keyword) return true;
         const meta = CATEGORY_META[key];
         return (
@@ -435,6 +443,26 @@ export function useMention({
         name: CATEGORY_META[key].label,
         detail: CATEGORY_META[key].description,
       }));
+
+      /*
+       * 工作区外文件也给一个首页入口，避免用户必须先进入「文件」分类。
+       * 放在末尾：默认高亮仍是「文件」，`#` + Enter 不会误开系统文件框。
+       */
+      const externalHit =
+        !keyword ||
+        "引用外部文件".includes(keyword) ||
+        "外部文件".includes(keyword) ||
+        "本机".includes(keyword);
+      if (externalHit) {
+        categories.push({
+          key: "action:pick-external-files",
+          category: "file",
+          name: "引用外部文件",
+          detail: "从本机选择，可多选",
+          action: "pick-external-files",
+        });
+      }
+      return categories;
     }
 
     let list: MentionEntry[];
@@ -449,6 +477,19 @@ export function useMention({
           relativePath: item.relativePath,
           promptText: `@${item.relativePath}`,
         }));
+        /*
+         * 工作区外文件只在文件分类根层提供入口：进入子目录后仍然专注于
+         * 当前工作区，避免「下钻」和「跳到本机其它位置」两种导航混在一起。
+         */
+        if (!parsed.subPath) {
+          list.unshift({
+            key: "action:pick-external-files",
+            category: "file",
+            name: "引用外部文件",
+            detail: "从本机选择，可多选",
+            action: "pick-external-files",
+          });
+        }
         break;
       case "tool":
         list = mcpServers.map((server) => ({
@@ -657,6 +698,42 @@ export function useMention({
     writeQuery(query);
   }, [employeeMode, parsed.category, parsed.subPath, writeQuery]);
 
+  /**
+   * 引用工作区外的文件。
+   *
+   * 路径来自主进程的原生选择框，不经过工作区校验；引用标签保留绝对路径，
+   * Agent 读取时由工具授权流程询问。多选时逐条追加，重复路径忽略。
+   */
+  const pickExternalFiles = useCallback(async () => {
+    let picked: string[] | null;
+    try {
+      picked = await ipc.pickFiles();
+    } catch (error) {
+      toast.error(toMessage(error), 5000);
+      return;
+    }
+    if (!picked || picked.length === 0) return;
+
+    const references: MentionReference[] = picked.map((rawPath) => {
+      const normalized = rawPath.replace(/\\/g, "/");
+      return {
+        key: `external:${normalized.toLowerCase()}`,
+        category: "file",
+        name: normalized.split("/").pop() || normalized,
+        detail: normalized,
+        promptText: `@${normalized}`,
+      };
+    });
+
+    // 与普通文件引用一致：清掉输入框里的 `#查询`，用标签承载引用
+    replaceMention("", true);
+    setReferences((current) => {
+      const existing = new Set(current.map((item) => item.key));
+      return [...current, ...references.filter((item) => !existing.has(item.key))];
+    });
+    closeMention();
+  }, [replaceMention, closeMention]);
+
   // ---- 选择一行 ----
   const selectEntry = useCallback(
     (entry: MentionEntry) => {
@@ -670,6 +747,12 @@ export function useMention({
         // 运行中也可以切换（下一轮生效），提示文案由 chooseEmployee 统一给出
         chooseEmployee(entry.employeeId ?? null);
         closeMention();
+        return;
+      }
+
+      // 文件分类根层的动作行：打开原生文件选择框
+      if (entry.action === "pick-external-files") {
+        void pickExternalFiles();
         return;
       }
 
@@ -709,7 +792,7 @@ export function useMention({
       );
       closeMention();
     },
-    [parsed.category, replaceMention, writeQuery, closeMention],
+    [parsed.category, replaceMention, writeQuery, closeMention, pickExternalFiles],
   );
 
   // ---- textarea onChange：检测 @ / 触发 ----
@@ -888,6 +971,9 @@ function EntryIcon({ entry }: { entry: MentionEntry }) {
       />
     );
   }
+  if (entry.action === "pick-external-files") {
+    return <FilePlus2 className="h-4 w-4 shrink-0 text-text-muted" />;
+  }
   if (entry.category === "file") {
     return entry.isDirectory ? (
       <FolderTypeIcon />
@@ -932,7 +1018,7 @@ export function MentionPopup({
   return (
     <div
       ref={popupRef}
-      className="ui-dropdown-in ui-ring absolute bottom-full left-0 z-50 mb-2 max-h-72 w-[22rem] max-w-[calc(100vw-2rem)] overflow-y-auto rounded-xl bg-surface p-1.5"
+      className="ui-dropdown-in ui-ring absolute bottom-full left-0 z-50 mb-2 max-h-72 w-dropdown max-w-[calc(100vw-2rem)] overflow-y-auto rounded-xl bg-surface p-1.5"
       style={{ boxShadow: "var(--c-shadow)" }}
     >
       {/* 标题栏：类型层显示说明，条目层显示返回 + 分类路径 */}
@@ -981,8 +1067,16 @@ export function MentionPopup({
             <EntryIcon entry={entry} />
             <span className="flex min-w-0 flex-1 items-baseline gap-2">
               <span
-                className={`truncate ui-type-body text-text ${
-                  entry.detail ? "max-w-[55%] shrink-0" : "min-w-0 flex-1"
+                className={`ui-type-body text-text ${
+                  /*
+                   * 动作行的文案是核心提示，必须完整显示：
+                   * 不参与 55% 宽度限制，也不加省略号截断。
+                   */
+                  entry.action
+                    ? "shrink-0 whitespace-nowrap"
+                    : entry.detail
+                      ? "max-w-[55%] shrink-0 truncate"
+                      : "min-w-0 flex-1 truncate"
                 }`}
               >
                 {entry.name}
@@ -993,7 +1087,7 @@ export function MentionPopup({
                 </span>
               )}
             </span>
-            {(isCategoryLevel || entry.isDirectory) && (
+            {((isCategoryLevel && !entry.action) || entry.isDirectory) && (
               <ChevronRight className="h-3.5 w-3.5 shrink-0 text-text-muted" />
             )}
           </button>

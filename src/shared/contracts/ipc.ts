@@ -311,6 +311,8 @@ export interface IpcInvokeMap {
          * 缺省时取 Agent 配置的默认值。
          */
         permissionMode?: string | null;
+        /** 会话级模型覆盖；缺省 / null 表示跟随 Agent 配置的默认模型 */
+        model?: string | null;
       },
     ];
     result: Session;
@@ -351,6 +353,14 @@ export interface IpcInvokeMap {
     args: [{ sessionId: string; permissionMode: string }];
     result: Session | null;
   };
+  /**
+   * 改写会话级模型；下一轮运行生效。
+   * 传 null 表示恢复「跟随 Agent 配置的默认模型」，不写回 settings.json。
+   */
+  "session:setModel": {
+    args: [{ sessionId: string; model: string | null }];
+    result: Session | null;
+  };
   "session:setPinned": {
     args: [{ id: string; pinned: boolean }];
     result: boolean;
@@ -369,6 +379,8 @@ export interface IpcInvokeMap {
 
   /** 原生目录选择器 */
   "dialog:pickDirectory": { args: []; result: string | null };
+  /** 原生文件选择器：引用工作区外的文件，支持多选；取消返回 null */
+  "dialog:pickFiles": { args: []; result: string[] | null };
 
   "settings:get": { args: []; result: Partial<AppSettings> };
   "settings:set": { args: [Partial<AppSettings>]; result: boolean };

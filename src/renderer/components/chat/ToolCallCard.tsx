@@ -134,7 +134,8 @@ export const ToolCallCard = memo(function ToolCallCard({
 
         <span className="min-w-0 flex-1">
           <span className="flex items-baseline gap-2">
-            <span className="shrink-0 ui-type-code font-medium text-text">
+            {/* 工具名是界面标签，跟随全局字体；命令 / 参数仍走等宽 */}
+            <span className="shrink-0 ui-type-label text-text">
               {toolName}
             </span>
             {target && (

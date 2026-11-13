@@ -128,7 +128,7 @@ export function Sidebar() {
   const itemClass = (active: boolean) =>
     `relative flex w-full items-center gap-2 rounded-lg px-2.5 py-2 ${FONT_BODY} transition-colors ${
       active
-        ? "bg-selected font-medium text-text before:absolute before:left-0 before:top-1/2 before:h-5 before:w-[2px] before:-translate-y-1/2 before:rounded-full before:bg-accent"
+        ? "bg-selected font-medium text-text before:absolute before:left-0 before:top-1/2 before:h-5 before:w-indicator before:-translate-y-1/2 before:rounded-full before:bg-accent"
         : "text-text-secondary hover:bg-surface-hover/70 hover:text-text"
     }`;
 

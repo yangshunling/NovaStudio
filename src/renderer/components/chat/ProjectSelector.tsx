@@ -173,20 +173,20 @@ export function ProjectSelector() {
         }
         aria-haspopup="menu"
         aria-expanded={open}
-        className={`flex h-8 shrink-0 items-center gap-1.5 rounded-md px-2 ui-type-note text-text-muted outline-none transition-colors hover:bg-surface-hover hover:text-text ${
+        className={`ui-toolbar-chip shrink-0 text-text-muted hover:bg-surface-hover hover:text-text ${
           open ? "bg-surface-hover text-text" : ""
         }`}
       >
         <Folder
-          className={`h-3.5 w-3.5 shrink-0 ${
+          className={`h-icon-sm w-icon-sm shrink-0 ${
             currentProject ? "text-accent" : "text-text-muted"
           }`}
         />
-        <span className="max-w-[120px] truncate font-medium text-text">
+        <span className="min-w-0 truncate text-left font-medium text-text">
           {currentProject?.name ?? "指定工作区"}
         </span>
         <ChevronDown
-          className={`h-3.5 w-3.5 shrink-0 text-text-muted transition-transform ${
+          className={`h-icon-sm w-icon-sm shrink-0 text-text-muted transition-transform ${
             open ? "rotate-180" : ""
           }`}
         />

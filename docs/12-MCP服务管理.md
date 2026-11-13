@@ -22,7 +22,8 @@ Nova 不维护自己的 MCP 库：
 - 新增 / 修改 / 删除直接读写这份配置；
 - Claude Code 终端与 Nova 共用同一套；
 - 只扫描**用户级顶层** `mcpServers`；
-- 项目级 local scope（`projects[<dir>].mcpServers`）与项目 `.mcp.json` 不纳入 Nova 全局库。
+- 项目级 local scope（`projects[<dir>].mcpServers`）与项目 `.mcp.json` 不纳入 Nova 全局库；
+- 设置 `CLAUDE_CONFIG_DIR` 时路径变为 `$CLAUDE_CONFIG_DIR/.claude.json`（见 `src/main/agents/claude/config.ts`）。
 
 ---
 
@@ -196,7 +197,8 @@ async function scanClaudeConfigs(): Promise<McpServerAsset[]> {
 - 只取顶层 `mcpServers`；
 - `id = claude-global:<name>`；
 - 按 `slug` 排序；
-- 文件不存在 / 解析失败 / 超大 → 返回空数组，不抛错。
+- 文件不存在 / 解析失败 / 超大 → 返回空数组，不抛错；
+- 列表结果缓存 3 秒；新建 / 更新 / 删除 / 导入后主动失效。
 
 ---
 
@@ -364,18 +366,21 @@ async function importMcpServers(json) {
 
 ### 8.1 聊天
 
-普通聊天直接使用 Claude 本机配置，**不做投影**。所有全局 MCP 对聊天可用。
+聊天按会话运行时投影 MCP：
+
+- 未指定员工时，base home `~/.novastudio/runtime/<sessionId>/claude-home/` 写入**全部**全局 MCP，并传 `--mcp-config`（不传 `--strict-mcp-config`），项目 `.mcp.json` 仍可加载；
+- `@` 员工时，员工 home `~/.novastudio/runtime/<sessionId>/employees/<employeeId>/claude-home/` 只写入该员工 `enabled` 的服务，并配合 `--strict-mcp-config` 阻断全局 / 项目 MCP 泄漏。
 
 ### 8.2 工作流节点
 
-Claude provider 的 `prepareRun`：
+Claude provider 的 `prepareRun`（`src/main/agents/claude/prepare.ts` 委托 `employees/runtime.ts`）：
 
 1. 读取全局 `readClaudeMcpServers()`；
 2. 遍历员工 `mcpServers` 中 `enabled` 的项；
 3. 新版 `assetId` → 从全局配置取定义；
 4. 旧版内联 `command/args/env` → 直接渲染；
 5. 缺失 → warning 并跳过；
-6. 写 `<runtimeDir>/mcp.json`：
+6. 写 `~/.novastudio/runtime/<employeeId>/mcp.json`：
 
 ```json
 {
@@ -389,11 +394,13 @@ Claude provider 的 `prepareRun`：
 7. 通过命令行：
 
 ```
---mcp-config <runtimeDir>/mcp.json
+--mcp-config ~/.novastudio/runtime/<employeeId>/mcp.json
 --strict-mcp-config
 ```
 
 **即使一个都没选也写空对象**，配合 `--strict-mcp-config` 防止全局 MCP 泄漏给节点。
+
+0.3.0 起不再为每个 attempt 创建临时投影目录：`mcp.json` 属于员工常驻 home，每次运行前按数据库幂等重写；技能 / MCP 都是派生物，运行结束不单独清理，删除员工时才随 `runtime/<employeeId>` 一起移除。
 
 ### 8.3 为什么用独立 mcp.json
 
@@ -407,11 +414,12 @@ Claude provider 的 `prepareRun`：
 
 `components/mcp/McpView.tsx`：
 
-- 服务卡片：名称、传输方式、来源、只读、含密钥、使用人数；
-- 详情：基本信息、原始 JSON 定义、编辑；
-- 新建 / 编辑表单：stdio（命令、参数、环境变量）或远程（URL、请求头）；
+- 服务卡片：名称、命令 / 端点、传输方式、含密钥、校验状态、使用人数、更新时间；
+- 详情：配置文件路径、使用情况、密钥提示、校验问题；
+- 新建 / 编辑：服务名 + `mcpServers[name]` 的原始 JSON 定义（不再提供 stdio / 远程字段表单）；
+- 删除：提示受影响的员工数；删除后同步移除员工引用；
 - 导入：粘贴 JSON / 选择文件；
-- 打开配置文件目录。
+- 打开配置文件。
 
 `components/mcp/presentation.ts` 提供展示辅助（标签、图标、摘要）。
 
@@ -445,3 +453,5 @@ Claude provider 的 `prepareRun`：
 - [ ] 支持单对象 / 数组 / `{mcpServers}` 三种导入形状。
 - [ ] 工作流节点只注入员工选中的服务，使用 `--strict-mcp-config`。
 - [ ] 一个都没选也写空 `mcpServers`。
+- [ ] 聊天 base 环境使用全部全局 MCP；`@` 员工时只注入员工勾选的服务并加 `--strict-mcp-config`。
+- [ ] 运行时目录为 `~/.novastudio/runtime/<employeeId>/`，不再生成 attempt 级临时投影。

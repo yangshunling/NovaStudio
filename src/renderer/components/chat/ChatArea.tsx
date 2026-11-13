@@ -28,13 +28,13 @@ import {
   Library,
   ListOrdered,
   Keyboard,
-  ImagePlus,
   X,
 } from "lucide-react";
 import { AgentSelector } from "./AgentSelector";
 import { EmployeeSelector } from "./EmployeeSelector";
 import { PermissionPromptBanner } from "./PermissionPromptBanner";
 import { PermissionSelector } from "./PermissionSelector";
+import { ModelSelector } from "./ModelSelector";
 import { ProjectSelector } from "./ProjectSelector";
 import {
   useMention,
@@ -46,10 +46,7 @@ import { ContextGauge } from "./ContextGauge";
 import { useInputHistory } from "../../hooks/useInputHistory";
 import { useDismissableLayer } from "../../hooks/useDismissableLayer";
 import { useComposerSubmit, usePasteNormalizer } from "./useComposer";
-import {
-  IMAGE_ACCEPT,
-  fileToInputImage,
-} from "../../lib/image-attachment";
+import { fileToInputImage } from "../../lib/image-attachment";
 import { newId } from "../../lib/utils";
 import type { InputImage } from "@shared/types";
 import { QuestionNav } from "./QuestionNav";
@@ -157,7 +154,6 @@ export function ChatArea({ embedded = false }: { embedded?: boolean } = {}) {
   /** 待发送图片：只存在于当前草稿，切换会话即清空 */
   const [pendingImages, setPendingImages] = useState<PendingImage[]>([]);
   const [imagesBusy, setImagesBusy] = useState(false);
-  const imageInputRef = useRef<HTMLInputElement>(null);
   useEffect(() => {
     setPendingImages([]);
   }, [draftKey]);
@@ -626,36 +622,16 @@ export function ChatArea({ embedded = false }: { embedded?: boolean } = {}) {
                   分隔线与上下内容的间距对齐（正文尾部 ~9px / 按钮上方 8px），
                   线条大致落在留白中间，而不是紧贴按钮。 */}
               <div className="mt-0 flex items-center justify-between gap-3 border-t border-border/60 pt-2">
-                <div className="flex min-w-0 items-center gap-1">
+                <div className="flex min-w-0 items-center gap-0.5">
                   {/* 工作目录：可选。绑定后 Agent 在该工作区目录运行 */}
                   <ProjectSelector />
                   {/* 数字员工：可选。选中后本次会话使用其提示词与能力 */}
                   <EmployeeSelector />
                   {/* 权限模式：按任务切换，下一轮运行生效 */}
                   <PermissionSelector />
-                  {/* 图片：也可以直接粘贴 / 拖入输入区 */}
-                  <button
-                    type="button"
-                    onClick={() => imageInputRef.current?.click()}
-                    title="添加图片"
-                    aria-label="添加图片"
-                    className="rounded-md p-1.5 text-text-muted transition-colors hover:bg-surface-hover hover:text-text"
-                  >
-                    <ImagePlus className="h-3.5 w-3.5" />
-                  </button>
-                  <input
-                    ref={imageInputRef}
-                    type="file"
-                    accept={IMAGE_ACCEPT}
-                    multiple
-                    className="hidden"
-                    onChange={(e) => {
-                      const files = Array.from(e.target.files ?? []);
-                      // 清空 value：同一张图连续选两次也要能触发 change
-                      e.target.value = "";
-                      void addImageFiles(files);
-                    }}
-                  />
+                  {/* 模型：按任务切换，只作用于本会话，不写回 settings.json */}
+                  <ModelSelector />
+                  {/* 图片输入走粘贴 / 拖入，工具栏不再放选择器 */}
                   {/* 有多个可用 Agent 时才需要选择；否则自动使用唯一的那个 */}
                   {hasAgentChoice && (
                     <AgentSelector
@@ -702,7 +678,11 @@ export function ChatArea({ embedded = false }: { embedded?: boolean } = {}) {
                 </div>
 
                 <div className="flex shrink-0 items-center gap-3">
-                  <ContextGauge usage={usage} agentId={effectiveAgentId} />
+                  <ContextGauge
+                    usage={usage}
+                    agentId={effectiveAgentId}
+                    model={currentSession?.model ?? null}
+                  />
                   <button
                     onClick={handleSend}
                     disabled={

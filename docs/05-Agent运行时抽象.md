@@ -13,7 +13,9 @@
 - 子进程传输层（spawn / stdin / 环境 / 终止）；
 - 行分隔协议运行器；
 - 事件模型与合并规则；
-- `AgentService` 的会话运行编排、历史缓存、清理。
+- `AgentService` 的会话运行编排、历史缓存、清理；
+- 工具授权询问（permission prompt）的宿主侧中转；
+- 一次性文本生成（`complete`）的 provider 选择与聊天身份常量。
 
 不包含：
 
@@ -37,23 +39,46 @@ export interface AgentProvider {
 
   detect(): Promise<AgentStatus>;
 
+  checkUpgrade?(): Promise<AgentUpgradeCheck>;
+  upgrade?(onProgress?: (chunk: string) => void): Promise<AgentUpgradeResult>;
+
   configInfo?(): AgentConfigLocation;
 
   describeRuntimeConfig?(): Record<string, string>;
 
+  defaultPermissionMode?(): string;
+
   prepareRun?(input: AgentRunInput): PreparedAgentRun | Promise<PreparedAgentRun>;
+
+  prepareChatRun?(
+    input: ChatRuntimeInput,
+  ): PreparedChatRun | Promise<PreparedChatRun>;
 
   start(opts: RunOptions): RunSession;
 
+  complete?(opts: CompleteOptions): Promise<string>;
+
   normalizeSessionRef(rawId: string, ctx: SessionContext): string;
 
-  historyVersion(ref: string, ctx: SessionContext): string | null;
+  historyVersion(ref: string, ctx: SessionContext): Promise<string | null>;
 
-  readHistory(ref: string, ctx: SessionContext): Message[];
+  readHistory(ref: string, ctx: SessionContext): Promise<Message[]>;
 
-  deleteSession(ref: string, ctx: SessionContext): void;
+  deleteSession(ref: string, ctx: SessionContext): Promise<void>;
 }
 ```
+
+**可选能力**（缺省即表示该 Agent 不支持，宿主据此关闭入口或回退）：
+
+| 方法 | 作用 |
+|---|---|
+| `checkUpgrade` / `upgrade` | 版本检查与升级；缺省时设置页不展示升级入口 |
+| `configInfo` | 本机配置路径；缺省时 UI 不展示「打开目录」 |
+| `describeRuntimeConfig` | 运行产物的配置快照（模型 / 权限 / 接入地址） |
+| `defaultPermissionMode` | 新会话的初始权限快照；缺省表示没有权限档位概念 |
+| `prepareRun` | 工作流节点的员工运行时准备（同步常驻目录，不做 attempt 级临时投影） |
+| `prepareChatRun` | 聊天会话的运行时 home（多员工共享同一份会话数据） |
+| `complete` | 一次性文本生成（提交信息、标题、周报等） |
 
 ### 2.2 `AgentManifest` / 能力声明
 
@@ -83,9 +108,9 @@ export interface AgentManifest {
 
 **能力驱动的行为**：
 
-- `resume=false`：`AgentService` 不保存 `agentSessionId`，每次都是新会话。
+- `resume=false`：后续运行不按已存引用恢复，每次都是新会话（本轮仍可能记录 `agentSessionId`，但不会用于 `--resume`）。
 - `sessionCleanup=false`：删除会话时不调用 `deleteSession`。
-- `skills=false` / `mcp=false`：员工侧不显示对应页签，运行时忽略绑定。
+- `skills=false` / `mcp=false`：工作流运行前给出告警并忽略相应绑定（聊天侧的资产投影当前不检查这两个位）。
 
 Claude 的 manifest：
 
@@ -105,6 +130,7 @@ Claude 的 manifest：
 ```ts
 export interface RunOptions {
   prompt: string;
+  images?: InputImage[];             // 随本轮发送的图片（base64）
   cwd: string;
   mode?: "chat" | "workflow";
   sessionRef: string | null;
@@ -113,11 +139,18 @@ export interface RunOptions {
   env?: Record<string, string>;      // 追加环境变量
   envRemove?: string[];              // 剔除环境变量
   extraArgs?: string[];              // provider 额外参数
+  permissionMode?: string;           // settings 命名；provider 映射成命令行开关
   configDir?: string | null;         // CLI 配置目录（历史定位用）
+  allowPermissionPrompts?: boolean;  // 本轮是否允许把工具授权询问交给宿主
   onEvent: (event: AgentEvent) => void;
   onSessionId: (rawId: string) => void;
   onInvocation?: (info: AgentInvocationInfo) => void;
+  onControl?: (control: AgentControlMessage) => void;  // 带外控制，不进聊天事件流
 }
+
+export type AgentControlMessage =
+  | { type: "permission_request"; request: PermissionPromptRequest }
+  | { type: "permission_cancel"; requestId: string };
 ```
 
 ### 2.4 `RunSession` — 运行句柄
@@ -127,6 +160,13 @@ export interface RunSession {
   readonly done: Promise<RunResult>;
   readonly aborted: boolean;
   abort(): void;
+  /** 把一行控制应答写回子进程 stdin；已结束 / 被中断时返回 false */
+  respondControl?(line: string): boolean;
+  /** 回答一次工具授权询问；provider 负责编码成自己的协议 */
+  respondPermission?(
+    requestId: string,
+    decision: PermissionPromptDecision,
+  ): boolean;
 }
 ```
 
@@ -163,6 +203,33 @@ export interface AgentInvocationInfo {
 ```
 
 用于写 `execution.md`，排查“到底哪个参数不对”。
+
+### 2.7 聊天运行时与一次性生成
+
+聊天与工作流的环境形态不同：聊天需要一份可跨员工复用的 home（`projects` 始终指向同一目录，`--resume` 才能贯穿所有员工），工作流节点则复用员工级共享运行时。宿主只分配路径，provider 决定目录布局。
+
+```ts
+export interface ChatRuntimePaths {
+  root: string;         // ~/.novastudio/runtime/<sessionId>/
+  projectsDir: string;  // root/projects，所有 home 共享的 CLI 会话数据
+}
+
+export interface ChatRuntimeInput {
+  session: Session;
+  employee: DigitalEmployee | null;  // null = 通用助手
+  paths: ChatRuntimePaths;
+  purpose?: "send" | "materialize";  // materialize 可跳过知识库扫描
+}
+
+export interface PreparedChatRun extends PreparedAgentRun {
+  configDir: string;
+  systemPrompt?: string;  // 员工人设 / 知识库 / 通用助手边界提示
+}
+```
+
+`CompleteOptions` 用于「不建会话、不开工具、只要最终文本」的任务（提交信息、标题、周报）：`prompt` / `cwd` / `timeoutMs` / `onChunk` / `signal`。provider 选择逻辑在 `src/main/agents/complete.ts`：优先设置里的 `defaultAgent`，否则用第一个具备 `complete` 的 provider。
+
+`src/main/agents/chat-identity.ts` 只导出 `BASE_CHAT_NAME`（「通用助手」）——它是宿主概念，不属于任何具体 CLI，聊天运行时与 IPC 共用它，避免反向依赖会话模块。
 
 ---
 
@@ -299,12 +366,14 @@ kill() {
 ### 4.6 写入 stdin
 
 ```ts
-writeInput(data) {
-  child.stdin?.end(data);
-}
+writeInput(data) { child.stdin?.end(data); }  // 写完即关（text 输入）
+write(data)     { child.stdin?.write(data); } // 保持管道打开（控制应答）
+endInput()      { child.stdin?.end(); }       // 显式关闭
 ```
 
 prompt 必须走 stdin：Windows 下命令行参数中的换行会被 cmd 截断，后半段参数全部丢失。
+
+0.3.0 起 stdin 还承担双向控制通道：启用交互式工具授权时，`stream-json` 输入先写入，CLI 通过 stdout 发来 `can_use_tool`，宿主把 `control_response` 写回同一根 stdin，收到 `result` 行后再关闭。
 
 ### 4.7 `stripAnsi`
 
@@ -327,12 +396,12 @@ take(): string         // 进程退出时取走残片
 
 ### 4.9 `execCli`
 
-用于安装探测等一次性调用：
+签名 `execCli(args: string[], timeoutMs: number): Promise<string>`，用于安装探测、`npm view` 等一次性调用：
 
 - Windows：`cmd.exe /d /s /c <commandLine>`
 - 其他：直接 `execFile(args[0], args.slice(1))`
 - `windowsHide: true`
-- 带超时
+- 带超时，返回 stdout
 
 ---
 
@@ -352,8 +421,17 @@ export interface LineRunConfig {
   env?: Record<string, string>;
   envRemove?: string[];
   stdin?: string;
+  keepStdinOpen?: boolean;           // 双向控制通道：写完不关，等 result
+  onControlMessage?: (control: AgentControlMessage) => void;
   extractSessionId(line: string): string | null;
   decode(line: string): AgentEvent | AgentEvent[] | null;
+  /** 合并解析：一次 JSON.parse 同时给出 sessionId / 事件 / 控制帧 / 是否关 stdin */
+  decodeLine?(line: string): {
+    sessionId: string | null;
+    event: AgentEvent | AgentEvent[] | null;
+    control?: AgentControlMessage;
+    closeInput?: boolean;
+  } | null;
 }
 ```
 
@@ -424,14 +502,30 @@ abort() {
 const handleLine = (raw) => {
   const line = raw.trim();
   if (!line) return;
+  // 优先合并解析：一次 JSON.parse 同时拿到会话 id 与事件
+  if (config.decodeLine) {
+    const out = config.decodeLine(line);
+    if (!out) return;
+    if (out.sessionId) handlers.onSessionId(out.sessionId);
+    if (out.control !== undefined) {        // 控制帧不进对话事件
+      config.onControlMessage?.(out.control);
+      return;
+    }
+    if (out.closeInput) endInput();          // result 到达：关闭 stdin
+    for (const event of toArray(out.event)) emit(event);
+    return;
+  }
   const sid = config.extractSessionId(line);
   if (sid) handlers.onSessionId(sid);
-  const decoded = config.decode(line);
-  for (const event of toArray(decoded)) emit(event);
+  for (const event of toArray(config.decode(line))) emit(event);
 };
 ```
 
 **每次运行新建解码器**：它需要记住本次运行内的工具调用 id → 工具名映射。
+
+### 5.9 控制通道
+
+`keepStdinOpen` 打开时，`RunSession.respondControl(line)` 向 stdin 追加一行（运行结束 / 中断后返回 false）。`line-run` 不解释控制协议，只负责把 `decodeLine` 拆出的 `control` 交给 `onControlMessage`，并把 `closeInput`（Claude 为 `result` 行）转成 `endInput()`。
 
 ---
 
@@ -443,17 +537,27 @@ const handleLine = (raw) => {
 export type AgentEvent =
   | { type: "thinking"; content: string }
   | { type: "text"; content: string }
+  | ({ type: "image" } & InputImage)   // 只出现在用户消息；data 为无前缀 base64
   | { type: "thinking_delta"; delta: string }
   | { type: "text_delta"; delta: string }
-  | { type: "tool_call"; callId?: string; name: string; input: unknown; kind: ToolKind; target: string }
-  | { type: "tool_result"; callId?: string; name: string; output: string; isError?: boolean }
+  | { type: "tool_call"; callId?: string; name: string; input: unknown;
+      kind: ToolKind; target: string; lineStarts?: number[] }
+  | { type: "tool_result"; callId?: string; name: string; output: string;
+      isError?: boolean; images?: ToolResultImage[] }
   | { type: "error"; message: string }
   | { type: "warning"; message: string }
+  | { type: "usage"; inputTokens: number; outputTokens: number;
+      cacheCreationInputTokens: number; cacheReadInputTokens: number;
+      scope?: "context"; contextWindow?: number; costUsd?: number; durationMs?: number }
   | { type: "done" }
   | { type: "message_end"; blocks: AgentEvent[] };
 ```
 
-合并规则见 `shared/agent-events.ts`，详细语义见 [附录 A](附录/A-AgentEvent事件模型.md)。
+合并规则与实现见 `src/shared/agent-events.ts`（`appendEvent`）。
+
+- `text` / `thinking` 始终作为新块追加；`*_delta` 追加到末尾同类型块。
+- `message_end` 倒序移除末尾连续的累积块（thinking / text / tool_call）并换成本次 `blocks`；夹在中间的 `usage` 会先摘出、替换完再放回，避免正文重复。
+- `tool_call` / `tool_result` / `error` / `warning` / `image` / `usage` 直接追加。
 
 **宿主只依赖这些语义，不出现具体工具名。**
 
@@ -463,15 +567,16 @@ export type AgentEvent =
 
 ```ts
 export interface ToolDisplay {
-  kind: "read" | "write" | "exec" | "search" | "other";
+  kind: ToolKind;   // "read" | "write" | "exec" | "search" | "other"
   target: string;
 }
 
 export function describeTool(name: string, input: unknown): ToolDisplay;
 ```
 
-- 工具名 → 分类的映射在 provider 侧（因为只有 provider 知道工具叫什么）；
-- 操作对象从 `path` / `file` / `filePath` / `file_path` / `command` / `pattern` / `query` 中取；
+- 工具名 → 分类的映射在 provider 侧（因为只有 provider 知道工具叫什么）：内置表覆盖 read/view、write/edit/patch/multiedit、grep/glob/search、bash/shell/sh，其余归 `other`；
+- 操作对象从共享字段表 `TOOL_TARGET_KEYS`（`src/shared/tool-input.ts`）中按优先级取：`path` / `file` / `filePath` / `file_path` / `command` / `pattern` / `query`；
+- 行号 `lineStarts` 由 provider 尽力提供（实时在磁盘上定位，回放读会话文件），拿不到就缺省；
 - 所有工具都进入消息流，包括 Bash；是否折叠由展示层决定。
 
 ---
@@ -490,21 +595,41 @@ export interface AgentService {
   resolveCwd(...candidates: (string | undefined | null)[]): string;
   run(params: RunParams): Promise<RunOutcome>;
   abort(sessionId: string): boolean;
-  getSessionWithHistory(sessionId: string): Session | null;
+  isRunning(sessionId: string): boolean;
+  hasRunningSessions(): boolean;
+  isEmployeeInUse(employeeId: string): boolean;
+  getSessionWithHistory(sessionId: string): Promise<Session | null>;
+  getSessionPage(
+    sessionId: string,
+    input: { limit: number; beforeTimestamp?: number; beforeMessageId?: string },
+  ): Promise<Session | null>;
   releaseSession(sessionId: string): Promise<void>;
   releaseProject(projectId: string): Promise<void>;
-  shutdown(): void;
+  shutdown(): Promise<void>;   // 中断并等待落库收尾，上限 5s
+  respondPermission(
+    sessionId: string,
+    requestId: string,
+    decision: PermissionPromptDecision,
+  ): PermissionRespondResult;
+  listPendingPermissions(): PermissionPromptView[];
+  denyAllPending(message: string, reason: PermissionResolvedReason): void;
 }
 ```
+
+`RunOutcome` 除 `ok` / `exitCode` / `duration` / `aborted` / `error` 外，还带 `userMessageId`、`assistantMessageId`、`assistantText`（本轮权威正文，供工作流归属产物）与 `resumeFailed`。
 
 ### 7.2 内部状态
 
 ```ts
 const running = new Map<string, RunSession>();
+const runningEmployees = new Map<string, string | null>();
+const pendingPermissions = new Map<string, PendingPermission>();
 const historyCache = new Map<string, { version: string; messages: Message[] }>();
 ```
 
 - `running`：同一会话只允许一个运行；
+- `runningEmployees`：本轮实际回答者快照（会话绑定可在运行中改成「下一轮」的员工，不能用于判断「谁在运行」）；
+- `pendingPermissions`：待回答的工具授权询问，键为 `sessionId + requestId`，不落库；
 - `historyCache`：LRU，上限 32；缓存键是 `agentId + configDir + agentSessionId`。
 
 ### 7.3 `run()` 流程
@@ -521,19 +646,27 @@ sequenceDiagram
     Svc-->>调用方: failed
   end
   Svc->>P: getProvider(agentId)
+  Svc->>Svc: 权限模式 = 参数覆盖 → 会话快照 → provider 默认
   Svc->>Svc: canResume = capabilities.resume && agentSessionId
-  alt 本地无消息且已有 agentSessionId
+  alt 本地无消息、历史未标记完整且已有 agentSessionId
     Svc->>P: readHistoryCached
     Svc->>DB: importSessionMessages
   end
-  Svc->>DB: saveSessionMessage(user)
-  Svc->>P: start({ prompt, cwd, sessionRef, ... })
+  Svc->>DB: saveSessionMessage(user，含图片)
+  Svc->>P: start({ prompt, images, permissionMode, sessionRef, ... })
   P->>CLI: spawn
   loop 事件
     CLI-->>P: 行
     P-->>Svc: onEvent
     Svc->>Svc: appendEvent 累积 assistantContent
     Svc->>调用方: emit('agent:event')（非 workflow 会话）
+    alt CLI 发起 can_use_tool（仅聊天 + 可能询问的模式）
+      P-->>Svc: onControl(permission_request)
+      Svc->>调用方: emit('agent:permission:request')
+      调用方->>Svc: respondPermission(allow / deny)
+      Svc->>P: respondPermission
+      P->>CLI: control_response（写回 stdin）
+    end
   end
   CLI-->>P: 退出
   Svc->>Svc: 判断 resumeFailed
@@ -552,10 +685,13 @@ params.onUserMessage?.(userMsg.id);
 
 即使运行失败，用户也能看到原始指令。工作流用 `onUserMessage` 立即记录本轮起点。
 
+用户消息内容先放图片（`image` 事件），再放非空正文；`contextPrompt`（带「@回答者」前缀）只送入 CLI 上下文，不落库、不显示。
+
 ### 7.5 assistant 消息落库
 
 - 只累积非 `done` 事件；
 - 无论成功 / 失败 / 中断，只要 `assistantContent.length > 0` 就落库；
+- 落库时写入 `employeeId`（本轮回答者），历史回复因此保留当时的头像；
 - 落库内容与渲染层使用同一套 `appendEvent`，保证内存与 DB 一致。
 
 ### 7.6 resume 失效自愈
@@ -604,7 +740,10 @@ getSessionWithHistory(sessionId) {
 ```
 
 - 优先 DB（含工具调用细节）；
-- DB 无数据时回退 provider 从 CLI 侧回放（仅文本）。
+- DB 无数据时回退 provider 从 CLI 侧回放（仅文本 + 工具回执）；
+- 旧消息的 `tool_call` 缺 `lineStarts` 时，按 `callId` 从 provider 回放结果补全（只补缺失，不覆盖已有值）。
+
+**分页**：`getSessionPage()` 用 `db.readSessionMessagesPage()` 只解析最近 N 条（1–500），返回 `hasMoreMessages`；`beforeTimestamp` / `beforeMessageId` 作为游标继续向前取。本地已有消息但当前页为空时不再回放 CLI 历史。
 
 ### 7.9 历史缓存
 
@@ -656,7 +795,18 @@ function resolveTimeoutMs(): number {
 
 ### 7.12 `shutdown()`
 
-中断所有运行中的会话；不等待，进程即将退出。
+中断所有运行中的会话，并在关库前等待它们完成落库收尾：以 `running` 变空为准，最长 5 秒；超时后打印告警并继续退出，避免应用关不掉。
+
+### 7.13 工具授权询问
+
+工具授权是带外控制，不进入 `AgentEvent`，也不落库：
+
+1. provider 在 `allowPermissionPrompts` 为真且权限模式可能询问时启用双向通道（Claude 为 `--permission-prompt-tool stdio`）；
+2. CLI 的 `can_use_tool` 经 `onControl({ type: "permission_request" })` 到达，`AgentService` 以 `sessionId + requestId` 挂入 `pendingPermissions`，推送 `agent:permission:request`；
+3. 渲染层回答后调用 `respondPermission`，allow 时若界面没改写入参，会把原始 `input` 作为 `updatedInput` 回传（CLI 用它执行本次调用）；deny 时带提示文案；
+4. 询问 5 分钟无人回答自动拒绝；没有可用窗口 / 无人值守运行直接拒绝；中断、删除会话、运行结束、窗口关闭会清掉该会话的待处理项并推 `agent:permission:resolved`。
+
+`respondPermission` 的 `ok:false` 表示请求已失效（超时 / 已被回答 / 运行已结束），界面据此清理弹窗。
 
 ---
 
@@ -670,7 +820,7 @@ export async function probeVersion(bin, args = ["--version"]): Promise<AgentStat
 
 - 执行 `<bin> --version`；
 - 失败即视为未安装；
-- 从输出提取 `\d+\.\d+\.\d+`；
+- 从输出提取 `v?\d+\.\d+\.\d+`（可带 `-beta` 等后缀）；提取不到时退回整段输出；
 - 10 秒超时；
 - 异步执行，避免阻塞主进程启动。
 
@@ -683,7 +833,8 @@ export async function probeVersion(bin, args = ["--version"]): Promise<AgentStat
 - [ ] 实现 `detect`（可复用 `probeVersion`）；
 - [ ] 实现 `start`（行协议可复用 `startLineRun`，否则自己实现）；
 - [ ] 实现 `normalizeSessionRef` / `historyVersion` / `readHistory` / `deleteSession`；
-- [ ] 如需按员工注入 MCP/Skill，实现 `prepareRun`；
+- [ ] 聊天需要会话级 home 时实现 `prepareChatRun`；
+- [ ] 如需按员工注入 MCP/Skill，实现 `prepareRun`（工作流）与 `prepareChatRun`（聊天）；
 - [ ] 如需运行产物配置快照，实现 `describeRuntimeConfig`；
 - [ ] 不需要改 registry / engine / IPC / UI。
 
@@ -701,5 +852,6 @@ export async function probeVersion(bin, args = ["--version"]): Promise<AgentStat
 - [ ] `agent:event` 事件经过 `appendEvent`，内存与 DB 一致。
 - [ ] 同一会话并发发送被拒绝。
 - [ ] resume 失效会自动清除引用并提示。
+- [ ] 工具授权询问经带外通道中转，超时 / 无界面自动拒绝。
 - [ ] 历史缓存键包含 configDir，LRU 上限 32。
 - [ ] 删除会话先中断等待，再删 CLI 数据与 DB 行。

@@ -47,9 +47,12 @@ function full(value: number): string {
 export function ContextGauge({
   usage,
   agentId,
+  model,
 }: {
   usage: SessionUsage | null;
   agentId: string;
+  /** 会话级模型覆盖；有值时按它解析上下文窗口，而不是 Agent 默认模型 */
+  model?: string | null;
 }) {
   const [configuredMax, setConfiguredMax] = useState<number | null>(
     () => contextWindowCache.get(agentId) ?? null,
@@ -61,6 +64,15 @@ export function ContextGauge({
    * 否则 1M 模型会被按默认 200k 计算，直接算出 122%。
    */
   useEffect(() => {
+    /*
+     * 会话指定了模型时，窗口上限跟着会话走：
+     * 同一 Agent 下 1M 模型和 200K 模型不能共用一份缓存。
+     */
+    if (model) {
+      const suffix = model.match(/\[([^\]]+)\]\s*$/)?.[1] ?? "";
+      setConfiguredMax(parseContextWindow(suffix));
+      return;
+    }
     if (!agentId) return;
     const cached = contextWindowCache.get(agentId);
     if (cached) {
@@ -85,7 +97,7 @@ export function ContextGauge({
     return () => {
       alive = false;
     };
-  }, [agentId]);
+  }, [agentId, model]);
 
   if (!usage || usage.contextUsed <= 0) return null;
 
@@ -110,6 +122,22 @@ export function ContextGauge({
         ? "bg-agent-amber"
         : "bg-accent";
 
+  /*
+   * 圆环进度：体积小但比横条更醒目，作为工具栏里的常驻状态读数。
+   * 半径留出线宽，避免描边被 viewBox 裁掉。
+   */
+  const ringSize = 18;
+  const ringStroke = 2.8;
+  const ringRadius = (ringSize - ringStroke) / 2;
+  const ringCircumference = 2 * Math.PI * ringRadius;
+  const ringOffset = ringCircumference * (1 - clamped);
+  const strokeTone =
+    ratio >= 0.9
+      ? "stroke-error"
+      : ratio >= 0.7
+        ? "stroke-agent-amber"
+        : "stroke-accent";
+
   const latestCache =
     usage.contextCacheCreationInputTokens + usage.contextCacheReadInputTokens;
   const hasSnapshot = usage.contextInputTokens + latestCache > 0;
@@ -129,14 +157,33 @@ export function ContextGauge({
       aria-label="上下文窗口占用"
       title={`上下文 ${full(usage.contextUsed)} / ${full(contextMax)} tokens（${percent}%）`}
     >
-      <span className="ui-type-sub text-text">上下文</span>
-
-      <span className="h-1 w-14 overflow-hidden rounded-full bg-surface-hover">
-        <span
-          className={`block h-full rounded-full ${fill} transition-[width] duration-500 ease-out motion-reduce:transition-none`}
-          style={{ width: `${clamped * 100}%` }}
+      <svg
+        width={ringSize}
+        height={ringSize}
+        viewBox={`0 0 ${ringSize} ${ringSize}`}
+        className="-rotate-90 shrink-0"
+        aria-hidden="true"
+      >
+        <circle
+          cx={ringSize / 2}
+          cy={ringSize / 2}
+          r={ringRadius}
+          fill="none"
+          strokeWidth={ringStroke}
+          className="stroke-border"
         />
-      </span>
+        <circle
+          cx={ringSize / 2}
+          cy={ringSize / 2}
+          r={ringRadius}
+          fill="none"
+          strokeWidth={ringStroke}
+          strokeLinecap="round"
+          strokeDasharray={`${ringCircumference} ${ringCircumference}`}
+          strokeDashoffset={ringOffset}
+          className={`${strokeTone} transition-[stroke-dashoffset] duration-500 ease-out motion-reduce:transition-none`}
+        />
+      </svg>
 
       <span className={`ui-type-code-sm tabular-nums ${tone}`}>
         {percent}%

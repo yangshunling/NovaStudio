@@ -196,7 +196,7 @@ export function WorkspaceMenuPanel({
     <div
       ref={popupRef}
       role="menu"
-      className={`ui-dropdown-in ui-ring absolute bottom-full z-50 mb-2 flex max-h-72 w-[22rem] max-w-[calc(100vw-2rem)] flex-col rounded-xl bg-surface p-1.5 ${
+      className={`ui-dropdown-in ui-ring absolute bottom-full z-50 mb-2 flex max-h-72 w-dropdown max-w-[calc(100vw-2rem)] flex-col rounded-xl bg-surface p-1.5 ${
         align === "right" ? "right-0" : "left-0"
       }`}
       style={{ boxShadow: "var(--c-shadow)" }}

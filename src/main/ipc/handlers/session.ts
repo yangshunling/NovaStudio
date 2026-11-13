@@ -38,6 +38,19 @@ function withEffectivePermissionMode(session: Session): Session {
   };
 }
 
+/**
+ * 会话模型允许为空（跟随 Agent 默认），但非空值必须是可用的完整模型 ID。
+ * 这里只做基础清洗，模型是否存在由 UI 的模型列表与 CLI 自己判断。
+ */
+function normalizeSessionModel(
+  raw: string | null | undefined,
+): string | null {
+  const value = raw?.trim();
+  if (!value) return null;
+  if (value.length > 200) throw new Error("模型 ID 不合法");
+  return value;
+}
+
 export function registerSessionHandlers(service: AgentService): void {
   /**
    * 预创建空会话。渲染进程在首条消息前调用，拿到 sessionId 后再 agent:send，
@@ -45,7 +58,7 @@ export function registerSessionHandlers(service: AgentService): void {
    *
    * projectId 可为 null：会话不强制绑定项目，未绑定时在默认目录运行。
    */
-  handle("session:create", async ({ projectId, agentId, employeeId, permissionMode }) => {
+  handle("session:create", async ({ projectId, agentId, employeeId, permissionMode, model }) => {
     if (!getProvider(agentId)) {
       throw new Error(`未知 Agent：${agentId}`);
     }
@@ -88,6 +101,7 @@ export function registerSessionHandlers(service: AgentService): void {
       "chat",
       boundEmployeeId,
       resolvedPermissionMode,
+      normalizeSessionModel(model),
     );
 
     /*
@@ -234,6 +248,28 @@ export function registerSessionHandlers(service: AgentService): void {
     if (next.length > 40) throw new Error("权限模式不合法");
 
     db.setSessionPermissionMode(sessionId, next);
+    const updated = db.getSession(sessionId);
+    return updated ? withEffectivePermissionMode(updated) : null;
+  });
+
+  /**
+   * 改写会话级模型；下一轮运行生效，不影响正在跑的进程。
+   *
+   * null 表示恢复「跟随 Agent 默认模型」。与权限模式一样，工作流会话和
+   * 自动化任务会话不允许在这里改：它们的模型应由运行配置固定，避免
+   * 界面展示与真实行为不一致。
+   */
+  handle("session:setModel", ({ sessionId, model }) => {
+    const session = db.getSession(sessionId);
+    if (!session) return null;
+    if (session.source === "workflow") {
+      throw new Error("工作流会话不能修改模型");
+    }
+    if (db.getAutomationTaskBySessionId(sessionId)) {
+      throw new Error("自动化任务的会话不能修改模型");
+    }
+
+    db.setSessionModel(sessionId, normalizeSessionModel(model));
     const updated = db.getSession(sessionId);
     return updated ? withEffectivePermissionMode(updated) : null;
   });

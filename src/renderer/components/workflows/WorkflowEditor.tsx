@@ -1137,7 +1137,7 @@ function NodeInspector({
       // 浮层永远盖在画布之上；阻止指针事件外流，避免任何画布手势误触
       onPointerDown={(event) => event.stopPropagation()}
       style={{ maxHeight: "calc(100% - 32px)" }}
-      className="ui-glass-strong ui-ring ui-panel-in absolute right-4 top-4 z-30 flex w-[340px] flex-col overflow-y-auto rounded-2xl p-4"
+      className="ui-glass-strong ui-ring ui-panel-in absolute right-4 top-4 z-30 flex w-side-panel flex-col overflow-y-auto rounded-2xl p-4"
     >
       <div className="mb-4 flex items-center gap-3">
         <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-accent-soft text-accent">

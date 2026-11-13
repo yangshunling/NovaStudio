@@ -137,19 +137,19 @@ handle("window:setAppearance", ({ appearance }) => {
 
 ## 6. 渲染层设置
 
-`components/app/SettingsModal.tsx`：
+`components/app/SettingsModal.tsx` 只负责左侧导航与面板切换，内容拆在 `components/settings/`：
 
-| 分区 | 控件 | 范围 |
+| 分组 | 文件 | 控件 |
 |---|---|---|
-| 文字大小 | 全局 / 聊天记录 | 12/13/14/15/16px |
-| 终端 | 字号 | 11/12/13/14/15/16/18/20px |
-| 自动化 | 并发数 | 1–10 |
-| 自动化 | 轮询间隔 | 秒 |
-| 自动化 | 单次超时 | 分钟 |
-| 更新 | 检查 / 下载 / 安装 | — |
-| 关于 | 版本 / 运行时信息 | — |
+| 通用 | `GeneralPanel.tsx` | 默认 Agent、默认工作目录 |
+| 外观 | `AppearancePanel.tsx` | 皮肤、界面字体、界面字号、聊天字号 |
+| 终端 | `TerminalPanel.tsx` | 终端字号 |
+| 自动化 | `AutomationPanel.tsx` | 并发数 1–10、轮询间隔、单次超时 |
+| 关于与更新 | `AboutPanel.tsx` | 版本 / 运行时信息、检查 / 下载 / 安装 |
 
+- 布局统一为 `SettingsPage` + `SettingsCard` + `SettingsRow`：页头说明分组，卡片内按行排列，左侧名称与提示、右侧控件；
 - 字号写入 `useThemeStore`，立即应用并持久化；
+- 皮肤切换也在此面板（侧栏不再有昼夜按钮）；
 - 并发 / 轮询 / 超时读写主进程设置；
 - 更新状态订阅 `updater:changed`；
 - 关于信息来自 `app:info`。
@@ -283,6 +283,13 @@ return providers.map((p, i) => ({
 
 Claude 检测：`claude --version`，10 秒超时。
 
+### 12.1 版本检查与升级
+
+- `agent:upgrade:check` → `provider.checkUpgrade()`，无副作用；
+- `agent:upgrade:run` → `provider.upgrade(onProgress)`，过程文本经 `agent:upgrade:progress` 推送；
+- 升级入口在数字员工页的 Agent 配置链路中，不再与员工列表耦合；
+- 未实现升级能力的 provider 不展示入口。
+
 ---
 
 ## 13. 配置迁移
@@ -306,6 +313,7 @@ Claude 检测：`claude --version`，10 秒超时。
 | 设置类型 | `src/shared/types.ts` |
 | 设置 IPC | `src/main/ipc/handlers/settings.ts` |
 | 设置弹框 | `src/renderer/components/app/SettingsModal.tsx` |
+| 设置面板 | `src/renderer/components/settings/*` |
 | 主题 hook | `src/renderer/hooks/useTheme.ts` |
 | Claude 配置读写 | `src/main/agents/claude/settings.ts` |
 | Claude 模型列表 | `src/main/agents/claude/models.ts` |
@@ -331,3 +339,6 @@ Claude 检测：`claude --version`，10 秒超时。
 - [ ] 模型列表兼容对象 / 字符串数组。
 - [ ] 旧版 Agent 连接 / MCP / Skill 迁移幂等。
 - [ ] 检测并行，失败视为未安装。
+- [ ] 设置弹框为通用 / 外观 / 终端 / 自动化 / 关于五个独立面板。
+- [ ] 皮肤切换位于外观面板，侧栏不再提供昼夜按钮。
+- [ ] Agent 升级检查 / 执行可用，进度实时展示。

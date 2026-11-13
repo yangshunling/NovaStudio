@@ -25,13 +25,14 @@ export function createSession(
   source: SessionSource = "chat",
   employeeId?: string | null,
   permissionMode?: string | null,
+  model?: string | null,
 ): Session {
   const id = randomUUID();
   const now = Date.now();
   const resolvedTitle = title || "新会话";
 
   prepare(
-    "INSERT INTO sessions (id, project_id, employee_id, agent_id, agent_session_id, title, cwd, config_dir, permission_mode, source, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    "INSERT INTO sessions (id, project_id, employee_id, agent_id, agent_session_id, title, cwd, config_dir, permission_mode, model, source, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
   ).run(
     id,
     projectId,
@@ -42,6 +43,7 @@ export function createSession(
     cwd,
     configDir ?? null,
     permissionMode ?? null,
+    model ?? null,
     source,
     now,
     now,
@@ -55,6 +57,7 @@ export function createSession(
     agentId,
     agentSessionId: null,
     permissionMode: permissionMode ?? null,
+    model: model ?? null,
     title: resolvedTitle,
     cwd,
     configDir: configDir ?? null,
@@ -140,6 +143,19 @@ export function setSessionPermissionMode(
     permissionMode,
     sessionId,
   );
+}
+
+/**
+ * 改写会话级模型；null 表示恢复「跟随 Agent 默认模型」。
+ *
+ * 与权限模式一样不影响 agent_session_id：换模型不重置 --resume，
+ * 也不更新 updated_at，避免只是改模型就把会话顶到列表最前。
+ */
+export function setSessionModel(
+  sessionId: string,
+  model: string | null,
+): void {
+  prepare("UPDATE sessions SET model = ? WHERE id = ?").run(model, sessionId);
 }
 
 /**
@@ -413,6 +429,7 @@ function rowToSession(row: any): Session {
     agentId: row.agent_id,
     agentSessionId: row.agent_session_id,
     permissionMode: row.permission_mode ?? null,
+    model: row.model ?? null,
     title: row.title,
     cwd: row.cwd,
     configDir: row.config_dir ?? null,

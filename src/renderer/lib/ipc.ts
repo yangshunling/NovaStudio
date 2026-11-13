@@ -163,17 +163,21 @@ export const ipc = {
     agentId: string,
     employeeId?: string | null,
     permissionMode?: string | null,
+    model?: string | null,
   ) =>
     call("session:create", {
       projectId,
       agentId,
       employeeId,
       permissionMode,
+      model,
     }),
   setSessionEmployee: (sessionId: string, employeeId: string | null) =>
     call("session:setEmployee", { sessionId, employeeId }),
   setSessionPermissionMode: (sessionId: string, permissionMode: string) =>
     call("session:setPermissionMode", { sessionId, permissionMode }),
+  setSessionModel: (sessionId: string, model: string | null) =>
+    call("session:setModel", { sessionId, model }),
   listSessions: () => call("session:list"),
   getDefaultCwd: () => call("session:defaultCwd"),
   getSession: (
@@ -189,6 +193,7 @@ export const ipc = {
 
   // === 原生对话框 ===
   pickDirectory: () => call("dialog:pickDirectory"),
+  pickFiles: () => call("dialog:pickFiles"),
 
   // === 设置 ===
   getSettings: () => call("settings:get"),

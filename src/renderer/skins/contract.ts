@@ -114,6 +114,19 @@ export const REQUIRED_TOKENS: readonly string[] = [
   // 控件尺寸
   "--c-size-avatar",
   "--c-size-icon-btn",
+  // 工具条 / 文件树等高频结构尺寸：组件不再写任意值
+  "--c-size-control",
+  "--c-size-control-sm",
+  "--c-size-toolbar-max",
+  "--c-size-chip-x",
+  "--c-size-chip-gap",
+  "--c-size-icon-sm",
+  "--c-size-icon-xs",
+  "--c-size-badge",
+  "--c-size-indicator",
+  "--c-size-dropdown",
+  "--c-size-dropdown-wide",
+  "--c-size-side-panel",
   // 动效
   "--c-motion-fast",
   "--c-motion-base",
@@ -161,6 +174,13 @@ export const OPTIONAL_TOKENS: readonly string[] = [
   "--c-page-inset",
   // 列表侧栏（会话 / 工作区）
   "--c-panel-bg",
+  // 设置页可选字体族；选项清单见 skins/typography.ts
+  "--c-font-preset-system",
+  "--c-font-preset-yahei",
+  "--c-font-preset-mono",
+  "--c-font-preset-source-han",
+  "--c-font-preset-simsun",
+  "--c-font-preset-kaiti",
 ];
 
 /**

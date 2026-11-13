@@ -202,22 +202,22 @@ export function EmployeeSelector() {
         }
         aria-haspopup="menu"
         aria-expanded={open}
-        className={`flex h-8 shrink-0 items-center gap-1.5 rounded-md px-2 ui-type-note text-text-muted outline-none transition-colors hover:bg-surface-hover hover:text-text ${
+        className={`ui-toolbar-chip shrink-0 text-text-muted hover:bg-surface-hover hover:text-text ${
           open ? "bg-surface-hover text-text" : ""
         }`}
       >
         {selected ? (
           <EmployeeAvatar employee={selected} size={16} />
         ) : employeeId ? (
-          <UserRound className="h-3.5 w-3.5 shrink-0 text-error" />
+          <UserRound className="h-icon-sm w-icon-sm shrink-0 text-error" />
         ) : (
           <DefaultAnswererIcon />
         )}
-        <span className="max-w-[120px] truncate font-medium text-text">
+        <span className="min-w-0 truncate text-left font-medium text-text">
           {label}
         </span>
         <ChevronDown
-          className={`h-3.5 w-3.5 shrink-0 text-text-muted transition-transform ${
+          className={`h-icon-sm w-icon-sm shrink-0 text-text-muted transition-transform ${
             open ? "rotate-180" : ""
           }`}
         />
@@ -226,7 +226,7 @@ export function EmployeeSelector() {
       {open && (
         <div
           role="menu"
-          className="ui-dropdown-in ui-ring absolute bottom-full left-0 z-50 mb-2 flex max-h-72 w-[22rem] max-w-[calc(100vw-2rem)] flex-col rounded-xl bg-surface p-1.5"
+          className="ui-dropdown-in ui-ring absolute bottom-full left-0 z-50 mb-2 flex max-h-72 w-dropdown max-w-[calc(100vw-2rem)] flex-col rounded-xl bg-surface p-1.5"
           style={{ boxShadow: "var(--c-shadow)" }}
         >
           <div className="flex items-center gap-1 px-2 pb-1 pt-0.5">

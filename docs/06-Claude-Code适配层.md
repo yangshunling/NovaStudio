@@ -6,13 +6,13 @@
 
 包含：
 
-- CLI 可执行文件探测；
-- 命令行参数拼装；
-- stream-json 协议解析；
-- 会话 JSONL 定位、回放、删除；
+- CLI 可执行文件探测与版本升级；
+- 命令行参数拼装（权限模式、工具授权、图片输入）；
+- stream-json 协议解析（含 `can_use_tool` 控制帧与用量）；
+- 会话 JSONL 定位、回放、删除与迁移；
 - `~/.claude/settings.json` 读写；
 - 模型列表拉取；
-- 工作流节点的临时配置投影；
+- 聊天 / 工作流共用的员工运行时投影；
 - 运行现场配置摘要。
 
 不包含：
@@ -53,10 +53,16 @@ claude -p --resume <session_id> \
 | `--verbose` | `-p` 模式下输出 stream-json 需要它 | 不加会被 CLI 拒绝 |
 | `--include-partial-messages` | 提供 `content_block_delta` | 打字机效果 |
 | `--resume <id>` | 恢复会话 | 多轮上下文 |
+| `--permission-mode <mode>` | 会话级权限快照 | `default` → `manual`；未知值不传 |
+| `--permission-prompt-tool stdio` | 交互式工具授权 | CLI 用 `can_use_tool` 询问，应答写回 stdin |
+| `--input-format stream-json` | 用户消息按 content block 传入 | 图片输入 / 控制应答必需 |
+| `--append-system-prompt-file <path>` | 追加系统提示词 | 多行文本不能走命令行 |
+| `--mcp-config` / `--strict-mcp-config` | 员工 MCP 投影 | 隔离全局 MCP |
+| `--system-prompt-snapshot off` | 每轮重新渲染系统提示词 | 切换员工时提示词必须跟着变 |
 
 ### 2.4 不传的参数
 
-- **不传 `--model`**：模型由 `~/.claude/settings.json` 的 `ANTHROPIC_MODEL` / 别名决定。
+- **`--model` 仅在会话显式选择模型时传**：未选择时不传，模型由 `~/.claude/settings.json` 的 `ANTHROPIC_MODEL` / 别名决定。
 - **不传 `--permission-mode`**：权限由 `permissions.defaultMode` 决定，终端 claude、Nova 会话、工作流节点共用同一份配置。
 - **不传 `--no-session-persistence`**：人工审核「要求修改」需要在同一 CLI 会话里续聊。
 
@@ -89,6 +95,7 @@ args.push("--append-system-prompt-file", systemPromptFile.path);
   "--verbose",
   "--include-partial-messages",
   ...(sessionRef ? ["--resume", sessionRef] : []),
+  ...(model ? ["--model", model] : []),
   ...(systemPromptFile ? ["--append-system-prompt-file", path] : []),
   ...extraArgs,   // 工作流的 --mcp-config / --strict-mcp-config
 ]
@@ -111,7 +118,8 @@ prompt 通过 stdin 传入，不在参数里。
   notes: [
     "prompt 通过 stdin 传入，不在命令行参数中（避免 Windows cmd.exe 截断换行）",
     "系统提示词写入临时文件后通过 --append-system-prompt-file 传入",
-    "未传 --model / --permission-mode：模型与权限由本机 Claude settings.json 决定",
+    "未显式选择模型时未传 --model：模型由本机 Claude settings.json 决定",
+    "未传 --permission-mode：权限由本机 Claude settings.json 决定",
   ],
 }
 ```
@@ -530,45 +538,40 @@ export function parseCustomHeaders(raw: string): Record<string, string>;
 
 ---
 
-## 9. 工作流节点的临时投影
+## 9. 员工运行时投影
 
-文件：`src/main/agents/claude/prepare.ts`
+文件：`src/main/agents/claude/prepare.ts`（工作流）、`chat-runtime.ts`（聊天）、`employees/runtime.ts`（同步逻辑）
 
 ### 9.1 触发条件
 
 ```ts
-if (input.mode !== "workflow" || !input.employee || !input.runtimeDir) {
-  return {}; // 普通聊天直接用本机配置
-}
+// 工作流：只有绑定了数字员工的节点才准备员工运行时
+if (input.mode !== "workflow" || !input.employee) return {};
 ```
 
-### 9.2 投影结构
+聊天由 `prepareChatRun` 单独准备：未绑定员工时使用 base home，`@` 员工时把该员工的技能 / MCP 投影到会话 home。
+
+### 9.2 目录结构
 
 ```
-<runtimeDir>/
+~/.novastudio/runtime/<employeeId>/
 ├── claude-home/
-│   ├── settings.json        # 复制 ~/.claude/settings.json
-│   ├── .credentials.json    # 复制 OAuth 凭证（如有）
-│   └── skills/              # 只复制员工选中的技能
+│   ├── settings.json        # 从 ~/.claude/settings.json 同步
+│   ├── .credentials.json    # 从 ~/.claude/.credentials.json 同步（chmod 0600）
+│   ├── skills/              # 只链接员工选中的技能
+│   └── projects/            # CLI 会话 JSONL，--resume 的凭据
 └── mcp.json                 # 只包含员工选中的 MCP
 ```
 
-### 9.3 步骤
+聊天会话的 home 在 `~/.novastudio/runtime/<sessionId>/employees/<employeeId>/`，与员工运行时共用同一套投影逻辑。
 
-1. `mkdir <configDir>/skills`；
-2. 复制 `settings.json`；缺失时写 warning；
-3. 复制 `.credentials.json`（如有），`chmod 0600`；
-4. 遍历 `employee.skills` 中 `enabled` 的项：
-   - 新版 `assetId` → `~/.claude/skills/<key>`；
-   - 旧版 `source` → 直接用该路径；
-   - 不存在 → warning 并跳过；
-   - 复制到 `<configDir>/skills/<targetKey>`；
-5. 读取全局 MCP（`readClaudeMcpServers()`）；
-6. 遍历 `employee.mcpServers` 中 `enabled` 的项：
-   - 新版 `assetId` → 从全局配置取定义；
-   - 旧版内联 `command/args/env` → 直接渲染；
-   - 缺失 → warning 并跳过；
-7. 写 `mcp.json`（即使一个都没选也写空对象）。
+### 9.3 同步规则
+
+1. `settings.json` / `.credentials.json` 按 mtime + size 比对，变化才覆盖；缺失时写 warning，并区分「没有凭证」与「已通过环境变量 / settingsKey / apiKeyHelper 认证」；
+2. 技能：勾选项优先创建目录链接，失败（跨盘 / 权限）回退复制；解绑立即删除；
+3. MCP：从全局 `~/.claude.json` 取定义，每次全量重写 `mcp.json`；空集也写，配合 `--strict-mcp-config` 阻断全局 MCP；
+4. 同一员工的同步串行执行，避免聊天与工作流同时删建链接；
+5. 旧版 `~/.novastudio/employee/<id>` / `employee-runtime/<id>` 在首次使用时迁移，`claude-home/projects` 整体保留。
 
 ### 9.4 返回
 
@@ -586,9 +589,9 @@ if (input.mode !== "workflow" || !input.employee || !input.runtimeDir) {
 
 防止全局 MCP 意外泄漏给节点。即使员工一个 MCP 都没选，也传空 `mcpServers`。
 
-### 9.6 为什么 attempt 内复用 runtimeDir
+### 9.6 为什么 attempt 内配置目录稳定
 
-人工审核「要求修改」需要在同一个 CLI 会话里续聊，因此配置目录必须在一次 attempt 内稳定；下一轮才能靠 `--resume` 找到会话文件。整个 attempt 结束时由 runner 删除。
+人工审核「要求修改」需要在同一个 CLI 会话里续聊，因此 `configDir` 在整个 attempt 内保持不变，下一轮才能靠 `--resume` 找到会话文件。attempt 结束时只删除该会话的 JSONL，员工运行时目录作为共享环境继续保留；运行时可随时按数据库定义重建，唯一不可再生的是 `projects/`。
 
 ### 9.7 旧版内联 MCP
 
@@ -649,7 +652,7 @@ detect: () => probeVersion("claude")
 
 - [ ] 首次调用参数与 `--resume` 参数正确。
 - [ ] prompt 走 stdin，系统提示词走临时文件。
-- [ ] 不传 `--model` / `--permission-mode`。
+- [ ] 未显式选择模型时，不传 `--model`；未识别权限模式时，不传 `--permission-mode`。
 - [ ] stream-json 每行解析，session_id 可提取。
 - [ ] assistant 按 message.id 归组，`message_end` 发累积全集。
 - [ ] tool_result 到达时清空累积，避免重复。

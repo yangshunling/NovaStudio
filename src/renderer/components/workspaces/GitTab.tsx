@@ -1080,7 +1080,7 @@ export function GitTab({
 
       <div className="flex min-h-0 flex-1">
         {/* 左：变更 + 历史 */}
-        <aside className="flex w-[340px] shrink-0 flex-col border-r border-border">
+        <aside className="flex w-side-panel shrink-0 flex-col border-r border-border">
           {/* 变更列表：占剩余空间，独立滚动 */}
           <div className="ws-changes">
             {changes === 0 ? (

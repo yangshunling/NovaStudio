@@ -9,7 +9,7 @@
 - 只读文件预览（文本 / Markdown / 图片 / PDF / 二进制）；
 - Git 工作区状态；
 - 基于 node-pty 的系统终端；
-- 会话页 / 终端页的右侧文件面板与文件标签。
+- 会话页的右侧文件面板与文件 / 终端标签。
 
 不包含：
 
@@ -36,7 +36,7 @@ interface Project {
 
 - 会话可选绑定工作区；
 - 工作流必须归属一个工作区；
-- 工作区是文件树、`@` 提及、终端、产物目录的根；
+- 工作区是文件树、`#` 文件引用、终端、产物目录的根；
 - 新增 / 删除统一在「工作区」页面完成，其他页面只读取。
 
 ### 2.2 创建
@@ -77,7 +77,7 @@ await deleteWorkspaceData(id, { service, userDataDir });
 
 `deleteWorkspaceData`（见 10）：
 
-1. 删除该工作区下所有工作流（运行记录、节点、事件、尝试、会话、产物、临时配置）；
+1. 删除该工作区下所有工作流（运行记录、节点、事件、尝试、会话、产物）；
 2. `releaseProject` 中断并清理普通会话；
 3. `db.deleteProject`；
 4. 删除 `.novastudio/workflows`；
@@ -99,19 +99,33 @@ await deleteWorkspaceData(id, { service, userDataDir });
 - 渲染层根目录与每个展开目录分别请求；
 - 最多 200 项。
 
-### 3.2 忽略规则
+### 3.2 按需监听
+
+工作区文件面板不再递归监听整棵树，而是由渲染层声明「当前需要监听的目录集合」：
+
+- 根目录 + 当前展开的目录，每个目录一个非递归 `fs.watch`；
+- 离开文件标签、目录收起或切换工作区时，从集合中移除并释放句柄；
+- 目录集合通过 `workspace:watch` 同步给主进程，传空数组等于关闭监听；
+- 主进程按项目合并 250ms 内的多次变化，只推送变化的相对目录（`workspace:changed`）；
+- 渲染层只重拉脏目录，展开状态与滚动位置不受影响；
+- 监听失败（无权限、inotify 上限）静默跳过，由手动刷新兜底，不轮询。
+
+### 3.3 忽略规则
 
 ```ts
-const IGNORE_DIRS = new Set([
+// src/main/files/ignore.ts
+const IGNORED_DIR_NAMES = new Set([
   "node_modules", ".git", "dist", "build", ".next", ".nuxt", ".output",
   ".svelte-kit", ".turbo", ".vercel", "coverage", ".cache",
   "__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache",
   "target", ".gradle", ".idea", ".vscode",
 ]);
-const IGNORE_FILE_PREFIXES = [".DS_Store"];
+const IGNORED_FILE_PREFIXES = [".DS_Store"];
 ```
 
-### 3.3 路径安全
+列目录与监听共用同一份规则：列目录时跳过的目录，监听时也不上报事件，避免安装依赖触发海量刷新。
+
+### 3.4 路径安全
 
 ```ts
 const cwd = await realpath(project.cwd);
@@ -123,12 +137,12 @@ if (!target) return [];
 - 词法 + realpath 双重校验；
 - 符号链接逃逸被拦截。
 
-### 3.4 排序
+### 3.5 排序
 
 - 文件夹在前；
 - 同类型按名称 `localeCompare`。
 
-### 3.5 Git 状态覆盖
+### 3.6 Git 状态覆盖
 
 `WorkspacePanel` 额外处理：
 
@@ -376,7 +390,7 @@ stopTerminals() → 全部 kill
 
 - 窗口关闭 / 渲染进程崩溃 → `stopTerminals()`（`main/index.ts`）；
 - 应用退出 → `stopTerminals()`；
-- 每个工作区最多一个终端由渲染层 store 保证。
+- 默认同一工作区复用一个终端；会话菜单「新建终端」传 `forceNew` 可并排开多个，全局上限 12。
 
 ### 6.2 渲染层 store
 
@@ -392,10 +406,10 @@ interface TerminalSession {
 }
 ```
 
-- `open({workspaceId, cwd, name})`：同一工作区已存在则激活并返回 id；
+- `open({workspaceId, cwd, name, forceNew?})`：同一工作区已存在且未传 `forceNew` 时返回已有 id；
 - `restart(id)`：`generation+1`，`TerminalView` 感知后重开 PTY；
 - `closeByWorkspace`：删除工作区时关闭对应终端；
-- 终端标签跨页面常驻（`TerminalsView` 在 `App` 中常驻挂载）。
+- 终端标签跨页面常驻（会话页常驻挂载，`CenterTabs` 切换只隐藏不卸载）。
 
 ### 6.3 `TerminalView`
 
@@ -435,15 +449,15 @@ xterm 默认把 `Ctrl+V` 当控制字符 `0x16` 发给 PTY，不会粘贴。这�
 
 终端固定纯黑，不随皮肤明暗切换；`terminalTheme()` 定义颜色。
 
-### 6.4 终端页布局
+### 6.4 终端标签布局
 
-`TerminalsView`：
+终端没有独立侧栏页面，而是会话页中间区域的标签：
 
-- 左：全部工作区列表（点击打开 / 切换终端）；
-- 中：当前工作区终端；所有 xterm 实例保持挂载，切换不重启；
-- 右：工作区文件面板（可折叠）；
-- 没打开终端时显示引导；
-- 右键菜单：打开终端 / 打开工作区 / 关闭终端。
+- `CenterTabs` 同时列出「对话」、已打开文件与终端标签；
+- `CenterPane` 按标签类型渲染 `TerminalView` / `FilePreview`，所有实例保持挂载，切换不重启 PTY；
+- 右侧仍是 `WorkspacePanel`，终端选中时会跟随终端所属工作区；
+- 从工作区页「打开终端」会切到会话页并定位到该目录；
+- 关闭标签直接销毁对应 PTY；关闭多个终端前二次确认。
 
 ---
 
@@ -475,9 +489,9 @@ interface FileTab {
 - 对话常驻，文件预览以 `hidden` 切换，不卸载；
 - 文件标签只在当前聊天视图内保持。
 
-### 7.3 终端页
+### 7.3 终端标签
 
-终端页可以内嵌 `FilePreview`，覆盖在终端上方；关闭后回到终端，PTY 仍在后台运行。
+终端标签可以内嵌 `FilePreview`，覆盖在终端上方；关闭后回到终端，PTY 仍在后台运行。
 
 ### 7.4 `FilePreview`
 
@@ -497,6 +511,8 @@ interface FileTab {
 
 - 右侧第三栏，默认宽度 320，范围 240–560，宽度存 `localStorage`；
 - 根目录与展开目录分别 `project:listFiles`；
+- 只监听根目录与当前展开目录，目录收起 / 离开文件标签时释放；
+- 收到 `workspace:changed` 后只重拉脏目录；
 - Git 状态索引 + 目录汇总；
 - 已删除文件覆盖显示；
 - 点击文件 → `openFile` 或外部 `onOpenFile`；
@@ -508,8 +524,9 @@ interface FileTab {
 
 | 功能 | 文件 |
 |---|---|
-| 项目 CRUD | `src/main/ipc/handlers/project.ts` |
-| 文件列表 | `src/main/ipc/handlers/dialog.ts` |
+| 项目 CRUD / 文件列表 | `src/main/ipc/handlers/project.ts` |
+| 目录监听 | `src/main/files/watcher.ts` / `src/renderer/lib/file-watch.ts` |
+| 忽略规则 | `src/main/files/ignore.ts` |
 | 文件读取 / 预览 | `src/main/files/access.ts` |
 | 文件 IPC | `src/main/ipc/handlers/file.ts` |
 | Git | `src/main/git/status.ts` |
@@ -517,7 +534,8 @@ interface FileTab {
 | 终端 IPC | `src/main/ipc/handlers/terminal.ts` |
 | 工作区页 | `components/workspaces/WorkspacesView.tsx` |
 | 文件面板 | `components/workspaces/WorkspacePanel.tsx` |
-| 终端页 | `components/terminal/TerminalsView.tsx` / `TerminalView.tsx` |
+| 终端组件 | `components/terminal/TerminalView.tsx` |
+| 终端标签 | `components/chat/CenterTabs.tsx` / `CenterPane.tsx` |
 | 终端 store | `stores/terminal.ts` |
 | 文件标签 store | `stores/fileViewer.ts` |
 | 文件预览 | `components/files/FilePreview.tsx` |
@@ -530,13 +548,14 @@ interface FileTab {
 - [ ] 创建校验目录存在、是文件夹、路径去重。
 - [ ] 删除工作区先检查活跃运行，级联清理 Nova 数据，不删用户目录。
 - [ ] 文件树懒加载，忽略构建 / 依赖 / VCS 目录，最多 200 项。
+- [ ] 只监听根目录与展开目录，250ms 合并，仅重拉脏目录。
 - [ ] 文件路径词法 + realpath 双重校验。
 - [ ] 预览支持文本 / Markdown / 图片 / PDF / 二进制。
 - [ ] 文本 2MB、内嵌 25MB 上限，二进制探测。
 - [ ] 文本解码支持 UTF-8 / UTF-16 BOM。
 - [ ] Markdown 内嵌图片按文档目录解析并由主进程内联。
 - [ ] Git 使用 porcelain v1 + `-z`，支持仓库子目录。
-- [ ] 终端每个工作区最多一个，总上限 12。
+- [ ] 默认同一工作区复用一个终端，`forceNew` 可多开，总上限 12。
 - [ ] 终端目录不存在时明确报错，不静默回退。
 - [ ] 终端跨页面常驻，切页不重启 PTY。
 - [ ] 终端剪贴板快捷键正确，图片粘贴保留 `0x16`。

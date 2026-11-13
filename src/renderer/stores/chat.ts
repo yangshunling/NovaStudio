@@ -118,6 +118,13 @@ interface ChatState {
    */
   selectedPermissionMode: string;
   /**
+   * 新会话草稿的模型（完整 ID）；null 表示跟随 Agent 配置的默认模型。
+   *
+   * 已开会话直接读写会话记录；这里只服务「还没创建会话」的输入框工具栏，
+   * 首条消息创建会话时随 session:create 一起落库。
+   */
+  selectedModel: string | null;
+  /**
    * 本次进程内「会话 → 当前回答者」的快照。
    *
    * 值为 null 表示明确选择了默认回答者（通用助手，不绑定数字员工）；
@@ -172,6 +179,13 @@ interface ChatState {
    * 已开会话写会话记录（下一轮生效）；新会话只更新草稿，首条消息时落库。
    */
   setPermissionMode: (mode: string) => Promise<void>;
+
+  /**
+   * 切换会话模型。
+   * 已开会话写会话记录（下一轮生效）；新会话只更新草稿。
+   * 传 null 恢复「跟随 Agent 默认模型」。
+   */
+  setModel: (model: string | null) => Promise<void>;
 
   // 对话
   /**
@@ -565,6 +579,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   selectedAgentId: "",
   selectedEmployeeId: null,
   selectedPermissionMode: DEFAULT_PERMISSION_MODE,
+  selectedModel: null,
   employeeIdBySession: {},
   viewMode: "chat",
   showSettings: false,
@@ -737,11 +752,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
       /*
        * 每次新建会话都回到默认回答者「通用助手」：员工是按任务派的，
        * 沿用上一次的选择容易让人以为新任务仍然带着旧人设。
+       * 模型同理回到「跟随 Agent 默认」，避免上一个任务的临时选择
+       * 被无声地带到不相关的任务里。
        */
       const cleared = {
         currentSessionId: null,
         currentProjectId: null,
         selectedEmployeeId: null,
+        selectedModel: null,
       };
       if (!(NEW_SESSION_DRAFT_KEY in state.draftsBySession)) {
         return cleared;
@@ -1088,6 +1106,43 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }
   },
 
+  setModel: async (model) => {
+    const value = model?.trim() || null;
+    const { currentSessionId } = get();
+
+    // 新会话：只更新草稿，首条消息创建会话时随 session:create 落库
+    if (!currentSessionId) {
+      set({ selectedModel: value });
+      return;
+    }
+
+    // 乐观更新，避免等主进程写库期间下拉又跳回旧值
+    set((s) => ({
+      selectedModel: value,
+      sessions: s.sessions.map((item) =>
+        item.id === currentSessionId ? { ...item, model: value } : item,
+      ),
+    }));
+    try {
+      const session = await ipc.setSessionModel(currentSessionId, value);
+      if (!session) throw new Error("会话不存在");
+      set((s) => ({
+        sessions: s.sessions.map((item) =>
+          item.id === session.id
+            ? { ...item, model: session.model ?? value }
+            : item,
+        ),
+      }));
+    } catch (err) {
+      try {
+        await get().loadSessions();
+      } catch {
+        // 忽略：下一次打开会话列表时会再同步
+      }
+      throw err;
+    }
+  },
+
   // ==========================================================================
   // 对话
   // ==========================================================================
@@ -1162,6 +1217,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       picked,
       employeeId,
       state.selectedPermissionMode,
+      state.selectedModel,
     );
     const sessionId = session.id;
     // 主进程已持久化 employeeId；这里同步一份，保证列表刷新前也能正确显示

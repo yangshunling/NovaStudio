@@ -174,6 +174,14 @@ export interface Session {
    * 运行时回退到 Agent 配置的默认值。
    */
   permissionMode?: string | null;
+  /**
+   * 会话级模型覆盖（完整模型 ID，可含 `[1M]` 上下文后缀）。
+   *
+   * null 表示跟随 Agent 配置的默认模型：只有用户在工具栏显式选过才落库，
+   * 这样改设置页的默认模型仍能影响旧会话。运行时不写回 settings.json，
+   * 而是通过 `--model` 传给 CLI。
+   */
+  model?: string | null;
   title: string;
   cwd: string;
   createdAt: number;
@@ -957,6 +965,8 @@ export interface AppSettings {
   fontSize: number;
   /** 聊天记录区域的独立字号（px）；与全局字号解耦，便于单独调大 */
   chatFontSize: number;
+  /** 界面字体 id（见 renderer/skins/typography）；空字符串表示系统默认 */
+  fontFamily: string;
   /** 终端字号（px）；终端字体固定使用系统等宽字体 */
   terminalFontSize: number;
   /** 自动化看板同时执行的任务数上限 */
@@ -973,6 +983,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   theme: "",
   fontSize: 13,
   chatFontSize: 13,
+  fontFamily: "",
   terminalFontSize: 15,
   automationConcurrency: 3,
   automationPollIntervalSec: 30,

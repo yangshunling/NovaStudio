@@ -278,6 +278,16 @@ export const provider: AgentProvider = {
     }
 
     /*
+     * 会话级模型覆盖：只影响本次进程，不写回 settings.json。
+     * 未指定时不传，继续由 CLI 读取本机配置的 ANTHROPIC_MODEL / 别名。
+     * 空字符串会被 CLI 当作非法值，因此清洗后再判断。
+     */
+    const model = opts.model?.trim();
+    if (model) {
+      args.push("--model", model);
+    }
+
+    /*
      * 交互式工具授权：只有带 UI 的聊天运行、且模式可能 ask 时才启用。
      * CLI 会把 can_use_tool 发到 stdout 的控制通道，宿主必须把
      * control_response 写回同一根 stdin，因此还要强制 stream-json 输入
@@ -329,7 +339,9 @@ export const provider: AgentProvider = {
         systemPromptFile
           ? "系统提示词写入临时文件后通过 --append-system-prompt-file 传入"
           : "",
-        "未传 --model：模型由本机 Claude settings.json 决定",
+        model
+          ? `模型来自会话配置：${model}（不写回 settings.json）`
+          : "未传 --model：模型由本机 Claude settings.json 决定",
         cliPermissionMode
           ? `权限模式来自会话级配置：${cliPermissionMode}`
           : "未传 --permission-mode：权限由本机 Claude settings.json 决定",

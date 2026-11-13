@@ -15,6 +15,7 @@ import { DEFAULT_SETTINGS } from "@shared/types";
 import type { SkinVariant } from "@shared/contracts/skin";
 import { defaultSkinId, getSkin, hasSkin, skins } from "../skins/registry";
 import { parseJsonSafe } from "@shared/json";
+import { fontPresetToken } from "../skins/typography";
 
 /** 启动缓存键（只缓存皮肤与字号，真值仍在主进程设置里） */
 const CACHE_KEY = "nova-skin";
@@ -26,6 +27,8 @@ interface SkinState {
   fontSize: number;
   /** 聊天记录区域的独立字号（px） */
   chatFontSize: number;
+  /** 界面字体 id；空字符串表示系统默认 */
+  fontFamily: string;
   /** 终端字号（px） */
   terminalFontSize: number;
 
@@ -33,6 +36,7 @@ interface SkinState {
   setTheme: (id: string) => void;
   setFontSize: (px: number) => void;
   setChatFontSize: (px: number) => void;
+  setFontFamily: (id: string) => void;
   setTerminalFontSize: (px: number) => void;
 }
 
@@ -80,15 +84,30 @@ function applyChatFontSize(px: number): void {
   document.documentElement.style.setProperty("--c-chat-font-size", `${px}px`);
 }
 
+/**
+ * 应用界面字体。
+ *
+ * 与字号同理写在 <html> 内联样式上，优先级高于皮肤的 [data-theme]。
+ * 系统默认清掉内联值，让皮肤自带的字体栈生效；代码/终端使用的
+ * --c-font-mono 不受影响。
+ */
+function applyFontFamily(id: string): void {
+  const root = document.documentElement;
+  const token = fontPresetToken(id);
+  if (token) root.style.setProperty("--c-font-sans", `var(${token})`);
+  else root.style.removeProperty("--c-font-sans");
+}
+
 function writeCache(
   theme: string,
   fontSize: number,
   chatFontSize: number,
+  fontFamily: string,
 ): void {
   try {
     localStorage.setItem(
       CACHE_KEY,
-      JSON.stringify({ theme, fontSize, chatFontSize }),
+      JSON.stringify({ theme, fontSize, chatFontSize, fontFamily }),
     );
   } catch {
     // localStorage 不可用时忽略：只是少了启动缓存
@@ -100,6 +119,7 @@ function readCache(): {
   currentTheme: string;
   fontSize: number;
   chatFontSize: number;
+  fontFamily: string;
 } {
   const fallbackFontSize = DEFAULT_SETTINGS.fontSize;
   try {
@@ -109,6 +129,7 @@ function readCache(): {
         theme?: unknown;
         fontSize?: unknown;
         chatFontSize?: unknown;
+        fontFamily?: unknown;
       }>(raw, {});
       const fontSize =
         typeof parsed.fontSize === "number" && parsed.fontSize > 0
@@ -125,6 +146,9 @@ function readCache(): {
           typeof parsed.chatFontSize === "number" && parsed.chatFontSize > 0
             ? parsed.chatFontSize
             : fontSize,
+        // 老缓存没有字体设置：系统默认
+        fontFamily:
+          typeof parsed.fontFamily === "string" ? parsed.fontFamily : "",
       };
     }
   } catch {
@@ -134,6 +158,7 @@ function readCache(): {
     currentTheme: defaultSkinId,
     fontSize: fallbackFontSize,
     chatFontSize: DEFAULT_SETTINGS.chatFontSize,
+    fontFamily: DEFAULT_SETTINGS.fontFamily,
   };
 }
 
@@ -143,6 +168,7 @@ export const useThemeStore = create<SkinState>((set, get) => ({
   currentTheme: cached.currentTheme,
   fontSize: cached.fontSize,
   chatFontSize: cached.chatFontSize,
+  fontFamily: cached.fontFamily,
   terminalFontSize: DEFAULT_SETTINGS.terminalFontSize,
 
   /** 从主进程设置同步（应用启动后调用一次），以设置里的值为准 */
@@ -163,24 +189,30 @@ export const useThemeStore = create<SkinState>((set, get) => ({
       settings.terminalFontSize && settings.terminalFontSize > 0
         ? settings.terminalFontSize
         : DEFAULT_SETTINGS.terminalFontSize;
+    const fontFamily =
+      typeof settings.fontFamily === "string"
+        ? settings.fontFamily
+        : DEFAULT_SETTINGS.fontFamily;
 
     set({
       currentTheme: theme,
       fontSize,
       chatFontSize,
+      fontFamily,
       terminalFontSize,
     });
     applyTheme(getSkin(theme));
     applyFontSize(fontSize);
     applyChatFontSize(chatFontSize);
-    writeCache(theme, fontSize, chatFontSize);
+    applyFontFamily(fontFamily);
+    writeCache(theme, fontSize, chatFontSize, fontFamily);
   },
 
   setTheme: (id) => {
     if (!hasSkin(id)) return;
     set({ currentTheme: id });
     applyTheme(getSkin(id));
-    writeCache(id, get().fontSize, get().chatFontSize);
+    writeCache(id, get().fontSize, get().chatFontSize, get().fontFamily);
     void ipc.setSettings({ theme: id });
   },
 
@@ -188,7 +220,7 @@ export const useThemeStore = create<SkinState>((set, get) => ({
     if (!(px > 0)) return;
     set({ fontSize: px });
     applyFontSize(px);
-    writeCache(get().currentTheme, px, get().chatFontSize);
+    writeCache(get().currentTheme, px, get().chatFontSize, get().fontFamily);
     void ipc.setSettings({ fontSize: px });
   },
 
@@ -196,8 +228,20 @@ export const useThemeStore = create<SkinState>((set, get) => ({
     if (!(px > 0)) return;
     set({ chatFontSize: px });
     applyChatFontSize(px);
-    writeCache(get().currentTheme, get().fontSize, px);
+    writeCache(get().currentTheme, get().fontSize, px, get().fontFamily);
     void ipc.setSettings({ chatFontSize: px });
+  },
+
+  setFontFamily: (id) => {
+    set({ fontFamily: id });
+    applyFontFamily(id);
+    writeCache(
+      get().currentTheme,
+      get().fontSize,
+      get().chatFontSize,
+      id,
+    );
+    void ipc.setSettings({ fontFamily: id });
   },
 
   setTerminalFontSize: (px) => {
@@ -211,6 +255,7 @@ export const useThemeStore = create<SkinState>((set, get) => ({
 applyTheme(getSkin(useThemeStore.getState().currentTheme));
 applyFontSize(useThemeStore.getState().fontSize);
 applyChatFontSize(useThemeStore.getState().chatFontSize);
+applyFontFamily(useThemeStore.getState().fontFamily);
 
 /** 供应用启动时调用：从主进程设置同步皮肤与字号 */
 export function loadSkinSettings(): Promise<void> {
@@ -222,9 +267,11 @@ export function useTheme() {
   const currentTheme = useThemeStore((s) => s.currentTheme);
   const fontSize = useThemeStore((s) => s.fontSize);
   const chatFontSize = useThemeStore((s) => s.chatFontSize);
+  const fontFamily = useThemeStore((s) => s.fontFamily);
   const setTheme = useThemeStore((s) => s.setTheme);
   const setFontSize = useThemeStore((s) => s.setFontSize);
   const setChatFontSize = useThemeStore((s) => s.setChatFontSize);
+  const setFontFamily = useThemeStore((s) => s.setFontFamily);
   const terminalFontSize = useThemeStore((s) => s.terminalFontSize);
   const setTerminalFontSize = useThemeStore((s) => s.setTerminalFontSize);
 
@@ -232,10 +279,12 @@ export function useTheme() {
     currentTheme,
     fontSize,
     chatFontSize,
+    fontFamily,
     terminalFontSize,
     setTheme,
     setFontSize,
     setChatFontSize,
+    setFontFamily,
     setTerminalFontSize,
     skins,
   };

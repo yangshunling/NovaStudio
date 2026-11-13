@@ -240,7 +240,7 @@ export function WorkflowDebugPanel({
             产物待审核 · {awaiting.nodeName}
             {awaiting.employeeName ? ` · ${awaiting.employeeName}` : ""}
           </p>
-          <pre className="mt-1.5 max-h-24 overflow-y-auto whitespace-pre-wrap rounded-lg bg-surface/70 p-2.5 font-sans ui-type-note leading-relaxed text-text">
+          <pre className="mt-1.5 max-h-24 overflow-y-auto whitespace-pre-wrap rounded-lg bg-surface/70 p-2.5 ui-type-note leading-relaxed text-text">
             {awaiting.outputSummary || "（节点已完成，产物见运行详情）"}
           </pre>
           <p className="mt-1.5 ui-type-sub text-text-muted">

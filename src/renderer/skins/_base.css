@@ -32,9 +32,12 @@
    * 除此之外任何标题或正文都不使用衬线；皮肤若想统一，覆盖 display 即可。
    */
   --c-font-size: 13px;
-  --c-font-sans:
+  /* 系统默认字体单独成 token：设置页预览始终显示真正的系统字体，
+   * 不会因为用户当前选了别的预设而被 --c-font-sans 的覆盖带偏。 */
+  --c-font-preset-system:
     system-ui, -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei UI",
     "Microsoft YaHei", sans-serif;
+  --c-font-sans: var(--c-font-preset-system);
   --c-font-mono:
     ui-monospace, "Cascadia Mono", Consolas, "Microsoft YaHei UI", monospace;
   /* 品牌专用：只有 .ui-type-brand 引用（侧栏刊头已改用标语图，角色类保留）。
@@ -42,6 +45,18 @@
   --c-font-display:
     "Palatino Linotype", Palatino, "Book Antiqua", Georgia, "Times New Roman",
     "Songti SC", "Noto Serif CJK SC", "SimSun", serif;
+
+  /* 设置页可选字体：只放字体栈，选项清单在 skins/typography.ts。
+   * 切换时 --c-font-sans 引用这里的某个变量，因此改字体值只改本文件。 */
+  --c-font-preset-yahei:
+    "Microsoft YaHei UI", "Microsoft YaHei", system-ui, "PingFang SC", sans-serif;
+  /* 等宽预设直接复用代码字体的字体栈：界面与代码字形一致 */
+  --c-font-preset-mono: var(--c-font-mono);
+  --c-font-preset-source-han:
+    "Noto Sans CJK SC", "Source Han Sans SC", "Microsoft YaHei", system-ui,
+    sans-serif;
+  --c-font-preset-simsun: "Songti SC", "SimSun", "STSong", serif;
+  --c-font-preset-kaiti: "Kaiti SC", "KaiTi", "STKaiti", serif;
 
   /* === 圆角刻度 ===
    *
@@ -101,9 +116,25 @@
   --c-space-section: 20px; /* 区块之间的间距 */
   --c-space-field: 12px; /* 表单项之间的间距 */
 
-  /* === 控件尺寸 === */
+  /* === 控件尺寸 ===
+   *
+   * 工具栏、文件树这类高频结构只从这里取值；组件里不再写 h-8 / max-w-[130px]
+   * 这类任意尺寸，需要单独调试时再在组件上显式覆盖。
+   */
   --c-size-avatar: 32px; /* 图标头像容器（Agent 选择器、设置入口） */
   --c-size-icon-btn: 36px; /* 圆形图标按钮直径 */
+  --c-size-control: 32px; /* 标准控件高度（工具条选择器、输入区按钮） */
+  --c-size-control-sm: 28px; /* 紧凑行高（文件树行） */
+  --c-size-toolbar-max: 130px; /* 工具条单个选择器的最大宽度 */
+  --c-size-chip-x: 6px; /* 选择器左右内边距 */
+  --c-size-chip-gap: 6px; /* 选择器图标与文字的间隙 */
+  --c-size-icon-sm: 14px; /* 工具条图标 */
+  --c-size-icon-xs: 12px; /* 行内状态图标 */
+  --c-size-badge: 18px; /* 模型徽标等小方块 */
+  --c-size-indicator: 2px; /* 列表 / 导航左侧选中竖条 */
+  --c-size-dropdown: 352px; /* 标准下拉面板宽度（22rem） */
+  --c-size-dropdown-wide: 384px; /* 带搜索的下拉面板宽度（24rem） */
+  --c-size-side-panel: 340px; /* 工作区 / 工作流里的左侧列表栏宽度 */
 
   /* === 动效 ===
    *

@@ -22,6 +22,19 @@ export function registerDialogHandlers(): void {
     return picked?.[0] ?? null;
   });
 
+  /*
+   * 引用工作区外的文件。
+   *
+   * 只返回用户在本机文件选择框里明确选中的路径，不接受渲染层传入的
+   * 任意路径——`project:listFiles` 的越界校验仍然只允许工作区内部。
+   */
+  handle("dialog:pickFiles", async () =>
+    pickPaths({
+      properties: ["openFile", "multiSelections"],
+      title: "引用外部文件",
+    }),
+  );
+
   handle(
     "project:listFiles",
     async ({ projectId, subPath }) => {
