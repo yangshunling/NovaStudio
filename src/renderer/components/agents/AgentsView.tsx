@@ -20,6 +20,7 @@ import {
   type AgentSettingsDraft,
   type AgentSettingsView,
 } from "@shared/contracts/agent";
+import { PERMISSION_MODE_OPTIONS } from "@shared/permission";
 import { ipc } from "../../lib/ipc";
 import { toMessage } from "../../lib/utils";
 import { useChatStore } from "../../stores/chat";
@@ -64,16 +65,6 @@ function contextOptions(current: string) {
   }
   return [...CONTEXT_OPTIONS, { value, label: value }];
 }
-
-/** Claude Code 标准权限模式；label 直接使用官方模式名，避免意译造成的歧义 */
-const PERMISSION_OPTIONS = [
-  { value: "default", label: "default" },
-  { value: "auto", label: "auto" },
-  { value: "acceptEdits", label: "acceptEdits" },
-  { value: "plan", label: "plan" },
-  { value: "dontAsk", label: "dontAsk" },
-  { value: "bypassPermissions", label: "bypassPermissions" },
-];
 
 /** 右侧配置区的分区锚点 */
 const SECTION_NAV = [
@@ -299,15 +290,18 @@ export function AgentsView() {
       : "模型列表按当前 Base URL 与 API Key 动态获取；也可直接输入自定义模型名。";
 
   const permissionOptions = useMemo(() => {
-    if (!form) return PERMISSION_OPTIONS;
-    return PERMISSION_OPTIONS.some((option) => option.value === form.permissionMode)
-      ? PERMISSION_OPTIONS
+    if (!form) return [...PERMISSION_MODE_OPTIONS];
+    return PERMISSION_MODE_OPTIONS.some(
+      (option) => option.value === form.permissionMode,
+    )
+      ? [...PERMISSION_MODE_OPTIONS]
       : [
           {
             value: form.permissionMode,
             label: `${form.permissionMode} (current)`,
+            description: "配置文件中的自定义值",
           },
-          ...PERMISSION_OPTIONS,
+          ...PERMISSION_MODE_OPTIONS,
         ];
   }, [form]);
 
@@ -718,17 +712,24 @@ export function AgentsView() {
                     <SectionCard
                       id="agent-permission"
                       title="默认权限"
-                      description="写入 settings.json 的 permissions.defaultMode；终端 claude、Nova 会话与工作流节点统一按此配置运行。无人值守运行建议使用 bypassPermissions。"
+                      description="写入 settings.json 的 permissions.defaultMode，作为新会话与工作流节点的默认值；已开会话可在输入框工具栏按会话切换，切换不会写回本文件。无人值守运行建议保持 bypassPermissions。"
                       icon={ShieldCheck}
                     >
-                      <Field label="权限模式">
+                      <Field
+                        label="权限模式"
+                        hint={
+                          permissionOptions.find(
+                            (option) => option.value === form.permissionMode,
+                          )?.description
+                        }
+                      >
                         <Select
                           value={form.permissionMode}
                           onChange={(value) =>
                             patchForm({ permissionMode: value })
                           }
                           className={FORM_INPUT_CLASS}
-                          minMenuWidth={280}
+                          minMenuWidth={380}
                           options={permissionOptions}
                         />
                       </Field>

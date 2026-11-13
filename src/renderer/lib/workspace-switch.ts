@@ -5,8 +5,8 @@
  * 旧对话会保留在会话里，只是不再参与后续上下文。因此已有对话时
  * 先让用户确认，切换成功后主进程会插入一条 system 分隔提示。
  *
- * 输入区的 `#` 快捷切换与工作区选择器共用这一份逻辑，
- * 避免两处的确认文案与运行中拦截各自漂移。
+ * 输入框旁的工作区选择器统一走这一份逻辑，
+ * 确认文案与运行中拦截不会在别处漂移。
  */
 
 import { confirmDialog } from "../stores/confirm";
@@ -14,7 +14,7 @@ import { useChatStore } from "../stores/chat";
 import { toast } from "../stores/toast";
 import { errorMessage } from "@shared/error";
 
-/** 运行中切换被拒时给用户看的原因（选择器与 `#` 快捷切换共用） */
+/** 运行中切换被拒时给用户看的原因 */
 export const WORKSPACE_RUNNING_HINT =
   "当前会话正在运行，请等本轮结束后再切换工作区";
 

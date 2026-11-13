@@ -94,6 +94,8 @@ export function initDatabase(): void {
       title TEXT NOT NULL,
       cwd TEXT NOT NULL,
       config_dir TEXT,
+      -- 会话级权限模式；NULL 表示沿用 Agent 配置的默认值
+      permission_mode TEXT,
       source TEXT NOT NULL DEFAULT 'chat',
       message_count INTEGER NOT NULL DEFAULT 0,
       -- 本地 messages 是否已经覆盖完整历史。
@@ -325,6 +327,7 @@ export function initDatabase(): void {
 
   // 已发版的库不会因版本号相同而重建；这里幂等补列，避免清空用户数据
   ensureColumn(conn, "sessions", "employee_id", "TEXT");
+  ensureColumn(conn, "sessions", "permission_mode", "TEXT");
   ensureColumn(conn, "messages", "employee_id", "TEXT");
   // 短词检索只扫前 8KB 摘要，避免对整篇正文做 LIKE
   ensureColumn(conn, "knowledge_documents", "content_excerpt", "TEXT NOT NULL DEFAULT ''");

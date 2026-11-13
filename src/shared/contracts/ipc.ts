@@ -14,6 +14,7 @@ import type {
   DigitalEmployeeDraft,
   FileEntry,
   GitStatusSummary,
+  InputImage,
   KnowledgeBaseAsset,
   KnowledgeDocument,
   KnowledgeDocumentContent,
@@ -132,6 +133,8 @@ export interface IpcInvokeMap {
       {
         sessionId: string;
         prompt: string;
+        /** 随消息发送的图片（base64）；与 prompt 一起落库并送入 Agent */
+        images?: InputImage[];
         /**
          * 本轮回答者；不传则沿用会话当前的 employee_id。
          * 传入时会在运行前写回会话，保证“所选即本轮所用”。
@@ -273,6 +276,11 @@ export interface IpcInvokeMap {
         agentId: string;
         /** 绑定的数字员工；null / 缺省表示普通会话 */
         employeeId?: string | null;
+        /**
+         * 会话级权限模式（settings 命名）。
+         * 缺省时取 Agent 配置的默认值。
+         */
+        permissionMode?: string | null;
       },
     ];
     result: Session;
@@ -303,6 +311,14 @@ export interface IpcInvokeMap {
    */
   "session:setEmployee": {
     args: [{ sessionId: string; employeeId: string | null }];
+    result: Session | null;
+  };
+  /**
+   * 改写会话级权限模式；下一轮运行生效。
+   * 只改会话记录，不写回 ~/.claude/settings.json。
+   */
+  "session:setPermissionMode": {
+    args: [{ sessionId: string; permissionMode: string }];
     result: Session | null;
   };
   "session:setPinned": {

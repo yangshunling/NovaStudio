@@ -8,7 +8,14 @@
  * 4. 加载渲染进程页面
  */
 
-import { app, BrowserWindow, dialog, shell } from "electron";
+import {
+  app,
+  BrowserWindow,
+  Menu,
+  dialog,
+  shell,
+  type MenuItemConstructorOptions,
+} from "electron";
 import { join } from "path";
 import { existsSync } from "fs";
 import {
@@ -103,6 +110,29 @@ function createWindow(): BrowserWindow {
 
   win.on("ready-to-show", () => {
     win.show();
+  });
+
+  /*
+   * 原生右键菜单。
+   *
+   * Electron 默认不弹任何菜单：用户在正文上框选后右键只会看到「什么也没有」，
+   * 很容易判定为「这里不能复制」。这里只给最小可用的编辑动作；
+   * 空白处（没有选区、也不是输入框）不弹菜单，避免打断阅读。
+   */
+  win.webContents.on("context-menu", (_event, params) => {
+    const hasSelection = params.selectionText.trim().length > 0;
+    const items: MenuItemConstructorOptions[] = [];
+    if (hasSelection) items.push({ label: "复制", role: "copy" });
+    if (params.isEditable) {
+      if (hasSelection) items.push({ label: "剪切", role: "cut" });
+      items.push({ label: "粘贴", role: "paste" });
+    }
+    if (hasSelection || params.isEditable) {
+      if (items.length > 0) items.push({ type: "separator" });
+      items.push({ label: "全选", role: "selectAll" });
+    }
+    if (items.length === 0) return;
+    Menu.buildFromTemplate(items).popup({ window: win });
   });
 
   /*

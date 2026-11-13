@@ -58,7 +58,9 @@ export function QuestionNav() {
         .filter((message) => message.role === "user")
         .map((message) => ({
           id: message.id,
-          text: firstText(message.content).replace(/\s+/g, " ").trim(),
+          text:
+            firstText(message.content).replace(/\s+/g, " ").trim() ||
+            "[图片]",
         })),
     };
   }

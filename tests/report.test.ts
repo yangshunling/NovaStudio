@@ -108,23 +108,7 @@ test("无日期事项默认排除，显式勾选后纳入", () => {
   );
 });
 
-test("排除板块不区分大小写", () => {
-  const range = resolveReportRange("this-week", null, null, NOW);
-  const bundle = collectReportBundle(
-    [
-      todo({ id: "会议一", tags: ["会议"], dueAt: at(2026, 11, 11) }),
-      todo({ id: "任务一", tags: ["AIGC"], dueAt: at(2026, 11, 11) }),
-    ],
-    range,
-    { ...DEFAULT_REPORT_OPTIONS, excludeSections: ["会议"] },
-  );
-  assert.deepEqual(
-    bundle.entries.map((entry) => entry.title),
-    ["任务一"],
-  );
-});
-
-test("prompt 按板块列出记录，且不包含被排除的内容", () => {
+test("prompt 按板块列出记录", () => {
   const range = resolveReportRange("this-week", null, null, NOW);
   const items = [
     todo({
@@ -143,16 +127,6 @@ test("prompt 按板块列出记录，且不包含被排除的内容", () => {
   );
   assert.match(prompt, /### AIGC\n- 完成事项/);
   assert.match(prompt, /2026-11-09 至 2026-11-15/);
-
-  const excluded = buildWeeklyReportPrompt(
-    collectReportBundle(items, range, {
-      ...DEFAULT_REPORT_OPTIONS,
-      excludeSections: ["会议"],
-    }),
-    range,
-    { ...DEFAULT_REPORT_OPTIONS, excludeSections: ["会议"] },
-  );
-  assert.doesNotMatch(excluded, /会议事项/);
 });
 
 test("整段代码围栏会被去掉，正文内部的保持原样", () => {

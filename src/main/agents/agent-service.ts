@@ -12,7 +12,13 @@
 
 import { existsSync } from "fs";
 import { randomUUID } from "crypto";
-import type { AgentEvent, Message, Session, SessionOptions } from "../../shared/types";
+import type {
+  AgentEvent,
+  InputImage,
+  Message,
+  Session,
+  SessionOptions,
+} from "../../shared/types";
 import { DEFAULT_SETTINGS } from "../../shared/types";
 import { appendEvent } from "../../shared/agent-events";
 import type { AgentInfo } from "../../shared/contracts/agent";
@@ -46,6 +52,8 @@ function resolveTimeoutMs(): number {
 export interface RunParams {
   sessionId: string;
   prompt: string;
+  /** 随本轮消息发送的图片；落库与送入 CLI 使用同一份数据 */
+  images?: InputImage[];
   /**
    * 实际送入 CLI 上下文的文本；缺省等于 prompt。
    *
@@ -62,6 +70,13 @@ export interface RunParams {
   envRemove?: string[];
   /** provider 额外命令行参数（工作流节点的 MCP / 会话持久化等） */
   extraArgs?: string[];
+  /**
+   * 本轮权限模式覆盖（settings 命名）。
+   *
+   * 缺省时按「会话快照 → provider 本机默认」解析；聊天发送不需要传，
+   * 会话工具栏已经把选择写进会话记录。
+   */
+  permissionMode?: string;
   /** 本轮回答者：数字员工 id；null / 缺省表示走 Agent 全局配置 */
   employeeId?: string | null;
   /** 宿主侧旁路监听：除推送到渲染层外，引擎也需要实时拿到事件 */
@@ -320,6 +335,7 @@ export function createAgentService(emit: Emit): AgentService {
       const {
         sessionId,
         prompt,
+        images,
         contextPrompt = prompt,
         cwd,
         opts,
@@ -349,6 +365,16 @@ export function createAgentService(emit: Emit): AgentService {
       const provider = getProvider(session.agentId);
       if (!provider) return failed(`未知 Agent: ${session.agentId}`);
 
+      /*
+       * 权限模式解析顺序：调用方显式覆盖 → 会话快照 → Agent 本机默认。
+       * 工作流 / 自动化会话没有工具栏，落库的 permission_mode 为 NULL，
+       * 因此会跟随 Agent 配置，而不是固定吃数据库默认值。
+       */
+      const permissionMode =
+        params.permissionMode ??
+        session.permissionMode ??
+        provider.defaultPermissionMode?.();
+
       // 能力驱动：不支持多轮的 provider 永远按新会话发起
       const canResume =
         provider.manifest.capabilities.resume && !!session.agentSessionId;
@@ -375,7 +401,16 @@ export function createAgentService(emit: Emit): AgentService {
       const userMsg: Message = {
         id: randomUUID(),
         role: "user",
-        content: [{ type: "text", content: prompt }],
+        content: [
+          ...(images ?? []).map(
+            (image): AgentEvent => ({
+              type: "image",
+              mediaType: image.mediaType,
+              data: image.data,
+            }),
+          ),
+          ...(prompt ? [{ type: "text" as const, content: prompt }] : []),
+        ],
         timestamp: Date.now(),
       };
       db.saveSessionMessage(sessionId, userMsg);
@@ -390,6 +425,7 @@ export function createAgentService(emit: Emit): AgentService {
         runSession = provider.start({
           // 上下文里用带发言者前缀的文本；落库与界面仍用原始 prompt
           prompt: contextPrompt,
+          images,
           cwd,
           mode: session.source === "workflow" ? "workflow" : "chat",
           sessionRef,
@@ -397,6 +433,7 @@ export function createAgentService(emit: Emit): AgentService {
           env,
           envRemove,
           extraArgs,
+          ...(permissionMode ? { permissionMode } : {}),
           configDir: session.configDir ?? null,
           timeoutMs: resolveTimeoutMs(),
           onEvent: (event) => {

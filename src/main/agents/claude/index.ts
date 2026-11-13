@@ -12,8 +12,8 @@
  *   检测安装：claude --version
  *   工作目录：claude 无 -C 选项，通过进程的 cwd 设置
  *   模型选择：--model
- *   权限模式：不传 --permission-mode，由 CLI 读取本机 settings.json 的
- *            permissions.defaultMode —— 与 Agent 平台、终端 claude 完全一致
+ *   权限模式：--permission-mode（会话级快照，settings 名 default 映射为 CLI 名 manual）；
+ *            无法识别时退回 CLI 读取本机 settings.json 的 permissions.defaultMode
  *
  * 两个开关的取舍（都只影响本包，宿主不知情）：
  *   --verbose              -p 模式下输出 stream-json 需要它，否则 claude 直接拒绝
@@ -37,10 +37,13 @@ import { spawnChild, type Transport } from "../transport";
 import { probeVersion } from "../probe";
 import { manifest } from "./manifest";
 import { createDecoder, createStreamDecoder, extractSessionId } from "./parse";
+import { buildUserInput, usesStreamJsonInput } from "./input";
 import { createLineStartsResolver } from "./file-lines";
 import { prepareClaudeChatRun } from "./chat-runtime";
 import { prepareClaudeWorkflowRun } from "./prepare";
 import { getClaudeSettingsView } from "./settings";
+import { toCliPermissionMode } from "./permission";
+import { DEFAULT_PERMISSION_MODE } from "../../../shared/permission";
 import { formatModelEntry } from "./models";
 import { checkClaudeUpgrade, upgradeClaude } from "./upgrade";
 import {
@@ -232,6 +235,15 @@ export const provider: AgentProvider = {
     }
   },
 
+  /** 新会话 / 无工具栏运行的默认权限：读 settings.json，未配置时用 Nova 默认 */
+  defaultPermissionMode() {
+    try {
+      return getClaudeSettingsView().permissionMode;
+    } catch {
+      return DEFAULT_PERMISSION_MODE;
+    }
+  },
+
   prepareRun(input) {
     return prepareClaudeWorkflowRun(input);
   },
@@ -253,6 +265,23 @@ export const provider: AgentProvider = {
     ];
     if (opts.sessionRef) args.push("--resume", opts.sessionRef);
 
+    /*
+     * 会话级权限：宿主已把「会话快照 / Agent 默认值」解析成 settings 命名，
+     * 这里只做 CLI 名字映射。无法识别的值不传，退回 CLI 读取本机配置。
+     */
+    const cliPermissionMode = toCliPermissionMode(opts.permissionMode);
+    if (cliPermissionMode) {
+      args.push("--permission-mode", cliPermissionMode);
+    }
+
+    /*
+     * 带图片时必须用 stream-json 输入：默认的 text 格式只能传一段纯文本，
+     * 图片只能作为 content block 里的 image 块传入。CLI 要求该输入格式
+     * 与 stream-json 输出搭配（输出格式本来就是 stream-json）。
+     */
+    const streamInput = usesStreamJsonInput(opts.images);
+    if (streamInput) args.push("--input-format", "stream-json");
+
     // 系统提示词同样是多行文本，写入临时文件后用 --append-system-prompt-file
     const systemPrompt = opts.opts?.systemPrompt;
     const systemPromptFile = systemPrompt
@@ -270,15 +299,23 @@ export const provider: AgentProvider = {
       command: BIN,
       args: [...args],
       cwd: opts.cwd,
-      stdin: "任务输入（prompt 通过 stdin 传入，内容见「任务输入」章节）",
+      stdin: streamInput
+        ? "任务输入（stream-json 用户消息，含图片块；内容见「任务输入」章节）"
+        : "任务输入（prompt 通过 stdin 传入，内容见「任务输入」章节）",
       env: opts.env,
       envRemove: opts.envRemove,
       notes: [
         "prompt 通过 stdin 传入，不在命令行参数中（避免 Windows cmd.exe 截断换行）",
+        streamInput
+          ? "本轮带图片：使用 --input-format stream-json，图片以 base64 image 块传入"
+          : "",
         systemPromptFile
           ? "系统提示词写入临时文件后通过 --append-system-prompt-file 传入"
           : "",
-        "未传 --model / --permission-mode：模型与权限由本机 Claude settings.json 决定",
+        "未传 --model：模型由本机 Claude settings.json 决定",
+        cliPermissionMode
+          ? `权限模式来自会话级配置：${cliPermissionMode}`
+          : "未传 --permission-mode：权限由本机 Claude settings.json 决定",
       ].filter(Boolean) as string[],
     });
 
@@ -289,7 +326,8 @@ export const provider: AgentProvider = {
         // prompt 通过 stdin 传入，参数里只剩单行开关与路径，
         // Windows 下由 transport 显式经 cmd.exe 解析 .cmd 入口。
         // stream-json 本身逐行输出，不需要 TTY 也能实时流式。
-        stdin: opts.prompt,
+        // 带图片时 stdin 是单行 NDJSON，而不是原始正文。
+        stdin: buildUserInput(opts.prompt, opts.images),
         timeoutMs: opts.timeoutMs,
         env: opts.env,
         envRemove: opts.envRemove,

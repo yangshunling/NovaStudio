@@ -2,17 +2,16 @@
  * 输入框快捷引用 —— 三个触发字符各管一件事
  *
  *   @  引用数字员工（谁来回这一轮）
- *   /  引用内容（文件 / 工具 / 技能 / 提示词 / 知识库，仍是分类 → 条目两层）
- *   #  引用工作区（实现见 WorkspacePicker）
+ *   #  引用内容（文件 / 工具 / 技能 / 提示词 / 知识库，仍是分类 → 条目两层）
  *
  * 为什么把员工单独拆出来：@ 员工是高频动作，而内容和员工的选中语义完全不同
  * —— 内容是一段要发给 Agent 的引用，员工是「下一条消息由谁回答」的选择。
  * 混在一个弹窗里，选员工要先在类型层里翻一层；拆开后 `@需` + Enter 就能切换。
  *
  * 交互：
- *   1. 行首 / 空格 / 非邮箱字符后输入 @ 或 / → 弹出对应列表
+ *   1. 行首 / 空格 / 非单词字符后输入 @ 或 # → 弹出对应列表
  *   2. @：只列已启用的员工，选中即绑定（与输入框旁「指定员工」同一处状态）
- *   3. /：先选引用类型，再选条目；文件类型保留目录下钻
+ *   3. #：先选引用类型，再选条目；文件类型保留目录下钻
  *   4. ↑↓ 导航，Enter 确认；Backspace 在空查询时返回上一级
  *   5. Tab 强制选择、Esc / 外部点击关闭
  *
@@ -68,8 +67,8 @@ export type MentionCategory =
   | "prompt"
   | "knowledge";
 
-/** 触发字符：@ 选员工，/ 引用内容 */
-export type MentionTrigger = "@" | "/";
+/** 触发字符：@ 选员工，# 引用内容 */
+export type MentionTrigger = "@" | "#";
 
 /**
  * 发送时会转成提示词的引用（提示词正文直接插入，不走标签）。
@@ -131,7 +130,7 @@ const CATEGORY_META: Record<
 };
 
 /**
- * `/` 内容引用的类型顺序。
+ * `#` 内容引用的类型顺序。
  * 数字员工不在这里：它由 `@` 单独承载。
  */
 const CONTENT_CATEGORIES: readonly MentionCategory[] = [
@@ -166,11 +165,11 @@ interface TriggerMatch {
 /**
  * 从光标前的文本里找最近的触发字符。
  *
- * `@` 前面不能是邮箱本地部分（`a@b.com` 不触发）；`/` 前面不能是路径里
- * 的字符（`src/main` 不触发）。两者都以「非单词字符」作为边界，因此中文
- * 正文里直接写 `请@需求开发` 也能触发。
+ * `@` 前面不能是邮箱本地部分（`a@b.com` 不触发）；`#` 前面不能是单词
+ * 字符（`C#` 不触发）。两者都以「非单词字符」作为边界，因此中文正文里
+ * 直接写 `请@需求开发` 也能触发。
  *
- * 同一时刻可能两个都能命中（如 `@/file/`），取最左边那个：右边的 `/`
+ * 同一时刻可能两个都能命中（如 `@#`），取最左边那个：右边的 `#`
  * 属于 `@` 的查询串，不该另起一个弹窗。
  */
 function findTrigger(before: string): TriggerMatch | null {
@@ -186,11 +185,12 @@ function findTrigger(before: string): TriggerMatch | null {
     });
   }
 
-  const slash = before.match(/(?:^|[^A-Za-z0-9._%+\-])\/([^\s]*)$/);
-  if (slash) {
-    const query = slash[1];
+  // 排除 `/`：链接里的 `#锚点`（`https://x.dev/#a`）不是引用意图
+  const hash = before.match(/(?:^|[^A-Za-z0-9._%+\-/])#([^\s]*)$/);
+  if (hash) {
+    const query = hash[1];
     candidates.push({
-      trigger: "/",
+      trigger: "#",
       query,
       start: before.length - query.length - 1,
     });
@@ -636,7 +636,7 @@ export function useMention({
 
   /**
    * 把弹窗里的查询写回正文。
-   * 触发字符要保留：`/` 不能丢，否则下一次 change 就解析不回分类了。
+   * 触发字符要保留：`#` 不能丢，否则下一次 change 就解析不回分类了。
    */
   const writeQuery = useCallback(
     (query: string) => {
@@ -726,10 +726,10 @@ export function useMention({
       }
 
       /*
-       * `/` 兼作路径分隔符：`/usr/bin`、`src/main.ts` 这类不是引用意图。
-       * 只有查询本身就是空的，或者以已知分类开头（`/file/src`）才弹窗。
+       * 查询里带 `/` 时只认已知分类前缀（`#file/src`），
+       * 其余情况按普通正文处理，避免把用户随手写的路径吞进弹窗。
        */
-      if (found.trigger === "/" && found.query) {
+      if (found.trigger === "#" && found.query) {
         const slash = found.query.indexOf("/");
         if (slash >= 0 && !isContentCategory(found.query.slice(0, slash))) {
           closeMention();

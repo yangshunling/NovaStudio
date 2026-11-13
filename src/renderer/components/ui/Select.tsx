@@ -17,6 +17,8 @@ import { useDismissableLayer } from "../../hooks/useDismissableLayer";
 export interface SelectOption {
   value: string;
   label: string;
+  /** 菜单项的第二行说明文字；不传则保持单行 */
+  description?: string;
   disabled?: boolean;
 }
 
@@ -194,6 +196,15 @@ export function Select({
                   >
                     <span className="min-w-0 flex-1 truncate">
                       {option.label}
+                      {option.description && (
+                        <span
+                          className={`ml-2 ${
+                            active ? "text-accent/75" : "text-text-muted"
+                          }`}
+                        >
+                          {option.description}
+                        </span>
+                      )}
                     </span>
                     {active && <Check className="h-3.5 w-3.5 shrink-0" />}
                   </button>

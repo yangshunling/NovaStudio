@@ -138,9 +138,9 @@ export function Sidebar() {
           皮肤切换已移入「设置 → 外观」，刊头独占整行，因此居中排布。 */}
       <div
         style={{ zIndex: 30 }}
-        className="relative flex h-[var(--c-layout-header)] items-center justify-center overflow-hidden border-b border-border px-5"
+        className="relative flex h-[var(--c-layout-header)] items-center justify-center overflow-hidden border-b border-border px-8"
       >
-        {/* 图片按 4x 导出（768×110）；左右各留 20px，可用宽 176px，等比显示为 176×25.2。
+        {/* 图片按 4x 导出（768×110）；左右各留 32px，可用宽 152px，等比显示为 152×21.8。
             宽度撑满而不是固定高度：素材就是按这个尺寸做的，避免再次降采样。 */}
         <div className="relative flex w-full min-w-0 items-center justify-center">
           <img

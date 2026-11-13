@@ -18,6 +18,7 @@ import type { WeeklyReportOptions } from "@shared/report";
 import type {
   AppSettings,
   DigitalEmployeeDraft,
+  InputImage,
   McpServerDraft,
   PromptDraft,
   SkillImportKind,
@@ -72,8 +73,9 @@ export const ipc = {
     sessionId: string,
     prompt: string,
     employeeId?: string | null,
+    images?: InputImage[],
   ): Promise<SendAgentResult> =>
-    call("agent:send", { sessionId, prompt, employeeId }),
+    call("agent:send", { sessionId, prompt, images, employeeId }),
   abortAgent: (sessionId: string) => call("agent:abort", { sessionId }),
 
   // === 项目 ===
@@ -145,9 +147,18 @@ export const ipc = {
     projectId: string | null,
     agentId: string,
     employeeId?: string | null,
-  ) => call("session:create", { projectId, agentId, employeeId }),
+    permissionMode?: string | null,
+  ) =>
+    call("session:create", {
+      projectId,
+      agentId,
+      employeeId,
+      permissionMode,
+    }),
   setSessionEmployee: (sessionId: string, employeeId: string | null) =>
     call("session:setEmployee", { sessionId, employeeId }),
+  setSessionPermissionMode: (sessionId: string, permissionMode: string) =>
+    call("session:setPermissionMode", { sessionId, permissionMode }),
   listSessions: () => call("session:list"),
   getDefaultCwd: () => call("session:defaultCwd"),
   getSession: (

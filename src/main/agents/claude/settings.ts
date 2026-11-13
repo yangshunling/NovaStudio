@@ -4,8 +4,9 @@
  * 「Agent 平台」直接编辑这份文件，Claude CLI 与 Nova 共用同一套配置：
  * - env.ANTHROPIC_BASE_URL / AUTH_TOKEN / API_KEY
  * - env.ANTHROPIC_MODEL + ANTHROPIC_DEFAULT_*_MODEL
- * - permissions.defaultMode（终端 claude、Nova 会话与工作流节点共用；
- *   Nova 不再显式传 --permission-mode，完全交给 CLI 读取本机配置）
+ * - permissions.defaultMode（作为 Nova 新会话与工作流节点的默认值；
+ *   会话工具栏可以按会话覆盖，覆盖值通过 --permission-mode 显式传入，
+ *   不再写回本文件）
  *
  * 写入时只改上述键，保留 settings.json 里的其它内容（hooks / plugins / statusLine 等）。
  */
@@ -25,6 +26,7 @@ import {
 import { claudeSettingsPath, isOfficialBaseUrl } from "./config";
 import { formatModelEntry } from "./models";
 import { errorMessage } from "../../../shared/error";
+import { DEFAULT_PERMISSION_MODE } from "../../../shared/permission";
 
 const ALIASES = AGENT_MODEL_ALIASES;
 
@@ -43,7 +45,9 @@ function normalizeBaseUrl(raw: string): string {
 }
 
 function normalizePermissionMode(value: unknown): string {
-  if (typeof value !== "string" || !value.trim()) return "default";
+  if (typeof value !== "string" || !value.trim()) {
+    return DEFAULT_PERMISSION_MODE;
+  }
   const trimmed = value.trim();
   // settings 里手动模式叫 default，命令行开关叫 manual
   return trimmed === "manual" ? "default" : trimmed;

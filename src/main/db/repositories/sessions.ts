@@ -24,13 +24,14 @@ export function createSession(
   configDir?: string | null,
   source: SessionSource = "chat",
   employeeId?: string | null,
+  permissionMode?: string | null,
 ): Session {
   const id = randomUUID();
   const now = Date.now();
   const resolvedTitle = title || "新会话";
 
   prepare(
-    "INSERT INTO sessions (id, project_id, employee_id, agent_id, agent_session_id, title, cwd, config_dir, source, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    "INSERT INTO sessions (id, project_id, employee_id, agent_id, agent_session_id, title, cwd, config_dir, permission_mode, source, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
   ).run(
     id,
     projectId,
@@ -40,6 +41,7 @@ export function createSession(
     resolvedTitle,
     cwd,
     configDir ?? null,
+    permissionMode ?? null,
     source,
     now,
     now,
@@ -52,6 +54,7 @@ export function createSession(
     source,
     agentId,
     agentSessionId: null,
+    permissionMode: permissionMode ?? null,
     title: resolvedTitle,
     cwd,
     configDir: configDir ?? null,
@@ -118,6 +121,23 @@ export function setSessionEmployee(
 ): void {
   prepare("UPDATE sessions SET employee_id = ? WHERE id = ?").run(
     employeeId,
+    sessionId,
+  );
+}
+
+/**
+ * 改写会话的权限模式。
+ *
+ * 只影响本会话后续运行，不碰 agent_session_id：权限是运行参数，不是上下文，
+ * 换档位不应该重置 --resume。与切换员工一样不更新 updated_at，
+ * 避免只是改权限就把会话顶到列表最前。
+ */
+export function setSessionPermissionMode(
+  sessionId: string,
+  permissionMode: string,
+): void {
+  prepare("UPDATE sessions SET permission_mode = ? WHERE id = ?").run(
+    permissionMode,
     sessionId,
   );
 }
@@ -392,6 +412,7 @@ function rowToSession(row: any): Session {
     source: (row.source ?? "chat") as Session["source"],
     agentId: row.agent_id,
     agentSessionId: row.agent_session_id,
+    permissionMode: row.permission_mode ?? null,
     title: row.title,
     cwd: row.cwd,
     configDir: row.config_dir ?? null,

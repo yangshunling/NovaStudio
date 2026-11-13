@@ -28,10 +28,12 @@ import {
   Library,
   ListOrdered,
   Keyboard,
+  ImagePlus,
   X,
 } from "lucide-react";
 import { AgentSelector } from "./AgentSelector";
 import { EmployeeSelector } from "./EmployeeSelector";
+import { PermissionSelector } from "./PermissionSelector";
 import { ProjectSelector } from "./ProjectSelector";
 import {
   useMention,
@@ -40,11 +42,15 @@ import {
 } from "./MentionPicker";
 import { AssistantMessageList } from "./AssistantMessageList";
 import { ContextGauge } from "./ContextGauge";
-import { useWorkspacePicker } from "./WorkspacePicker";
 import { useInputHistory } from "../../hooks/useInputHistory";
 import { useDismissableLayer } from "../../hooks/useDismissableLayer";
 import { useComposerSubmit, usePasteNormalizer } from "./useComposer";
-import { WorkspaceMenuPanel } from "./WorkspaceMenu";
+import {
+  IMAGE_ACCEPT,
+  fileToInputImage,
+} from "../../lib/image-attachment";
+import { newId } from "../../lib/utils";
+import type { InputImage } from "@shared/types";
 import { QuestionNav } from "./QuestionNav";
 import { FileTypeIcon } from "../ui/FileTypeIcon";
 import { PageHeader } from "../ui/Page";
@@ -52,6 +58,9 @@ import { IconButton } from "../ui/IconButton";
 import { toast } from "../../stores/toast";
 import { toMessage } from "../../lib/utils";
 import { FOCUS_COMPOSER_EVENT } from "../../lib/chat-events";
+
+/** 输入区里待发送的图片：带本地 key，便于预览列表增删 */
+type PendingImage = InputImage & { id: string };
 
 /** 引用标签的图标：文件按扩展名，其余按引用类型 */
 function ReferenceIcon({ reference }: { reference: MentionReference }) {
@@ -129,6 +138,52 @@ export function ChatArea({ embedded = false }: { embedded?: boolean } = {}) {
     [draftKey, setDraft],
   );
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  /** 待发送图片：只存在于当前草稿，切换会话即清空 */
+  const [pendingImages, setPendingImages] = useState<PendingImage[]>([]);
+  const [imagesBusy, setImagesBusy] = useState(false);
+  const imageInputRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    setPendingImages([]);
+  }, [draftKey]);
+
+  /**
+   * 粘贴 / 选择 / 拖入的图片统一在这里预处理（缩放 + 编码）。
+   * 单张失败不影响同批其它图片，逐张给出提示。
+   */
+  const addImageFiles = useCallback(async (files: File[]) => {
+    if (files.length === 0) return;
+    setImagesBusy(true);
+    try {
+      const results = await Promise.allSettled(files.map(fileToInputImage));
+      const added: PendingImage[] = [];
+      for (const result of results) {
+        if (result.status === "fulfilled") {
+          added.push({ ...result.value, id: newId() });
+        } else {
+          toast.error(toMessage(result.reason), 5000);
+        }
+      }
+      if (added.length > 0) {
+        setPendingImages((previous) => [...previous, ...added]);
+      }
+    } finally {
+      setImagesBusy(false);
+    }
+  }, []);
+
+  const clearImages = useCallback(() => setPendingImages([]), []);
+  /** 发送失败时还原：重新分配本地 key，预览列表才能正常渲染 */
+  const restoreImages = useCallback((snapshot: InputImage[]) => {
+    setPendingImages(snapshot.map((image) => ({ ...image, id: newId() })));
+  }, []);
+
+  const removeImage = useCallback((id: string) => {
+    setPendingImages((previous) =>
+      previous.filter((image) => image.id !== id),
+    );
+  }, []);
+
   const pendingPrompt = useChatStore((s) => s.pendingPrompt);
   const consumePendingPrompt = useChatStore((s) => s.consumePendingPrompt);
 
@@ -210,14 +265,13 @@ export function ChatArea({ embedded = false }: { embedded?: boolean } = {}) {
     setInput,
     textareaRef,
   });
-  /** `#` 快捷切换工作区；与 `@` 共用同一个输入框和弹窗位置 */
-  const workspacePicker = useWorkspacePicker({
-    draftKey,
-    input,
-    setInput,
-    textareaRef,
-  });
-  const handlePaste = usePasteNormalizer(setInput);
+  const handleImageFiles = useCallback(
+    (files: File[]) => {
+      void addImageFiles(files);
+    },
+    [addImageFiles],
+  );
+  const handlePaste = usePasteNormalizer(setInput, handleImageFiles);
 
   /** 输入快捷键帮助：完整说明放在弹层里，避免窄窗口下占位文本被截断 */
   const [helpOpen, setHelpOpen] = useState(false);
@@ -226,22 +280,25 @@ export function ChatArea({ embedded = false }: { embedded?: boolean } = {}) {
   const shortcutRows: Array<[string, string]> = [
     ["Enter", "发送消息"],
     ["Shift + Enter", "换行"],
+    ["Ctrl + V", "粘贴图片"],
     ["@", "选择数字员工"],
-    ["/", "引用文件 / 技能 / 知识库"],
-    ["#", "切换工作区"],
+    ["#", "引用文件 / 技能 / 知识库"],
     ["↑ / ↓", "翻找已发送内容"],
   ];
 
   /** 占位提示用独立的一行文本渲染：textarea 原生 placeholder 会自动折行 */
   const placeholder = currentProject
-    ? "输入消息，@ 选数字员工，/ 引用内容，# 切换工作区，Enter 发送，Shift+Enter 换行"
-    : "描述任务，@ 选数字员工，/ 引用内容，# 切换工作区，Enter 发送，Shift+Enter 换行";
+    ? "输入消息，@ 选数字员工，# 引用内容，Enter 发送，Shift+Enter 换行"
+    : "描述任务，@ 选数字员工，# 引用内容，Enter 发送，Shift+Enter 换行";
 
   const handleSend = useComposerSubmit({
     input,
+    images: pendingImages,
     references: mention.references,
     clearReferences: mention.clearReferences,
     restoreReferences: mention.restoreReferences,
+    clearImages,
+    restoreImages,
     setInput,
     pushHistory: history.push,
     sendMessage,
@@ -301,7 +358,21 @@ export function ChatArea({ embedded = false }: { embedded?: boolean } = {}) {
         {/* 输入区：一张书写纸 —— 正文在上，操作栏在下 */}
         <div className="ui-chat-gutter relative z-10 border-t border-border bg-bg py-3">
           <div className="mx-auto w-full max-w-[var(--c-layout-content)]">
-            <div className="rounded-input border border-border/80 bg-input-bg px-3 py-2 shadow-[var(--c-shadow-sm)] transition-[border-color,box-shadow] focus-within:border-accent/40 focus-within:shadow-[0_0_0_3px_var(--c-accent-soft)]">
+            <div
+              className="rounded-input border border-border/80 bg-input-bg px-3 py-2 shadow-[var(--c-shadow-sm)] transition-[border-color,box-shadow] focus-within:border-accent/40 focus-within:shadow-[0_0_0_3px_var(--c-accent-soft)]"
+              onDragOver={(e) => {
+                // 只接管文件拖拽，文本拖拽保持浏览器默认行为
+                if (e.dataTransfer.types.includes("Files")) e.preventDefault();
+              }}
+              onDrop={(e) => {
+                const files = Array.from(e.dataTransfer.files).filter((file) =>
+                  file.type.startsWith("image/"),
+                );
+                if (files.length === 0) return;
+                e.preventDefault();
+                void addImageFiles(files);
+              }}
+            >
               {/* 暂存区：本轮运行中继续发送的消息按序排在这里，结束后自动接力 */}
               {queued.length > 0 && (
                 <div className="mb-2 overflow-hidden rounded-md border border-border/70 bg-surface-2/70">
@@ -394,6 +465,38 @@ export function ChatArea({ embedded = false }: { embedded?: boolean } = {}) {
                 </div>
               )}
 
+              {/* 待发送图片：缩略图 + 单张移除；正文仍独占整行 */}
+              {pendingImages.length > 0 && (
+                <div className="mb-2 flex flex-wrap items-start gap-2 px-1">
+                  {pendingImages.map((image) => (
+                    <div
+                      key={image.id}
+                      className="group relative overflow-hidden rounded-md border border-border/60"
+                    >
+                      <img
+                        src={`data:${image.mediaType};base64,${image.data}`}
+                        alt="待发送图片"
+                        className="h-16 w-16 object-cover"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => removeImage(image.id)}
+                        title="移除图片"
+                        aria-label="移除图片"
+                        className="absolute right-0.5 top-0.5 rounded-sm bg-black/55 p-0.5 text-white opacity-0 transition-opacity hover:bg-black/75 group-hover:opacity-100 focus-visible:opacity-100"
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    </div>
+                  ))}
+                  {imagesBusy && (
+                    <span className="self-center ui-type-sub text-text-muted">
+                      正在处理图片…
+                    </span>
+                  )}
+                </div>
+              )}
+
               {/* 正文：独占整行，宽度不再被右侧控件挤占 */}
               <div className="relative">
                 <textarea
@@ -406,7 +509,6 @@ export function ChatArea({ embedded = false }: { embedded?: boolean } = {}) {
                   value={input}
                   onChange={(e) => {
                     mention.handleChange(e);
-                    workspacePicker.handleChange(e);
                   }}
                   onPaste={handlePaste}
                   onKeyDown={(e) => {
@@ -415,10 +517,9 @@ export function ChatArea({ embedded = false }: { embedded?: boolean } = {}) {
                     // 必须放在最前面，早于 @ / # 弹窗的按键处理。
                     if (e.nativeEvent.isComposing || e.keyCode === 229) return;
                     if (mention.handleKeyDown(e)) return;
-                    if (workspacePicker.handleKeyDown(e)) return;
                     // ↑ / ↓ 翻找历史发送正文（Esc 退出浏览并还原草稿）。
                     // 弹窗开着时方向键属于弹窗（哪怕列表为空），不接管
-                    if (mention.active || workspacePicker.active) return;
+                    if (mention.active) return;
                     if (history.handleKeyDown(e)) return;
                     if (e.key === "Enter" && !e.shiftKey) {
                       e.preventDefault();
@@ -452,16 +553,6 @@ export function ChatArea({ embedded = false }: { embedded?: boolean } = {}) {
                     popupRef={mention.popupRef}
                     itemRefs={mention.itemRefs}
                   />
-                ) : workspacePicker.active ? (
-                  <WorkspaceMenuPanel
-                    items={workspacePicker.entries}
-                    hoverIdx={workspacePicker.hoverIdx}
-                    emptyHint={workspacePicker.emptyHint}
-                    onHover={workspacePicker.setHoverIdx}
-                    onSelect={workspacePicker.selectEntry}
-                    popupRef={workspacePicker.popupRef}
-                    itemRefs={workspacePicker.itemRefs}
-                  />
                 ) : null}
               </div>
 
@@ -474,6 +565,31 @@ export function ChatArea({ embedded = false }: { embedded?: boolean } = {}) {
                   <ProjectSelector />
                   {/* 数字员工：可选。选中后本次会话使用其提示词与能力 */}
                   <EmployeeSelector />
+                  {/* 权限模式：按任务切换，下一轮运行生效 */}
+                  <PermissionSelector />
+                  {/* 图片：也可以直接粘贴 / 拖入输入区 */}
+                  <button
+                    type="button"
+                    onClick={() => imageInputRef.current?.click()}
+                    title="添加图片"
+                    aria-label="添加图片"
+                    className="rounded-md p-1.5 text-text-muted transition-colors hover:bg-surface-hover hover:text-text"
+                  >
+                    <ImagePlus className="h-3.5 w-3.5" />
+                  </button>
+                  <input
+                    ref={imageInputRef}
+                    type="file"
+                    accept={IMAGE_ACCEPT}
+                    multiple
+                    className="hidden"
+                    onChange={(e) => {
+                      const files = Array.from(e.target.files ?? []);
+                      // 清空 value：同一张图连续选两次也要能触发 change
+                      e.target.value = "";
+                      void addImageFiles(files);
+                    }}
+                  />
                   {/* 有多个可用 Agent 时才需要选择；否则自动使用唯一的那个 */}
                   {hasAgentChoice && (
                     <AgentSelector
@@ -523,7 +639,11 @@ export function ChatArea({ embedded = false }: { embedded?: boolean } = {}) {
                   <ContextGauge usage={usage} agentId={effectiveAgentId} />
                   <button
                     onClick={handleSend}
-                    disabled={!input.trim() && mention.references.length === 0}
+                    disabled={
+                      !input.trim() &&
+                      mention.references.length === 0 &&
+                      pendingImages.length === 0
+                    }
                     title={
                       isStopping
                         ? "本轮正在停止，消息会进入暂存区"

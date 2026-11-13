@@ -20,8 +20,15 @@ import { ipc } from "../lib/ipc";
 import { newId } from "../lib/utils";
 import { toast } from "./toast";
 import { appendEvent } from "@shared/agent-events";
+import { DEFAULT_PERMISSION_MODE } from "@shared/permission";
 import type { AgentInfo } from "@shared/contracts/agent";
-import type { AgentEvent, Message, Project, Session } from "@shared/types";
+import type {
+  AgentEvent,
+  InputImage,
+  Message,
+  Project,
+  Session,
+} from "@shared/types";
 
 /** 主视图标识：state 与 setter 共用，避免联合类型各写一份 */
 export type ViewMode =
@@ -51,6 +58,8 @@ export interface QueuedMessage {
   id: string;
   /** 实际发给 Agent 的完整提示词（可能含 @ 引用说明） */
   prompt: string;
+  /** 随消息发送的图片；出队时与原消息一起发送 */
+  images?: InputImage[];
   /** 暂存区里展示的正文：只放用户输入，引用说明另起行 */
   display: string;
   createdAt: number;
@@ -101,6 +110,13 @@ interface ChatState {
   /** 新会话要使用的数字员工；null 表示不使用（走全局配置） */
   selectedEmployeeId: string | null;
   /**
+   * 新会话草稿的权限模式（settings 命名）。
+   *
+   * 已开会话直接读写会话记录；这里只服务「还没创建会话」的输入框工具栏，
+   * 首条消息创建会话时随 session:create 一起落库。
+   */
+  selectedPermissionMode: string;
+  /**
    * 本次进程内「会话 → 当前回答者」的快照。
    *
    * 值为 null 表示明确选择了默认回答者（通用助手，不绑定数字员工）；
@@ -150,14 +166,25 @@ interface ChatState {
    */
   selectEmployee: (id: string | null) => Promise<void>;
 
+  /**
+   * 切换权限模式。
+   * 已开会话写会话记录（下一轮生效）；新会话只更新草稿，首条消息时落库。
+   */
+  setPermissionMode: (mode: string) => Promise<void>;
+
   // 对话
   /**
    * 发送消息。
    * - 会话空闲：立即发送；
    * - 会话运行中：进入该会话的暂存区，本轮结束后自动发送；
    * - `display` 用于暂存区展示（默认与 prompt 相同）。
+   * - `images` 随消息一起发送；纯图片消息允许 prompt 为空。
    */
-  sendMessage: (prompt: string, display?: string) => Promise<void>;
+  sendMessage: (
+    prompt: string,
+    display?: string,
+    images?: InputImage[],
+  ) => Promise<void>;
   abort: (sessionId?: string) => Promise<void>;
   /** 从暂存区移除一条；默认作用于当前会话 */
   removeQueuedMessage: (id: string, sessionId?: string) => void;
@@ -435,13 +462,23 @@ async function dispatchPrompt(
   sessionId: string,
   prompt: string,
   employeeId: string | null,
+  images?: InputImage[],
 ): Promise<void> {
   if (useChatStore.getState().streamingBySession[sessionId]) return;
 
   const userMsg: Message = {
     id: newId(),
     role: "user",
-    content: [{ type: "text", content: prompt }],
+    content: [
+      ...(images ?? []).map(
+        (image): AgentEvent => ({
+          type: "image",
+          mediaType: image.mediaType,
+          data: image.data,
+        }),
+      ),
+      ...(prompt ? [{ type: "text" as const, content: prompt }] : []),
+    ],
     timestamp: Date.now(),
   };
   useChatStore.setState((s) => ({
@@ -458,7 +495,7 @@ async function dispatchPrompt(
 
   try {
     // 回答者随消息一起传入：队列里的消息始终用入队时选定的员工
-    const result = await ipc.sendAgent(sessionId, prompt, employeeId);
+    const result = await ipc.sendAgent(sessionId, prompt, employeeId, images);
     if (!result.ok) throw new Error(result.error);
     // done 事件会复位 streaming；此处不提前复位，避免中间闪烁
   } catch (err) {
@@ -506,7 +543,7 @@ function drainQueue(sessionId: string): void {
     return { queuedBySession };
   });
 
-  void dispatchPrompt(sessionId, head.prompt, head.employeeId);
+  void dispatchPrompt(sessionId, head.prompt, head.employeeId, head.images);
 }
 
 export const useChatStore = create<ChatState>((set, get) => ({
@@ -526,6 +563,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   loadingHistoryFor: null,
   selectedAgentId: "",
   selectedEmployeeId: null,
+  selectedPermissionMode: DEFAULT_PERMISSION_MODE,
   employeeIdBySession: {},
   viewMode: "chat",
   showSettings: false,
@@ -1004,11 +1042,54 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }
   },
 
+  setPermissionMode: async (mode) => {
+    const { currentSessionId } = get();
+
+    // 新会话：只更新草稿，首条消息创建会话时随 session:create 落库
+    if (!currentSessionId) {
+      set({ selectedPermissionMode: mode });
+      return;
+    }
+
+    /*
+     * 乐观更新选择器，同时把草稿同步成当前选择：
+     * 下一次新建会话沿用「上一次用过的档位」，而不是永远回到 Agent 默认值。
+     */
+    set((s) => ({
+      selectedPermissionMode: mode,
+      sessions: s.sessions.map((item) =>
+        item.id === currentSessionId ? { ...item, permissionMode: mode } : item,
+      ),
+    }));
+    try {
+      const session = await ipc.setSessionPermissionMode(
+        currentSessionId,
+        mode,
+      );
+      if (!session) throw new Error("会话不存在");
+      set((s) => ({
+        sessions: s.sessions.map((item) =>
+          item.id === session.id
+            ? { ...item, permissionMode: session.permissionMode ?? mode }
+            : item,
+        ),
+      }));
+    } catch (err) {
+      // 失败时用主进程返回的旧值回滚；拿不到就重新拉一次列表
+      try {
+        await get().loadSessions();
+      } catch {
+        // 忽略：下一次打开会话列表时会再同步
+      }
+      throw err;
+    }
+  },
+
   // ==========================================================================
   // 对话
   // ==========================================================================
 
-  sendMessage: async (prompt, display) => {
+  sendMessage: async (prompt, display, images) => {
     const state = get();
     const currentId = state.currentSessionId;
     const label = display ?? prompt;
@@ -1046,6 +1127,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
               {
                 id: newId(),
                 prompt,
+                images,
                 display: label,
                 createdAt: Date.now(),
                 employeeId,
@@ -1058,7 +1140,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         return;
       }
 
-      await dispatchPrompt(currentId, prompt, employeeId);
+      await dispatchPrompt(currentId, prompt, employeeId, images);
       return;
     }
 
@@ -1076,6 +1158,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       state.currentProjectId,
       picked,
       employeeId,
+      state.selectedPermissionMode,
     );
     const sessionId = session.id;
     // 主进程已持久化 employeeId；这里同步一份，保证列表刷新前也能正确显示
@@ -1094,7 +1177,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       .loadSessions()
       .catch((err) => console.warn("[chat] 会话列表刷新失败", err));
 
-    await dispatchPrompt(sessionId, prompt, employeeId);
+    await dispatchPrompt(sessionId, prompt, employeeId, images);
   },
 
   abort: async (sessionId) => {

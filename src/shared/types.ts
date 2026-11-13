@@ -42,9 +42,18 @@ export interface ToolResultImage {
   data: string;
 }
 
+/** 用户随提问发送的图片，结构与工具返回图片一致 */
+export type InputImage = ToolResultImage;
+
 export type AgentEvent =
   | { type: "thinking"; content: string }
   | { type: "text"; content: string }
+  /**
+   * 用户随消息附带的图片。
+   * 只出现在用户消息里；助手侧的工具图片走 tool_result.images。
+   * data 是不带 data: 前缀的 base64 原文。
+   */
+  | ({ type: "image" } & InputImage)
   | { type: "thinking_delta"; delta: string }
   | { type: "text_delta"; delta: string }
   | {
@@ -157,6 +166,14 @@ export interface Session {
    * 数据库主键），宿主只负责原样存取与回传。首轮对话完成前为 null。
    */
   agentSessionId: string | null;
+  /**
+   * 会话级权限模式快照（settings 命名，如 `bypassPermissions`）。
+   *
+   * 创建会话时取 Agent 配置的默认值；输入框工具栏可随时改写，
+   * 只影响本会话后续运行。null 表示旧数据 / 工作流会话未快照，
+   * 运行时回退到 Agent 配置的默认值。
+   */
+  permissionMode?: string | null;
   title: string;
   cwd: string;
   createdAt: number;

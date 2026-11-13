@@ -231,8 +231,9 @@ export interface AgentSettingsView {
   /**
    * Claude settings 的 permissions.defaultMode。
    *
-   * 这是 Nova 会话、工作流节点与终端 claude 共用的唯一权限配置：
-   * Nova 不再显式传 `--permission-mode`，一律由 CLI 读取本机配置。
+   * 作为新会话 / 工作流节点的默认权限；会话建立后会快照到会话记录，
+   * 输入框工具栏可以按会话覆盖（通过 `--permission-mode` 显式传入，
+   * 不写回本文件）。未配置时为 `bypassPermissions`。
    */
   permissionMode: string;
 }

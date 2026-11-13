@@ -4,7 +4,8 @@
 
 import { randomUUID } from "node:crypto";
 import { homedir } from "os";
-import type { Message } from "../../../shared/types";
+import type { Message, Session } from "../../../shared/types";
+import { DEFAULT_PERMISSION_MODE } from "../../../shared/permission";
 import type { AgentService } from "../../agents/agent-service";
 import { getProvider } from "../../agents/registry";
 import * as db from "../../db/sqlite";
@@ -15,6 +16,20 @@ import {
 } from "../../sessions/runtime";
 import { handle } from "../register";
 
+/**
+ * 旧会话（补列前）与工作流会话的 permission_mode 为 NULL：
+ * 返回前补上当前 Agent 的默认值，界面就不必再单独查一次 Agent 配置。
+ */
+function withEffectivePermissionMode(session: Session): Session {
+  if (session.permissionMode) return session;
+  return {
+    ...session,
+    permissionMode:
+      getProvider(session.agentId)?.defaultPermissionMode?.() ??
+      DEFAULT_PERMISSION_MODE,
+  };
+}
+
 export function registerSessionHandlers(service: AgentService): void {
   /**
    * 预创建空会话。渲染进程在首条消息前调用，拿到 sessionId 后再 agent:send，
@@ -22,7 +37,7 @@ export function registerSessionHandlers(service: AgentService): void {
    *
    * projectId 可为 null：会话不强制绑定项目，未绑定时在默认目录运行。
    */
-  handle("session:create", async ({ projectId, agentId, employeeId }) => {
+  handle("session:create", async ({ projectId, agentId, employeeId, permissionMode }) => {
     if (!getProvider(agentId)) {
       throw new Error(`未知 Agent：${agentId}`);
     }
@@ -48,6 +63,14 @@ export function registerSessionHandlers(service: AgentService): void {
       db.getSetting("defaultCwd"),
       homedir(),
     );
+    /*
+     * 会话级权限快照：优先用渲染层传来的选择，否则取 Agent 配置的默认值。
+     * 快照之后改 Agent 默认值不会影响已建会话，避免同一条对话中途换档。
+     */
+    const resolvedPermissionMode =
+      permissionMode?.trim() ||
+      getProvider(agentId)?.defaultPermissionMode?.() ||
+      DEFAULT_PERMISSION_MODE;
     const session = db.createSession(
       agentId,
       project?.id ?? null,
@@ -56,6 +79,7 @@ export function registerSessionHandlers(service: AgentService): void {
       null,
       "chat",
       boundEmployeeId,
+      resolvedPermissionMode,
     );
 
     /*
@@ -67,14 +91,16 @@ export function registerSessionHandlers(service: AgentService): void {
     try {
       const baseHome = await ensureSessionBaseRuntime(session);
       if (baseHome) db.setSessionConfigDir(session.id, baseHome);
-      return db.getSession(session.id) ?? session;
+      return withEffectivePermissionMode(db.getSession(session.id) ?? session);
     } catch (err) {
       console.warn("[session] 创建会话运行时失败，将在首次发送时重试：", err);
       return session;
     }
   });
 
-  handle("session:list", () => db.listSessions());
+  handle("session:list", () =>
+    db.listSessions().map(withEffectivePermissionMode),
+  );
 
   /**
    * 未绑定工作区时真正使用的目录。
@@ -85,15 +111,16 @@ export function registerSessionHandlers(service: AgentService): void {
   );
 
   /** 详情：元数据 + provider 回放的历史；带 limit 时走分页 */
-  handle("session:get", ({ id, limit, before, beforeId }) =>
-    limit
-      ? service.getSessionPage(id, {
+  handle("session:get", async ({ id, limit, before, beforeId }) => {
+    const session = limit
+      ? await service.getSessionPage(id, {
           limit,
           beforeTimestamp: before,
           beforeMessageId: beforeId,
         })
-      : service.getSessionWithHistory(id),
-  );
+      : await service.getSessionWithHistory(id);
+    return session ? withEffectivePermissionMode(session) : null;
+  });
 
   handle("session:rename", ({ id, title }) => {
     const next = title.trim();
@@ -172,6 +199,27 @@ export function registerSessionHandlers(service: AgentService): void {
     }
 
     return db.getSession(sessionId);
+  });
+
+  /**
+   * 改写会话级权限模式；下一轮运行生效，不影响正在跑的进程。
+   *
+   * 只接受 settings 命名（如 `bypassPermissions`），与 Agent 配置页一致；
+   * 终端参数名（`manual`）的映射由 Claude provider 在拼参数时完成。
+   */
+  handle("session:setPermissionMode", ({ sessionId, permissionMode }) => {
+    const session = db.getSession(sessionId);
+    if (!session) return null;
+    if (session.source === "workflow") {
+      throw new Error("工作流会话不能修改权限模式");
+    }
+    const next = permissionMode.trim();
+    if (!next) throw new Error("权限模式不能为空");
+    if (next.length > 40) throw new Error("权限模式不合法");
+
+    db.setSessionPermissionMode(sessionId, next);
+    const updated = db.getSession(sessionId);
+    return updated ? withEffectivePermissionMode(updated) : null;
   });
 
   /**

@@ -10,8 +10,7 @@
  *   - 工作区的新增 / 删除统一在「工作区」页面完成，这里只读取并选用
  *   - 已有消息的会话切换目录会重置 Agent 上下文（本地历史仍保留），执行前二次确认
  *
- * 列表与输入框里的 `#` 快捷切换共用 WorkspaceMenuPanel，保证两条入口的
- * 条目、排序与样式完全一致。
+ * 列表复用 WorkspaceMenuPanel，与「管理工作区…」的条目、排序与样式保持一致。
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -44,9 +43,8 @@ export function ProjectSelector() {
   const currentProject = projects.find((p) => p.id === currentProjectId);
 
   /**
-   * 菜单项顺序与 `#` 快捷切换完全一致：
-   * 解绑（可选）→ 各工作区 → 管理工作区。
-   * 键盘高亮与点击共用同一份索引，避免两套顺序漂移。
+   * 菜单项顺序：解绑（可选）→ 各工作区 → 管理工作区。
+   * 键盘高亮与点击共用同一份索引，避免顺序漂移。
    */
   const menuItems = useMemo(
     () => buildWorkspaceItems({ projects, currentProjectId, defaultCwd }),

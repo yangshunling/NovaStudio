@@ -197,3 +197,37 @@ test("history: 工具回执仍追加到上一条 assistant 消息", async () => 
   assert.equal(events.filter((e) => e.type === "tool_call").length, 1);
   assert.equal(events.filter((e) => e.type === "tool_result").length, 1);
 });
+
+test("history: 用户消息里的图片块还原为 image 事件", async () => {
+  const messages = await replay([
+    userMessage([
+      {
+        type: "image",
+        source: { type: "base64", media_type: "image/png", data: "AAAA" },
+      },
+      { type: "text", text: "这是什么" },
+    ]),
+  ]);
+
+  assert.equal(messages.length, 1);
+  assert.deepEqual(messages[0].content, [
+    { type: "image", mediaType: "image/png", data: "AAAA" },
+    { type: "text", content: "这是什么" },
+  ]);
+});
+
+test("history: 纯图片提问不会因为没有正文而被丢弃", async () => {
+  const messages = await replay([
+    userMessage([
+      {
+        type: "image",
+        source: { type: "base64", media_type: "image/jpeg", data: "BBBB" },
+      },
+    ]),
+  ]);
+
+  assert.equal(messages.length, 1);
+  assert.deepEqual(messages[0].content, [
+    { type: "image", mediaType: "image/jpeg", data: "BBBB" },
+  ]);
+});

@@ -20,6 +20,7 @@ import {
   ThreadPrimitive,
   useAuiState,
   useExternalStoreRuntime,
+  useMessagePartImage,
   useMessagePartReasoning,
   useMessagePartText,
   type DataMessagePartProps,
@@ -28,6 +29,7 @@ import {
 } from "@assistant-ui/react";
 import {
   Bug,
+  Check,
   Copy,
   FileText,
   FolderTree,
@@ -48,6 +50,7 @@ import {
 import { useEmployeesStore } from "../../stores/employees";
 import { REVEAL_MESSAGE_EVENT } from "../../lib/chat-events";
 import { formatJson, toMessage } from "../../lib/utils";
+import { copyText } from "../../lib/clipboard";
 import { toast } from "../../stores/toast";
 import { CHAT_VIEWPORT_ID, scrollToMessage } from "../../lib/chat-scroll";
 import { StreamingMarkdown } from "../ui/MarkdownRenderer";
@@ -179,6 +182,12 @@ const ASSISTANT_PART_COMPONENTS = {
 
 /** system 消息只有纯文本，保持引用稳定以命中 assistant-ui 的 components 缓存 */
 const SYSTEM_PART_COMPONENTS = { Text: SystemTextPart };
+
+/** 用户消息的 part 表：正文 + 随消息发送的图片 */
+const USER_PART_COMPONENTS = {
+  Text: UserTextPart,
+  Image: UserImagePart,
+};
 
 /**
  * ThreadPrimitive.Messages 的组件表同样必须保持引用稳定。
@@ -521,7 +530,7 @@ function UserMessage() {
   return (
     <MessagePrimitive.Root className="relative mx-auto mb-4 flex max-w-[var(--c-layout-content)] justify-end last:mb-0">
       <UserBubble>
-        <MessagePrimitive.Parts components={{ Text: UserTextPart }} />
+        <MessagePrimitive.Parts components={USER_PART_COMPONENTS} />
       </UserBubble>
       <NovaAvatar className="ui-chat-avatar-right" />
     </MessagePrimitive.Root>
@@ -530,7 +539,19 @@ function UserMessage() {
 
 function UserTextPart() {
   const part = useMessagePartText();
-  return <>{part.text}</>;
+  // 纯图片消息没有正文：空字符串不要占出行高
+  return part.text ? <>{part.text}</> : null;
+}
+
+function UserImagePart() {
+  const part = useMessagePartImage();
+  return (
+    <img
+      src={part.image}
+      alt={part.filename ?? "图片"}
+      className="mb-1.5 max-h-64 w-auto max-w-full rounded-lg border border-border/50 object-contain last:mb-0"
+    />
+  );
 }
 
 /**
@@ -584,7 +605,7 @@ function AssistantMessage() {
   const running = useAuiState((s) => s.message.status?.type === "running");
 
   return (
-    <MessagePrimitive.Root className="relative mx-auto mb-4 max-w-[var(--c-layout-content)] last:mb-0">
+    <MessagePrimitive.Root className="group/message relative mx-auto mb-4 max-w-[var(--c-layout-content)] last:mb-0">
       {employee ? (
         <EmployeeChatAvatar
           employee={employee}
@@ -603,8 +624,70 @@ function AssistantMessage() {
         <MessagePrimitive.Parts components={ASSISTANT_PART_COMPONENTS} />
         {/* 固定在整条回复末尾：不论是思考、工具调用还是正文流式，只要没结束就一直在 */}
         {running && <WorkingIndicator />}
+        {/* 回复结束后才出现：流式复制到一半的文本没有意义 */}
+        {!running && <CopyAnswerButton />}
       </div>
     </MessagePrimitive.Root>
+  );
+}
+
+/**
+ * 「复制整条回答」按钮。
+ *
+ * 只聚合正文 part：思考过程与工具输出不属于用户想带走的那段文案，
+ * 混进剪贴板反而要再手工删一遍。多段正文之间用空行连接，保持段落分隔。
+ *
+ * 按钮常驻占一行高度（只做透明度过渡），否则悬停时出现会把下面的消息
+ * 整体推下去，阅读时视线跟着跳。
+ */
+function CopyAnswerButton() {
+  const text = useAuiState((s) =>
+    s.message.content
+      .map((part) => (part.type === "text" ? part.text : ""))
+      .filter(Boolean)
+      .join("\n\n"),
+  );
+  const [copied, setCopied] = useState(false);
+  const copiedTimer = useRef<number | null>(null);
+
+  useEffect(
+    () => () => {
+      if (copiedTimer.current !== null) window.clearTimeout(copiedTimer.current);
+    },
+    [],
+  );
+
+  if (!text) return null;
+
+  const copy = () => {
+    void copyText(text).then((ok) => {
+      if (!ok) {
+        toast.error("复制失败，请手动选择文本");
+        return;
+      }
+      setCopied(true);
+      if (copiedTimer.current !== null) window.clearTimeout(copiedTimer.current);
+      copiedTimer.current = window.setTimeout(() => setCopied(false), 1600);
+    });
+  };
+
+  return (
+    <div className="flex h-6 items-center opacity-0 transition-opacity focus-within:opacity-100 group-hover/message:opacity-100">
+      <button
+        type="button"
+        onClick={copy}
+        title={copied ? "已复制" : "复制整条回答"}
+        aria-label={copied ? "已复制" : "复制整条回答"}
+        className="flex items-center gap-1 rounded-md px-1.5 py-1 ui-type-sub text-text-muted transition-colors hover:bg-surface-hover hover:text-text"
+      >
+        {copied ? (
+          <Check className="h-3.5 w-3.5 text-success" />
+        ) : (
+          <Copy className="h-3.5 w-3.5" />
+        )}
+        <span>{copied ? "已复制" : "复制"}</span>
+      </button>
+    </div>
   );
 }
 
@@ -794,7 +877,7 @@ function toThreadMessage(message: Message, streaming: boolean): ThreadMessageLik
       id: message.id,
       role: "user",
       createdAt: new Date(message.timestamp),
-      content: [{ type: "text", text: textFromEvents(message.content) }],
+      content: userContentParts(message.content),
     };
   }
 
@@ -936,6 +1019,27 @@ function findOpenTool(parts: any[], name: string, callId?: string): number {
     }
   }
   return -1;
+}
+
+/**
+ * 用户消息 → assistant-ui parts。
+ * 图片转成 data URL；纯图片消息没有 text part，避免气泡里多出一行空白。
+ */
+function userContentParts(
+  events: AgentEvent[],
+): Extract<ThreadMessageLike["content"], readonly unknown[]> {
+  const parts: any[] = [];
+  for (const event of events) {
+    if (event.type === "text") {
+      if (event.content) parts.push({ type: "text", text: event.content });
+    } else if (event.type === "image") {
+      parts.push({
+        type: "image",
+        image: `data:${event.mediaType};base64,${event.data}`,
+      });
+    }
+  }
+  return parts;
 }
 
 function textFromEvents(events: AgentEvent[]): string {

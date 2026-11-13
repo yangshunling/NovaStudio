@@ -14,6 +14,7 @@ import { toast } from "../../stores/toast";
 import { toMessage } from "../../lib/utils";
 import { htmlToPlainText, normalizeLineBreaks } from "../../lib/paste-text";
 import type { MentionReference } from "./MentionPicker";
+import type { InputImage } from "@shared/types";
 
 /**
  * 粘贴时还原富文本的段落结构。
@@ -22,10 +23,38 @@ import type { MentionReference } from "./MentionPicker";
  * 被拼成一行（换行只存在于 HTML 的 <p>/<br> 里），或使用 \v 之类非标准
  * 换行符。这里在需要时改用 HTML 重建文本，再交给输入框。
  */
-export function usePasteNormalizer(setInput: (value: string) => void) {
+export function usePasteNormalizer(
+  setInput: (value: string) => void,
+  onImages?: (files: File[]) => void,
+) {
   return useCallback(
     (event: ClipboardEvent<HTMLTextAreaElement>) => {
       const clipboard = event.clipboardData;
+
+      /*
+       * 剪贴板里同时有图片和文字时（从网页复制图文），优先按图片处理：
+       * 用户此时的意图通常是「贴图」，附带的那点 HTML 文本没有价值。
+       *
+       * 截图在部分平台上只出现在 items 里、不出现在 files 里，两边都取。
+       */
+      const fromItems: File[] = [];
+      for (const item of Array.from(clipboard.items)) {
+        if (item.kind !== "file" || !item.type.startsWith("image/")) continue;
+        const file = item.getAsFile();
+        if (file) fromItems.push(file);
+      }
+      const imageFiles =
+        fromItems.length > 0
+          ? fromItems
+          : Array.from(clipboard.files).filter((file) =>
+              file.type.startsWith("image/"),
+            );
+      if (imageFiles.length > 0 && onImages) {
+        event.preventDefault();
+        onImages(imageFiles);
+        return;
+      }
+
       const plain = clipboard.getData("text/plain");
       const html = clipboard.getData("text/html");
       const normalized = normalizeLineBreaks(plain);
@@ -61,7 +90,7 @@ export function usePasteNormalizer(setInput: (value: string) => void) {
         textarea.setSelectionRange(caret, caret);
       });
     },
-    [setInput],
+    [setInput, onImages],
   );
 }
 
@@ -76,48 +105,73 @@ export function usePasteNormalizer(setInput: (value: string) => void) {
  */
 export function useComposerSubmit({
   input,
+  images,
   references,
   clearReferences,
   restoreReferences,
+  clearImages,
+  restoreImages,
   setInput,
   pushHistory,
   sendMessage,
 }: {
   input: string;
+  images: InputImage[];
   references: MentionReference[];
   clearReferences: () => void;
   restoreReferences: (snapshot: MentionReference[]) => void;
+  clearImages: () => void;
+  restoreImages: (snapshot: InputImage[]) => void;
   setInput: (value: string) => void;
   pushHistory: (value: string) => void;
-  sendMessage: (prompt: string, display?: string) => Promise<void>;
+  sendMessage: (
+    prompt: string,
+    display?: string,
+    images?: InputImage[],
+  ) => Promise<void>;
 }) {
   return useCallback(() => {
     const trimmed = input.trim();
-    if (!trimmed && references.length === 0) return;
+    if (!trimmed && references.length === 0 && images.length === 0) return;
     const referenceText = references
       .map((reference) => reference.promptText)
       .join("\n");
     const prompt = [trimmed, referenceText].filter(Boolean).join("\n");
     // 只记用户亲手输入的正文：引用说明是按引用标签拼出来的，回溯时无意义
     pushHistory(trimmed);
-    // 快照要在清空之前取：失败时要连引用标签一起还原
+    // 快照要在清空之前取：失败时要连引用标签与图片一起还原
     const referenceSnapshot = references;
+    const imageSnapshot = images;
     setInput("");
     clearReferences();
+    clearImages();
     /*
      * 运行中发送不再被丢弃：chat store 会把它放进暂存区，
      * 本轮结束后按顺序发送。
+     * 暂存区 / 纯图片消息需要一个可读标签，正文为空时用图片占位。
      */
-    void sendMessage(prompt, trimmed || referenceText).catch((err) => {
+    const display =
+      trimmed ||
+      referenceText ||
+      (images.length > 0
+        ? images.length > 1
+          ? `[图片 ×${images.length}]`
+          : "[图片]"
+        : "");
+    void sendMessage(prompt, display, images).catch((err) => {
       setInput(trimmed);
       restoreReferences(referenceSnapshot);
+      restoreImages(imageSnapshot);
       toast.error(toMessage(err), 5000);
     });
   }, [
     input,
+    images,
     references,
     clearReferences,
     restoreReferences,
+    clearImages,
+    restoreImages,
     setInput,
     pushHistory,
     sendMessage,

@@ -100,14 +100,6 @@ export function WeeklyReportDialog({
     [todos, range, options],
   );
 
-  /** 候选板块不能受 excludeSections 影响，否则排除后就再也加不回来 */
-  const allSections = useMemo(
-    () =>
-      collectReportBundle(todos, range, { ...options, excludeSections: [] })
-        .sections,
-    [todos, range, options],
-  );
-
   /* 每次打开都从干净状态开始，但保留上一次的配置习惯 */
   useEffect(() => {
     if (!open) return;
@@ -262,15 +254,6 @@ export function WeeklyReportDialog({
     }
   };
 
-  const toggleSection = (id: string | number) => {
-    const name = String(id);
-    patchOptions({
-      excludeSections: options.excludeSections.includes(name)
-        ? options.excludeSections.filter((item) => item !== name)
-        : [...options.excludeSections, name],
-    });
-  };
-
   const rangeLabel = `${formatMonthDay(range.start)} - ${formatMonthDay(
     range.end - 1,
   )}`;
@@ -393,25 +376,6 @@ export function WeeklyReportDialog({
             />
           </Field>
 
-          <Field
-            label="排除板块"
-            hint="点击板块名可将其排除在本期之外"
-          >
-            {allSections.length === 0 ? (
-              <p className="ui-type-note text-text-muted">该周期没有板块</p>
-            ) : (
-              <OptionChips
-                mode="multi"
-                className="max-h-28 overflow-y-auto"
-                items={allSections.map((section) => ({
-                  id: section,
-                  label: section,
-                }))}
-                selected={options.excludeSections}
-                onToggle={toggleSection}
-              />
-            )}
-          </Field>
         </div>
 
         {/* 右侧：预览 */}

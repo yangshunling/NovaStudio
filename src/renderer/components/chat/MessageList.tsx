@@ -179,9 +179,23 @@ function EventBlock({ event }: { event: AgentEvent }) {
 export function MessageGroup({ events, isUser }: { events: AgentEvent[]; isUser: boolean }) {
   if (isUser) {
     const text = firstText(events);
+    const images = events.filter(
+      (event): event is Extract<AgentEvent, { type: "image" }> =>
+        event.type === "image",
+    );
     return (
       <div className="mb-4 flex justify-end">
-        <UserBubble>{text}</UserBubble>
+        <UserBubble>
+          {images.map((image, index) => (
+            <img
+              key={index}
+              src={`data:${image.mediaType};base64,${image.data}`}
+              alt="图片"
+              className="mb-1.5 max-h-64 w-auto max-w-full rounded-lg border border-border/50 object-contain last:mb-0"
+            />
+          ))}
+          {text}
+        </UserBubble>
       </div>
     );
   }

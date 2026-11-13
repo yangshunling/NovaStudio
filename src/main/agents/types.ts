@@ -13,6 +13,7 @@
 import type {
   AgentEvent,
   DigitalEmployee,
+  InputImage,
   Message,
   Session,
   SessionOptions,
@@ -49,6 +50,8 @@ export interface AgentInvocationInfo {
 /** 一次调用的输入 */
 export interface RunOptions {
   prompt: string;
+  /** 随本条消息一起发送的图片；不支持的 provider 可忽略 */
+  images?: InputImage[];
   cwd: string;
   /**
    * 运行来源。
@@ -74,6 +77,14 @@ export interface RunOptions {
   envRemove?: string[];
   /** provider 额外拼到命令行末尾的参数（例如 --mcp-config / --no-session-persistence） */
   extraArgs?: string[];
+  /**
+   * 本次运行的权限模式（settings 命名，如 `bypassPermissions`）。
+   *
+   * 由宿主从会话快照 / Agent 默认值解析后传入；provider 负责映射成自己的
+   * 命令行开关（Claude 为 `--permission-mode`，`default` → `manual`）。
+   * 缺省表示不覆盖，沿用 provider 的本机配置。
+   */
+  permissionMode?: string;
   /** CLI 配置目录；用于会话历史定位（没有则用用户默认目录） */
   configDir?: string | null;
   /** 事件回调。provider 保证事件已归一、语义正确 */
@@ -241,6 +252,14 @@ export interface AgentProvider {
    * 只返回可展示、已脱敏的值，供运行产物记录“这次实际用的什么配置”。
    */
   describeRuntimeConfig?(): Record<string, string>;
+
+  /**
+   * 本机配置里的默认权限模式（settings 命名）。
+   *
+   * 新会话创建时用它做快照；工作流 / 自动化等没有工具栏的运行也用它兜底。
+   * 缺省表示该 provider 没有权限档位概念。
+   */
+  defaultPermissionMode?(): string;
 
   /**
    * 为一次运行准备 provider 专属环境。

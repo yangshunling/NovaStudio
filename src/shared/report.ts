@@ -1,7 +1,7 @@
 /**
  * 周报生成的共享模型与纯函数
  *
- * 渲染层用它们做配置、统计与「排除板块」候选；主进程用同一套逻辑组装
+ * 渲染层用它们做配置与统计；主进程用同一套逻辑组装
  * prompt。两侧共用一份筛选口径，避免出现「界面显示 12 条、实际只发了 10 条」
  * 这种只在生成后才发现的偏差。
  *
@@ -28,8 +28,6 @@ export interface WeeklyReportOptions {
   includePending: boolean;
   /** 包含没有截止日期的未完成项（只在生成当前周期时通常有意义） */
   includeUndated: boolean;
-  /** 要排除的板块名（大小写不敏感） */
-  excludeSections: string[];
   style: ReportStyle;
 }
 
@@ -51,7 +49,7 @@ export interface ReportBundle {
   entries: ReportEntry[];
   done: ReportEntry[];
   pending: ReportEntry[];
-  /** 区间内出现过的全部板块（未按 excludeSections 过滤，供界面列出候选） */
+  /** 区间内出现过的全部板块 */
   sections: string[];
 }
 
@@ -68,7 +66,6 @@ export const DEFAULT_REPORT_OPTIONS: WeeklyReportOptions = {
   includeDone: true,
   includePending: true,
   includeUndated: false,
-  excludeSections: [],
   style: "formal",
 };
 
@@ -144,14 +141,10 @@ export function collectReportBundle(
   range: ReportRange,
   options: WeeklyReportOptions,
 ): ReportBundle {
-  const excluded = new Set(
-    options.excludeSections.map((section) => section.toLowerCase()),
-  );
   const entries: ReportEntry[] = [];
 
   for (const todo of todos) {
     const section = reportSection(todo);
-    if (excluded.has(section.toLowerCase())) continue;
 
     if (todo.done) {
       if (!options.includeDone) continue;

@@ -8,12 +8,23 @@
  * 其余样式全部走语义类与 token，换肤自动适配。
  */
 
-import { createContext, useContext, useEffect, useMemo, useState, memo } from "react";
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  memo,
+} from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeRaw from "rehype-raw";
 import rehypeSanitize, { defaultSchema } from "rehype-sanitize";
+import { Check, Copy } from "lucide-react";
 import { stripPreTag } from "../../lib/utils";
+import { copyText } from "../../lib/clipboard";
+import { toast } from "../../stores/toast";
 import { useSkin } from "../../hooks/useTheme";
 import { ipc } from "../../lib/ipc";
 import {
@@ -132,6 +143,31 @@ function CodeBlock({ code, lang }: { code: string; lang: string }) {
   const { codeTheme } = useSkin();
   const streaming = useContext(MarkdownStreamingContext);
   const [highlighted, setHighlighted] = useState<string | null>(null);
+  /*
+   * 复制按钮的成功态由本地状态持有：代码块在流式期间会被反复渲染，
+   * 但复制反馈只需要持续一瞬，交给 setTimeout 复位即可。
+   */
+  const [copied, setCopied] = useState(false);
+  const copiedTimer = useRef<number | null>(null);
+
+  useEffect(
+    () => () => {
+      if (copiedTimer.current !== null) window.clearTimeout(copiedTimer.current);
+    },
+    [],
+  );
+
+  const copy = () => {
+    void copyText(code).then((ok) => {
+      if (!ok) {
+        toast.error("复制失败，请手动选择代码");
+        return;
+      }
+      setCopied(true);
+      if (copiedTimer.current !== null) window.clearTimeout(copiedTimer.current);
+      copiedTimer.current = window.setTimeout(() => setCopied(false), 1600);
+    });
+  };
 
   useEffect(() => {
     // 流式期间代码还没定型：跳过 Shiki，先显示纯文本
@@ -169,20 +205,38 @@ function CodeBlock({ code, lang }: { code: string; lang: string }) {
     };
   }, [code, lang, codeTheme, streaming]);
 
-  if (highlighted) {
-    return (
-      <pre
-        className="ui-type-code my-2 overflow-x-auto rounded-lg border border-border p-3"
-        dangerouslySetInnerHTML={{ __html: highlighted }}
-      />
-    );
-  }
-
-  // Fallback：高亮器未就绪时的纯文本显示
+  /*
+   * 复制按钮必须挂在 pre 之外：pre 内部是 Shiki 生成的 span 树，
+   * 放进去会被高亮结果覆盖；同时用 group/code 让按钮只在悬停时出现，
+   * 不遮挡代码阅读。
+   */
   return (
-    <pre className="ui-type-code my-2 overflow-x-auto rounded-lg border border-border bg-surface p-3 text-text-secondary">
-      <code>{code}</code>
-    </pre>
+    <div className="group/code relative">
+      {highlighted ? (
+        <pre
+          className="ui-type-code my-2 overflow-x-auto rounded-lg border border-border p-3"
+          dangerouslySetInnerHTML={{ __html: highlighted }}
+        />
+      ) : (
+        // Fallback：高亮器未就绪时的纯文本显示
+        <pre className="ui-type-code my-2 overflow-x-auto rounded-lg border border-border bg-surface p-3 text-text-secondary">
+          <code>{code}</code>
+        </pre>
+      )}
+      <button
+        type="button"
+        onClick={copy}
+        title={copied ? "已复制" : "复制代码"}
+        aria-label={copied ? "已复制" : "复制代码"}
+        className="absolute right-2 top-2 rounded-md border border-border/70 bg-surface/90 p-1.5 text-text-muted opacity-0 shadow-[var(--c-shadow-sm)] backdrop-blur-sm transition-[opacity,color] hover:text-text focus-visible:opacity-100 group-hover/code:opacity-100"
+      >
+        {copied ? (
+          <Check className="h-3.5 w-3.5 text-success" />
+        ) : (
+          <Copy className="h-3.5 w-3.5" />
+        )}
+      </button>
+    </div>
   );
 }
 

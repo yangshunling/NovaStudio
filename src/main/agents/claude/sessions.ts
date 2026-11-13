@@ -241,14 +241,14 @@ export async function readHistory(
         lastAssistant = null;
       } else if (Array.isArray(content)) {
         // 数组内容里既可能是工具回执，也可能是真实用户输入：
-        // 带图提问的正文、以及「Request interrupted by user」这类中断标记都放在这里。
+        // 带图提问的正文 / 图片、以及「Request interrupted by user」这类中断标记都放在这里。
         // 之前只取 tool_result，导致这些记录整段丢失。
-        const text = userTextBlocks(content);
-        if (text) {
+        const blocks = userContentBlocks(content);
+        if (blocks.length > 0) {
           messages.push({
             id: entry.uuid ?? "",
             role: "user",
-            content: [{ type: "text", content: text }],
+            content: blocks,
             timestamp,
           });
         }
@@ -259,7 +259,7 @@ export async function readHistory(
           lastAssistant.content.push(...mapToolResultBlocks(content, names));
           attachLineStarts(messages, content, entry.toolUseResult);
         }
-        if (text) lastAssistant = null;
+        if (blocks.length > 0) lastAssistant = null;
       }
     } else if (entry.type === "assistant") {
       // API 错误记录：正文是错误信息，显示成普通助手发言会被误读成模型输出
@@ -309,6 +309,42 @@ export async function readHistory(
     // attachment / queue-operation / atis-latch 等系统记录跳过
   }
   return messages;
+}
+
+/**
+ * user 数组 content 里的真实用户输入：正文与图片。
+ *
+ * 同一个数组里还混着 tool_result，属于工具回执，不能当作用户发言；
+ * 图片只接受 base64（CLI 写历史时用的就是这种 source），其它来源跳过。
+ */
+function userContentBlocks(content: unknown[]): AgentEvent[] {
+  const blocks: AgentEvent[] = [];
+  for (const block of content) {
+    if (!block || typeof block !== "object") continue;
+    const record = block as {
+      type?: unknown;
+      text?: unknown;
+      source?: { type?: unknown; media_type?: unknown; data?: unknown };
+    };
+    if (record.type === "text" && typeof record.text === "string" && record.text) {
+      blocks.push({ type: "text", content: record.text });
+    } else if (record.type === "image") {
+      const source = record.source;
+      if (
+        source?.type === "base64" &&
+        typeof source.media_type === "string" &&
+        typeof source.data === "string" &&
+        source.data
+      ) {
+        blocks.push({
+          type: "image",
+          mediaType: source.media_type,
+          data: source.data,
+        });
+      }
+    }
+  }
+  return blocks;
 }
 
 /** user 数组 content 里的 text 块：带图提问的正文、中断标记等真实用户输入 */

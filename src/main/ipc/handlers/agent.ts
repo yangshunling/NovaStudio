@@ -17,7 +17,7 @@ import { revealPath } from "../nativeUi";
 import { BASE_CHAT_NAME } from "../../agents/chat-identity";
 import { prepareSessionChatRun } from "../../sessions/runtime";
 import { errorMessage } from "../../../shared/error";
-import type { DigitalEmployee } from "../../../shared/types";
+import type { DigitalEmployee, InputImage } from "../../../shared/types";
 
 /**
  * 同一会话的发送占位。
@@ -93,10 +93,12 @@ export function registerAgentHandlers(service: AgentService): void {
   const sendAgent = async ({
     sessionId,
     prompt,
+    images,
     employeeId,
   }: {
     sessionId: string;
     prompt: string;
+    images?: InputImage[];
     employeeId?: string | null;
   }): Promise<SendAgentResult> => {
     const session = db.getSession(sessionId);
@@ -161,7 +163,9 @@ export function registerAgentHandlers(service: AgentService): void {
     // 记录用户消息：刷新索引（首条消息写标题），正文不入库
     db.touchSession(sessionId, {
       title:
-        (session.messageCount ?? 0) === 0 ? prompt.slice(0, 40) : undefined,
+        (session.messageCount ?? 0) === 0
+          ? prompt.trim().slice(0, 40) || "[图片]"
+          : undefined,
       countDelta: 1,
     });
 
@@ -174,13 +178,17 @@ export function registerAgentHandlers(service: AgentService): void {
      * 落库与界面展示仍使用原始 prompt。
      */
     const speaker = employee?.name ?? BASE_CHAT_NAME;
+    // 纯图片提问没有正文：只留发言者标记，避免尾部多余空格进入上下文
     const contextPrompt = prompt.startsWith(`@${speaker}`)
       ? prompt
-      : `@${speaker} ${prompt}`;
+      : prompt.trim()
+        ? `@${speaker} ${prompt}`
+        : `@${speaker}`;
 
     const outcome = await service.run({
       sessionId,
       prompt,
+      images,
       contextPrompt,
       cwd,
       // 落库时记到本轮消息上：历史回复按当时的回答者显示头像
