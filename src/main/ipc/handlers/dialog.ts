@@ -7,35 +7,9 @@ import { relative, resolve, sep } from "node:path";
 import { handle } from "../register";
 import * as db from "../../db/sqlite";
 import { resolveInsideReal } from "../../utils/paths";
+import { isIgnoredName } from "../../files/ignore";
 import { pickPaths } from "../nativeUi";
 import type { FileEntry } from "@shared/types";
-
-/** 忽略的目录名（常见构建产物 / 依赖 / VCS） */
-const IGNORE_DIRS = new Set([
-  "node_modules",
-  ".git",
-  "dist",
-  "build",
-  ".next",
-  ".nuxt",
-  ".output",
-  ".svelte-kit",
-  ".turbo",
-  ".vercel",
-  "coverage",
-  ".cache",
-  "__pycache__",
-  ".pytest_cache",
-  ".mypy_cache",
-  ".ruff_cache",
-  "target",
-  ".gradle",
-  ".idea",
-  ".vscode",
-]);
-
-/** 忽略的文件前缀 */
-const IGNORE_FILE_PREFIXES = [".DS_Store"];
 
 const MAX_ENTRIES = 200;
 
@@ -74,10 +48,8 @@ export function registerDialogHandlers(): void {
 
       const entries: FileEntry[] = [];
       for (const name of names) {
-        // .git 永远不展示；依赖 / 构建目录也不进入文件树
-        if (name === ".git") continue;
-        if (IGNORE_DIRS.has(name)) continue;
-        if (IGNORE_FILE_PREFIXES.some((p) => name.startsWith(p))) continue;
+        // .git / 依赖 / 构建目录 / 系统杂项文件都不进入文件树
+        if (isIgnoredName(name)) continue;
 
         const fullPath = resolve(target, name);
         try {

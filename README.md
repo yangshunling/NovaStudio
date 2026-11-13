@@ -181,21 +181,58 @@ npm run package:win   # 打包 Windows 安装包到 release/
 
 <p align="center"><sub>26 篇工程文档，覆盖产品定位、架构决策与实现细节。</sub></p>
 
-<details>
+<details open>
 <summary><b>工程文档</b></summary>
 
 <br>
 
+**产品与架构**
+
 - [产品定位与功能全景](docs/00-产品定位与功能全景.md)
+- [技术栈与工程结构](docs/01-技术栈与工程结构.md)
 - [系统架构与关键决策](docs/02-系统架构与关键决策.md)
 - [数据模型与数据库](docs/03-数据模型与数据库.md)
+- [IPC 契约参考](docs/04-IPC契约参考.md)
+
+**运行时与核心子系统**
+
+- [Agent 运行时抽象](docs/05-Agent运行时抽象.md)
+- [Claude Code 适配层](docs/06-Claude-Code适配层.md)
+- [会话与聊天子系统](docs/07-会话与聊天子系统.md)
+
+**工作流**
+
+- [工作流：图模型与校验](docs/08-工作流-图模型与校验.md)
 - [工作流：调度与执行](docs/09-工作流-调度与执行.md)
+- [工作流：审核续跑与产物](docs/10-工作流-审核续跑与产物.md)
+
+**能力资产**
+
+- [数字员工与能力绑定](docs/11-数字员工与能力绑定.md)
+- [MCP 服务管理](docs/12-MCP服务管理.md)
+- [Skill 技能管理](docs/13-Skill技能管理.md)
+- [知识库与全文检索](docs/14-知识库与全文检索.md)
+- [任务中心与触发器](docs/16-任务中心与触发器.md)
+
+**工作区与界面**
+
+- [工作区：文件、Git 与终端](docs/15-工作区-文件-Git-终端.md)
+- [前端架构与状态管理](docs/17-前端架构与状态管理.md)
+- [页面与交互规格](docs/18-页面与交互规格.md)
 - [设计系统与皮肤](docs/19-设计系统与皮肤.md)
+- [设置与 Agent 配置](docs/20-设置与Agent配置.md)
+- [工作区设计语言](docs/25-工作区设计语言.md)
+
+**工程保障**
+
+- [安全与数据隔离](docs/21-安全与数据隔离.md)
+- [构建打包发布与更新](docs/22-构建打包发布与更新.md)
+- [测试与质量保障](docs/23-测试与质量保障.md)
 - [复刻实施指南](docs/24-复刻实施指南.md)
 
 </details>
 
-<details>
+<details open>
 <summary><b>路线图</b></summary>
 
 <br>
@@ -213,7 +250,7 @@ npm run package:win   # 打包 Windows 安装包到 release/
 
 </details>
 
-<details>
+<details open>
 <summary><b>参与贡献</b></summary>
 
 <br>

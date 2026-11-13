@@ -737,11 +737,20 @@ export function useMention({
         }
       }
 
+      /*
+       * 每次重新打开弹窗都丢掉文件缓存：Agent / 外部编辑可能刚改过目录，
+       * 沿用的旧列表会让用户以为文件不存在。
+       */
+      if (!active) {
+        cacheRef.current = {};
+        loadedSubPathRef.current = null;
+      }
+
       setTrigger(found.trigger);
       setMentionStart(found.start);
       setMentionQuery(found.query);
     },
-    [setInput, closeMention],
+    [setInput, closeMention, active],
   );
 
   // ---- textarea onKeyDown：导航 / 选择 / 返回 / 关闭 ----

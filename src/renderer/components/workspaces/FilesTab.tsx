@@ -11,7 +11,17 @@ import type { FileEntry, GitStatusKind, Project } from "@shared/types";
 import type { GitStatusDetail } from "@shared/git";
 import type { FileTab } from "../../stores/fileViewer";
 import { ipc } from "../../lib/ipc";
+import {
+  clearWatchSource,
+  setWatchSource,
+  subscribeWorkspaceChanges,
+} from "../../lib/file-watch";
 import { toMessage } from "../../lib/utils";
+import { useElementVisible } from "../../hooks/useElementVisible";
+import {
+  readExpandedPaths,
+  writeExpandedPaths,
+} from "../../lib/tree-expansion";
 import { WorkspaceEmptyState } from "./workspaceUi";
 import { FileTypeIcon } from "../ui/FileTypeIcon";
 import { FolderTypeIcon } from "../ui/FolderTypeIcon";
@@ -48,13 +58,18 @@ export function FilesTab({ project, git, request, revision }: FilesTabProps) {
   const projectIdRef = useRef(project.id);
   projectIdRef.current = project.id;
   const lastRequestNonce = useRef(0);
+  const rootRef = useRef<HTMLDivElement>(null);
+  /** 工作区页切走 / 切到 Git 标签时本组件仍在 DOM 里：隐藏时停掉监听 */
+  const visible = useElementVisible(rootRef);
 
   // 根目录懒加载
   useEffect(() => {
     let cancelled = false;
     setRootItems([]);
     setChildrenByPath({});
-    setExpanded(new Set());
+    // 重载（Vite 热更新 / 视图重新挂载）后恢复上次展开的目录
+    const restored = readExpandedPaths(project.id);
+    setExpanded(restored);
     setTreeError(null);
     setLoadingPaths(new Set([""]));
 
@@ -75,10 +90,70 @@ export function FilesTab({ project, git, request, revision }: FilesTabProps) {
         });
       });
 
+    // 恢复展开状态时把子目录一并读回来，避免出现「展开但内容为空」
+    for (const dir of restored) {
+      setLoadingPaths((current) => new Set(current).add(dir));
+      ipc
+        .listFiles(project.id, dir)
+        .then((entries) => {
+          if (cancelled) return;
+          setChildrenByPath((current) => ({ ...current, [dir]: entries }));
+        })
+        .catch(() => {
+          // 目录已不存在：保留展开标记，下次点击重新判断
+        })
+        .finally(() => {
+          if (cancelled) return;
+          setLoadingPaths((current) => {
+            const next = new Set(current);
+            next.delete(dir);
+            return next;
+          });
+        });
+    }
+
     return () => {
       cancelled = true;
     };
   }, [project.id, reloadKey, revision]);
+
+  /** 文件变更回调读到的必须是最新展开状态 */
+  const expandedRef = useRef(expanded);
+  expandedRef.current = expanded;
+
+  /** 只重拉发生变化、且仍然展开的目录；根目录始终重拉 */
+  const refreshChangedDirs = useCallback(async (dirs: string[]) => {
+    const requestProjectId = projectIdRef.current;
+    await Promise.all(
+      dirs.map(async (dir) => {
+        if (dir !== "" && !expandedRef.current.has(dir)) return;
+        try {
+          const entries = await ipc.listFiles(
+            requestProjectId,
+            dir === "" ? undefined : dir,
+          );
+          if (projectIdRef.current !== requestProjectId) return;
+          if (dir === "") setRootItems(entries);
+          else setChildrenByPath((current) => ({ ...current, [dir]: entries }));
+        } catch {
+          // 目录可能在事件与刷新之间被删除：保留当前行，下次展开时重建
+        }
+      }),
+    );
+  }, []);
+
+  /** 监听集合 = 根目录 + 已展开目录；标签页切走或页面隐藏时停止 */
+  useEffect(() => {
+    if (!visible) return;
+    setWatchSource(project.id, "files-tab", ["", ...expanded]);
+    return () => clearWatchSource(project.id, "files-tab");
+  }, [project.id, expanded, visible]);
+
+  useEffect(() => {
+    return subscribeWorkspaceChanges(project.id, (dirs) => {
+      void refreshChangedDirs(dirs);
+    });
+  }, [project.id, refreshChangedDirs]);
 
   const statusByPath = useMemo(() => {
     const map = new Map<string, GitStatusKind>();
@@ -146,15 +221,16 @@ export function FilesTab({ project, git, request, revision }: FilesTabProps) {
   const toggleDirectory = async (entry: FileEntry) => {
     const path = entry.relativePath;
     if (expanded.has(path)) {
-      setExpanded((current) => {
-        const next = new Set(current);
-        next.delete(path);
-        return next;
-      });
+      const next = new Set(expanded);
+      next.delete(path);
+      setExpanded(next);
+      writeExpandedPaths(project.id, next);
       return;
     }
 
-    setExpanded((current) => new Set(current).add(path));
+    const next = new Set(expanded).add(path);
+    setExpanded(next);
+    writeExpandedPaths(project.id, next);
     if (childrenByPath[path]) return;
 
     const requestProjectId = projectIdRef.current;
@@ -178,7 +254,7 @@ export function FilesTab({ project, git, request, revision }: FilesTabProps) {
 
   const activeTab = openTabs.find((tab) => tab.id === activeTabId) ?? null;
   return (
-    <div className="flex h-full min-h-0 flex-col">
+    <div ref={rootRef} className="flex h-full min-h-0 flex-col">
       <div className="flex min-h-0 flex-1">
         {/* 树 */}
         <div className="flex w-[340px] shrink-0 flex-col border-r border-border">

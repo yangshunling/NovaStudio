@@ -94,6 +94,12 @@ export const ipc = {
   revealProject: (id: string) => call("project:reveal", { id }),
   listFiles: (projectId: string, subPath?: string) =>
     call("project:listFiles", { projectId, subPath }),
+  /** 声明要监听的目录集合（空数组 = 关闭）；目录变化后由 workspace:changed 推送 */
+  watchWorkspace: (projectId: string, dirs: string[]) =>
+    call("workspace:watch", { projectId, dirs }),
+  onWorkspaceChanged: (
+    callback: (payload: IpcPushMap["workspace:changed"]) => void,
+  ) => on("workspace:changed", callback),
   getGitStatus: (projectId: string) => call("project:gitStatus", { projectId }),
   getGitStatusDetail: (projectId: string) =>
     call("git:statusDetail", { projectId }),

@@ -5,12 +5,22 @@
  * 根目录与每个展开的目录分别走 project:listFiles，避免一次扫描整个工程。
  */
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ChevronRight, PanelRightClose, RefreshCw } from "lucide-react";
 import { ipc } from "../../lib/ipc";
+import {
+  clearWatchSource,
+  setWatchSource,
+  subscribeWorkspaceChanges,
+} from "../../lib/file-watch";
 import { useChatStore } from "../../stores/chat";
 import { useFileViewerStore } from "../../stores/fileViewer";
+import { useElementVisible } from "../../hooks/useElementVisible";
+import {
+  readExpandedPaths,
+  writeExpandedPaths,
+} from "../../lib/tree-expansion";
 import { FileTypeIcon } from "../ui/FileTypeIcon";
 import { FolderTypeIcon } from "../ui/FolderTypeIcon";
 import { PageHeader, PageToolbar } from "../ui/Page";
@@ -218,6 +228,8 @@ export function WorkspacePanel({
   const [panelWidth, setPanelWidth] = useState<number | null>(readStoredWidth);
   const [resizing, setResizing] = useState(false);
   const panelRef = useRef<HTMLElement>(null);
+  /** 切到别的页面时面板被隐藏：此时不保留目录监听 */
+  const panelVisible = useElementVisible(panelRef);
   const dragRef = useRef<{
     pointerId: number;
     startX: number;
@@ -227,6 +239,10 @@ export function WorkspacePanel({
   useEffect(() => {
     projectIdRef.current = projectId;
   }, [projectId]);
+
+  /** 文件变更回调里读到的必须是最新展开状态，不能是订阅那一刻的闭包 */
+  const expandedPathsRef = useRef(expandedPaths);
+  expandedPathsRef.current = expandedPaths;
 
   /** 拖动期间的宽度只在 rAF 中提交，localStorage 松手后写一次 */
   const resizeFrameRef = useRef<number | null>(null);
@@ -259,7 +275,9 @@ export function WorkspacePanel({
 
     setRootItems([]);
     setChildrenByPath({});
-    setExpandedPaths(new Set());
+    // 重载（Vite 热更新 / 视图重新挂载）后恢复上次展开的目录
+    const restored = readExpandedPaths(projectId);
+    setExpandedPaths(restored);
     setError(null);
     setGitStatus(null);
 
@@ -288,6 +306,31 @@ export function WorkspacePanel({
         });
       });
 
+    /*
+     * 恢复展开状态时必须把子目录一起读回来，否则重载后会出现
+     * 「箭头是展开的、内容却是空的」。
+     */
+    for (const dir of restored) {
+      setLoadingPaths((current) => new Set(current).add(dir));
+      ipc
+        .listFiles(projectId, dir)
+        .then((entries) => {
+          if (cancelled) return;
+          setChildrenByPath((current) => ({ ...current, [dir]: entries }));
+        })
+        .catch(() => {
+          // 目录已不存在：保留展开标记，下次点击会重新判断
+        })
+        .finally(() => {
+          if (cancelled) return;
+          setLoadingPaths((current) => {
+            const next = new Set(current);
+            next.delete(dir);
+            return next;
+          });
+        });
+    }
+
     ipc
       .getGitStatus(projectId)
       .then((status) => {
@@ -304,17 +347,54 @@ export function WorkspacePanel({
     };
   }, [projectId, reloadKey]);
 
+  /** 只重拉发生变化、且仍然展开的目录；根目录始终重拉 */
+  const refreshChangedDirs = useCallback(async (dirs: string[]) => {
+    const requestProjectId = projectIdRef.current;
+    if (!requestProjectId) return;
+    await Promise.all(
+      dirs.map(async (dir) => {
+        if (dir !== "" && !expandedPathsRef.current.has(dir)) return;
+        try {
+          const entries = await ipc.listFiles(
+            requestProjectId,
+            dir === "" ? undefined : dir,
+          );
+          if (projectIdRef.current !== requestProjectId) return;
+          if (dir === "") setRootItems(entries);
+          else setChildrenByPath((current) => ({ ...current, [dir]: entries }));
+        } catch {
+          // 目录可能在事件与刷新之间被删除：保留当前行，下次展开时重建
+        }
+      }),
+    );
+  }, []);
+
+  /** 监听集合 = 根目录 + 已展开目录；收起目录、切项目或面板隐藏时同步收缩 */
+  useEffect(() => {
+    if (!projectId || !panelVisible) return;
+    setWatchSource(projectId, "workspace-panel", ["", ...expandedPaths]);
+    return () => clearWatchSource(projectId, "workspace-panel");
+  }, [projectId, expandedPaths, panelVisible]);
+
+  useEffect(() => {
+    if (!projectId) return;
+    return subscribeWorkspaceChanges(projectId, (dirs) => {
+      void refreshChangedDirs(dirs);
+    });
+  }, [projectId, refreshChangedDirs]);
+
   const toggleDirectory = async (entry: FileEntry) => {
     if (expandedPaths.has(entry.relativePath)) {
-      setExpandedPaths((current) => {
-        const next = new Set(current);
-        next.delete(entry.relativePath);
-        return next;
-      });
+      const next = new Set(expandedPaths);
+      next.delete(entry.relativePath);
+      setExpandedPaths(next);
+      writeExpandedPaths(projectId, next);
       return;
     }
 
-    setExpandedPaths((current) => new Set(current).add(entry.relativePath));
+    const next = new Set(expandedPaths).add(entry.relativePath);
+    setExpandedPaths(next);
+    writeExpandedPaths(projectId, next);
     if (childrenByPath[entry.relativePath]) return;
 
     const requestProjectId = projectId;

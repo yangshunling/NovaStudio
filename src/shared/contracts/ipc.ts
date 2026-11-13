@@ -177,6 +177,14 @@ export interface IpcInvokeMap {
     args: [{ projectId: string; subPath?: string }];
     result: FileEntry[];
   };
+  /**
+   * 声明当前需要监听的目录集合（相对路径，空串表示根目录）。
+   * 传空数组等于关闭监听；多次调用以最后一次为准。
+   */
+  "workspace:watch": {
+    args: [{ projectId: string; dirs: string[] }];
+    result: void;
+  };
   /** 在系统文件管理器中定位到工作区根目录 */
   "project:reveal": { args: [{ id: string }]; result: boolean };
   /** 读取当前项目的 Git 状态，供文件树显示新增 / 修改 / 删除等标记 */
@@ -681,6 +689,8 @@ export interface IpcPushMap {
   "triggers:updated": WorkflowTrigger;
   /** 待办增删改后推送未完成数量，供侧栏角标实时更新 */
   "todos:changed": { pending: number };
+  /** 已监听目录内有文件变化：dirs 为相对路径，空串表示根目录 */
+  "workspace:changed": { projectId: string; dirs: string[] };
   /** 周报生成过程中的增量文本 */
   "report:chunk": { requestId: string; chunk: string };
   /** 更新状态变更（检查结果 / 下载进度 / 下载完成 / 错误） */

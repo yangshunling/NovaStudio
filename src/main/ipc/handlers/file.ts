@@ -9,6 +9,7 @@ import {
   readProjectFile,
   resolveProjectFile,
 } from "../../files/access";
+import { setWatchDirs } from "../../files/watcher";
 import { handle } from "../register";
 import { errorMessage } from "../../../shared/error";
 
@@ -20,6 +21,9 @@ export function registerFileHandlers(): void {
   handle("file:readEmbeddedImage", ({ projectId, markdownPath, src }) =>
     readEmbeddedImage(projectId, markdownPath, src),
   );
+
+  /** 文件面板声明需要监听的目录；主进程只监听这些目录，不做全树递归 */
+  handle("workspace:watch", ({ projectId, dirs }) => setWatchDirs(projectId, dirs));
 
   handle(
     "file:openExternal",

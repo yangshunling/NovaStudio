@@ -30,6 +30,7 @@ import {
   stopWorkflows,
 } from "./ipc";
 import { initDatabase, closeDatabase, getSetting } from "./db/sqlite";
+import { closeAllWorkspaceWatchers } from "./files/watcher";
 import { purgeLegacyWorkflowRuntimes } from "./workflow/artifacts";
 import { migrateLegacyAssets } from "./migration/legacy-assets";
 import { syncKnowledgeIndex } from "./knowledge/catalog";
@@ -250,6 +251,7 @@ async function stopBackgroundTasks(): Promise<void> {
   stopTriggers();
   stopWorkflows();
   stopTerminals();
+  closeAllWorkspaceWatchers();
   await stopAgents();
 }
 
