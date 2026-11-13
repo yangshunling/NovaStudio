@@ -191,6 +191,8 @@ export function registerAgentHandlers(service: AgentService): void {
       images,
       contextPrompt,
       cwd,
+      // 聊天是唯一有用户在场的入口：允许把工具授权询问弹给用户
+      interactivePermissions: true,
       // 落库时记到本轮消息上：历史回复按当时的回答者显示头像
       employeeId: requestedEmployeeId,
       ...(run.env ? { env: run.env } : {}),
@@ -249,4 +251,15 @@ export function registerAgentHandlers(service: AgentService): void {
     flushEvents();
     return aborted || (canceling.has(sessionId) && pendingSends.has(sessionId));
   });
+
+  /** 回答工具授权询问；请求已超时或被中断时返回 ok:false */
+  handle("agent:permission:respond", ({ sessionId, requestId, decision }) => {
+    if (decision.behavior !== "allow" && decision.behavior !== "deny") {
+      return { ok: false, error: "非法的授权结果" };
+    }
+    return service.respondPermission(sessionId, requestId, decision);
+  });
+
+  /** 渲染层刷新 / 重载后恢复仍待处理的授权询问 */
+  handle("agent:permission:list", () => service.listPendingPermissions());
 }

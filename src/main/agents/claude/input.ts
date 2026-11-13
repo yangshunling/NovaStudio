@@ -11,20 +11,29 @@
 
 import type { InputImage } from "../../../shared/types";
 
-/** 有图片时才需要 stream-json 输入格式 */
-export function usesStreamJsonInput(images?: InputImage[]): boolean {
-  return !!images && images.length > 0;
+/**
+ * 是否需要 stream-json 输入格式。
+ *
+ * - 有图片：必须用（CLI 只在该格式下接受 image 块）
+ * - 交互授权：必须用（control_response 要写回同一根 stdin）
+ */
+export function usesStreamJsonInput(
+  images?: InputImage[],
+  streamJson = false,
+): boolean {
+  return streamJson || (!!images && images.length > 0);
 }
 
 /**
  * 把本轮正文与图片编码成 stream-json 的 user 消息（单行 NDJSON）。
- * 没有图片时返回原始正文，调用方继续使用 text 输入格式。
+ * 不需要 stream-json 时返回原始正文，调用方继续使用 text 输入格式。
  */
 export function buildUserInput(
   prompt: string,
   images?: InputImage[],
+  streamJson = false,
 ): string {
-  if (!usesStreamJsonInput(images)) return prompt;
+  if (!usesStreamJsonInput(images, streamJson)) return prompt;
 
   const content: Record<string, unknown>[] = [];
   for (const image of images ?? []) {

@@ -35,6 +35,11 @@
  */
 
 import type { AgentEvent, ToolResultImage } from "../../../shared/types";
+import type {
+  PermissionPromptRequest,
+  PermissionSuggestion,
+} from "../../../shared/permission-prompt";
+import type { AgentControlMessage } from "../types";
 import { describeTool } from "../tool-display";
 
 /** Anthropic 风格的内容块（只声明我们关心的字段） */
@@ -372,6 +377,10 @@ export interface MessageBuffer {
 export interface DecodedStreamLine {
   sessionId: string | null;
   event: AgentEvent | AgentEvent[] | null;
+  /** 控制通道消息（权限询问 / 取消）；不进入对话事件流 */
+  control?: AgentControlMessage;
+  /** result 行：本轮输入已处理完，可以关闭 stdin */
+  closeInput?: boolean;
 }
 
 /** 单行解码器：返回「会话 id + 事件」（流式热路径，一次 parse 出两者） */
@@ -413,6 +422,64 @@ export function createStreamDecoder(options?: {
 }
 
 /**
+ * 控制通道记录 → 宿主可处理的消息。
+ *
+ * 只认 `can_use_tool` 与取消请求；其它 control_request（initialize /
+ * hook_callback / mcp_message 等）当前不需要应答，保持忽略。
+ */
+function decodeControlObject(
+  obj: Record<string, unknown>,
+): AgentControlMessage | null {
+  if (obj.type === "control_cancel_request") {
+    const requestId = typeof obj.request_id === "string" ? obj.request_id : "";
+    return requestId ? { type: "permission_cancel", requestId } : null;
+  }
+
+  if (obj.type !== "control_request") return null;
+  const request = obj.request as Record<string, unknown> | undefined;
+  if (!request || request.subtype !== "can_use_tool") return null;
+
+  const requestId = typeof obj.request_id === "string" ? obj.request_id : "";
+  const toolName = typeof request.tool_name === "string" ? request.tool_name : "";
+  // 缺关键字段的询问无法回答：忽略它，让 CLI 按自己的规则处理
+  if (!requestId || !toolName) return null;
+
+  const suggestions: PermissionSuggestion[] = [];
+  if (Array.isArray(request.permission_suggestions)) {
+    for (const item of request.permission_suggestions) {
+      if (
+        item &&
+        typeof item === "object" &&
+        typeof (item as Record<string, unknown>).type === "string"
+      ) {
+        suggestions.push(item as PermissionSuggestion);
+      }
+    }
+  }
+
+  const prompt: PermissionPromptRequest = {
+    requestId,
+    toolName,
+    displayName:
+      typeof request.display_name === "string" ? request.display_name : toolName,
+    description:
+      typeof request.description === "string" ? request.description : "",
+    input: request.input ?? {},
+    permissionSuggestions: suggestions,
+    ...(typeof request.decision_reason === "string"
+      ? { decisionReason: request.decision_reason }
+      : {}),
+    ...(typeof request.decision_reason_type === "string"
+      ? { decisionReasonType: request.decision_reason_type }
+      : {}),
+    ...(typeof request.tool_use_id === "string"
+      ? { toolUseId: request.tool_use_id }
+      : {}),
+  };
+  return { type: "permission_request", request: prompt };
+}
+
+/**
  * 把一行 JSON 解码为「会话 id + 事件」。
  * 事件分发逻辑与 decode 共用 decodeObject，行为完全一致。
  */
@@ -432,8 +499,16 @@ export function decodeStreamLine(
   }
 
   const sessionId = typeof obj.session_id === "string" ? obj.session_id : null;
+
+  // 控制帧与对话事件共用 stdout：先分流，不能当未知类型丢掉
+  const control = decodeControlObject(obj);
+  if (control) {
+    return { sessionId, event: null, control };
+  }
+
   const event = decodeObject(obj, names, buffer, resolveLineStarts);
-  return { sessionId, event };
+  // 运行层据此在 result 后关闭 stdin（stream-json 输入下进程才会退出）
+  return { sessionId, event, closeInput: obj.type === "result" };
 }
 
 /** 把一行 JSON 解码为事件 */

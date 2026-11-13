@@ -21,6 +21,7 @@ import { newId } from "../lib/utils";
 import { toast } from "./toast";
 import { appendEvent } from "@shared/agent-events";
 import { DEFAULT_PERMISSION_MODE } from "@shared/permission";
+import { usePermissionPromptStore } from "./permissionPrompt";
 import type { AgentInfo } from "@shared/contracts/agent";
 import type {
   AgentEvent,
@@ -621,6 +622,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         delete draftsBySession[sessionId];
         delete queuedBySession[sessionId];
         delete employeeIdBySession[sessionId];
+        usePermissionPromptStore.getState().clearSession(sessionId);
       }
       return {
         projects: state.projects.filter((p) => p.id !== id),
@@ -932,6 +934,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   deleteSession: async (id) => {
     await ipc.deleteSession(id);
+    usePermissionPromptStore.getState().clearSession(id);
     set((s) => {
       const messagesBySession = { ...s.messagesBySession };
       delete messagesBySession[id];
@@ -1315,6 +1318,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
   _onDone: (data: { sessionId: string }) => {
     // 落库回填前必须先把缓冲里的增量应用完，否则会读到旧状态
     flushPendingEvents();
+    // 主进程应先推 resolved；这里兜底，避免丢推送时弹窗残留
+    usePermissionPromptStore.getState().clearSession(data.sessionId);
     activeEmployeeBySession.delete(data.sessionId);
     set((s) => ({
       streamingBySession: { ...s.streamingBySession, [data.sessionId]: false },
@@ -1399,6 +1404,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
      * 队列要等用户点「继续发送」才恢复。
      */
     flushPendingEvents();
+    usePermissionPromptStore.getState().clearSession(data.sessionId);
     activeEmployeeBySession.delete(data.sessionId);
     set((s) => ({
       streamingBySession: { ...s.streamingBySession, [data.sessionId]: false },

@@ -1,10 +1,4 @@
 <p align="center">
-  <img src="resources/banner-light.svg" alt="Nova Studio" width="100%">
-</p>
-
-<br>
-
-<p align="center">
   <img src="resources/preview/封面.png" alt="Nova Studio 产品封面：一个窗口，管理你的整个 AI 数字团队" width="100%">
 </p>
 
@@ -143,16 +137,7 @@
 
 <br>
 
-<p>
-  <code>~/.novastudio/</code> &nbsp; 会话 · 员工 · 工作流 · 知识库 · 运行记录<br>
-  <code>~/.claude</code> &nbsp; 登录 · 模型 · 权限 · MCP · Skill<br>
-  <code>Markdown + SQLite</code> &nbsp; 知识库正文与本地全文索引<br>
-  <code>.novastudio/</code> &nbsp; 工作流运行产物，按运行 ID 隔离
-</p>
-
-<br>
-
-<p>
+<p align="center">
   <sub>不做云端账号、模型托管、知识库向量化、多人协作与权限系统——单机、单用户、本地优先。</sub>
 </p>
 

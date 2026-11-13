@@ -17,6 +17,7 @@
  */
 
 import type { AutomationTask } from "../../shared/types";
+import { HEADLESS_PERMISSION_MODE } from "../../shared/permission";
 import type { Emit } from "../../shared/contracts/ipc";
 import type { AgentService } from "../agents/agent-service";
 import * as db from "../db/sqlite";
@@ -174,6 +175,12 @@ export function createScheduler(
       sessionId: session.id,
       prompt: task.prompt,
       cwd,
+      /*
+       * 自动化任务无人值守：不等待人工授权，并显式使用 bypassPermissions，
+       * 避免 Agent 默认权限调低后工具被静默拒绝、任务「成功」但结果残缺。
+       */
+      permissionMode: HEADLESS_PERMISSION_MODE,
+      interactivePermissions: false,
     });
     flushEvents();
 

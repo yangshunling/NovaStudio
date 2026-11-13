@@ -15,10 +15,37 @@ export interface PermissionModeOption {
 /**
  * 未显式配置时的默认权限。
  *
- * Nova 的会话与工作流都是无人工应答的运行（不接 permission prompt），
- * 用 default / dontAsk 会让需要授权的工具被直接拒绝，因此默认放开。
+ * 聊天会话在 default / auto / acceptEdits 下会弹窗询问；但工作流与自动化
+ * 是无人值守运行（固定 bypass），默认保持放开可避免开箱即用时工具被静默拒绝。
  */
 export const DEFAULT_PERMISSION_MODE = "bypassPermissions";
+
+/**
+ * 无人值守运行（工作流 / 自动化）固定使用的权限模式。
+ *
+ * 这些运行没有界面回答询问；显式指定 bypass 是为了避免跟随 Agent 默认值
+ * 调低后，工具被静默拒绝、任务表面成功但产物残缺。
+ */
+export const HEADLESS_PERMISSION_MODE = "bypassPermissions";
+
+/**
+ * 该模式是否可能向用户发起工具授权询问。
+ *
+ * - default / auto / acceptEdits：需要人工回答（auto 在高风险时仍会问）
+ * - plan：只读规划，不执行写操作
+ * - dontAsk：直接拒绝，不询问
+ * - bypassPermissions：全部放行
+ * - 未知值：不假设，保持原行为（不传交互参数）
+ */
+export function modeMayAsk(mode: string | null | undefined): boolean {
+  return (
+    mode === "default" ||
+    mode === "auto" ||
+    mode === "acceptEdits" ||
+    // CLI 的 settings 命名差异：manual 与 default 等价
+    mode === "manual"
+  );
+}
 
 export const PERMISSION_MODE_OPTIONS: readonly PermissionModeOption[] = [
   {

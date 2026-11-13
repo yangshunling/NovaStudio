@@ -17,6 +17,7 @@ import { randomUUID } from "crypto";
 import { existsSync } from "fs";
 import { join } from "path";
 import { clamp } from "../../shared/math";
+import { HEADLESS_PERMISSION_MODE } from "../../shared/permission";
 import { getProvider, listProviders } from "../agents/registry";
 import type { AgentInvocationInfo, PreparedAgentRun } from "../agents/types";
 import type { AgentService, RunOutcome } from "../agents/agent-service";
@@ -1413,6 +1414,14 @@ export function createWorkflowRunner(deps: WorkflowRunnerDeps): WorkflowRunner {
         sessionId: chain.sessionId,
         prompt,
         cwd: active.workspacePath,
+        /*
+         * 工作流是无人值守运行：不能等待人工授权。
+         * 显式指定 bypassPermissions（而不是跟随 Agent 默认值），
+         * 否则用户把默认权限调低后，需要授权的工具会被静默拒绝，
+         * 节点可能显示成功但产物残缺。节点的人工卡点是审核，不是逐工具授权。
+         */
+        permissionMode: HEADLESS_PERMISSION_MODE,
+        interactivePermissions: false,
         opts: chain.systemPrompt ? { systemPrompt: chain.systemPrompt } : {},
         env: chain.prepared.env,
         envRemove: chain.prepared.envRemove,

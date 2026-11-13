@@ -8,7 +8,7 @@
  * 与主进程 handler 共用同一份契约 —— 任何一方改了形状，另一方立即编译报错。
  */
 
-import { contextBridge, ipcRenderer } from "electron";
+import { contextBridge, ipcRenderer, webUtils } from "electron";
 import type {
   IpcArgs,
   IpcInvokeChannel,
@@ -37,7 +37,21 @@ function subscribe<C extends IpcPushChannel>(
   return () => ipcRenderer.removeListener(channel, handler);
 }
 
-const api = { invoke, subscribe };
+const api = {
+  invoke,
+  subscribe,
+  /**
+   * 取拖入文件的真实路径（Electron 32 起 File.path 已移除）。
+   * 渲染层只能通过这里拿路径，不能直接访问 Node API。
+   */
+  getPathForFile: (file: File): string => {
+    try {
+      return webUtils.getPathForFile(file);
+    } catch {
+      return "";
+    }
+  },
+};
 
 export type NovaBridge = typeof api;
 

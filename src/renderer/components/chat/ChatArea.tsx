@@ -33,6 +33,7 @@ import {
 } from "lucide-react";
 import { AgentSelector } from "./AgentSelector";
 import { EmployeeSelector } from "./EmployeeSelector";
+import { PermissionPromptBanner } from "./PermissionPromptBanner";
 import { PermissionSelector } from "./PermissionSelector";
 import { ProjectSelector } from "./ProjectSelector";
 import {
@@ -61,6 +62,20 @@ import { FOCUS_COMPOSER_EVENT } from "../../lib/chat-events";
 
 /** 输入区里待发送的图片：带本地 key，便于预览列表增删 */
 type PendingImage = InputImage & { id: string };
+
+/** 拖入路径是否位于工作区内；是则返回相对路径（统一用 /） */
+function relativePathIn(root: string | undefined, target: string): string | null {
+  if (!root) return null;
+  const normalizedRoot = root.replace(/\\/g, "/").replace(/\/+$/, "");
+  const normalizedTarget = target.replace(/\\/g, "/");
+  // Windows 路径大小写不敏感；其它平台保持原样
+  const caseInsensitive = /^[a-zA-Z]:\//.test(normalizedRoot);
+  const lhs = caseInsensitive ? normalizedRoot.toLowerCase() : normalizedRoot;
+  const rhs = caseInsensitive ? normalizedTarget.toLowerCase() : normalizedTarget;
+  if (rhs === lhs) return null;
+  if (!rhs.startsWith(`${lhs}/`)) return null;
+  return normalizedTarget.slice(normalizedRoot.length + 1);
+}
 
 /** 引用标签的图标：文件按扩展名，其余按引用类型 */
 function ReferenceIcon({ reference }: { reference: MentionReference }) {
@@ -273,6 +288,48 @@ export function ChatArea({ embedded = false }: { embedded?: boolean } = {}) {
   );
   const handlePaste = usePasteNormalizer(setInput, handleImageFiles);
 
+  /**
+   * 拖入非图片文件 → 作为 `#` 文件引用挂到输入框上方。
+   *
+   * CLI 的输入只接受文本与图片，不能直接传二进制；因此文件以路径引用
+   * 的形式交给 Agent，由它按需读取。工作区内的文件用相对路径（与 `#`
+   * 引用一致），工作区外保留绝对路径。
+   */
+  const handleDroppedFiles = useCallback(
+    (files: File[]) => {
+      const bridge = (window as unknown as {
+        nova?: { getPathForFile?: (file: File) => string };
+      }).nova;
+      const root = currentProject?.cwd;
+      let added = 0;
+
+      for (const file of files) {
+        const rawPath = bridge?.getPathForFile?.(file) ?? "";
+        if (!rawPath) {
+          toast.info("无法读取该文件的路径，请先绑定工作区后再拖入", 4000);
+          continue;
+        }
+        const relative = relativePathIn(root, rawPath);
+        // 工作区内用相对路径，和 # 引用完全一致；区外保留绝对路径
+        const displayPath = relative ?? rawPath.replace(/\\/g, "/");
+        const key = `drop:${displayPath.toLowerCase()}`;
+        mention.addReference({
+          key,
+          category: "file",
+          name: file.name || displayPath.split("/").pop() || displayPath,
+          detail: displayPath,
+          promptText: `@${displayPath}`,
+        });
+        added += 1;
+      }
+
+      if (added > 0) {
+        requestAnimationFrame(() => textareaRef.current?.focus());
+      }
+    },
+    [currentProject?.cwd, mention.addReference],
+  );
+
   /** 输入快捷键帮助：完整说明放在弹层里，避免窄窗口下占位文本被截断 */
   const [helpOpen, setHelpOpen] = useState(false);
   const helpRef = useRef<HTMLDivElement>(null);
@@ -283,6 +340,7 @@ export function ChatArea({ embedded = false }: { embedded?: boolean } = {}) {
     ["Ctrl + V", "粘贴图片"],
     ["@", "选择数字员工"],
     ["#", "引用文件 / 技能 / 知识库"],
+    ["拖入文件", "添加为文件引用"],
     ["↑ / ↓", "翻找已发送内容"],
   ];
 
@@ -365,14 +423,22 @@ export function ChatArea({ embedded = false }: { embedded?: boolean } = {}) {
                 if (e.dataTransfer.types.includes("Files")) e.preventDefault();
               }}
               onDrop={(e) => {
-                const files = Array.from(e.dataTransfer.files).filter((file) =>
-                  file.type.startsWith("image/"),
-                );
+                const files = Array.from(e.dataTransfer.files);
                 if (files.length === 0) return;
                 e.preventDefault();
-                void addImageFiles(files);
+                // 图片走附件流（缩放 + base64），其余文件作为路径引用
+                const images = files.filter((file) =>
+                  file.type.startsWith("image/"),
+                );
+                const others = files.filter(
+                  (file) => !file.type.startsWith("image/"),
+                );
+                if (images.length > 0) void addImageFiles(images);
+                if (others.length > 0) handleDroppedFiles(others);
               }}
             >
+              {/* 工具授权：显示在输入框上方，不阻塞输入与其它操作 */}
+              <PermissionPromptBanner />
               {/* 暂存区：本轮运行中继续发送的消息按序排在这里，结束后自动接力 */}
               {queued.length > 0 && (
                 <div className="mb-2 overflow-hidden rounded-md border border-border/70 bg-surface-2/70">

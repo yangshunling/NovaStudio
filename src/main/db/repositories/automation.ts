@@ -22,6 +22,16 @@ export function getAutomationTask(id: string): AutomationTask | null {
   return row ? rowToAutomationTask(row) : null;
 }
 
+/** 按执行会话反查自动化任务（自动化会话在 sessions 表里 source 也是 chat） */
+export function getAutomationTaskBySessionId(
+  sessionId: string,
+): AutomationTask | null {
+  const row = prepare(
+    "SELECT * FROM automation_tasks WHERE session_id = ? ORDER BY created_at DESC LIMIT 1",
+  ).get(sessionId) as any;
+  return row ? rowToAutomationTask(row) : null;
+}
+
 export function createAutomationTask(prompt: string, projectId: string, agentId: string): AutomationTask {
   const id = randomUUID();
   const now = Date.now();

@@ -10,7 +10,12 @@
  */
 
 import type { AgentEvent } from "../../shared/types";
-import type { RunOptions, RunResult, RunSession } from "./types";
+import type {
+  AgentControlMessage,
+  RunOptions,
+  RunResult,
+  RunSession,
+} from "./types";
 import {
   createLineBuffer,
   spawnChild,
@@ -45,6 +50,15 @@ export interface LineRunConfig {
   envRemove?: string[];
   /** 通过 stdin 传给子进程的内容（含换行的 prompt 不能走命令行参数） */
   stdin?: string;
+  /**
+   * 保持 stdin 打开，等 result 行或进程结束再关闭。
+   *
+   * 双向控制通道（stream-json 输入 + 权限询问）必须打开：应答要写回
+   * 同一根 stdin。缺省 false，保持「写完即关」。
+   */
+  keepStdinOpen?: boolean;
+  /** 控制通道消息（权限询问 / 取消）；不是聊天事件，由上层处理 */
+  onControlMessage?: (control: AgentControlMessage) => void;
   /** 从一行输出中提取会话 id；返回 null 表示该行不含会话信息 */
   extractSessionId(line: string): string | null;
   /** 把一行输出解码为事件（可返回多个） */
@@ -56,6 +70,10 @@ export interface LineRunConfig {
   decodeLine?(line: string): {
     sessionId: string | null;
     event: AgentEvent | AgentEvent[] | null;
+    /** 控制通道消息：不进入事件流 */
+    control?: AgentControlMessage;
+    /** result 行：本轮输入已处理完，可以关闭 stdin */
+    closeInput?: boolean;
   } | null;
 }
 
@@ -134,6 +152,14 @@ export function startLineRun(
     finish(-1, message);
   }, timeoutMs);
 
+  /** stdin 只能关一次；「result 到达」与「写完即关」两条路径都可能调用 */
+  let inputEnded = false;
+  const endInput = () => {
+    if (inputEnded) return;
+    inputEnded = true;
+    transport?.endInput();
+  };
+
   /** 单行 → 会话 id + 事件 */
   const handleLine = (raw: string) => {
     const line = raw.trim();
@@ -144,6 +170,13 @@ export function startLineRun(
       const out = config.decodeLine(line);
       if (!out) return;
       if (out.sessionId) handlers.onSessionId(out.sessionId);
+      // 控制帧不进入对话事件：权限询问要由上层回答
+      if (out.control !== undefined) {
+        config.onControlMessage?.(out.control);
+        return;
+      }
+      // result 到达：本轮输入结束，关闭 stdin 让 -p 进程正常退出
+      if (out.closeInput) endInput();
       if (!out.event) return;
       for (const event of Array.isArray(out.event) ? out.event : [out.event]) {
         emit(event);
@@ -186,7 +219,9 @@ export function startLineRun(
     );
 
     if (transport && config.stdin !== undefined) {
-      transport.writeInput(config.stdin);
+      // 双向控制通道要留着 stdin；其余场景写完就关，让 CLI 知道输入结束
+      if (config.keepStdinOpen) transport.write(config.stdin);
+      else transport.writeInput(config.stdin);
     }
   } catch (err) {
     const message = errorMessage(err);
@@ -209,6 +244,20 @@ export function startLineRun(
       transport?.kill();
       // 兜底：部分平台上 kill 后收不到 exit 回调，避免 done 永久挂起
       setTimeout(() => finish(-1), ABORT_FALLBACK_MS);
+    },
+    /**
+     * 向子进程 stdin 追加一行（例如 control_response）。
+     *
+     * 运行已结束 / 被中断时返回 false，避免往已关闭的管道里写。
+     */
+    respondControl(line: string): boolean {
+      if (settled || muted || !transport) return false;
+      try {
+        transport.write(line.endsWith("\n") ? line : `${line}\n`);
+        return true;
+      } catch {
+        return false;
+      }
     },
   };
 }

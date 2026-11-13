@@ -20,6 +20,7 @@ import { join } from "path";
 import { existsSync } from "fs";
 import {
   attachMainWindow,
+  denyPendingPermissions,
   hasActiveBackgroundWork,
   initIpcHandlers,
   stopAgents,
@@ -157,8 +158,12 @@ function createWindow(): BrowserWindow {
   win.on("closed", () => {
     clearInterval(throttleTimer);
     stopTerminals();
+    denyPendingPermissions();
   });
-  win.webContents.on("render-process-gone", () => stopTerminals());
+  win.webContents.on("render-process-gone", () => {
+    stopTerminals();
+    denyPendingPermissions();
+  });
 
   /*
    * 导航守卫：窗口挂了 preload，远程页面一旦在此窗口打开就能拿到全部 IPC。

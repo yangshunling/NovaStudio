@@ -6,6 +6,12 @@
  */
 
 import type {
+  PermissionPromptDecision,
+  PermissionPromptResolved,
+  PermissionPromptView,
+  PermissionRespondResult,
+} from "../permission-prompt";
+import type {
   AgentEvent,
   AppInfo,
   AppSettings,
@@ -146,6 +152,22 @@ export interface IpcInvokeMap {
   };
   /** 中断指定会话（多会话并发时互不影响） */
   "agent:abort": { args: [{ sessionId: string }]; result: boolean };
+  /** 回答一次工具授权询问；请求可能已超时/中断，返回 ok:false 时界面据此清理 */
+  "agent:permission:respond": {
+    args: [
+      {
+        sessionId: string;
+        requestId: string;
+        decision: PermissionPromptDecision;
+      },
+    ];
+    result: PermissionRespondResult;
+  };
+  /** 渲染层重载后补齐仍待处理的授权询问 */
+  "agent:permission:list": {
+    args: [];
+    result: PermissionPromptView[];
+  };
 
   "project:list": { args: []; result: Project[] };
   "project:create": { args: [{ name: string; cwd: string }]; result: Project };
@@ -631,6 +653,10 @@ export interface IpcPushMap {
    * 与 agent:done 分开：中断不应触发“完成”语义，也不应自动消费暂存队列。
    */
   "agent:aborted": { sessionId: string };
+  /** 工具执行前的授权询问；必须即时送达，不能参与批量聚合 */
+  "agent:permission:request": PermissionPromptView;
+  /** 请求已失效（已回答 / 超时 / 中断 / 窗口关闭等） */
+  "agent:permission:resolved": PermissionPromptResolved;
   "agents:detected": AgentInfo[];
   /** 升级过程输出（已去除终端控制序列），供设置页实时展示 */
   "agent:upgrade:progress": { agentId: string; chunk: string };

@@ -33,6 +33,7 @@ import {
 } from "lucide-react";
 import { parseJsonSafe } from "@shared/json";
 import { useChatStore } from "../../stores/chat";
+import { usePermissionPromptStore } from "../../stores/permissionPrompt";
 import { useFileViewerStore } from "../../stores/fileViewer";
 import { useTerminalStore } from "../../stores/terminal";
 import { confirmDialog } from "../../stores/confirm";
@@ -155,6 +156,9 @@ export function SessionListPanel() {
   const currentSessionId = useChatStore((s) => s.currentSessionId);
   const streamingBySession = useChatStore((s) => s.streamingBySession);
   const queuedBySession = useChatStore((s) => s.queuedBySession);
+  const permissionCountBySession = usePermissionPromptStore(
+    (s) => s.countBySession,
+  );
   const projects = useChatStore((s) => s.projects);
   // 逐项订阅 action：避免无 selector 的 useChatStore() 让整个面板
   // 在每次流式 token 到达时重渲染
@@ -288,6 +292,9 @@ export function SessionListPanel() {
                       isActive={session.id === currentSessionId}
                       isStreaming={!!streamingBySession[session.id]}
                       queuedCount={queuedBySession[session.id]?.length ?? 0}
+                      permissionCount={
+                        permissionCountBySession[session.id] ?? 0
+                      }
                       onOpen={() => {
                         void selectSession(session.id);
                         // 点击会话即回到「对话」标签：否则文件预览 / 终端会盖住
@@ -322,6 +329,7 @@ function SessionRow({
   isActive,
   isStreaming,
   queuedCount,
+  permissionCount,
   onOpen,
   onDelete,
   onRename,
@@ -336,6 +344,8 @@ function SessionRow({
   isStreaming: boolean;
   /** 该会话暂存区里待发送的消息条数 */
   queuedCount: number;
+  /** 该会话待回答的工具授权询问数量 */
+  permissionCount: number;
   onOpen: () => void;
   onDelete: () => void;
   onRename: (title: string) => void;
@@ -470,12 +480,27 @@ function SessionRow({
         </span>
       </div>
 
-      {(meta.length > 0 || isStreaming || queuedCount > 0) && (
+      {(meta.length > 0 ||
+        isStreaming ||
+        queuedCount > 0 ||
+        permissionCount > 0) && (
         <div className="mt-0.5 flex min-w-0 items-center gap-1 ui-type-sub text-text-muted">
-          {isStreaming && <span className="shrink-0 text-accent">执行中</span>}
+          {permissionCount > 0 && (
+            <span className="flex shrink-0 items-center gap-1 text-error">
+              <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-error" />
+              等待授权
+            </span>
+          )}
+          {isStreaming && (
+            <span className="shrink-0 text-accent">
+              {permissionCount > 0 ? "· 执行中" : "执行中"}
+            </span>
+          )}
           {queuedCount > 0 && (
             <span className="flex min-w-0 items-center gap-1">
-              {isStreaming && <span className="shrink-0 opacity-50">·</span>}
+              {(isStreaming || permissionCount > 0) && (
+                <span className="shrink-0 opacity-50">·</span>
+              )}
               <span className="shrink-0 text-accent">
                 {queuedCount} 条待发送
               </span>
@@ -483,7 +508,10 @@ function SessionRow({
           )}
           {meta.map((item, index) => (
             <span key={item} className="flex min-w-0 items-center gap-1">
-              {(index > 0 || isStreaming || queuedCount > 0) && (
+              {(index > 0 ||
+                isStreaming ||
+                queuedCount > 0 ||
+                permissionCount > 0) && (
                 <span className="shrink-0 opacity-50">·</span>
               )}
               <span className="truncate">{item}</span>

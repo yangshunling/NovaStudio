@@ -42,8 +42,11 @@ import { createLineStartsResolver } from "./file-lines";
 import { prepareClaudeChatRun } from "./chat-runtime";
 import { prepareClaudeWorkflowRun } from "./prepare";
 import { getClaudeSettingsView } from "./settings";
-import { toCliPermissionMode } from "./permission";
-import { DEFAULT_PERMISSION_MODE } from "../../../shared/permission";
+import { encodeControlResponse, toCliPermissionMode } from "./permission";
+import {
+  DEFAULT_PERMISSION_MODE,
+  modeMayAsk,
+} from "../../../shared/permission";
 import { formatModelEntry } from "./models";
 import { checkClaudeUpgrade, upgradeClaude } from "./upgrade";
 import {
@@ -275,11 +278,22 @@ export const provider: AgentProvider = {
     }
 
     /*
-     * 带图片时必须用 stream-json 输入：默认的 text 格式只能传一段纯文本，
-     * 图片只能作为 content block 里的 image 块传入。CLI 要求该输入格式
-     * 与 stream-json 输出搭配（输出格式本来就是 stream-json）。
+     * 交互式工具授权：只有带 UI 的聊天运行、且模式可能 ask 时才启用。
+     * CLI 会把 can_use_tool 发到 stdout 的控制通道，宿主必须把
+     * control_response 写回同一根 stdin，因此还要强制 stream-json 输入
+     * 并保持 stdin 打开。
      */
-    const streamInput = usesStreamJsonInput(opts.images);
+    const interactive =
+      opts.allowPermissionPrompts === true && modeMayAsk(opts.permissionMode);
+    if (interactive) args.push("--permission-prompt-tool", "stdio");
+
+    /*
+     * stream-json 输入的两种触发条件：
+     * - 带图片：text 格式只能传纯文本，图片必须是 content block
+     * - 交互授权：控制应答要写回 stdin
+     * CLI 要求该输入格式与 stream-json 输出搭配（输出格式本来就是）。
+     */
+    const streamInput = usesStreamJsonInput(opts.images, interactive);
     if (streamInput) args.push("--input-format", "stream-json");
 
     // 系统提示词同样是多行文本，写入临时文件后用 --append-system-prompt-file
@@ -300,14 +314,17 @@ export const provider: AgentProvider = {
       args: [...args],
       cwd: opts.cwd,
       stdin: streamInput
-        ? "任务输入（stream-json 用户消息，含图片块；内容见「任务输入」章节）"
+        ? "任务输入（stream-json 用户消息；内容见「任务输入」章节）"
         : "任务输入（prompt 通过 stdin 传入，内容见「任务输入」章节）",
       env: opts.env,
       envRemove: opts.envRemove,
       notes: [
         "prompt 通过 stdin 传入，不在命令行参数中（避免 Windows cmd.exe 截断换行）",
         streamInput
-          ? "本轮带图片：使用 --input-format stream-json，图片以 base64 image 块传入"
+          ? "使用 --input-format stream-json 传入用户消息"
+          : "",
+        interactive
+          ? "本轮启用交互式工具授权：--permission-prompt-tool stdio（控制应答写回 stdin）"
           : "",
         systemPromptFile
           ? "系统提示词写入临时文件后通过 --append-system-prompt-file 传入"
@@ -326,8 +343,10 @@ export const provider: AgentProvider = {
         // prompt 通过 stdin 传入，参数里只剩单行开关与路径，
         // Windows 下由 transport 显式经 cmd.exe 解析 .cmd 入口。
         // stream-json 本身逐行输出，不需要 TTY 也能实时流式。
-        // 带图片时 stdin 是单行 NDJSON，而不是原始正文。
-        stdin: buildUserInput(opts.prompt, opts.images),
+        stdin: buildUserInput(opts.prompt, opts.images, streamInput),
+        // 交互授权时 stdin 要保持打开，回写 control_response；收到 result 再关
+        keepStdinOpen: interactive,
+        onControlMessage: opts.onControl,
         timeoutMs: opts.timeoutMs,
         env: opts.env,
         envRemove: opts.envRemove,
@@ -353,7 +372,25 @@ export const provider: AgentProvider = {
       void session.done.finally(systemPromptFile.cleanup);
     }
 
-    return session;
+    if (!interactive) return session;
+
+    /*
+     * 语义层应答：AgentService 只调 respondPermission，不感知
+     * control_response 的 wire shape。
+     */
+    return {
+      done: session.done,
+      get aborted() {
+        return session.aborted;
+      },
+      abort: () => session.abort(),
+      respondPermission(requestId, decision) {
+        if (!session.respondControl) return false;
+        return session.respondControl(
+          encodeControlResponse(requestId, decision),
+        );
+      },
+    };
   },
 
   /** 一次性文本生成（提交信息等宿主内部任务） */

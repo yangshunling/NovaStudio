@@ -7,6 +7,8 @@
  * 避免 CLI 因非法枚举直接拒绝启动。
  */
 
+import type { PermissionPromptDecision } from "../../../shared/permission-prompt";
+
 const CLI_PERMISSION_MODES = new Set([
   "manual",
   "auto",
@@ -22,4 +24,24 @@ export function toCliPermissionMode(mode: string | null | undefined): string | n
   if (!value) return null;
   if (value === "default") return "manual";
   return CLI_PERMISSION_MODES.has(value) ? value : null;
+}
+
+/**
+ * 把宿主回答编码成 CLI 的 control_response 行。
+ *
+ * 注意 request_id 位于 response 对象内部（与 control_request 的顶层字段
+ * 相反），这是协议里最容易写反的一处。
+ */
+export function encodeControlResponse(
+  requestId: string,
+  decision: PermissionPromptDecision,
+): string {
+  return JSON.stringify({
+    type: "control_response",
+    response: {
+      subtype: "success",
+      request_id: requestId,
+      response: decision,
+    },
+  });
 }

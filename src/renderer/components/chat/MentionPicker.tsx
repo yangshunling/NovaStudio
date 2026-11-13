@@ -795,6 +795,15 @@ export function useMention({
     [active, parsed.category, parsed.filter, entries, hoverIdx, selectEntry, goBack, closeMention],
   );
 
+  /** 外部入口（文件拖放）：按引用标签追加，重复 key 忽略 */
+  const addReference = useCallback((reference: MentionReference) => {
+    setReferences((current) =>
+      current.some((item) => item.key === reference.key)
+        ? current
+        : [...current, reference],
+    );
+  }, []);
+
   const removeReference = useCallback((key: string) => {
     setReferences((current) => current.filter((item) => item.key !== key));
   }, []);
@@ -827,6 +836,7 @@ export function useMention({
     popupRef,
     itemRefs,
     references,
+    addReference,
     handleChange,
     handleKeyDown,
     setHoverIdx,

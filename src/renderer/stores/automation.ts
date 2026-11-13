@@ -13,6 +13,7 @@ import { create } from "zustand";
 import { ipc } from "../lib/ipc";
 import { newId } from "../lib/utils";
 import { useChatStore } from "./chat";
+import { usePermissionPromptStore } from "./permissionPrompt";
 import type { AutomationTask, Message } from "@shared/types";
 
 interface AutomationState {
@@ -83,8 +84,9 @@ export const useAutomationStore = create<AutomationState>((set) => ({
       }
     }
 
-    // 任务完成/失败：复位流式标记
+    // 任务完成/失败：复位流式标记，并清掉可能残留的授权询问
     if ((task.status === "completed" || task.status === "failed") && task.sessionId) {
+      usePermissionPromptStore.getState().clearSession(task.sessionId);
       useChatStore.setState((s) => ({
         streamingBySession: { ...s.streamingBySession, [task.sessionId!]: false },
       }));

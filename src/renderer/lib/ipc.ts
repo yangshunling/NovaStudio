@@ -15,6 +15,7 @@ import type {
 } from "@shared/contracts/ipc";
 import type { AgentAuthMode, AgentSettingsDraft } from "@shared/contracts/agent";
 import type { WeeklyReportOptions } from "@shared/report";
+import type { PermissionPromptDecision } from "@shared/permission-prompt";
 import type {
   AppSettings,
   DigitalEmployeeDraft,
@@ -31,6 +32,8 @@ import type {
 interface NovaBridge {
   invoke: (channel: string, ...args: unknown[]) => Promise<unknown>;
   subscribe: (channel: string, callback: (payload: unknown) => void) => () => void;
+  /** 拖入文件 → 本机绝对路径（空串表示拿不到） */
+  getPathForFile: (file: File) => string;
 }
 
 const bridge = (window as unknown as { nova: NovaBridge }).nova;
@@ -77,6 +80,12 @@ export const ipc = {
   ): Promise<SendAgentResult> =>
     call("agent:send", { sessionId, prompt, images, employeeId }),
   abortAgent: (sessionId: string) => call("agent:abort", { sessionId }),
+  respondPermission: (
+    sessionId: string,
+    requestId: string,
+    decision: PermissionPromptDecision,
+  ) => call("agent:permission:respond", { sessionId, requestId, decision }),
+  listPendingPermissions: () => call("agent:permission:list"),
 
   // === 项目 ===
   listProjects: () => call("project:list"),
@@ -351,6 +360,12 @@ export const ipc = {
     agentDone: (cb: (payload: IpcPushMap["agent:done"]) => void) => on("agent:done", cb),
     agentAborted: (cb: (payload: IpcPushMap["agent:aborted"]) => void) =>
       on("agent:aborted", cb),
+    permissionRequest: (
+      cb: (payload: IpcPushMap["agent:permission:request"]) => void,
+    ) => on("agent:permission:request", cb),
+    permissionResolved: (
+      cb: (payload: IpcPushMap["agent:permission:resolved"]) => void,
+    ) => on("agent:permission:resolved", cb),
     agentsDetected: (cb: (payload: IpcPushMap["agents:detected"]) => void) =>
       on("agents:detected", cb),
     agentUpgradeProgress: (

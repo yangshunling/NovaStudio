@@ -712,7 +712,7 @@ export function AgentsView() {
                     <SectionCard
                       id="agent-permission"
                       title="默认权限"
-                      description="写入 settings.json 的 permissions.defaultMode，作为新会话与工作流节点的默认值；已开会话可在输入框工具栏按会话切换，切换不会写回本文件。无人值守运行建议保持 bypassPermissions。"
+                      description="写入 settings.json 的 permissions.defaultMode，作为聊天新会话的初始值；已开会话可在输入框工具栏按会话切换，切换不会写回本文件。工作流与自动化是无人值守运行，固定使用 bypassPermissions，不受此设置影响。"
                       icon={ShieldCheck}
                     >
                       <Field

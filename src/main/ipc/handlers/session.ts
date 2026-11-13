@@ -5,7 +5,10 @@
 import { randomUUID } from "node:crypto";
 import { homedir } from "os";
 import type { Message, Session } from "../../../shared/types";
-import { DEFAULT_PERMISSION_MODE } from "../../../shared/permission";
+import {
+  DEFAULT_PERMISSION_MODE,
+  HEADLESS_PERMISSION_MODE,
+} from "../../../shared/permission";
 import type { AgentService } from "../../agents/agent-service";
 import { getProvider } from "../../agents/registry";
 import * as db from "../../db/sqlite";
@@ -22,6 +25,11 @@ import { handle } from "../register";
  */
 function withEffectivePermissionMode(session: Session): Session {
   if (session.permissionMode) return session;
+  // 自动化任务的会话 source 也是 chat，且落库时 permission_mode 为 NULL；
+  // 它的运行实际固定 bypass，展示必须与行为一致。
+  if (db.getAutomationTaskBySessionId(session.id)) {
+    return { ...session, permissionMode: HEADLESS_PERMISSION_MODE };
+  }
   return {
     ...session,
     permissionMode:
@@ -212,6 +220,14 @@ export function registerSessionHandlers(service: AgentService): void {
     if (!session) return null;
     if (session.source === "workflow") {
       throw new Error("工作流会话不能修改权限模式");
+    }
+    /*
+     * 自动化任务的会话在 sessions 表中 source 也是 chat，
+     * 只能通过 automation_tasks.session_id 反查。它的运行固定 bypass，
+     * 允许在这里改权限只会让工具栏展示与真实行为不一致。
+     */
+    if (db.getAutomationTaskBySessionId(sessionId)) {
+      throw new Error("自动化任务的会话不能修改权限模式");
     }
     const next = permissionMode.trim();
     if (!next) throw new Error("权限模式不能为空");

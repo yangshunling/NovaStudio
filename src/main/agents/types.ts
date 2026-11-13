@@ -19,6 +19,10 @@ import type {
   SessionOptions,
 } from "../../shared/types";
 import type {
+  PermissionPromptDecision,
+  PermissionPromptRequest,
+} from "../../shared/permission-prompt";
+import type {
   AgentManifest,
   AgentStatus,
   AgentUpgradeCheck,
@@ -93,7 +97,19 @@ export interface RunOptions {
   onSessionId: (rawId: string) => void;
   /** 子进程启动前回调精确的调用信息，供运行产物审计 */
   onInvocation?: (info: AgentInvocationInfo) => void;
+  /**
+   * 本轮是否允许把工具授权询问交给宿主（只有带 UI 的聊天运行开启）。
+   * provider 据此决定是否启用双向控制通道；无人值守运行保持 false。
+   */
+  allowPermissionPrompts?: boolean;
+  /** provider 的带外控制消息（权限询问 / 取消）；不进入聊天事件流 */
+  onControl?: (control: AgentControlMessage) => void;
 }
+
+/** provider 归一化后的控制通道消息 */
+export type AgentControlMessage =
+  | { type: "permission_request"; request: PermissionPromptRequest }
+  | { type: "permission_cancel"; requestId: string };
 
 /** Provider 的本机配置位置（只读展示，Nova 不修改） */
 export interface AgentConfigLocation {
@@ -191,6 +207,19 @@ export interface RunSession {
   readonly aborted: boolean;
   /** 请求中断（幂等） */
   abort(): void;
+  /**
+   * 把一行控制应答写回子进程 stdin（例如 control_response）。
+   * 运行已结束 / 被中断时返回 false。不提供该能力的 provider 可省略。
+   */
+  respondControl?(line: string): boolean;
+  /**
+   * 回答一次工具授权询问（语义层，宿主只调这个）。
+   * provider 负责编码成自己的控制协议；无法送达时返回 false。
+   */
+  respondPermission?(
+    requestId: string,
+    decision: PermissionPromptDecision,
+  ): boolean;
 }
 
 /** 会话引用上下文：引用语义由 provider 解释，宿主只负责原样传回 */

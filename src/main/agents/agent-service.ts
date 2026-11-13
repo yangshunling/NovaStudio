@@ -26,6 +26,14 @@ import type { Emit } from "../../shared/contracts/ipc";
 import { getProvider, listProviders } from "../agents/registry";
 import { isResumeFailure } from "../agents/resume-error";
 import type { AgentInvocationInfo, RunSession } from "../agents/types";
+import type {
+  PermissionPromptDecision,
+  PermissionPromptRequest,
+  PermissionPromptResolved,
+  PermissionPromptView,
+  PermissionResolvedReason,
+  PermissionRespondResult,
+} from "../../shared/permission-prompt";
 import * as db from "../db/sqlite";
 import { errorMessage } from "../../shared/error";
 
@@ -74,9 +82,17 @@ export interface RunParams {
    * 本轮权限模式覆盖（settings 命名）。
    *
    * 缺省时按「会话快照 → provider 本机默认」解析；聊天发送不需要传，
-   * 会话工具栏已经把选择写进会话记录。
+   * 会话工具栏已经把选择写进会话记录。工作流 / 自动化显式传
+   * `bypassPermissions`，避免无人值守时工具被静默拒绝。
    */
   permissionMode?: string;
+  /**
+   * 本轮是否把工具授权询问交给宿主（弹出允许 / 拒绝）。
+   *
+   * 只有聊天入口传 true；工作流与自动化是无人值守运行，保持 false，
+   * CLI 按自己的权限规则处理，不会等待界面。
+   */
+  interactivePermissions?: boolean;
   /** 本轮回答者：数字员工 id；null / 缺省表示走 Agent 全局配置 */
   employeeId?: string | null;
   /** 宿主侧旁路监听：除推送到渲染层外，引擎也需要实时拿到事件 */
@@ -155,6 +171,16 @@ export interface AgentService {
    * 必须在关库之前 await，否则最后一条 assistant 消息可能写不进去。
    */
   shutdown(): Promise<void>;
+  /** 回答一次工具授权询问；请求已失效时返回 ok:false */
+  respondPermission(
+    sessionId: string,
+    requestId: string,
+    decision: PermissionPromptDecision,
+  ): PermissionRespondResult;
+  /** 渲染层重载后补齐仍待处理的询问 */
+  listPendingPermissions(): PermissionPromptView[];
+  /** 窗口关闭 / 渲染进程崩溃：所有待处理询问一律拒绝，避免运行永久挂起 */
+  denyAllPending(message: string, reason: PermissionResolvedReason): void;
 }
 
 /**
@@ -173,9 +199,100 @@ function lastAssistantText(content: AgentEvent[]): string {
   return "";
 }
 
-export function createAgentService(emit: Emit): AgentService {
+/** 服务运行选项（IPC 层注入，便于脱离窗口测试） */
+export interface AgentServiceOptions {
+  /** 当前是否有可用的渲染窗口；没有则立即拒绝授权，避免无人应答 */
+  canAskUser?: () => boolean;
+}
+
+/** 授权询问等待上限：超过后自动拒绝，让模型继续收尾 */
+const PERMISSION_PROMPT_TIMEOUT_MS = 5 * 60_000;
+
+interface PendingPermission {
+  sessionId: string;
+  request: PermissionPromptRequest;
+  timer: NodeJS.Timeout;
+  expiresAt: number;
+}
+
+export function createAgentService(
+  emit: Emit,
+  options: AgentServiceOptions = {},
+): AgentService {
   /** 并发运行表：sessionId → 运行句柄。仅在 run() 的 finally 中移除 */
   const running = new Map<string, RunSession>();
+  /**
+   * 待回答的工具授权询问。
+   *
+   * 键用 `sessionId + requestId` 复合，避免不同会话的 uuid 碰撞；
+   * 请求不落库，进程退出 / 会话删除后即失效。
+   */
+  const pendingPermissions = new Map<string, PendingPermission>();
+  const permissionKey = (sessionId: string, requestId: string) =>
+    `${sessionId}\u0000${requestId}`;
+
+  const permissionView = (pending: PendingPermission): PermissionPromptView => ({
+    ...pending.request,
+    sessionId: pending.sessionId,
+    createdAt: pending.expiresAt - PERMISSION_PROMPT_TIMEOUT_MS,
+    expiresAt: pending.expiresAt,
+  });
+
+  const emitResolved = (
+    sessionId: string,
+    requestId: string,
+    reason: PermissionResolvedReason,
+    behavior?: "allow" | "deny",
+  ): void => {
+    const payload: PermissionPromptResolved = {
+      sessionId,
+      requestId,
+      reason,
+      ...(behavior ? { behavior } : {}),
+    };
+    emit("agent:permission:resolved", payload);
+  };
+
+  /**
+   * 移除一条待处理询问。
+   * decision 为 null 表示不写回（CLI 已取消 / 进程已结束）。
+   */
+  const settlePermission = (
+    sessionId: string,
+    requestId: string,
+    decision: PermissionPromptDecision | null,
+    reason: PermissionResolvedReason,
+  ): boolean => {
+    const key = permissionKey(sessionId, requestId);
+    const pending = pendingPermissions.get(key);
+    if (!pending) return false;
+    pendingPermissions.delete(key);
+    clearTimeout(pending.timer);
+    if (decision) {
+      running.get(sessionId)?.respondPermission?.(requestId, decision);
+    }
+    emitResolved(sessionId, requestId, reason, decision?.behavior);
+    return true;
+  };
+
+  /** 清掉某会话的全部待处理询问（中断 / 删除 / 运行收尾） */
+  const clearSessionPermissions = (
+    sessionId: string,
+    reason: PermissionResolvedReason,
+    message = "运行已结束，工具授权请求已失效。",
+  ): void => {
+    for (const [key, pending] of [...pendingPermissions]) {
+      if (pending.sessionId !== sessionId) continue;
+      pendingPermissions.delete(key);
+      clearTimeout(pending.timer);
+      running.get(sessionId)?.respondPermission?.(pending.request.requestId, {
+        behavior: "deny",
+        message,
+        interrupt: false,
+      });
+      emitResolved(sessionId, pending.request.requestId, reason, "deny");
+    }
+  };
   /**
    * 运行快照：sessionId → 本轮实际使用的员工 id（null 表示通用助手）。
    *
@@ -421,6 +538,8 @@ export function createAgentService(emit: Emit): AgentService {
       let assistantContent: AgentEvent[] = [];
 
       let runSession: RunSession;
+      // provider.start 返回前不会收到控制帧；用 ref 让回调能拿到句柄
+      const runRef: { current: RunSession | null } = { current: null };
       try {
         runSession = provider.start({
           // 上下文里用带发言者前缀的文本；落库与界面仍用原始 prompt
@@ -434,6 +553,64 @@ export function createAgentService(emit: Emit): AgentService {
           envRemove,
           extraArgs,
           ...(permissionMode ? { permissionMode } : {}),
+          allowPermissionPrompts: params.interactivePermissions === true,
+          onControl: (control) => {
+            if (control.type === "permission_cancel") {
+              // CLI 已取消该询问：不写回，只清掉界面上的待处理项
+              settlePermission(sessionId, control.requestId, null, "canceled");
+              return;
+            }
+            if (control.type !== "permission_request") return;
+
+            const request = control.request;
+            const key = permissionKey(sessionId, request.requestId);
+            // 同一 requestId 只挂一次，避免重复计时 / 重复弹窗
+            if (pendingPermissions.has(key)) return;
+
+            const canAsk =
+              params.interactivePermissions === true &&
+              (options.canAskUser?.() ?? true);
+            if (!canAsk) {
+              const message = params.interactivePermissions
+                ? "当前没有可用的授权界面，已自动拒绝该工具调用。"
+                : "当前运行无人值守，未授权的工具调用已自动拒绝。";
+              runRef.current?.respondPermission?.(request.requestId, {
+                behavior: "deny",
+                message,
+                interrupt: false,
+              });
+              emitResolved(sessionId, request.requestId, "unavailable", "deny");
+              return;
+            }
+
+            const expiresAt = Date.now() + PERMISSION_PROMPT_TIMEOUT_MS;
+            const timer = setTimeout(() => {
+              settlePermission(
+                sessionId,
+                request.requestId,
+                {
+                  behavior: "deny",
+                  message: "等待人工授权超时，已自动拒绝该工具调用。",
+                  interrupt: false,
+                },
+                "timeout",
+              );
+            }, PERMISSION_PROMPT_TIMEOUT_MS);
+            timer.unref?.();
+
+            pendingPermissions.set(key, {
+              sessionId,
+              request,
+              timer,
+              expiresAt,
+            });
+            emit("agent:permission:request", {
+              ...request,
+              sessionId,
+              createdAt: Date.now(),
+              expiresAt,
+            });
+          },
           configDir: session.configDir ?? null,
           timeoutMs: resolveTimeoutMs(),
           onEvent: (event) => {
@@ -460,6 +637,7 @@ export function createAgentService(emit: Emit): AgentService {
           userMessageId,
         };
       }
+      runRef.current = runSession;
       running.set(sessionId, runSession);
       runningEmployees.set(sessionId, params.employeeId ?? null);
 
@@ -545,6 +723,9 @@ export function createAgentService(emit: Emit): AgentService {
           resumeFailed,
         };
       } finally {
+        // 运行结束（正常 / 失败 / 中断）后不应再有待授权询问
+        clearSessionPermissions(sessionId, "run-ended");
+        runRef.current = null;
         try {
           // 本地消息已经覆盖本次运行；之后再打开会话无需再向 CLI 补历史
           db.markSessionHistoryComplete(sessionId);
@@ -574,10 +755,75 @@ export function createAgentService(emit: Emit): AgentService {
     abort(sessionId: string): boolean {
       const runSession = running.get(sessionId);
       if (!runSession) return false;
+      // 中断前先清掉待授权询问：进程即将被杀，界面不应继续等待
+      clearSessionPermissions(sessionId, "aborted", "运行已中断，工具授权请求已失效。");
       // 不在此处移除表项：由 run() 的 finally 统一清理，
       // 这样 run() 才能读到 runSession.aborted 来判断是否被中断
       runSession.abort();
       return true;
+    },
+
+    respondPermission(
+      sessionId: string,
+      requestId: string,
+      decision: PermissionPromptDecision,
+    ): PermissionRespondResult {
+      const key = permissionKey(sessionId, requestId);
+      const pending = pendingPermissions.get(key);
+      if (!pending) {
+        return { ok: false, error: "该授权请求已失效" };
+      }
+      pendingPermissions.delete(key);
+      clearTimeout(pending.timer);
+
+      /*
+       * allow 必须回传工具入参：CLI 用 updatedInput 执行本次调用。
+       * 界面上没有改写入口时原样回传，避免出现空入参。
+       */
+      const finalDecision: PermissionPromptDecision =
+        decision.behavior === "allow" && !decision.updatedInput
+          ? {
+              ...decision,
+              updatedInput:
+                pending.request.input &&
+                typeof pending.request.input === "object"
+                  ? (pending.request.input as Record<string, unknown>)
+                  : {},
+            }
+          : decision;
+
+      const written =
+        running
+          .get(sessionId)
+          ?.respondPermission?.(requestId, finalDecision) ?? false;
+      emitResolved(sessionId, requestId, "answered", finalDecision.behavior);
+      return written
+        ? { ok: true }
+        : { ok: false, error: "运行已结束，授权未送达" };
+    },
+
+    listPendingPermissions(): PermissionPromptView[] {
+      return [...pendingPermissions.values()].map(permissionView);
+    },
+
+    denyAllPending(
+      message: string,
+      reason: PermissionResolvedReason,
+    ): void {
+      for (const [key, pending] of [...pendingPermissions]) {
+        pendingPermissions.delete(key);
+        clearTimeout(pending.timer);
+        running.get(pending.sessionId)?.respondPermission?.(
+          pending.request.requestId,
+          { behavior: "deny", message, interrupt: false },
+        );
+        emitResolved(
+          pending.sessionId,
+          pending.request.requestId,
+          reason,
+          "deny",
+        );
+      }
     },
 
     async getSessionWithHistory(sessionId: string): Promise<Session | null> {

@@ -21,6 +21,15 @@ export interface Transport {
    * 与系统提示词几乎必然包含换行。
    */
   writeInput(data: string): void;
+  /**
+   * 追加写入 stdin，保持管道打开。
+   *
+   * 用于双向控制通道：CLI 通过 stdout 发来权限询问，宿主把
+   * control_response 写回同一根 stdin。写完不会触发 EOF。
+   */
+  write(data: string): void;
+  /** 关闭 stdin（text 输入写完即关；stream-json 在收到 result 后关） */
+  endInput(): void;
 }
 
 /** 传输回调，创建时注入 */
@@ -211,6 +220,10 @@ export function spawnChild(
 
   child.stdout.setEncoding("utf8");
   child.stderr.setEncoding("utf8");
+  // 进程已退出后再写 stdin 会异步抛 EPIPE；不接住会变成未捕获异常
+  child.stdin?.on("error", () => {
+    // 进程已经不在，写入失败无需上报
+  });
 
   /** 保证 onExit 只回调一次：exit 兜底与 close 可能先后到达 */
   let reported = false;
@@ -263,6 +276,20 @@ export function spawnChild(
     writeInput(data) {
       try {
         child.stdin?.end(data);
+      } catch {
+        // 进程可能已退出
+      }
+    },
+    write(data) {
+      try {
+        child.stdin?.write(data);
+      } catch {
+        // 进程可能已退出
+      }
+    },
+    endInput() {
+      try {
+        child.stdin?.end();
       } catch {
         // 进程可能已退出
       }

@@ -9,6 +9,7 @@ import { useEffect } from "react";
 import { ipc } from "../lib/ipc";
 import { useChatStore } from "../stores/chat";
 import { useAutomationStore } from "../stores/automation";
+import { usePermissionPromptStore } from "../stores/permissionPrompt";
 
 export function useAgentStream(): void {
   const _onEvent = useChatStore((s) => s._onEvent);
@@ -31,6 +32,24 @@ export function useAgentStream(): void {
       }),
     );
     unsubs.push(ipc.on.automationUpdated((task) => _onTaskUpdated(task)));
+
+    // 工具授权询问：先订阅再拉取，避免重载期间漏掉已经挂起的请求
+    unsubs.push(
+      ipc.on.permissionRequest((payload) => {
+        usePermissionPromptStore.getState().enqueue(payload);
+      }),
+    );
+    unsubs.push(
+      ipc.on.permissionResolved((payload) => {
+        usePermissionPromptStore.getState().resolve(payload);
+      }),
+    );
+    void ipc
+      .listPendingPermissions()
+      .then((views) => usePermissionPromptStore.getState().hydrate(views))
+      .catch(() => {
+        // 主进程尚未就绪 / 没有请求：忽略
+      });
 
     return () => {
       unsubs.forEach((unsub) => unsub());

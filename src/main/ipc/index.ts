@@ -21,7 +21,7 @@ import {
   createTriggerScheduler,
   type TriggerScheduler,
 } from "../workflow/trigger-scheduler";
-import { flushEvents, push, setMainWindow } from "./push";
+import { flushEvents, getMainWindow, push, setMainWindow } from "./push";
 import { registerAgentHandlers } from "./handlers/agent";
 import { registerSessionHandlers } from "./handlers/session";
 import { registerProjectHandlers } from "./handlers/project";
@@ -66,6 +66,19 @@ export function stopTerminals(): void {
 }
 
 /**
+ * 窗口关闭 / 渲染进程崩溃：拒绝所有待处理的工具授权询问。
+ *
+ * 无人应答时 CLI 会一直阻塞，因此必须显式拒绝，让运行继续收尾。
+ */
+export function denyPendingPermissions(): void {
+  attachMainWindow(null);
+  agentService?.denyAllPending(
+    "Nova 窗口已关闭，无法确认工具授权，已自动拒绝该工具调用。",
+    "window-closed",
+  );
+}
+
+/**
  * 把主进程推送绑定到窗口。
  *
  * macOS 关闭所有窗口后应用仍然存活，重新激活时会创建新窗口，
@@ -83,7 +96,9 @@ export function attachMainWindow(window: BrowserWindow | null): void {
 export function initIpcHandlers(window: BrowserWindow): void {
   attachMainWindow(window);
 
-  const service = createAgentService(push);
+  const service = createAgentService(push, {
+    canAskUser: () => getMainWindow() !== null,
+  });
   agentService = service;
 
   // 删除工作流 / 工作区前需要查询是否有活跃运行，因此运行器先于 handler 创建
