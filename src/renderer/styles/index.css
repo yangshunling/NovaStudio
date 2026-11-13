@@ -544,7 +544,8 @@ body {
  * 字族约定：所有界面文字使用系统默认 sans（继承即可），
  * 正文档位（body/item/note/label/sub/micro）只声明字号；
  * prose / code / title / heading / display / hero / brand 显式声明字族。
- * **展示衬线（--c-font-display）只属于 brand**，供侧栏刊头使用；
+ * **展示衬线（--c-font-display）只属于 brand**，角色保留给侧栏刊头
+ * （刊头当前使用标语图，不再渲染文字）；
  * 标题、正文、Markdown 一律走系统默认字体。
  *
  * 本文件未分层，角色类会覆盖 Tailwind utilities 层的同名字号工具类，
@@ -609,7 +610,7 @@ body {
   font-family: var(--c-font-sans);
   font-size: var(--c-font-size-hero);
 }
-/* 唯一使用展示衬线的角色：侧栏品牌刊头 */
+/* 唯一使用展示衬线的角色：侧栏品牌刊头（当前刊头用标语图，角色保留） */
 .ui-type-brand {
   font-family: var(--c-font-display);
   font-size: var(--c-font-size-hero);

@@ -7,14 +7,7 @@
  */
 
 import { useEffect, useState } from "react";
-import {
-  ChevronRight,
-  Library,
-  Plug,
-  Plus,
-  Sparkles,
-  Users,
-} from "lucide-react";
+import { Library, Plug, Plus, Sparkles, Users } from "lucide-react";
 import { useEmployeesStore } from "../../stores/employees";
 import { useFilteredList } from "../../hooks/useFilteredList";
 import {
@@ -26,6 +19,11 @@ import {
 import { Page, PageBody, PageHeader } from "../ui/Page";
 import { Button } from "../ui/Button";
 import { SearchInput } from "../ui/SearchInput";
+import { Toggle } from "../ui/Toggle";
+import { ipc } from "../../lib/ipc";
+import { toEmployeeDraft } from "../../lib/employee-draft";
+import { toast } from "../../stores/toast";
+import { errorMessage } from "@shared/error";
 import {
   CARD_DESCRIPTION,
   CARD_META,
@@ -42,6 +40,7 @@ export function EmployeesView() {
   const loading = useEmployeesStore((s) => s.loading);
   const error = useEmployeesStore((s) => s.error);
   const load = useEmployeesStore((s) => s.load);
+  const upsert = useEmployeesStore((s) => s.upsert);
   const [query, setQuery] = useState("");
   /** undefined = 抽屉关闭；null = 新建；对象 = 编辑 */
   const [editing, setEditing] = useState<DigitalEmployee | null | undefined>(
@@ -59,6 +58,28 @@ export function EmployeesView() {
   ]);
 
   const openCreate = () => setEditing(null);
+
+  /**
+   * 卡片右上角直接切换启用状态，不必打开抽屉再保存。
+   * 更新接口要整份草稿，这里基于当前员工快照补上 enabled，其余字段原样带回。
+   */
+  const toggleEmployee = async (employee: DigitalEmployee, enabled: boolean) => {
+    try {
+      const updated = await ipc.updateEmployee(employee.id, {
+        ...toEmployeeDraft(employee),
+        enabled,
+      });
+      if (!updated) return;
+      upsert(updated);
+      toast.success(
+        enabled
+          ? `已启用「${employee.name}」`
+          : `已停用「${employee.name}」`,
+      );
+    } catch (err) {
+      toast.error(errorMessage(err), 5000);
+    }
+  };
 
   return (
     <Page>
@@ -107,6 +128,7 @@ export function EmployeesView() {
                   key={employee.id}
                   employee={employee}
                   onOpen={() => setEditing(employee)}
+                  onToggle={(enabled) => void toggleEmployee(employee, enabled)}
                 />
               ))}
             </div>
@@ -133,9 +155,11 @@ export function EmployeesView() {
 function EmployeeCard({
   employee,
   onOpen,
+  onToggle,
 }: {
   employee: DigitalEmployee;
   onOpen: () => void;
+  onToggle: (enabled: boolean) => void;
 }) {
   const mcpCount = employee.mcpServers.filter((server) => server.enabled).length;
   const skillCount = employee.skills.filter((skill) => skill.enabled).length;
@@ -144,10 +168,23 @@ function EmployeeCard({
   ).length;
 
   return (
-    <button
-      type="button"
+    /*
+     * 整卡可点开抽屉；卡片里又有开关，所以不能用 <button>（嵌套交互元素非法）。
+     * 用 article + role="button" 保留键盘可达性，开关点击时阻止冒泡。
+     */
+    <article
+      role="button"
+      tabIndex={0}
       onClick={onOpen}
-      className={CARD_SHELL}
+      onKeyDown={(event) => {
+        // 只响应卡片自身的按键：焦点在内部开关上时，Space 属于开关
+        if (event.target !== event.currentTarget) return;
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          onOpen();
+        }
+      }}
+      className={`${CARD_SHELL} cursor-pointer`}
     >
       {/* 顶部状态条：启用的员工亮起一条强调色 */}
       <span
@@ -160,24 +197,24 @@ function EmployeeCard({
       <div className="flex min-w-0 items-start gap-3">
         <EmployeeAvatar employee={employee} size={48} />
         <div className="min-w-0 flex-1 overflow-hidden">
-          <div className="flex min-w-0 items-center gap-2">
-            <h3 className={CARD_TITLE}>{employee.name}</h3>
+          <div className="flex min-w-0 items-start justify-between gap-2">
+            <h3 className={`min-w-0 flex-1 ${CARD_TITLE}`}>{employee.name}</h3>
+            {/* 启用开关放右上角，与触发器卡片一致；点击不应打开抽屉 */}
             <span
-              className={`shrink-0 rounded-full px-1.5 py-0.5 ui-type-sub font-medium ${
-                employee.enabled
-                  ? "bg-success/10 text-success"
-                  : "bg-surface-hover text-text-muted"
-              }`}
+              className="shrink-0"
+              onClick={(event) => event.stopPropagation()}
             >
-              {employee.enabled ? "已启用" : "已停用"}
+              <Toggle
+                checked={employee.enabled}
+                onChange={onToggle}
+                label={`启用数字员工 ${employee.name}`}
+              />
             </span>
           </div>
           <p className="mt-0.5 truncate ui-type-note text-text-muted">
             {employee.role || "未设置职位"}
           </p>
         </div>
-        {/* hover 时出现的“可打开”提示，整卡可点但此前没有任何入口暗示 */}
-        <ChevronRight className="mt-3 h-4 w-4 shrink-0 text-text-muted opacity-0 transition-opacity group-hover:opacity-100" />
       </div>
 
       <p className={`mt-2.5 whitespace-pre-line ${CARD_DESCRIPTION}`}>
@@ -206,7 +243,7 @@ function EmployeeCard({
           tone="bg-agent-teal/10 text-agent-teal"
         />
       </div>
-    </button>
+    </article>
   );
 }
 

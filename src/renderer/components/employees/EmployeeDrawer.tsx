@@ -37,7 +37,7 @@ import { EmployeeAvatar } from "./EmployeeAvatar";
 import { KnowledgeTab } from "./knowledge/KnowledgeTab";
 import { McpTab } from "./mcp/McpTab";
 import { SkillsTab } from "./skills/SkillsTab";
-import { Toggle } from "../ui/Toggle";
+import { toEmployeeDraft } from "../../lib/employee-draft";
 import type { DigitalEmployee, DigitalEmployeeDraft } from "@shared/types";
 import { errorMessage } from "@shared/error";
 
@@ -71,21 +71,6 @@ function emptyDraft(): DigitalEmployeeDraft {
   };
 }
 
-/** 持久化对象 → 可编辑草稿 */
-function toDraft(employee: DigitalEmployee): DigitalEmployeeDraft {
-  return {
-    name: employee.name,
-    role: employee.role,
-    description: employee.description,
-    avatar: employee.avatar,
-    systemPrompt: employee.systemPrompt,
-    mcpServers: employee.mcpServers,
-    skills: employee.skills,
-    knowledgeBases: employee.knowledgeBases ?? [],
-    enabled: employee.enabled,
-  };
-}
-
 // ============================================================================
 // 主组件
 // ============================================================================
@@ -105,7 +90,7 @@ export function EmployeeDrawer({
 }: EmployeeDrawerProps) {
   /** 打开抽屉时的快照：用于判断草稿是否真的有改动 */
   const initialDraft = useRef<DigitalEmployeeDraft>(
-    employee ? toDraft(employee) : emptyDraft(),
+    employee ? toEmployeeDraft(employee) : emptyDraft(),
   );
   const [draft, setDraft] = useState<DigitalEmployeeDraft>(() =>
     initialDraft.current,
@@ -426,20 +411,6 @@ function ProfileTab({
       </Field>
       <div className="-mt-2 text-right ui-type-sub text-text-muted">
         {draft.systemPrompt.length} 字符
-      </div>
-
-      <div className="flex items-center justify-between gap-3 rounded-lg bg-surface-2/40 px-3 py-2.5">
-        <div>
-          <div className="ui-type-body font-medium text-text">启用状态</div>
-          <div className="mt-0.5 ui-type-note text-text-muted">
-            停用后仍保留配置，但不会出现在可分配列表中。
-          </div>
-        </div>
-        <Toggle
-          checked={draft.enabled}
-          onChange={(enabled) => update({ enabled })}
-          label="启用状态"
-        />
       </div>
     </div>
   );

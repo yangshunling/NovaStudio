@@ -28,7 +28,7 @@
    * 只有三个族，与排版角色一一对应：
    *   sans    —— 全部界面文字（标题 / 正文 / 标签 / 辅助），system-ui
    *   mono    —— 路径 / ID / 命令 / 代码，系统等宽字体
-   *   display —— 仅侧栏品牌刊头「Work is Agentic」使用的人文衬线
+   *   display —— 品牌专用的人文衬线，当前仅作保留字族（侧栏刊头已改用标语图）
    * 除此之外任何标题或正文都不使用衬线；皮肤若想统一，覆盖 display 即可。
    */
   --c-font-size: 13px;
@@ -37,7 +37,7 @@
     "Microsoft YaHei", sans-serif;
   --c-font-mono:
     ui-monospace, "Cascadia Mono", Consolas, "Microsoft YaHei UI", monospace;
-  /* 品牌专用：只有 .ui-type-brand（Sidebar 刊头）引用。
+  /* 品牌专用：只有 .ui-type-brand 引用（侧栏刊头已改用标语图，角色类保留）。
    * 采用系统人文衬线（真斜体）；中文回退到宋体系，保持「刊头」气质。 */
   --c-font-display:
     "Palatino Linotype", Palatino, "Book Antiqua", Georgia, "Times New Roman",

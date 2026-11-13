@@ -82,7 +82,7 @@ export function AutomationView() {
     <>
       <Page>
         <PageHeader
-          title="任务中心"
+          title="自动化任务"
           count={tasks.length}
           countSuffix=" 个任务"
           icon={<ListChecks className="h-4 w-4" />}

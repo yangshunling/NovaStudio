@@ -9,6 +9,7 @@ import { useEffect, useRef, useState } from "react";
 import { useChatStore } from "../../stores/chat";
 import { ipc } from "../../lib/ipc";
 import { toast } from "../../stores/toast";
+import sloganUrl from "../../assets/slogan.png";
 import type { WorkflowRun } from "@shared/types";
 import {
   AlarmClock,
@@ -133,19 +134,21 @@ export function Sidebar() {
 
   return (
     <aside className="ui-sidebar relative flex h-full w-[var(--c-layout-sidebar)] flex-col border-r-0">
-      {/* 头部：艺术字品牌（无 logo / 图标）。
+      {/* 头部：标语图品牌「Work is Agentic」（透明底 PNG，无 icon）。
           皮肤切换已移入「设置 → 外观」，刊头独占整行，因此居中排布。 */}
       <div
         style={{ zIndex: 30 }}
-        className="relative flex h-[var(--c-layout-header)] items-center justify-center overflow-hidden border-b border-border px-3"
+        className="relative flex h-[var(--c-layout-header)] items-center justify-center overflow-hidden border-b border-border px-5"
       >
-        {/* 刊头式座右铭：斜体衬线引子 + 正体粗字主词，单行排布。
-            高端感来自真实斜体、字重对比与留白，不用渐变 / 光晕 / 装饰。 */}
-        <div className="relative flex min-w-0 items-center justify-center">
-          <span className="ui-type-brand select-none whitespace-nowrap leading-none tracking-tight text-text">
-            <span className="font-normal italic text-text-secondary">Work is</span>{" "}
-            <span className="font-bold">Agentic</span>
-          </span>
+        {/* 图片按 4x 导出（768×110）；左右各留 20px，可用宽 176px，等比显示为 176×25.2。
+            宽度撑满而不是固定高度：素材就是按这个尺寸做的，避免再次降采样。 */}
+        <div className="relative flex w-full min-w-0 items-center justify-center">
+          <img
+            src={sloganUrl}
+            alt="Work is Agentic"
+            draggable={false}
+            className="h-auto w-full select-none"
+          />
         </div>
       </div>
 
@@ -233,7 +236,7 @@ export function Sidebar() {
           className={itemClass(viewMode === "automation")}
         >
           <Workflow className="h-4 w-4 shrink-0" />
-          任务中心
+          自动化任务
         </button>
         <button
           type="button"

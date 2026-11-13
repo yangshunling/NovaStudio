@@ -1,0 +1,49 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1088 300" width="1088" height="300" role="img"
+     aria-label="一条工作流：需求分析、架构设计、前后端并行实现、代码评审汇合、结束">
+  <defs>
+    <pattern id="grid" width="16" height="16" patternUnits="userSpaceOnUse">
+      <circle cx="1" cy="1" r="1" fill="#ffffff" opacity="0.035"/>
+    </pattern>
+    <marker id="arrow" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto">
+      <path d="M0,0 L9,4.5 L0,9 Z" fill="#565b63"/>
+    </marker>
+  </defs>
+
+  <rect width="1088" height="300" rx="16" fill="#0b0d10"/>
+  <rect width="1088" height="300" rx="16" fill="url(#grid)"/>
+  <rect x="0.5" y="0.5" width="1087" height="299" rx="15.5" fill="none" stroke="#272a30"/>
+
+  <g fill="none" stroke="#565b63" stroke-width="1.5">
+    <path d="M174 150 H 206" marker-end="url(#arrow)"/>
+    <path d="M350 150 H 382" marker-end="url(#arrow)"/>
+    <path d="M526 150 C 544 150 544 90 558 90" marker-end="url(#arrow)"/>
+    <path d="M526 150 C 544 150 544 210 558 210" marker-end="url(#arrow)"/>
+    <path d="M702 90 C 722 90 722 150 734 150" marker-end="url(#arrow)"/>
+    <path d="M702 210 C 722 210 722 150 734 150" marker-end="url(#arrow)"/>
+    <path d="M878 150 H 910" marker-end="url(#arrow)"/>
+  </g>
+
+  <g fill="#14171c" stroke="#30343b" stroke-width="1.5">
+    <rect x="34" y="122" width="140" height="56" rx="10"/>
+    <rect x="210" y="122" width="140" height="56" rx="10"/>
+    <rect x="386" y="122" width="140" height="56" rx="10"/>
+    <rect x="738" y="122" width="140" height="56" rx="10"/>
+    <rect x="914" y="122" width="140" height="56" rx="10"/>
+  </g>
+
+  <g fill="#14171c" stroke="#2f81f7" stroke-width="1.5">
+    <rect x="562" y="62" width="140" height="56" rx="10"/>
+    <rect x="562" y="182" width="140" height="56" rx="10"/>
+  </g>
+
+  <g font-family="'Segoe UI', -apple-system, 'PingFang SC', 'Microsoft YaHei UI', 'Noto Sans CJK SC', sans-serif"
+     font-size="15" fill="#e8e6e1" text-anchor="middle" dominant-baseline="middle">
+    <text x="104" y="150">开始</text>
+    <text x="280" y="150">需求分析</text>
+    <text x="456" y="150">架构设计</text>
+    <text x="632" y="90">后端实现</text>
+    <text x="632" y="210">前端实现</text>
+    <text x="808" y="150">代码评审</text>
+    <text x="984" y="150">结束</text>
+  </g>
+</svg>

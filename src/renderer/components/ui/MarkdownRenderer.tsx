@@ -186,6 +186,25 @@ function CodeBlock({ code, lang }: { code: string; lang: string }) {
   );
 }
 
+/**
+ * 读取 raw HTML 上的 align 属性。
+ *
+ * README 常用 `<p align="center">` / `<td align="center">` 做居中与并排排版。
+ * 自定义组件默认只接收 children，会把 align 丢掉，导致居中内容在预览里全部左对齐。
+ */
+function alignClass(node?: { properties?: Record<string, unknown> }): string {
+  const value = node?.properties?.align;
+  if (value === "center") return " text-center";
+  if (value === "right") return " text-right";
+  return "";
+}
+
+/** `<table width="100%">` 在预览里同样会丢宽度，这里补成 w-full */
+function tableWidthClass(node?: { properties?: Record<string, unknown> }): string {
+  const width = node?.properties?.width;
+  return width === "100%" || width === 100 ? " w-full" : "";
+}
+
 /** 内联代码 */
 function InlineCode({ children }: { children: React.ReactNode }) {
   return (
@@ -221,11 +240,19 @@ const MARKDOWN_COMPONENTS: Components = {
   },
 
   // 自定义元素样式
-  h1: ({ children }) => <h1 className="ui-type-display mb-3 mt-4 text-text">{children}</h1>,
-  h2: ({ children }) => <h2 className="ui-type-heading mb-2 mt-3 text-text">{children}</h2>,
-  h3: ({ children }) => <h3 className="mb-2 mt-3 text-body-lg font-bold text-text">{children}</h3>,
+  h1: ({ children, node }) => (
+    <h1 className={`ui-type-display mb-3 mt-4 text-text${alignClass(node)}`}>{children}</h1>
+  ),
+  h2: ({ children, node }) => (
+    <h2 className={`ui-type-heading mb-2 mt-3 text-text${alignClass(node)}`}>{children}</h2>
+  ),
+  h3: ({ children, node }) => (
+    <h3 className={`mb-2 mt-3 text-body-lg font-bold text-text${alignClass(node)}`}>{children}</h3>
+  ),
 
-  p: ({ children }) => <p className="mb-2 leading-relaxed">{children}</p>,
+  p: ({ children, node }) => (
+    <p className={`mb-2 leading-relaxed${alignClass(node)}`}>{children}</p>
+  ),
 
   ul: ({ children }) => <ul className="mb-2 ml-4 list-disc space-y-1">{children}</ul>,
   ol: ({ children }) => <ol className="mb-2 ml-4 list-decimal space-y-1">{children}</ol>,
@@ -245,18 +272,18 @@ const MARKDOWN_COMPONENTS: Components = {
     </blockquote>
   ),
 
-  table: ({ children }) => (
-    <table className="ui-type-note mb-2 border-collapse border border-border">
+  table: ({ children, node }) => (
+    <table className={`ui-type-note mb-2 border-collapse border border-border${tableWidthClass(node)}`}>
       {children}
     </table>
   ),
-  th: ({ children }) => (
-    <th className="border border-border bg-surface px-2 py-1 font-semibold text-text">
+  th: ({ children, node }) => (
+    <th className={`border border-border bg-surface px-2 py-1 font-semibold text-text${alignClass(node)}`}>
       {children}
     </th>
   ),
-  td: ({ children }) => (
-    <td className="border border-border px-2 py-1 text-text-secondary">
+  td: ({ children, node }) => (
+    <td className={`border border-border px-2 py-1 text-text-secondary${alignClass(node)}`}>
       {children}
     </td>
   ),
