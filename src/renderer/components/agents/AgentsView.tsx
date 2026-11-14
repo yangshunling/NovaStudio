@@ -23,7 +23,8 @@ import {
 } from "@shared/contracts/agent";
 import { PERMISSION_MODE_OPTIONS } from "@shared/permission";
 import { ipc } from "../../lib/ipc";
-import { notifyAgentSettingsChanged } from "../../lib/agent-events";
+import { useUnsavedGuard } from "../../lib/unsaved-guard";
+import { useAgentSettingsStore } from "../../stores/agentSettings";
 import { toMessage } from "../../lib/utils";
 import { useChatStore } from "../../stores/chat";
 import { toast } from "../../stores/toast";
@@ -232,6 +233,8 @@ export function AgentsView() {
         if (cancelled) return;
         setSettings(view);
         setForm(toForm(view));
+        // 写回共享快照：默认模型名、上下文窗口等读者立即跟上
+        useAgentSettingsStore.getState().setView(CLAUDE_ID, view);
       })
       .catch((err) => {
         if (cancelled) return;
@@ -377,7 +380,7 @@ export function AgentsView() {
       const view = await ipc.getAgentSettings(CLAUDE_ID);
       setSettings(view);
       setForm(toForm(view));
-      notifyAgentSettingsChanged(CLAUDE_ID);
+      useAgentSettingsStore.getState().setView(CLAUDE_ID, view);
       toast.success("已重新读取本机配置");
     } catch (err) {
       const message = toMessage(err);
@@ -388,8 +391,8 @@ export function AgentsView() {
     }
   };
 
-  const handleSave = async () => {
-    if (!form || !settings) return;
+  const handleSave = async (): Promise<boolean> => {
+    if (!form || !settings) return false;
     if (!form.baseUrl.trim() && !form.apiKey.trim()) {
       // 允许官方端点 + 已有 OAuth 的情况；只做温和提示
       toast.info("当前未填写 Base URL / API Key，将使用 Claude 本机默认配置");
@@ -409,14 +412,27 @@ export function AgentsView() {
       const updated = await ipc.saveAgentSettings(draft);
       setSettings(updated);
       setForm(toForm(updated));
-      notifyAgentSettingsChanged(CLAUDE_ID);
+      useAgentSettingsStore.getState().setView(CLAUDE_ID, updated);
       toast.success("已写入 ~/.claude/settings.json，Claude 与 Nova 同步生效");
+      return true;
     } catch (err) {
       toast.error(toMessage(err));
+      return false;
     } finally {
       setSaving(false);
     }
   };
+
+  /*
+   * 关窗 / 切页统一走未保存协议：登记后由主进程弹原生确认，
+   * 或在切换侧栏时由 confirmLeaveUnsaved 拦截。
+   */
+  useUnsavedGuard({
+    id: `agent-settings:${CLAUDE_ID}`,
+    label: "Agent 配置",
+    dirty,
+    save: handleSave,
+  });
 
   const patchForm = (patch: Partial<FormState>) =>
     setForm((current) => (current ? { ...current, ...patch } : current));

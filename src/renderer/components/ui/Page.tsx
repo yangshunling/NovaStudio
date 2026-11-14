@@ -64,13 +64,13 @@ export function PageHeader({
 }: PageHeaderProps) {
   return (
     <header
-      className={`ui-glass relative z-10 flex h-[var(--c-layout-header)] shrink-0 items-center justify-between gap-3 border-b border-border px-card ${className}`.trim()}
+      className={`ui-glass ui-header-bar relative z-10 flex h-[var(--c-layout-header)] shrink-0 items-center justify-between gap-3 border-b border-border px-card ${className}`.trim()}
     >
       <div className="flex min-w-0 items-center gap-2.5">
-        {icon && <span className="shrink-0 text-accent">{icon}</span>}
+        {icon && <span className="ui-header-icon shrink-0">{icon}</span>}
         <div className="min-w-0">
           <div className="flex min-w-0 items-center gap-2">
-            <span className="ui-type-title truncate text-text-secondary">
+            <span className="ui-type-title truncate text-text">
               {title}
             </span>
             {badge ??

@@ -67,13 +67,17 @@ module.exports = async function patchWinExe(context) {
 
   const rcedit = findRcedit();
   if (rcedit == null) {
-    // 不阻断打包，但要让问题可见：没有 rcedit 时图标仍是 Electron 默认图标
-    console.warn(
-      "[patch-win-exe] 未在 electron-builder 缓存中找到 rcedit，跳过图标/版本信息写入。\n" +
+    /*
+     * 直接失败，不静默跳过。
+     * 静默跳过的结果是「打包成功、安装包图标与版本信息却是 Electron 默认值」，
+     * 这种降级在发版后才被发现（0.4.0 之前就出过窗口 logo 不显示的问题）。
+     */
+    throw new Error(
+      "[patch-win-exe] 未找到 rcedit，无法写入图标/版本信息。\n" +
         "  先执行一次 `npx electron-builder --win --dir` 让 electron-builder 下载 winCodeSign，" +
-        "或手动把 rcedit-x64.exe 放到缓存目录。",
+        "或手动把 rcedit-x64.exe 放到缓存目录。\n" +
+        "  这里选择直接失败：带着默认图标发版比打包失败更难发现。",
     );
-    return;
   }
 
   // 图标由 electron-builder 从 win.icon 的 png 惰性转换成 ico（不依赖 winCodeSign）

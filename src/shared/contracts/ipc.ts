@@ -18,6 +18,7 @@ import type {
   AutomationTask,
   DigitalEmployee,
   DigitalEmployeeDraft,
+  DisplayReference,
   FileEntry,
   GitStatusSummary,
   InputImage,
@@ -88,6 +89,20 @@ import type {
  */
 export const EMPLOYEE_SESSION_IN_USE = "会话仍在使用该员工";
 
+/**
+ * 渲染层登记的一条「未保存改动」。
+ *
+ * 主进程在关窗 / 退出前询问一次；只有登记表非空时才弹确认框。
+ * label 用于告诉用户丢的是哪一份内容，canSave 决定是否给出「保存并退出」。
+ */
+export interface UnsavedEntry {
+  id: string;
+  /** 展示用名称，例如「工作流「客户回访」」 */
+  label: string;
+  /** 是否提供了保存回调（决定退出确认框里有没有「保存并退出」） */
+  canSave: boolean;
+}
+
 /** agent:send 的返回：显式区分成功与业务失败 */
 export type SendAgentResult =
   /**
@@ -152,8 +167,15 @@ export interface IpcInvokeMap {
       {
         sessionId: string;
         prompt: string;
+        /** 聊天里展示的正文；缺省为 prompt。引用说明不进入展示正文 */
+        display?: string;
         /** 随消息发送的图片（base64）；与 prompt 一起落库并送入 Agent */
         images?: InputImage[];
+        /**
+         * 引用标签的展示信息：只落库供界面渲染成块，不送给 Agent。
+         * 实际送入 CLI 的仍是 prompt 里的引用说明。
+         */
+        references?: DisplayReference[];
         /**
          * 本轮回答者；不传则沿用会话当前的 employee_id。
          * 传入时会在运行前写回会话，保证“所选即本轮所用”。
@@ -348,6 +370,16 @@ export interface IpcInvokeMap {
     result: Session | null;
   };
   "session:rename": { args: [{ id: string; title: string }]; result: boolean };
+  /**
+   * 导出完整会话过程为 Markdown，弹出原生「另存为」对话框。
+   * 返回保存路径；用户取消返回 null。
+   */
+  "session:export": { args: [{ id: string }]; result: string | null };
+  /**
+   * 取会话原始存储文件的绝对路径，供输入框 `#` 引用使用。
+   * 引用只把路径交给 Agent，由它自己读取；找不到文件返回 null。
+   */
+  "session:filePath": { args: [{ id: string }]; result: string | null };
   "session:delete": { args: [{ id: string }]; result: boolean };
   /** 置顶 / 取消置顶会话；不改变 updated_at，不影响时间分组 */
   /**
@@ -405,6 +437,23 @@ export interface IpcInvokeMap {
 
   /** 应用与运行环境信息（关于页） */
   "app:info": { args: []; result: AppInfo };
+
+  /*
+   * 未保存改动协议（主进程询问 → 渲染层应答）
+   *
+   * 关闭窗口 / 退出应用的**决定权只在主进程**：渲染层只登记「哪里还有
+   * 未保存内容」，不再用 beforeunload 否决关闭 —— Electron 对
+   * beforeunload 的处理是静默取消窗口关闭，用户看不到任何提示。
+   */
+  "app:unsaved:answer": {
+    args: [{ requestId: string; entries: UnsavedEntry[] }];
+    result: boolean;
+  };
+  /** 「保存并退出」的保存结果；失败时主进程保留窗口 */
+  "app:unsaved:saveResult": {
+    args: [{ requestId: string; ok: boolean; error: string | null }];
+    result: boolean;
+  };
 
   /** 应用更新：查询当前状态 / 主动检查 / 下载 / 重启安装 */
   "updater:state": { args: []; result: UpdaterState };
@@ -687,6 +736,10 @@ export interface IpcInvokeMap {
 
 /** 主进程 → 渲染进程（push）通道表。事件均带 sessionId，供多会话并发路由。 */
 export interface IpcPushMap {
+  /** 关窗 / 退出前询问渲染层：有没有未保存改动（按 requestId 应答） */
+  "app:unsaved:query": { requestId: string };
+  /** 请求渲染层保存全部未保存改动（退出确认选择「保存并退出」时） */
+  "app:unsaved:saveAll": { requestId: string };
   "agent:event": { sessionId: string; event: AgentEvent };
   "agent:done": { sessionId: string; exitCode: number; duration: number };
   /**

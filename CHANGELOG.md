@@ -2,6 +2,69 @@
 
 本文件记录 Nova Studio 各版本的功能变更。版本号遵循 `MAJOR.MINOR.PATCH`，当前处于 `0.x` 阶段，`MINOR` 版本会包含新功能与不兼容的内部调整。
 
+## v0.5.0 — 2026-11-14
+
+### 新增功能
+
+**UI 2.0 / Nova 昼夜双皮肤**
+
+- 界面整体升级到 UI 2.0；内置皮肤 `classic-day` / `classic-night` 替换为 `nova-paper` / `nova-nocturne`，默认皮肤为 `nova-nocturne`。
+- 两套皮肤共享材质 token：`--c-bevel-highlight`、`--c-bevel-shadow`、`--c-raised-shadow`、`--c-inset-shadow`、`--c-card-gradient`、`--c-panel-gradient`、`--c-sidebar-glow` 等，差异只在调色与明暗。
+- 夜间画布 `#08090d`、纸面 `#171c27 → #11141b`，强调色统一为星蓝紫 `#7c8cff`；昼间画布 `#edeff4`、纯白纸面，强调色压深为 `#4b5ad8`。
+- 卡面、菜单、抽屉、输入区、页头等改用统一的 `ui-card-material` / `ui-panel-material` / `ui-tray` / `ui-well` 等材质类，样式不再散落在组件里。
+- 旧皮肤 id 迁移：启动引导脚本把缓存里的 `classic-night` / `classic-day` 映射到新 id，`useThemeStore.load` 把设置里失效的 id 回写为当前皮肤，避免首帧闪未样式化内容。
+- 窗口首帧背景色跟随 `nativeAppearance`，去掉了按旧 `theme` 值推断的兼容分支。
+
+**空会话入口重设计**
+
+- 品牌标记 + 展示衬线标题「Work is Agentic」+ 光谱细线 + 起手式列表 + 快捷键提示，组成一次性的入场编排。
+- 起手式由胶囊改为整行列表，`min-[1400px]` 以下单列，避免右侧工作区展开时截断。
+- 新增排版角色 `ui-type-entrance`，全站仅允许空会话入口使用，由 `scripts/verify-typography.mjs` 守卫。
+
+**会话分享（导出 Markdown）**
+
+- 新增 `session:export` IPC：走 `getSessionWithHistory` 取完整事件流，经 `formatSessionTranscript` 生成 Markdown，再用原生「另存为」保存；用户取消返回 `null`。
+- 导出内容包含对话、思考过程、工具调用与结果、错误 / 警告、token 用量；正文与思考不截断，单个工具输入 / 输出超过 20000 字符时截断并标注。
+- 图片只记录数量，不把 base64 写进文档；流式增量与 `message_end` 跳过。
+- 会话「…」菜单新增「分享会话」，保存成功后提示实际路径。
+
+**引用另一个会话**
+
+- 输入框 `#` 菜单新增「会话」分类，列出当前会话之外的会话，按最近更新排序，副标题为消息数与更新时间。
+- 新增 `session:filePath` IPC 与 `AgentProvider.sessionFilePath`：只把 CLI 侧原始 JSONL 的绝对路径交给 Agent，由它自己决定读多少，避免一次性占满上下文。
+- 找不到原始记录文件时给出明确提示；引用异步返回时会校验草稿仍属于同一会话，切走后不再加到新会话。
+- 草稿与暂存区内的引用会与正文一起发送，引用说明只进入 prompt。
+
+**引用改为块状展示**
+
+- 新增 `AgentEvent.reference` 与 `DisplayReference`，用户消息的落库内容拆成「展示正文 + 引用事件」：正文只存用户亲手输入的内容，引用说明只存在于 prompt 中。
+- `run()` 新增 `displayPrompt` / `displayReferences`，用户消息在运行前落库时按此拆分；首条消息的会话标题取展示正文，正文为空时回退到引用名称或 `[图片]`。
+- 聊天界面把文件 / 会话 / 工具 / 技能 / 知识库引用渲染成图标 + 名称的块（`ReferenceBlock`），不再把「请读取…@path」原样展示。
+- 重试时用落库保留的 `promptText` 重建完整 prompt，引用不会丢；引用加载中的草稿切换有防线。
+- 新增 `tests/transcript.test.ts`，覆盖转录格式、截断与非法文件名清理。
+
+### 变更与优化
+
+**工程与文档**
+
+- 皮肤契约新增可选 token 与派生 token `--c-font-size-entrance`，`verify:skins` 同步校验。
+- 终端保持纯黑，不随皮肤明暗切换；远端分支改为描边淡紫底，与本地分支形成实心 / 空心对比。
+- `docs/19-设计系统与皮肤.md` 更新为 Nova 双皮肤说明与旧皮肤迁移。
+
+### 修复
+
+- 修复首条消息带引用时，会话标题被引用指令占据的问题。
+- 修复 `#` 引用异步返回晚于会话切换时，引用被加到另一个会话的问题。
+- 修复已移除皮肤在设置中残留、每次启动重复回退的问题。
+- 修复启动首帧按旧 `theme` 推断背景色导致的闪白 / 闪黑。
+- 修复深色皮肤下远端分支与本地分支难以区分的问题。
+
+### 升级说明
+
+- 直接覆盖安装即可，历史会话、工作流与设置保持可用。
+- 原「经典 · 昼 / 夜」已更名为「Nova · 昼 / 夜」，升级后自动沿用原本的明暗，无需重新选择。
+- 分享与引用只读取会话记录，不会改动原会话；会话引用依赖 CLI 侧保存的原始 JSONL，文件缺失时会明确提示无法引用。
+
 ## v0.4.0 — 2026-11-14
 
 ### 新增功能

@@ -20,10 +20,10 @@
 <h2 align="center">会话工作台</h2>
 
 <p align="center">
-  <a href="resources/preview/经典夜.png"><img src="resources/preview/经典夜.png" alt="Nova Studio 界面" width="100%"></a>
+  <a href="resources/preview/Nova夜.png"><img src="resources/preview/Nova夜.png" alt="Nova Studio 界面" width="100%"></a>
 </p>
 
-<p align="center"><sub>经典 · 夜间 &nbsp;|&nbsp; 会话、文件、Git 与终端在同一个窗口</sub></p>
+<p align="center"><sub>Nova · 夜间 &nbsp;|&nbsp; 会话、文件、Git 与终端在同一个窗口</sub></p>
 
 <br>
 
@@ -233,6 +233,10 @@ npm run package:win   # 打包 Windows 安装包到 release/
 - [构建、打包、发布与更新](docs/22-构建打包发布与更新.md)
 - [测试与质量保障](docs/23-测试与质量保障.md)
 - [复刻实施指南](docs/24-复刻实施指南.md)
+
+**参考手册**
+
+- [Claude Code CLI 参数参考](docs/27-Claude-Code-CLI参数参考.md)
 
 </details>
 

@@ -14,7 +14,7 @@ import { toast } from "../../stores/toast";
 import { toMessage } from "../../lib/utils";
 import { htmlToPlainText, normalizeLineBreaks } from "../../lib/paste-text";
 import type { MentionReference } from "./MentionPicker";
-import type { InputImage } from "@shared/types";
+import type { DisplayReference, InputImage } from "@shared/types";
 
 /**
  * 粘贴时还原富文本的段落结构。
@@ -128,6 +128,7 @@ export function useComposerSubmit({
     prompt: string,
     display?: string,
     images?: InputImage[],
+    references?: DisplayReference[],
   ) => Promise<void>;
 }) {
   return useCallback(() => {
@@ -146,19 +147,20 @@ export function useComposerSubmit({
     clearReferences();
     clearImages();
     /*
-     * 运行中发送不再被丢弃：chat store 会把它放进暂存区，
-     * 本轮结束后按顺序发送。
-     * 暂存区 / 纯图片消息需要一个可读标签，正文为空时用图片占位。
+     * 展示正文只放用户亲手输入的内容：引用说明只进入 prompt，
+     * 聊天里由结构化的 reference 事件渲染成块，不再把指令与路径
+     * 原样当成用户消息展示。
      */
-    const display =
-      trimmed ||
-      referenceText ||
-      (images.length > 0
-        ? images.length > 1
-          ? `[图片 ×${images.length}]`
-          : "[图片]"
-        : "");
-    void sendMessage(prompt, display, images).catch((err) => {
+    const display = trimmed;
+    const displayReferences: DisplayReference[] = references.map(
+      (reference) => ({
+        kind: reference.category,
+        name: reference.name,
+        detail: reference.detail,
+        promptText: reference.promptText,
+      }),
+    );
+    void sendMessage(prompt, display, images, displayReferences).catch((err) => {
       setInput(trimmed);
       restoreReferences(referenceSnapshot);
       restoreImages(imageSnapshot);

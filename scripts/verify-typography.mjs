@@ -72,9 +72,12 @@ const ALLOWED_ROLES = new Set([
   "display",
   "hero",
   "brand",
+  "entrance",
 ]);
 const ROLE_RE = /\bui-type-([a-z-]+)\b/g;
 const BRAND_ALLOWED = new Set(["components/app/Sidebar.tsx"]);
+/** 入口主标题：全站唯一的大号展示衬线，只允许空会话入口使用 */
+const ENTRANCE_ALLOWED = new Set(["components/chat/AssistantMessageList.tsx"]);
 const DISPLAY_ROLE_ALLOWED = new Set(["components/ui/MarkdownRenderer.tsx"]);
 
 /** 单文件允许的字号档位上限：正文 / 标签 / 辅助 / 标题 */
@@ -235,6 +238,9 @@ for (const file of walk(RENDERER)) {
 
       if (name === "brand" && !BRAND_ALLOWED.has(rel)) {
         report(violations, rel, line, "ui-type-brand 只允许侧栏品牌");
+      }
+      if (name === "entrance" && !ENTRANCE_ALLOWED.has(rel)) {
+        report(violations, rel, line, "ui-type-entrance 只允许空会话入口");
       }
       if (name === "hero" && !HERO_ROLE_ALLOWED.has(rel)) {
         report(violations, rel, line, "ui-type-hero 只允许待办页日期大字");

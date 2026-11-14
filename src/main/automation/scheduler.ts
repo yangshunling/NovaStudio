@@ -276,8 +276,18 @@ export function createScheduler(
       // 用 setTimeout 逐次重新武装，使轮询周期设置在下一周期即生效
       const arm = () => {
         timer = setTimeout(() => {
-          tick();
-          if (timer) arm();
+          /*
+           * 单次轮询异常不能让调度器永久停摆：tick 会访问 DB / Agent 进程，
+           * 任一失败都必须记录后继续武装下一轮（否则一次瞬时错误会让所有
+           * 自动化任务永远不再被拾取）。
+           */
+          try {
+            tick();
+          } catch (err) {
+            console.warn("[automation] 轮询失败：", errorMessage(err));
+          } finally {
+            if (timer) arm();
+          }
         }, pollIntervalMs());
       };
       arm();

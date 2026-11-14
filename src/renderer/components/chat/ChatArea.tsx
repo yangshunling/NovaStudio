@@ -21,6 +21,7 @@ import {
   Send,
   Square,
   MessageSquare,
+  MessagesSquare,
   PanelRightClose,
   PanelRightOpen,
   Sparkles,
@@ -95,6 +96,8 @@ function ReferenceIcon({ reference }: { reference: MentionReference }) {
       return <Sparkles className="h-3.5 w-3.5" />;
     case "knowledge":
       return <Library className="h-3.5 w-3.5" />;
+    case "session":
+      return <MessagesSquare className="h-3.5 w-3.5" />;
   }
 }
 
@@ -463,10 +466,10 @@ export function ChatArea({ embedded = false }: { embedded?: boolean } = {}) {
         </div>
 
         {/* 输入区：一张书写纸 —— 正文在上，操作栏在下 */}
-        <div className="ui-chat-gutter relative z-10 border-t border-border bg-bg py-3">
+        <div className="ui-chat-gutter relative z-10 border-t border-border/60 bg-transparent py-3">
           <div className="mx-auto w-full max-w-[var(--c-layout-content)]">
             <div
-              className="rounded-input border border-border/80 bg-input-bg px-3 py-2 shadow-[var(--c-shadow-sm)] transition-[border-color,box-shadow] focus-within:border-accent/40 focus-within:shadow-[0_0_0_3px_var(--c-accent-soft)]"
+              className="ui-composer rounded-input border border-border/80 px-3 py-2"
               onDragOver={(e) => {
                 // 只接管文件拖拽，文本拖拽保持浏览器默认行为
                 if (e.dataTransfer.types.includes("Files")) e.preventDefault();
@@ -527,31 +530,39 @@ export function ChatArea({ embedded = false }: { embedded?: boolean } = {}) {
                     )}
                   </div>
                   <ul className="max-h-28 overflow-y-auto px-1.5 py-1">
-                    {queued.map((item, index) => (
-                      <li
-                        key={item.id}
-                        className="group flex items-start gap-2 rounded-sm px-1.5 py-1 transition-colors hover:bg-surface-hover/50"
-                      >
-                        <span className="mt-0.5 w-5 shrink-0 text-right ui-type-sub tabular-nums text-text-muted/80">
-                          {String(index + 1).padStart(2, "0")}
-                        </span>
-                        <span
-                          title={item.display}
-                          className="line-clamp-2 min-w-0 flex-1 whitespace-pre-wrap ui-type-note leading-relaxed text-text-secondary"
+                    {queued.map((item, index) => {
+                      const label =
+                        item.display ||
+                        item.references
+                          ?.map((reference) => reference.name)
+                          .join("、") ||
+                        "[图片]";
+                      return (
+                        <li
+                          key={item.id}
+                          className="group flex items-start gap-2 rounded-sm px-1.5 py-1 transition-colors hover:bg-surface-hover/50"
                         >
-                          {item.display}
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => removeQueuedMessage(item.id)}
-                          title="从暂存区移除"
-                          aria-label="从暂存区移除"
-                          className="mt-0.5 shrink-0 rounded-sm p-0.5 text-text-muted opacity-0 transition-all hover:bg-surface-hover hover:text-text group-hover:opacity-100 focus-visible:opacity-100"
-                        >
-                          <X className="h-3 w-3" />
-                        </button>
-                      </li>
-                    ))}
+                          <span className="mt-0.5 w-5 shrink-0 text-right ui-type-sub tabular-nums text-text-muted/80">
+                            {String(index + 1).padStart(2, "0")}
+                          </span>
+                          <span
+                            title={label}
+                            className="line-clamp-2 min-w-0 flex-1 whitespace-pre-wrap ui-type-note leading-relaxed text-text-secondary"
+                          >
+                            {label}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => removeQueuedMessage(item.id)}
+                            title="从暂存区移除"
+                            aria-label="从暂存区移除"
+                            className="mt-0.5 shrink-0 rounded-sm p-0.5 text-text-muted opacity-0 transition-all hover:bg-surface-hover hover:text-text group-hover:opacity-100 focus-visible:opacity-100"
+                          >
+                            <X className="h-3 w-3" />
+                          </button>
+                        </li>
+                      );
+                    })}
                   </ul>
                 </div>
               )}
@@ -674,7 +685,7 @@ export function ChatArea({ embedded = false }: { embedded?: boolean } = {}) {
               {/* 操作栏：左边是上下文，右边是仪表与发送。
                   分隔线与上下内容的间距对齐（正文尾部 ~9px / 按钮上方 8px），
                   线条大致落在留白中间，而不是紧贴按钮。 */}
-              <div className="mt-0 flex items-center justify-between gap-3 border-t border-border/60 pt-2">
+              <div className="ui-groove mt-0 flex items-center justify-between gap-3 pt-2">
                 <div className="flex min-w-0 items-center gap-0.5">
                   {/* 工作目录：可选。绑定后 Agent 在该工作区目录运行 */}
                   <ProjectSelector />

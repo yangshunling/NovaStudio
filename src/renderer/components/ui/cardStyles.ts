@@ -18,7 +18,7 @@
  * 把卡片自身的最小宽度归零，内部再用 truncate 截断，长文本才会显示省略号。
  */
 export const CARD_SHELL =
-  "group relative flex h-full min-h-32 min-w-0 flex-col items-stretch overflow-hidden rounded-xl border border-border/70 bg-surface-2/40 p-card text-left shadow-[var(--c-shadow-sm)] transition-all hover:-translate-y-0.5 hover:border-accent/35 hover:bg-surface-2/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 focus-visible:ring-offset-2 focus-visible:ring-offset-bg";
+  "ui-card-material group relative flex h-full min-h-32 min-w-0 flex-col items-stretch overflow-hidden rounded-xl border border-border/70 p-card text-left transition-all hover:-translate-y-0.5 hover:border-accent/35 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 focus-visible:ring-offset-2 focus-visible:ring-offset-bg";
 
 /**
  * 图标容器的色调槽位。
@@ -39,7 +39,7 @@ export type CardIconTone = keyof typeof CARD_ICON_TONES;
 
 /** 卡片左上角的图标容器，按色调槽位取色 */
 export function cardIconTile(tone: CardIconTone = "accent"): string {
-  return `grid h-11 w-11 shrink-0 place-items-center rounded-xl ${CARD_ICON_TONES[tone]}`;
+  return `ui-tile grid h-11 w-11 shrink-0 place-items-center rounded-xl ${CARD_ICON_TONES[tone]}`;
 }
 
 /** 卡片标题 */

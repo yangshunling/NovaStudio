@@ -16,13 +16,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Boxes, ChevronDown } from "lucide-react";
 import { useChatStore } from "../../stores/chat";
 import { ipc } from "../../lib/ipc";
-import { AGENT_SETTINGS_CHANGED_EVENT } from "../../lib/agent-events";
+import {
+  useAgentSettings,
+  useAgentSettingsStore,
+} from "../../stores/agentSettings";
 import { toast } from "../../stores/toast";
 import { errorMessage } from "@shared/error";
-import type {
-  AgentModelOption,
-  AgentSettingsView,
-} from "@shared/contracts/agent";
+import type { AgentModelOption } from "@shared/contracts/agent";
 
 /** 设置里的模型条目 → CLI 认识的完整 ID */
 function entryLabel(entry: { name: string; context: string } | null): string {
@@ -48,7 +48,8 @@ export function ModelSelector() {
 
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
-  const [settings, setSettings] = useState<AgentSettingsView | null>(null);
+  // 默认模型名常驻工具栏：由共享快照驱动，配置保存后立即更新
+  const settings = useAgentSettings(agentId);
   const [models, setModels] = useState<AgentModelOption[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -70,46 +71,6 @@ export function ModelSelector() {
     setOpen(false);
     setQuery("");
   }, [currentSessionId]);
-
-  /*
-   * 默认模型名要常驻在工具栏上，不能等展开下拉时才读配置。
-   * 否则首屏 / 切换 Agent 后会先显示「默认模型」，打开一次下拉才跳成真实
-   * 模型名——看起来像「点了一下没切换」。
-   */
-  useEffect(() => {
-    if (!agentId) {
-      setSettings(null);
-      return;
-    }
-    let cancelled = false;
-    void ipc
-      .getAgentSettings(agentId)
-      .then((view) => {
-        if (!cancelled) setSettings(view);
-      })
-      .catch(() => {
-        // 读取失败不打扰用户；展开下拉时会重试并在面板内提示
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [agentId]);
-
-  /*
-   * Agent 配置页保存后会话页不会重新挂载（保持草稿与滚动位置），
-   * 这里接收一次广播，让默认模型名立即跟上新的配置。
-   */
-  useEffect(() => {
-    const onChanged = (event: Event) => {
-      const agentIdInEvent = (event as CustomEvent<{ agentId?: string }>).detail
-        ?.agentId;
-      if (!agentId || (agentIdInEvent && agentIdInEvent !== agentId)) return;
-      void ipc.getAgentSettings(agentId).then(setSettings).catch(() => {});
-    };
-    window.addEventListener(AGENT_SETTINGS_CHANGED_EVENT, onChanged);
-    return () =>
-      window.removeEventListener(AGENT_SETTINGS_CHANGED_EVENT, onChanged);
-  }, [agentId]);
 
   // 外部点击 / Esc 关闭
   useEffect(() => {
@@ -139,9 +100,16 @@ export function ModelSelector() {
     setError(null);
     setNote(null);
     try {
-      const view = await ipc.getAgentSettings(agentId);
+      // 展开时强制刷新一次：用户可能刚在配置页改过 Base URL / Key
+      const view = await useAgentSettingsStore
+        .getState()
+        .load(agentId, { force: true });
       if (requestId !== requestRef.current) return;
-      setSettings(view);
+      if (!view) {
+        throw new Error(
+          useAgentSettingsStore.getState().error[agentId] ?? "读取 Agent 配置失败",
+        );
+      }
       try {
         const result = await ipc.listAgentModels({
           agentId,

@@ -12,7 +12,7 @@ import { SessionListPanel } from "./SessionListPanel";
 export function SessionsView() {
   return (
     <div className="relative flex min-w-0 flex-1 flex-col overflow-hidden">
-      <div className="ui-page relative z-10 flex min-h-0 flex-1 overflow-hidden">
+      <div className="ui-page relative z-10 flex min-h-0 flex-1 overflow-hidden rounded-xl">
         <SessionListPanel />
         <CenterPane />
       </div>

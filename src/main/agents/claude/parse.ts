@@ -694,7 +694,8 @@ function decodeObject(
       errors.join("\n").trim() ||
       (typeof obj.result === "string" ? obj.result.trim() : "") ||
       `Agent 执行失败（${subtype || "unknown"}）`;
-    const error: AgentEvent = { type: "error", message };
+    // result 行是终态：error_* 表示本轮已失败，即使产出了部分正文
+    const error: AgentEvent = { type: "error", message, fatal: true };
     // 失败轮次也可能已经产生了 token 消耗，两者一并上报
     return usage ? [error, usage] : error;
   }

@@ -19,6 +19,7 @@ import { join } from "path";
 import { clamp } from "../../shared/math";
 import { HEADLESS_PERMISSION_MODE } from "../../shared/permission";
 import { getProvider, listProviders } from "../agents/registry";
+import { notifyActivityChanged } from "../lifecycle/activity";
 import { BASE_CHAT_NAME } from "../agents/chat-identity";
 import type { AgentInvocationInfo, PreparedAgentRun } from "../agents/types";
 import type { AgentService, RunOutcome } from "../agents/agent-service";
@@ -457,6 +458,7 @@ export function createWorkflowRunner(deps: WorkflowRunnerDeps): WorkflowRunner {
         live: new Map(),
       };
       activeRuns.set(runId, active);
+      notifyActivityChanged();
       activeAttached = true;
 
       emitEvent(runId, null, "run_started", {
@@ -486,7 +488,10 @@ export function createWorkflowRunner(deps: WorkflowRunnerDeps): WorkflowRunner {
     } catch (err) {
       // 运行记录已经创建、但启动流程失败：必须落一个终态，
       // 否则这条记录会永远停在“运行中”。
-      if (activeAttached) activeRuns.delete(runId);
+      if (activeAttached) {
+        activeRuns.delete(runId);
+        notifyActivityChanged();
+      }
       if (runCreated) failStartupRun(runId, errorMessage(err));
       throw err;
     } finally {
@@ -723,6 +728,7 @@ export function createWorkflowRunner(deps: WorkflowRunnerDeps): WorkflowRunner {
         live: new Map(),
       };
       activeRuns.set(runId, active);
+      notifyActivityChanged();
 
       emitEvent(runId, null, "run_started", {
         workflowId: workflow.id,
@@ -1424,6 +1430,8 @@ export function createWorkflowRunner(deps: WorkflowRunnerDeps): WorkflowRunner {
       const deltas: string[] = [];
       /** 运行时错误（超时 / 启动失败等）：非零退出码时要给用户具体原因 */
       let runtimeError = "";
+      /** 终态错误：result 行 error_*、启动失败、超时、非零退出 */
+      let fatalError = "";
       const result = await deps.service.run({
         sessionId: chain.sessionId,
         prompt,
@@ -1474,7 +1482,10 @@ export function createWorkflowRunner(deps: WorkflowRunnerDeps): WorkflowRunner {
 
           if (event.type === "text") texts.push(event.content);
           else if (event.type === "text_delta") deltas.push(event.delta);
-          else if (event.type === "error") runtimeError = event.message;
+          else if (event.type === "error") {
+            runtimeError = event.message;
+            if (event.fatal) fatalError = event.message;
+          }
         },
       });
 
@@ -1556,10 +1567,27 @@ export function createWorkflowRunner(deps: WorkflowRunnerDeps): WorkflowRunner {
       }
 
       /*
-       * CLI 可能在 result 行报告 error_*（api_error / max_turns 等）却仍以
-       * 0 退出（解析层已明确兼容这种输出）。此时 exitCode 无法代表失败，
-       * 必须把运行期错误当作失败处理；有正文时保留成功，避免把可用的
-       * 部分产物直接判死。
+       * 终态错误即使已经产出部分正文，也不能算成功。
+       *
+       * CLI 可能在 result 行报告 error_*（max_turns / error_during_execution
+       * 等）却仍以 0 退出。这类错误来自 result 行本身，代表「本轮没跑完」；
+       * 若因为有部分正文就判成功，下游节点会拿到半截结果还以为是完整的。
+       */
+      if (fatalError) {
+        return failedAttempt(
+          fatalError,
+          false,
+          chain.sessionId,
+          attemptDir,
+          inputPath,
+          outputPath,
+          round,
+        );
+      }
+
+      /*
+       * 非终态错误（如 system/api_error，CLI 可能自行重试）只作为诊断：
+       * 有正文时保留成功，避免把可用的部分产物直接判死。
        */
       if (runtimeError && !result.assistantText?.trim()) {
         return failedAttempt(
@@ -2019,6 +2047,7 @@ export function createWorkflowRunner(deps: WorkflowRunnerDeps): WorkflowRunner {
       error: error ?? null,
     });
     activeRuns.delete(active.id);
+    notifyActivityChanged();
     const finished = db.getWorkflowRun(active.id);
     if (finished) deps.onRunFinished?.(finished);
   }

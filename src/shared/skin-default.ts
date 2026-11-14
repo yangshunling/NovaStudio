@@ -9,9 +9,9 @@
  * 运行时守卫见 scripts/verify-skin-tokens.mjs。
  */
 
-export const DEFAULT_SKIN_ID = "classic-night";
+export const DEFAULT_SKIN_ID = "nova-nocturne";
 
 export const DEFAULT_SKIN_APPEARANCE = "dark" as const;
 
-export const DEFAULT_WINDOW_BACKGROUND = "#000000";
-export const LIGHT_WINDOW_BACKGROUND = "#ffffff";
+export const DEFAULT_WINDOW_BACKGROUND = "#0a0c11";
+export const LIGHT_WINDOW_BACKGROUND = "#edeff4";

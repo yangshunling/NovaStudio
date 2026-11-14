@@ -52,6 +52,7 @@ import { checkClaudeUpgrade, installClaude, upgradeClaude } from "./upgrade";
 import {
   deleteSession as deleteSessionFile,
   fileVersion,
+  locateSessionFile,
   readHistory as readHistoryFile,
 } from "./sessions";
 import { errorMessage } from "../../../shared/error";
@@ -426,5 +427,10 @@ export const provider: AgentProvider = {
 
   async deleteSession(ref, ctx) {
     await deleteSessionFile(ref, ctx.cwd, ctx.configDir);
+  },
+
+  /** 原始 JSONL 路径：`#` 会话引用只传路径，由 Agent 自己读取 */
+  async sessionFilePath(ref, ctx) {
+    return locateSessionFile(ctx.cwd, ref, ctx.configDir);
   },
 };

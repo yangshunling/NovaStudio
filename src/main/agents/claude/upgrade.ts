@@ -17,7 +17,7 @@ import type {
   AgentUpgradeResult,
 } from "../../../shared/contracts/agent";
 import { probeVersion } from "../probe";
-import { execCli, spawnChild, stripAnsi } from "../transport";
+import { execCli, spawnChild, stripAnsi, type Transport } from "../transport";
 import { errorMessage } from "../../../shared/error";
 
 const BIN = "claude";
@@ -35,6 +35,21 @@ const OUTPUT_LIMIT = 32 * 1024;
 
 /** 同一时间只允许一个升级任务：npm 全局安装目录不能并发写 */
 let inFlight = false;
+
+/**
+ * 正在执行的安装 / 升级命令。
+ *
+ * 这些子进程不属于 Agent 会话，退出流程原来完全不知道它们的存在：
+ * 关掉 Nova 后 npm / node 会变成孤儿继续写全局目录。这里登记起来，
+ * 由主进程在退出时统一终止整棵进程树。
+ */
+const activeCommands = new Set<Transport>();
+
+/** 应用退出时终止所有安装 / 升级子进程（由主进程调用） */
+export function shutdownUpgradeCommands(): void {
+  for (const transport of activeCommands) transport.kill();
+  activeCommands.clear();
+}
 
 /** 把 `2.1.322` / `v2.1.0-beta.1` 拆成可比较的片段 */
 function parseVersion(version: string): { parts: number[]; pre: string } {
@@ -137,10 +152,13 @@ function runCommand(
         onStderr: append,
         onExit: (code) => {
           if (timer) clearTimeout(timer);
+          activeCommands.delete(transport);
           resolve({ code, output, timedOut });
         },
       },
     );
+
+    activeCommands.add(transport);
 
     timer = setTimeout(() => {
       timedOut = true;

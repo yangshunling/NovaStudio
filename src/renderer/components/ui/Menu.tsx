@@ -79,7 +79,7 @@ export function MenuPanel({
       aria-orientation="vertical"
       onKeyDown={handleKeyDown}
       style={{ top: y, left: x, width }}
-      className={`ui-dropdown-in ui-glass-strong ui-ring fixed z-[60] rounded-xl p-1.5 ${className}`.trim()}
+      className={`ui-dropdown-in ui-glass-strong ui-ring ui-depth fixed z-[60] rounded-xl p-1.5 ${className}`.trim()}
     >
       {children}
     </div>,

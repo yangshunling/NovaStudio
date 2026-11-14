@@ -57,6 +57,29 @@ export interface InputImage {
   data: string;
 }
 
+/** 输入框引用标签的类型：与 MentionPicker 的分类保持一致 */
+export type ReferenceKind =
+  | "file"
+  | "session"
+  | "tool"
+  | "skill"
+  | "knowledge";
+
+/**
+ * 引用标签的展示信息。
+ *
+ * 只用于聊天界面的块状引用，不送给 Agent：实际送入 CLI 的是 prompt 里
+ * 的引用说明（如 `@path`）。`promptText` 保留下来是为了重试时能重建 prompt。
+ */
+export interface DisplayReference {
+  kind: ReferenceKind;
+  name: string;
+  /** 副标题：文件路径 / 会话文件路径 / 资产说明 */
+  detail?: string;
+  /** 实际发给 Agent 的引用原文；仅重试时使用 */
+  promptText?: string;
+}
+
 export type AgentEvent =
   | { type: "thinking"; content: string }
   | { type: "text"; content: string }
@@ -66,6 +89,11 @@ export type AgentEvent =
    * 实时与旧数据用 data（不带 data: 前缀的 base64），落库后用 ref。
    */
   | ({ type: "image" } & ImagePayload)
+  /**
+   * 用户消息里的引用标签（文件 / 会话 / 工具 / 技能 / 知识库）。
+   * 只落库供界面渲染成块，不参与发给 Agent 的 prompt。
+   */
+  | ({ type: "reference" } & DisplayReference)
   | { type: "thinking_delta"; delta: string }
   | { type: "text_delta"; delta: string }
   | {
@@ -95,7 +123,14 @@ export type AgentEvent =
       /** 工具返回的图片（截图等）；文本输出仍在 output 里 */
       images?: ToolResultImage[];
     }
-  | { type: "error"; message: string }
+  /**
+   * 运行错误。
+   *
+   * fatal 由 provider 标记：只有「本轮已经确定失败」的错误（result 行的
+   * error_*、启动失败、超时、非零退出）才是 fatal。system/api_error 这类
+   * 可被 CLI 重试的错误不是 fatal —— 宿主不能用它判定整轮失败。
+   */
+  | { type: "error"; message: string; fatal?: boolean }
   /**
    * 非致命提示：CLI 自己标记为「警告」的条目（如输出被截断）。
    * 与 error 分开，避免把「运行仍在继续」的提示渲染成红色失败。

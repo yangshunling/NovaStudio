@@ -1083,7 +1083,7 @@
   font-size: var(--c-font-size-caption);
 }
 
-/* 实心胶囊：白字压在主色 / 紫色上，比浅底描边更醒目 */
+/* 本地分支：实心胶囊，是「我当前所在 / 可直接切换」的分支 */
 .ws-ref[data-kind="head"],
 .ws-ref[data-kind="branch"] {
   border-color: transparent;
@@ -1091,10 +1091,12 @@
   color: var(--c-accent-foreground);
 }
 
+/* 远端分支：描边 + 淡紫底，与本地分支形成「实心 / 空心」的区别。
+ * 两者在深色下色相接近，仅靠颜色不够，用填充方式拉开更可靠。 */
 .ws-ref[data-kind="remote"] {
-  border-color: transparent;
-  background: var(--c-agent-violet);
-  color: var(--c-accent-foreground);
+  border-color: color-mix(in srgb, var(--c-agent-violet) 48%, var(--c-border));
+  background: color-mix(in srgb, var(--c-agent-violet) 14%, transparent);
+  color: var(--c-agent-violet);
 }
 
 .ws-ref[data-kind="tag"] {

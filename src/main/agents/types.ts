@@ -358,4 +358,13 @@ export interface AgentProvider {
 
   /** 删除 CLI 侧会话数据。失败静默 */
   deleteSession(ref: string, ctx: SessionContext): Promise<void>;
+
+  /**
+   * 会话原始存储文件的绝对路径。
+   *
+   * 供输入框 `#` 引用使用：把路径交给 Agent，让它自己决定读多少，
+   * 而不是由宿主把整段会话转成文本塞进消息。
+   * 返回 null 表示该 provider 没有原始文件，或文件尚不存在。
+   */
+  sessionFilePath?(ref: string, ctx: SessionContext): Promise<string | null>;
 }

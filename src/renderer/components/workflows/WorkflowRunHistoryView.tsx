@@ -21,6 +21,10 @@ import { Page } from "../ui/Page";
 import { SegmentedTabs } from "../ui/SegmentedTabs";
 import { formatDateTime, formatDuration } from "@shared/time";
 import { ACTIVE_RUN_STATUSES, RUN_STATUS } from "../../lib/workflow/status";
+import {
+  refreshWorkflowRuns,
+  registerWorkflowRunLoader,
+} from "../../lib/workflow-run-sync";
 import type { WorkflowRun } from "@shared/types";
 import { errorMessage } from "@shared/error";
 
@@ -82,7 +86,14 @@ export function WorkflowRunHistoryView({
 
   useEffect(() => {
     setLoading(true);
-    void load();
+    // 订阅 + 兜底轮询统一由 workflow-run-sync 持有
+    const off = registerWorkflowRunLoader({
+      run: load,
+      isActive: () =>
+        runsRef.current.some((run) => ACTIVE_RUN_STATUSES.has(run.status)),
+    });
+    void refreshWorkflowRuns();
+    return off;
   }, [load]);
 
   // 只有存在活跃运行时才轮询；历史记录不会变化，没必要一直打 IPC
@@ -149,13 +160,6 @@ export function WorkflowRunHistoryView({
     }
   };
 
-  const hasActive = runs.some((run) => ACTIVE_RUN_STATUSES.has(run.status));
-  useEffect(() => {
-    if (!hasActive) return;
-    // 推送之外只做 10 秒兜底，避免活跃运行期间每 2 秒重复查库
-    const timer = setInterval(() => void load(), 10_000);
-    return () => clearInterval(timer);
-  }, [hasActive, load]);
 
 
   return (
@@ -264,7 +268,7 @@ export function WorkflowRunHistoryView({
                         onOpenRun(run.id, run.workflowId);
                       }
                     }}
-                    className="ui-cv-row flex w-full cursor-pointer items-start gap-3 border-b border-border px-4 py-3 text-left transition-colors last:border-b-0 hover:bg-surface-hover"
+                    className="ui-cv-row ui-interactive flex w-full items-start gap-3 border-b border-border px-4 py-3 text-left last:border-b-0 hover:bg-surface-hover"
                   >
                     <span
                       className={`flex w-24 shrink-0 items-center gap-1.5 pt-0.5 ui-type-label ${meta.className}`}

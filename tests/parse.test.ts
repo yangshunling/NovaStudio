@@ -371,6 +371,8 @@ test("失败的 result 同时上报 error 与 usage", () => {
   assert.deepEqual(events[0], {
     type: "error",
     message: "No conversation found",
+    // result 行错误是终态：宿主据此判定本轮失败（即使有部分正文）
+    fatal: true,
   });
   assert.equal(events[1]?.type, "usage");
 });

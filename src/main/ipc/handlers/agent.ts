@@ -17,7 +17,11 @@ import { revealPath } from "../nativeUi";
 import { BASE_CHAT_NAME } from "../../agents/chat-identity";
 import { prepareSessionChatRun } from "../../sessions/runtime";
 import { errorMessage } from "../../../shared/error";
-import type { DigitalEmployee, InputImage } from "../../../shared/types";
+import type {
+  DigitalEmployee,
+  DisplayReference,
+  InputImage,
+} from "../../../shared/types";
 
 /**
  * 同一会话的发送占位。
@@ -137,12 +141,18 @@ export function registerAgentHandlers(service: AgentService): void {
   const sendAgent = async ({
     sessionId,
     prompt,
+    display,
     images,
+    references,
     employeeId,
   }: {
     sessionId: string;
     prompt: string;
+    /** 聊天里展示的正文；缺省为 prompt */
+    display?: string;
     images?: InputImage[];
+    /** 引用标签的展示信息：只落库，不送给 Agent */
+    references?: DisplayReference[];
     employeeId?: string | null;
   }): Promise<SendAgentResult> => {
     const session = db.getSession(sessionId);
@@ -216,11 +226,17 @@ export function registerAgentHandlers(service: AgentService): void {
       return { ok: true, exitCode: -1, duration: 0, canceled: true };
     }
 
-    // 记录用户消息：刷新索引（首条消息写标题），正文不入库
+    /*
+     * 记录用户消息：刷新索引（首条消息写标题），正文不入库。
+     * 标题取聊天里展示的正文，而不是含引用说明的完整 prompt，
+     * 否则首条消息带引用时标题会变成「请读取另一个会话的原始记录…」。
+     */
+    const titleSource =
+      (display ?? prompt).trim() || references?.[0]?.name || "[图片]";
     db.touchSession(sessionId, {
       title:
         (session.messageCount ?? 0) === 0
-          ? prompt.trim().slice(0, 40) || "[图片]"
+          ? titleSource.slice(0, 40)
           : undefined,
       countDelta: 1,
     });
@@ -244,6 +260,8 @@ export function registerAgentHandlers(service: AgentService): void {
     const outcome = await service.run({
       sessionId,
       prompt,
+      displayPrompt: display,
+      displayReferences: references,
       images,
       contextPrompt,
       cwd,

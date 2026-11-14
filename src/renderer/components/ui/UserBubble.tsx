@@ -14,7 +14,7 @@ export function UserBubble({ children }: { children: ReactNode }) {
    * 换行折叠成空格、整段消息挤成一行。break-words 兜住超长无空格串。
    */
   return (
-    <div className="max-w-[80%] whitespace-pre-wrap break-words rounded-2xl rounded-br-sm border border-border-strong bg-bubble-user px-4 py-2.5 ui-type-item text-bubble-user-text shadow-[var(--c-shadow-sm)]">
+    <div className="ui-bubble-user max-w-[80%] whitespace-pre-wrap break-words rounded-2xl rounded-br-sm bg-bubble-user px-4 py-2.5 ui-type-item text-bubble-user-text shadow-[var(--c-bubble-shadow)]">
       {children}
     </div>
   );

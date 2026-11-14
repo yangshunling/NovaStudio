@@ -183,6 +183,13 @@ export const useThemeStore = create<SkinState>((set, get) => ({
     const settings = await ipc.getSettings();
     const theme =
       settings.theme && hasSkin(settings.theme) ? settings.theme : defaultSkinId;
+    /*
+     * 旧皮肤（如 classic-night）已移除：把设置里失效的 id 迁移到当前皮肤，
+     * 否则每次启动都会回退一次，设置页也会一直显示一个不存在的主题。
+     */
+    if (settings.theme && settings.theme !== theme) {
+      void ipc.setSettings({ theme });
+    }
     const fontSize =
       settings.fontSize && settings.fontSize > 0
         ? settings.fontSize

@@ -33,6 +33,7 @@ import {
   FilePlus2,
   FileText,
   Library,
+  MessagesSquare,
   MessageSquareText,
   Sparkles,
   UserRound,
@@ -44,6 +45,7 @@ import {
   useSkillsStore,
 } from "../../stores/assets";
 import { useEmployeesStore } from "../../stores/employees";
+import { useChatStore } from "../../stores/chat";
 import {
   chooseEmployee,
   DEFAULT_ASSISTANT,
@@ -51,7 +53,7 @@ import {
 import { ipc } from "../../lib/ipc";
 import { toMessage } from "../../lib/utils";
 import { toast } from "../../stores/toast";
-import type { FileEntry, PromptItem } from "@shared/types";
+import type { FileEntry, PromptItem, Session } from "@shared/types";
 import { EmployeeAvatar } from "../employees/EmployeeAvatar";
 import claudeAvatarUrl from "../../assets/claude.png";
 import { FileTypeIcon } from "../ui/FileTypeIcon";
@@ -64,6 +66,7 @@ import { Spinner } from "../ui/Spinner";
 
 export type MentionCategory =
   | "file"
+  | "session"
   | "employee"
   | "tool"
   | "skill"
@@ -81,7 +84,7 @@ export type MentionTrigger = "@" | "#";
  */
 export interface MentionReference {
   key: string;
-  category: "file" | "tool" | "skill" | "knowledge";
+  category: "file" | "session" | "tool" | "skill" | "knowledge";
   name: string;
   detail: string;
   promptText: string;
@@ -102,6 +105,8 @@ export interface MentionEntry {
   content?: string;
   /** 非提示词条目：发送时追加到 prompt 的文本 */
   promptText?: string;
+  /** 会话：要引用其完整过程的会话 id */
+  sessionId?: string;
   /** 数字员工：绑定到当前会话的员工 id；null 表示解除绑定 */
   employeeId?: string | null;
   /** 数字员工：头像 data URL，列表里优先展示头像 */
@@ -118,6 +123,11 @@ const CATEGORY_META: Record<
   { label: string; description: string; icon: LucideIcon }
 > = {
   file: { label: "文件", description: "工作区中的文件，或从本机选择", icon: FileText },
+  session: {
+    label: "会话",
+    description: "引用另一个会话的完整过程",
+    icon: MessagesSquare,
+  },
   employee: {
     label: "数字员工",
     description: "指定本次会话由谁执行",
@@ -143,6 +153,7 @@ const CATEGORY_META: Record<
  */
 const CONTENT_CATEGORIES: readonly MentionCategory[] = [
   "file",
+  "session",
   "tool",
   "skill",
   "prompt",
@@ -156,6 +167,16 @@ function isContentCategory(value: string): value is MentionCategory {
 /** 提示词正文压成单行摘要，避免长文把列表行撑开 */
 function snippet(text: string): string {
   return text.replace(/\s+/g, " ").trim().slice(0, 80);
+}
+
+/** 会话副标题：消息数 + 最近更新时间 */
+function sessionDetail(session: Session): string {
+  const date = new Date(session.updatedAt);
+  const pad = (value: number) => String(value).padStart(2, "0");
+  const time = `${date.getMonth() + 1}月${date.getDate()}日 ${pad(
+    date.getHours(),
+  )}:${pad(date.getMinutes())}`;
+  return `${session.messageCount ?? 0} 条 · ${time}`;
 }
 
 // ============================================================================
@@ -245,6 +266,9 @@ export function useMention({
   const popupRef = useRef<HTMLDivElement>(null);
   const itemRefs = useRef<(HTMLButtonElement | null)[]>([]);
   const promptRequestRef = useRef(0);
+  /** 异步引用返回时确认草稿仍属于同一个会话，避免切走后把引用加到新会话 */
+  const draftKeyRef = useRef(draftKey);
+  draftKeyRef.current = draftKey;
 
   // 资产 store：启动时已预热，进入分类时按需补一次加载
   const mcpServers = useMcpServersStore((s) => s.items);
@@ -260,6 +284,9 @@ export function useMention({
   const employees = useEmployeesStore((s) => s.employees);
   const employeesLoading = useEmployeesStore((s) => s.loading);
   const loadEmployees = useEmployeesStore((s) => s.load);
+  // 会话引用：列表启动时已加载，直接复用，不再额外走 IPC
+  const sessions = useChatStore((s) => s.sessions);
+  const currentSessionId = useChatStore((s) => s.currentSessionId);
 
   const active = mentionQuery !== null;
   /** `@` 打开的是员工列表；结构上等价于「已经选完分类」，但没有返回上一级 */
@@ -491,6 +518,19 @@ export function useMention({
           });
         }
         break;
+      case "session":
+        list = sessions
+          .filter((session) => session.id !== currentSessionId)
+          .slice()
+          .sort((a, b) => b.updatedAt - a.updatedAt)
+          .map((session) => ({
+            key: `session:${session.id}`,
+            category: "session",
+            name: session.title || "未命名会话",
+            detail: sessionDetail(session),
+            sessionId: session.id,
+          }));
+        break;
       case "tool":
         list = mcpServers.map((server) => ({
           key: `tool:${server.id}`,
@@ -551,6 +591,8 @@ export function useMention({
     employeeMode,
     fileItems,
     employees,
+    sessions,
+    currentSessionId,
     mcpServers,
     skills,
     promptItems,
@@ -586,6 +628,8 @@ export function useMention({
         return projectId
           ? "工作区中没有可引用的文件"
           : "绑定工作区后，才能引用文件";
+      case "session":
+        return "没有其它可引用的会话";
       case "tool":
         return "还没有接入 MCP 服务";
       case "skill":
@@ -772,6 +816,50 @@ export function useMention({
       if (entry.category === "prompt") {
         replaceMention(entry.content ?? "");
         closeMention();
+        return;
+      }
+
+      /*
+       * 会话：引用原始 JSONL 文件路径，由 Agent 自己读取。
+       * 不把会话内容转成文本塞进用户消息 —— 那样会一次性占满上下文。
+       */
+      if (entry.category === "session") {
+        const sessionId = entry.sessionId;
+        if (!sessionId) return;
+        const draftAtSelect = draftKeyRef.current;
+        replaceMention("", true);
+        closeMention();
+        void (async () => {
+          try {
+            const path = await ipc.getSessionFilePath(sessionId);
+            if (draftKeyRef.current !== draftAtSelect) return;
+            if (!path) {
+              toast.error(
+                "找不到该会话的原始记录文件，可能还没有开始对话或已被清理",
+                5000,
+              );
+              return;
+            }
+            const normalized = path.replace(/\\/g, "/");
+            const reference: MentionReference = {
+              key: `session:${sessionId}`,
+              category: "session",
+              name: entry.name,
+              detail: normalized,
+              promptText:
+                `请读取另一个会话的原始记录文件（JSONL），` +
+                `并把它作为本次对话的上下文：@${normalized}`,
+            };
+            setReferences((current) =>
+              current.some((item) => item.key === reference.key)
+                ? current
+                : [...current, reference],
+            );
+          } catch (error) {
+            if (draftKeyRef.current !== draftAtSelect) return;
+            toast.error(toMessage(error), 5000);
+          }
+        })();
         return;
       }
 

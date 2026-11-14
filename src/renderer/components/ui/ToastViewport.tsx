@@ -34,7 +34,7 @@ export function ToastViewport() {
           <div
             key={item.id}
             role="status"
-            className="ui-toast-in ui-glass-strong ui-ring pointer-events-auto flex w-fit max-w-[min(92vw,560px)] items-center gap-2.5 rounded-xl px-3.5 py-2 ui-type-body text-text"
+            className="ui-toast-in ui-glass-strong ui-ring ui-depth pointer-events-auto flex w-fit max-w-[min(92vw,560px)] items-center gap-2.5 rounded-xl px-3.5 py-2 ui-type-body text-text"
           >
             <Icon className={`h-4 w-4 shrink-0 ${className}`} />
             <span className="min-w-0 flex-1 break-words">{item.message}</span>

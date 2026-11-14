@@ -1,0 +1,166 @@
+/**
+ * Nova · 夜（nova-nocturne）
+ *
+ * 深空石墨 + 星蓝紫。不是纯黑扁平，而是用三阶表面 + 顶部内高光
+ * 建立材质层次，强调色只在品牌 / 入口 / 生成态出现。
+ *
+ * 分层：字体栈、圆角刻度、布局尺寸来自 _base.css，
+ * 本文件只声明这套皮肤独有的调色与质感。
+ */
+
+@import "../_base.css";
+
+[data-theme="nova-nocturne"] {
+  /* === 画布与表面：蓝黑石墨底盘，三阶表面拉出层次 === */
+  --c-bg: #08090d;
+  --c-surface: #10131a;
+  --c-surface-2: #181d27;
+  --c-surface-3: #212734;
+  --c-surface-hover: rgba(255, 255, 255, 0.055);
+  --c-surface-active: rgba(124, 140, 255, 0.16);
+
+  /* === 玻璃：更明显的模糊，让顶栏 / 输入区浮在纸面上 === */
+  --c-glass-bg: rgba(17, 20, 27, 0.72);
+  --c-glass-filter: blur(18px) saturate(1.25);
+  --c-glass-strong-bg: rgba(23, 27, 36, 0.9);
+  --c-glass-strong-filter: blur(22px) saturate(1.2);
+
+  /* === 边框：低对比发丝线，强调时转星蓝紫 === */
+  --c-border: #2a3140;
+  --c-border-strong: #414b60;
+
+  /* === 文本 === */
+  --c-text: #e9ecf3;
+  --c-text-secondary: #a6aec0;
+  --c-text-muted: #7f899e;
+
+  /* === 强调色：星蓝紫 === */
+  --c-accent: #7c8cff;
+  --c-accent-hover: #93a0ff;
+  --c-accent-foreground: #0b0d13;
+  --c-accent-soft: rgba(124, 140, 255, 0.14);
+  /* 选中底色：要比 accent-soft 明显，才能在石墨底上看清选中项 */
+  --c-selection-bg: rgba(124, 140, 255, 0.2);
+
+  /* === 语义色 === */
+  --c-thinking: #a6aec0;
+  --c-thinking-bg: rgba(23, 27, 36, 0.9);
+  --c-tool: #57d6e8;
+  --c-error: #ff6b6b;
+  --c-error-bg: rgba(255, 107, 107, 0.12);
+  --c-success: #46d39a;
+  --c-diff-add: #7fe3a8;
+  --c-diff-add-bg: rgba(46, 160, 67, 0.32);
+  --c-diff-del: #ff9b94;
+  --c-diff-del-bg: rgba(248, 81, 73, 0.32);
+
+  /* === 用户气泡：深靛蓝实心，白字 === */
+  --c-bubble-user: #3a46b8;
+  --c-bubble-user-text: #ffffff;
+  --c-bubble-border: #2b3344;
+  /* 气泡不要顶部内高光：靛蓝底上的白色 1px 会变成一条显眼的浅蓝细线 */
+  --c-bubble-shadow: 0 8px 24px rgba(0, 0, 0, 0.34),
+    0 2px 6px rgba(0, 0, 0, 0.3);
+
+  /* === 输入框：比纸面再深一档，聚焦时由 ui-composer 画光谱环 === */
+  --c-input-bg: #0d1016;
+  --c-input-border: #2a3140;
+  --c-input-border-focus: #7c8cff;
+
+  /* === 滚动条 === */
+  --c-scrollbar: rgba(166, 174, 192, 0.22);
+  --c-scrollbar-hover: #7c8cff;
+
+  /* === 阴影：外阴影拉开距离，内高光让边缘像机加工 === */
+  --c-shadow: 0 24px 64px rgba(0, 0, 0, 0.55),
+    0 4px 16px rgba(0, 0, 0, 0.4);
+  --c-shadow-sm: inset 0 1px 0 rgba(255, 255, 255, 0.05),
+    0 2px 10px rgba(0, 0, 0, 0.35);
+
+  /* === 材质：倒角、浮起、凹陷 ===
+   * 所有抬起的表面都有一道顶部内高光，凹陷的槽有一道顶部内阴影；
+   * 这是让界面从「色块」变成「板材」的关键，不依赖阴影大小。 */
+  --c-bevel-highlight: rgba(255, 255, 255, 0.07);
+  --c-bevel-shadow: rgba(0, 0, 0, 0.5);
+  --c-raised-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06),
+    0 1px 2px rgba(0, 0, 0, 0.45), 0 10px 28px rgba(0, 0, 0, 0.32);
+  --c-inset-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.5),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.03);
+  --c-glass-border: rgba(255, 255, 255, 0.08);
+
+  /* === 板材渐变：大面不再是一块纯色 === */
+  --c-card-gradient: linear-gradient(180deg, #1f2532 0%, #171b24 100%);
+  --c-panel-gradient: linear-gradient(180deg, #11151f 0%, #0d1016 100%);
+  --c-sidebar-glow: radial-gradient(
+    120% 55% at 50% -8%,
+    rgba(124, 140, 255, 0.16),
+    transparent 62%
+  );
+  --c-accent-glow: 0 0 18px rgba(124, 140, 255, 0.45);
+
+  /* 选中态：深色底上需要更明显的强调色叠层，否则和未选中行分不开 */
+  --c-sel-top: rgba(124, 140, 255, 0.28);
+  --c-sel-bottom: rgba(124, 140, 255, 0.15);
+  --c-sel-border: rgba(124, 140, 255, 0.36);
+
+  /* === 主体纸面：浮在画布上的第二层，内缩 8px === */
+  --c-page-bg: linear-gradient(180deg, #171c27 0%, #11141b 100%);
+  --c-page-shadow: inset 0 0 0 1px #1d2330,
+    inset 0 1px 0 rgba(255, 255, 255, 0.045), 0 20px 60px rgba(0, 0, 0, 0.35);
+  --c-page-inset: 8px;
+
+  /* === 字体：展示字体保持衬线；入口标题略收紧字距 === */
+  --c-display-tracking: -0.01em;
+
+  /* === 主按钮：星蓝紫微渐变，深色字 === */
+  --c-btn-primary-bg: linear-gradient(135deg, #6d7bf0 0%, #8b7cff 100%);
+  --c-btn-primary-border: rgba(124, 140, 255, 0.5);
+  --c-btn-primary-text: #0b0d13;
+  --c-btn-primary-shadow: 0 6px 18px rgba(90, 100, 255, 0.28),
+    inset 0 1px 0 rgba(255, 255, 255, 0.35);
+
+  /* === 次级按钮 === */
+  --c-btn-ghost-border: #2a3140;
+  --c-btn-ghost-text: #a6aec0;
+  --c-btn-ghost-hover-text: #e9ecf3;
+  --c-btn-ghost-hover-border: #7c8cff;
+  --c-btn-ghost-hover-bg: rgba(124, 140, 255, 0.08);
+
+  /* === 圆形图标按钮 === */
+  --c-btn-round-bg: #171b24;
+  --c-btn-round-border: #2a3140;
+  --c-btn-round-text: #a6aec0;
+  --c-btn-round-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05),
+    0 1px 3px rgba(0, 0, 0, 0.35);
+  --c-btn-round-hover-text: #7c8cff;
+  --c-btn-round-hover-border: #7c8cff;
+
+  /* === 描边芯片 === */
+  --c-ring-border: #2a3140;
+  --c-ring-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+
+  /* === 侧栏：比画布再深一档，右侧发丝线 + 极轻噪点 === */
+  --c-sidebar-bg: #0b0d12;
+  --c-sidebar-shadow: inset -1px 0 0 #20252f;
+  --c-sidebar-texture: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.04'/%3E%3C/svg%3E");
+
+  /* === 列表侧栏 === */
+  --c-panel-bg: #0e1118;
+
+  /* === 历史回放进度条：细 + 微光 === */
+  --c-progress-height: 2px;
+  --c-progress-track: #1e232e;
+  --c-progress-fill: #7c8cff;
+  --c-progress-glow: 0 0 12px rgba(124, 140, 255, 0.55);
+
+  /* === 入口装饰 === */
+  --c-entrance-glow: radial-gradient(
+    58% 46% at 50% 0%,
+    rgba(124, 140, 255, 0.2),
+    transparent 72%
+  );
+  --c-noise-opacity: 0.05;
+  --c-brand-gradient: linear-gradient(100deg, #7c8cff 0%, #57d6e8 100%);
+  --c-glow: 0 0 0 1px rgba(124, 140, 255, 0.35),
+    0 0 24px rgba(124, 140, 255, 0.18);
+}

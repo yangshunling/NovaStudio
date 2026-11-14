@@ -32,9 +32,9 @@ export function ListPane({
 }: ListPaneProps) {
   return (
     <aside
-      className={`flex w-[var(--c-layout-session-list)] shrink-0 flex-col border-r border-border bg-[var(--c-panel-bg)] shadow-[var(--c-shadow-sm)] ${className}`.trim()}
+      className={`ui-tray flex w-[var(--c-layout-session-list)] shrink-0 flex-col border-r border-border ${className}`.trim()}
     >
-      <div className="flex h-[var(--c-layout-header)] shrink-0 items-center justify-between gap-2 border-b border-border px-4">
+      <div className="ui-header-bar flex h-[var(--c-layout-header)] shrink-0 items-center justify-between gap-2 border-b border-border px-4">
         <div className="flex min-w-0 items-center gap-2">
           <p className="ui-type-label truncate tracking-wide text-text-muted">
             {title}

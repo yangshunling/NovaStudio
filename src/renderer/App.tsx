@@ -231,7 +231,7 @@ export default function App() {
              * 窄窗口下工作区改为覆盖层：否则 1024 宽时侧栏 + 会话列表 +
              * 工作区会把对话正文压到 300px 左右，输入区几乎不可用。
              */
-            <div className="flex h-full shrink-0 max-[1180px]:absolute max-[1180px]:inset-y-0 max-[1180px]:right-0 max-[1180px]:z-40 max-[1180px]:shadow-[var(--c-shadow)]">
+            <div className="ui-workspace-dock flex shrink-0 max-[1180px]:absolute max-[1180px]:inset-y-0 max-[1180px]:right-0 max-[1180px]:z-40 max-[1180px]:shadow-[var(--c-shadow)]">
               <WorkspacePanel project={workspacePanelProject} />
             </div>
           )}
