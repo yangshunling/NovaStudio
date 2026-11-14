@@ -9,6 +9,7 @@
 import {
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import {
@@ -99,6 +100,23 @@ export function McpView() {
   >(null);
   const [importOpen, setImportOpen] = useState(false);
 
+  /**
+   * 抽屉自己的「是否可丢弃草稿」检查。
+   *
+   * 抽屉以 key 区分当前对象：父组件直接 setDrawer 会重新挂载子组件，
+   * 草稿在子组件内部，父组件无法感知 —— 必须让子组件在切换前表态。
+   */
+  const drawerGuard = useRef<(() => Promise<boolean>) | null>(null);
+
+  const changeDrawer = async (
+    next: { mode: "create" } | { mode: "view"; id: string } | null,
+  ) => {
+    if (drawer && drawerGuard.current) {
+      if (!(await drawerGuard.current())) return;
+    }
+    setDrawer(next);
+  };
+
   useEffect(() => {
     void loadEmployees();
   }, [loadEmployees]);
@@ -150,7 +168,7 @@ export function McpView() {
 
             <Button
               variant="primary"
-              onClick={() => setDrawer({ mode: "create" })}
+              onClick={() => void changeDrawer({ mode: "create" })}
               icon={<Plus className="h-4 w-4" />}
             >
               新建 MCP
@@ -166,7 +184,7 @@ export function McpView() {
           ) : error && servers.length === 0 ? (
             <ErrorState message={error} onRetry={reload} />
           ) : servers.length === 0 ? (
-            <EmptyMcp onCreate={() => setDrawer({ mode: "create" })} onImport={() => setImportOpen(true)} />
+            <EmptyMcp onCreate={() => void changeDrawer({ mode: "create" })} onImport={() => setImportOpen(true)} />
           ) : filtered.length === 0 ? (
             <FilterEmpty
               title={`没有匹配「${query}」的 MCP 服务`}
@@ -179,7 +197,7 @@ export function McpView() {
                   key={server.id}
                   server={server}
                   usage={usageCount.get(server.id) ?? 0}
-                  onOpen={() => setDrawer({ mode: "view", id: server.id })}
+                  onOpen={() => void changeDrawer({ mode: "view", id: server.id })}
                 />
               ))}
             </div>
@@ -193,6 +211,9 @@ export function McpView() {
           creating={drawer.mode === "create"}
           employees={employees}
           onClose={() => setDrawer(null)}
+          onDirtyGuardChange={(guard) => {
+            drawerGuard.current = guard;
+          }}
           onSaved={async () => {
             reload();
             setDrawer(null);
@@ -291,12 +312,15 @@ function McpDrawer({
   creating,
   employees,
   onClose,
+  onDirtyGuardChange,
   onSaved,
 }: {
   server: McpServerAsset | null;
   creating: boolean;
   employees: DigitalEmployee[];
   onClose: () => void;
+  /** 把「能否丢弃草稿」交给父组件：切换对象会换 key 重挂载本组件 */
+  onDirtyGuardChange?: (guard: (() => Promise<boolean>) | null) => void;
   onSaved: () => Promise<void>;
 }) {
   const initialName = server?.slug ?? "";
@@ -384,20 +408,30 @@ function McpDrawer({
   const fileName = server ? dirName(server.path) : "新建服务";
   const title = creating ? "新建 MCP 服务" : server?.name ?? "MCP 服务";
 
-  /** 有未保存的定义 / 服务名时，遮罩与 Esc 不能直接丢弃草稿 */
-  const requestClose = async () => {
-    if (!dirty) {
-      onClose();
-      return;
-    }
-    const confirmed = await confirmDialog({
+  /** 有未保存的定义 / 服务名时，丢弃前必须确认 */
+  const confirmDiscard = async (): Promise<boolean> => {
+    if (!dirty) return true;
+    return confirmDialog({
       title: "放弃未保存的修改？",
       message: "MCP 服务定义尚未保存。",
       confirmLabel: "放弃修改",
       tone: "danger",
     });
-    if (confirmed) onClose();
   };
+
+  /** 遮罩 / Esc / 关闭按钮 */
+  const requestClose = async () => {
+    if (await confirmDiscard()) onClose();
+  };
+
+  /*
+   * 父组件切换抽屉对象时会换 key 重挂载本组件，草稿在本地、父组件看不见。
+   * 这里把检查函数交出去，父组件在同一对象切换前先问一次。
+   */
+  useEffect(() => {
+    onDirtyGuardChange?.(confirmDiscard);
+    return () => onDirtyGuardChange?.(null);
+  });
 
   return (
     <Drawer

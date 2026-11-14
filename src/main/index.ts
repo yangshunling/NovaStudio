@@ -35,6 +35,7 @@ import { initUpdater } from "./updater";
 import { purgeStaleTempDirs } from "./utils/fs";
 import { logLifecycle } from "./utils/lifecycle-log";
 import { appLifecycle } from "./lifecycle";
+import { onActivityChanged } from "./lifecycle/activity";
 import { installWindowCloseGuard } from "./lifecycle/unsaved";
 import { installQuitHandler } from "./lifecycle/quit";
 import { errorMessage } from "../shared/error";
@@ -219,16 +220,20 @@ function createWindow(): BrowserWindow {
    * 后台节流跟随真实负载：
    * - 有聊天 / 自动化 / 工作流在跑时必须保持全速（否则流式事件会成块到达）；
    * - 空闲时恢复 Chromium 默认节流，避免窗口失焦后仍全速跑定时器与动画。
-   * 用 2 秒轮询而不是在每条运行路径上打点，避免遗漏任一种运行来源。
+   *
+   * 运行开始 / 结束由 AgentService 与 WorkflowRunner 显式通知，不再轮询：
+   * 轮询会让「开始运行」到「恢复全速」之间最多有 2 秒的节流窗口。
    */
   let lastThrottle: boolean | null = null;
-  const throttleTimer = setInterval(() => {
+  const applyThrottle = (): void => {
     if (win.isDestroyed()) return;
     const allowed = !hasActiveBackgroundWork();
     if (allowed === lastThrottle) return;
     lastThrottle = allowed;
     win.webContents.setBackgroundThrottling(allowed);
-  }, 2000);
+  };
+  const offActivity = onActivityChanged(applyThrottle);
+  applyThrottle();
 
   /*
    * 渲染进程销毁后它持有的终端 id 也一起丢失，PTY 会变成无人认领的后台进程。
@@ -238,7 +243,7 @@ function createWindow(): BrowserWindow {
     // 必须置空：否则退出清理期间再启动应用，second-instance 会拿到
     // 已销毁的窗口并调用 isMinimized()，抛异常后无法再开窗
     if (mainWindow === win) mainWindow = null;
-    clearInterval(throttleTimer);
+    offActivity();
     stopTerminals();
     denyPendingPermissions();
   });

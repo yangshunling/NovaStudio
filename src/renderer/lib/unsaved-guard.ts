@@ -14,6 +14,7 @@
 
 import { useEffect, useRef } from "react";
 import { errorMessage } from "@shared/error";
+import { confirmDialog } from "../stores/confirm";
 import { ipc } from "./ipc";
 
 interface Guard {
@@ -69,6 +70,32 @@ export function useUnsavedGuard({
     const guard = guards.get(id);
     if (guard) guard.label = label;
   }, [id, label]);
+}
+
+/**
+ * 站内导航（侧栏切页等）前的未保存确认。
+ *
+ * 关窗由主进程询问；页面切换发生在渲染层内部，因此也要在这里拦一次。
+ * 没有登记任何未保存内容时直接放行，不打扰正常切页。
+ */
+export async function confirmLeaveUnsaved(): Promise<boolean> {
+  const dirty = [...guards.values()].filter((guard) => guard.dirty);
+  if (dirty.length === 0) return true;
+
+  const labels = dirty.map((guard) => guard.label).filter(Boolean);
+  const shown = labels.slice(0, 3).join("、");
+  const message =
+    labels.length > 3
+      ? `${shown} 等 ${labels.length} 处尚未保存，离开会丢失这些修改。`
+      : `${shown || "当前编辑内容"}尚未保存，离开会丢失这些修改。`;
+
+  return confirmDialog({
+    title: "有未保存的修改",
+    message,
+    confirmLabel: "放弃并离开",
+    cancelLabel: "继续编辑",
+    tone: "danger",
+  });
 }
 
 /**

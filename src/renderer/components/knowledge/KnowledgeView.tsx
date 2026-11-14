@@ -102,6 +102,25 @@ export function KnowledgeView() {
     relativePath: string;
   } | null>(null);
 
+  /**
+   * 预览抽屉的丢弃检查。
+   *
+   * 切换文档会直接替换 preview 并重载草稿；抽屉内部的 requestClose
+   * 只覆盖关闭，覆盖不到「换一篇」，所以由父组件在切换前问一次。
+   */
+  const previewGuard = useRef<(() => Promise<boolean>) | null>(null);
+
+  const openPreview = async (next: { kbId: string; relativePath: string }) => {
+    const changed =
+      !preview ||
+      preview.kbId !== next.kbId ||
+      preview.relativePath !== next.relativePath;
+    if (changed && previewGuard.current) {
+      if (!(await previewGuard.current())) return;
+    }
+    setPreview(next);
+  };
+
   /** 知识库右键菜单：同一时间只开一个 */
   const [contextMenu, setContextMenu] = useState<{
     asset: KnowledgeBaseAsset;
@@ -508,7 +527,7 @@ export function KnowledgeView() {
                     query={query}
                     showKbName={scopeAll}
                     onOpen={(kbId, relativePath) =>
-                      setPreview({ kbId, relativePath })
+                      void openPreview({ kbId, relativePath })
                     }
                   />
                 ) : docsLoading ? (
@@ -585,7 +604,7 @@ export function KnowledgeView() {
                                 setSubPath(document.relativePath);
                                 setQuery("");
                               } else if (selectedId) {
-                                setPreview({
+                                void openPreview({
                                   kbId: selectedId,
                                   relativePath: document.relativePath,
                                 });
@@ -769,6 +788,9 @@ export function KnowledgeView() {
           kbId={preview.kbId}
           relativePath={preview.relativePath}
           onClose={() => setPreview(null)}
+          onDirtyGuardChange={(guard) => {
+            previewGuard.current = guard;
+          }}
           onSaved={refresh}
         />
       )}
@@ -902,11 +924,14 @@ function KnowledgePreview({
   kbId,
   relativePath,
   onClose,
+  onDirtyGuardChange,
   onSaved,
 }: {
   kbId: string;
   relativePath: string;
   onClose: () => void;
+  /** 把「能否丢弃草稿」交给父组件：切换文档时父组件直接换 props */
+  onDirtyGuardChange?: (guard: (() => Promise<boolean>) | null) => void;
   onSaved?: () => void;
 }) {
   const [meta, setMeta] = useState<{ size: number; truncated: boolean } | null>(
@@ -985,20 +1010,27 @@ function KnowledgePreview({
     }
   };
 
-  /** 文档有未保存修改时，遮罩与 Esc 需要确认 */
-  const requestClose = async () => {
-    if (!dirty) {
-      onClose();
-      return;
-    }
-    const confirmed = await confirmDialog({
+  /** 有未保存修改时，丢弃前必须确认 */
+  const confirmDiscard = async (): Promise<boolean> => {
+    if (!dirty) return true;
+    return confirmDialog({
       title: "放弃未保存的修改？",
       message: "当前文档内容尚未保存。",
       confirmLabel: "放弃修改",
       tone: "danger",
     });
-    if (confirmed) onClose();
   };
+
+  /** 遮罩 / Esc / 关闭按钮 */
+  const requestClose = async () => {
+    if (await confirmDiscard()) onClose();
+  };
+
+  /* 父组件切换文档时直接换 props；把检查函数交出去，切换前先问一次 */
+  useEffect(() => {
+    onDirtyGuardChange?.(confirmDiscard);
+    return () => onDirtyGuardChange?.(null);
+  });
 
   return (
     <Drawer

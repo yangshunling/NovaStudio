@@ -95,7 +95,14 @@ export type AgentEvent =
       /** 工具返回的图片（截图等）；文本输出仍在 output 里 */
       images?: ToolResultImage[];
     }
-  | { type: "error"; message: string }
+  /**
+   * 运行错误。
+   *
+   * fatal 由 provider 标记：只有「本轮已经确定失败」的错误（result 行的
+   * error_*、启动失败、超时、非零退出）才是 fatal。system/api_error 这类
+   * 可被 CLI 重试的错误不是 fatal —— 宿主不能用它判定整轮失败。
+   */
+  | { type: "error"; message: string; fatal?: boolean }
   /**
    * 非致命提示：CLI 自己标记为「警告」的条目（如输出被截断）。
    * 与 error 分开，避免把「运行仍在继续」的提示渲染成红色失败。

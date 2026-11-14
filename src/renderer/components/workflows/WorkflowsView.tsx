@@ -50,6 +50,10 @@ import { WorkflowRunView } from "./WorkflowRunView";
 import { WorkflowRunHistoryView } from "./WorkflowRunHistoryView";
 import { defaultNodeConfig } from "./defaults";
 import { RUN_STATUS } from "../../lib/workflow/status";
+import {
+  refreshWorkflowRuns,
+  registerWorkflowRunLoader,
+} from "../../lib/workflow-run-sync";
 import { describeTriggerSchedule } from "@shared/trigger-schedule";
 import type {
   Project,
@@ -273,7 +277,6 @@ export function WorkflowsView() {
       return;
     }
     let alive = true;
-    let debounce: ReturnType<typeof setTimeout> | null = null;
     // 切换工作区后重新允许提示一次失败，避免上一次的静默状态带到新列表
     runsErrorReported.current = false;
 
@@ -292,28 +295,21 @@ export function WorkflowsView() {
       }
     };
 
-    void load();
-    const off = ipc.on.workflowRunEvent(() => {
-      if (debounce) clearTimeout(debounce);
-      debounce = setTimeout(() => void load(), 200);
-    });
-    // 推送是主链路；页面不可见时不轮询，可见时用 10 秒兜底
-    const timer = setInterval(() => {
-      if (useChatStore.getState().viewMode !== "workflow") return;
-      if (
+    // 订阅 + 兜底轮询统一由 workflow-run-sync 持有
+    const off = registerWorkflowRunLoader({
+      run: load,
+      // 只有工作流页可见且存在活跃运行时才需要兜底
+      isActive: () =>
+        useChatStore.getState().viewMode === "workflow" &&
         runsRef.current.some(
           (run) =>
             run.status === "running" || run.status === "awaiting_approval",
-        )
-      ) {
-        void load();
-      }
-    }, 10_000);
+        ),
+    });
+    void refreshWorkflowRuns();
 
     return () => {
       alive = false;
-      if (debounce) clearTimeout(debounce);
-      clearInterval(timer);
       off();
     };
   }, [effectiveWorkspaceId, runsRefresh]);

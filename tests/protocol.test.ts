@@ -168,6 +168,7 @@ test("result 错误子类型会上报为 error", () => {
   assert.deepEqual(event, {
     type: "error",
     message: "No conversation found with session ID: abc",
+    fatal: true,
   });
 });
 

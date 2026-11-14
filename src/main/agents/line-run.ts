@@ -132,7 +132,7 @@ export function startLineRun(
      * 此时不重复上报，但仍把诊断信息放进 RunResult，供宿主的恢复策略使用。
      */
     if (diagnostic && !muted && !sawErrorEvent) {
-      emit({ type: "error", message: diagnostic });
+      emit({ type: "error", message: diagnostic, fatal: true });
     }
     resolveDone({
       exitCode,
@@ -145,7 +145,7 @@ export function startLineRun(
     if (settled) return;
     const message = `Agent timed out after ${Math.round(timeoutMs / 60000)} min`;
     // 超时原因必须在 muted 置位之前发出：finish 在 muted 时会抑制 error
-    emit({ type: "error", message });
+    emit({ type: "error", message, fatal: true });
     // 超时属于失败，不算用户中断 —— 否则调用方会一直停在"执行中"
     muted = true;
     transport?.kill();
@@ -228,7 +228,7 @@ export function startLineRun(
     // 启动失败属于失败（不是用户中断），只是不需要再补一条重复的 error
     const diagnostic = `启动失败：${message}`;
     muted = true;
-    emit({ type: "error", message: diagnostic });
+    emit({ type: "error", message: diagnostic, fatal: true });
     finish(-1, diagnostic);
   }
 

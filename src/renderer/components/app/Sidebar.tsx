@@ -8,6 +8,10 @@
 import { useEffect, useRef, useState } from "react";
 import { useChatStore } from "../../stores/chat";
 import { ipc } from "../../lib/ipc";
+import {
+  refreshWorkflowRuns,
+  registerWorkflowRunLoader,
+} from "../../lib/workflow-run-sync";
 import { hasUpdateNotice, useUpdaterStore } from "../../stores/updater";
 import { toast } from "../../stores/toast";
 import sloganUrl from "../../assets/slogan.png";
@@ -53,7 +57,6 @@ export function Sidebar() {
 
   useEffect(() => {
     let alive = true;
-    let debounce: ReturnType<typeof setTimeout> | null = null;
 
     const load = async () => {
       try {
@@ -85,20 +88,15 @@ export function Sidebar() {
       }
     };
 
-    void load();
-    const off = ipc.on.workflowRunEvent(() => {
-      if (debounce) clearTimeout(debounce);
-      debounce = setTimeout(() => void load(), 200);
+    // 推送订阅与兜底轮询统一由 workflow-run-sync 持有，这里只登记刷新器
+    const off = registerWorkflowRunLoader({
+      run: load,
+      isActive: () => activeRunsRef.current.length > 0,
     });
-    // 推送是主链路；轮询只做兜底，10 秒足够发现漏掉的终态，避免空闲耗电
-    const timer = setInterval(() => {
-      if (activeRunsRef.current.length > 0) void load();
-    }, 10_000);
+    void refreshWorkflowRuns();
 
     return () => {
       alive = false;
-      if (debounce) clearTimeout(debounce);
-      clearInterval(timer);
       off();
     };
   }, []);

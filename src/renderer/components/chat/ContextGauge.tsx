@@ -13,8 +13,8 @@
  * 颜色全部取自现有 accent / agent-amber / error，换肤自动跟随。
  */
 
-import { useEffect, useState } from "react";
-import { ipc } from "../../lib/ipc";
+import { useMemo } from "react";
+import { useAgentSettings } from "../../stores/agentSettings";
 import { clamp } from "@shared/math";
 import type { SessionUsage } from "../../stores/chat";
 
@@ -26,9 +26,6 @@ function parseContextWindow(context: string): number | null {
   if (!Number.isFinite(value) || value <= 0) return null;
   return Math.round(value * (match[2].toUpperCase() === "M" ? 1_000_000 : 1_000));
 }
-
-/** 同一 Agent 的窗口大小只查一次；设置变更后重启生效 */
-const contextWindowCache = new Map<string, number>();
 
 /** 紧凑计数：12400 → 12.4k，1500000 → 1.5m */
 function compact(value: number): string {
@@ -54,50 +51,24 @@ export function ContextGauge({
   /** 会话级模型覆盖；有值时按它解析上下文窗口，而不是 Agent 默认模型 */
   model?: string | null;
 }) {
-  const [configuredMax, setConfiguredMax] = useState<number | null>(
-    () => contextWindowCache.get(agentId) ?? null,
-  );
-
   /*
    * CLI 的 modelUsage.contextWindow 不是每个版本 / 网关都有。
    * 没有时从本机模型配置的上下文后缀（如 1M）补齐，
    * 否则 1M 模型会被按默认 200k 计算，直接算出 122%。
    */
-  useEffect(() => {
+  const settings = useAgentSettings(agentId);
+  const configuredMax = useMemo(() => {
     /*
      * 会话指定了模型时，窗口上限跟着会话走：
      * 同一 Agent 下 1M 模型和 200K 模型不能共用一份缓存。
      */
     if (model) {
       const suffix = model.match(/\[([^\]]+)\]\s*$/)?.[1] ?? "";
-      setConfiguredMax(parseContextWindow(suffix));
-      return;
+      return parseContextWindow(suffix);
     }
-    if (!agentId) return;
-    const cached = contextWindowCache.get(agentId);
-    if (cached) {
-      setConfiguredMax(cached);
-      return;
-    }
-    setConfiguredMax(null);
-    let alive = true;
-    void ipc
-      .getAgentSettings(agentId)
-      .then((view) => {
-        if (!alive) return;
-        const parsed = parseContextWindow(view.defaultModel.context);
-        if (parsed) {
-          contextWindowCache.set(agentId, parsed);
-          setConfiguredMax(parsed);
-        }
-      })
-      .catch(() => {
-        // 没有配置就退回事件报告值 / 默认值
-      });
-    return () => {
-      alive = false;
-    };
-  }, [agentId, model]);
+    if (!settings) return null;
+    return parseContextWindow(settings.defaultModel.context);
+  }, [model, settings]);
 
   if (!usage || usage.contextUsed <= 0) return null;
 

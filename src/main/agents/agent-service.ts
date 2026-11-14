@@ -23,6 +23,7 @@ import { DEFAULT_SETTINGS } from "../../shared/types";
 import { appendEvent } from "../../shared/agent-events";
 import type { AgentInfo } from "../../shared/contracts/agent";
 import type { Emit } from "../../shared/contracts/ipc";
+import { notifyActivityChanged } from "../lifecycle/activity";
 import { getProvider, listProviders } from "../agents/registry";
 import { isResumeFailure } from "../agents/resume-error";
 import type { AgentInvocationInfo, RunSession } from "../agents/types";
@@ -704,6 +705,7 @@ export function createAgentService(
       runRef.current = runSession;
       running.set(sessionId, runSession);
       runningEmployees.set(sessionId, params.employeeId ?? null);
+      notifyActivityChanged();
 
       try {
         const result = await runSession.done;
@@ -803,6 +805,7 @@ export function createAgentService(
         }
         running.delete(sessionId);
         runningEmployees.delete(sessionId);
+        notifyActivityChanged();
       }
     },
 

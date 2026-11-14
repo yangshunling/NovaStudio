@@ -17,6 +17,7 @@
 
 import { create } from "zustand";
 import { ipc } from "../lib/ipc";
+import { confirmLeaveUnsaved } from "../lib/unsaved-guard";
 import { newId } from "../lib/utils";
 import { toast } from "./toast";
 import { appendEvent } from "@shared/agent-events";
@@ -209,7 +210,8 @@ interface ChatState {
   setDraft: (key: string, value: string) => void;
 
   // 视图
-  setViewMode: (mode: ViewMode) => void;
+  /** 切换主视图；有未保存草稿时会先确认，取消则保持原视图 */
+  setViewMode: (mode: ViewMode) => Promise<void>;
   setShowSettings: (show: boolean) => void;
   setShowWorkspace: (show: boolean) => void;
 
@@ -1328,7 +1330,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
   // 视图
   // ==========================================================================
 
-  setViewMode: (mode) => {
+  setViewMode: async (mode) => {
+    if (mode === get().viewMode) return;
+    // 切页会卸载非常驻视图：先让所有已登记的草稿表态
+    if (!(await confirmLeaveUnsaved())) return;
     set({ viewMode: mode });
   },
 
