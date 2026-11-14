@@ -2,8 +2,9 @@
  * Claude Code 版本检测与升级
  *
  * 检测不产生副作用：先查 npm registry 的 latest 版本，失败时退回 `npm view`。
- * 升级优先调用 Claude Code 自带的 `claude update`（它能识别原生安装与
- * 包管理器安装）；若没有实际生效，再按 Nova 的安装命令回退到 npm 全局升级。
+ * 安装只在未安装时执行 `npm install -g`；升级优先调用 Claude Code 自带的
+ * `claude update`（它能识别原生安装与包管理器安装）；若没有实际生效，再按
+ * Nova 的安装命令回退到 npm 全局升级。
  *
  * 命令行仍复用 transport 的平台适配：Windows 下经 cmd.exe 解析 .cmd 入口，
  * 超时用任务树终止，避免 npm 的孙进程继续在后台写入全局目录。
@@ -11,6 +12,7 @@
 
 import { homedir } from "os";
 import type {
+  AgentInstallResult,
   AgentUpgradeCheck,
   AgentUpgradeResult,
 } from "../../../shared/contracts/agent";
@@ -175,6 +177,90 @@ export async function checkClaudeUpgrade(): Promise<AgentUpgradeCheck> {
 /** `claude update` 在无需升级时的固定文案 */
 const UP_TO_DATE = /is up to date|already (?:on|using) the latest/i;
 
+/** 命令找不到 npm 时的常见输出（中英文 shell 文案） */
+const NPM_NOT_FOUND =
+  /not recognized|不是内部或外部命令|command not found|ENOENT|无法将.*识别/i;
+
+/**
+ * 安装 Claude Code 到本机。
+ *
+ * 与升级共用同一把 inFlight 锁：npm 全局安装目录不能被并发写。
+ * 只走 npm 全局安装（与 manifest.installCommand 一致），因为 Nova 需要
+ * 一个能在 PATH 里直接执行的 `claude`；原生安装器的落点由 CLI 自己管理，
+ * 不适合由宿主假定。
+ */
+export async function installClaude(
+  onOutput?: (chunk: string) => void,
+): Promise<AgentInstallResult> {
+  if (inFlight) {
+    return { ok: false, error: "已有安装或升级任务正在进行，请稍候" };
+  }
+  inFlight = true;
+
+  try {
+    // 已安装时不重复执行 npm 全局写操作
+    const existing = await probeVersion(BIN);
+    if (existing.installed) {
+      return {
+        ok: true,
+        version: existing.version,
+        output: "Claude Code 已安装，无需重复安装。",
+      };
+    }
+
+    let collected = "";
+    const emit = (chunk: string): void => {
+      collected = (collected + chunk).slice(-OUTPUT_LIMIT);
+      onOutput?.(chunk);
+    };
+
+    emit(`正在安装 ${NPM_PACKAGE}…\n> npm install -g ${NPM_PACKAGE}@latest\n`);
+
+    const result = await runCommand(
+      ["npm", "install", "-g", `${NPM_PACKAGE}@latest`],
+      UPGRADE_TIMEOUT_MS,
+      emit,
+    );
+
+    if (result.timedOut) {
+      return {
+        ok: false,
+        output: collected,
+        error: "安装超时，请检查网络后重试",
+      };
+    }
+
+    if (result.code !== 0) {
+      return {
+        ok: false,
+        output: collected,
+        error: NPM_NOT_FOUND.test(result.output)
+          ? "未找到 npm，请先安装 Node.js（附带 npm），或按下方命令手动安装"
+          : "安装命令执行失败，详情见上方日志",
+      };
+    }
+
+    /*
+     * 安装成功但探测不到，通常是当前进程的 PATH 还是启动时的快照。
+     * 这里不直接报“失败”，把原因说清楚，用户重启 Nova 即可。
+     */
+    const after = await probeVersion(BIN);
+    if (!after.installed) {
+      return {
+        ok: false,
+        output: collected,
+        error: "安装命令已执行，但当前进程还找不到 claude；请重启 Nova 刷新 PATH 后重试",
+      };
+    }
+
+    return { ok: true, version: after.version, output: collected };
+  } catch (err) {
+    return { ok: false, error: errorMessage(err) };
+  } finally {
+    inFlight = false;
+  }
+}
+
 /**
  * 升级到最新版本。
  *
@@ -187,7 +273,7 @@ export async function upgradeClaude(
   onOutput?: (chunk: string) => void,
 ): Promise<AgentUpgradeResult> {
   if (inFlight) {
-    return { ok: false, error: "已有升级任务正在进行，请稍候" };
+    return { ok: false, error: "已有安装或升级任务正在进行，请稍候" };
   }
   inFlight = true;
 

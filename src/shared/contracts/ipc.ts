@@ -65,6 +65,7 @@ import type { WeeklyReportOptions, WeeklyReportResult } from "../report";
 import type {
   AgentAuthMode,
   AgentInfo,
+  AgentInstallResult,
   AgentModelOption,
   AgentSettingsDraft,
   AgentSettingsView,
@@ -122,6 +123,11 @@ export interface IpcInvokeMap {
       },
     ];
     result: AgentModelOption[];
+  };
+  /** 安装 Agent 到本机；过程文本经 agent:install:progress 推送 */
+  "agent:install:run": {
+    args: [{ agentId: string }];
+    result: AgentInstallResult;
   };
   /** 检查 Agent 是否有新版本；无副作用 */
   "agent:upgrade:check": {
@@ -678,6 +684,8 @@ export interface IpcPushMap {
   /** 请求已失效（已回答 / 超时 / 中断 / 窗口关闭等） */
   "agent:permission:resolved": PermissionPromptResolved;
   "agents:detected": AgentInfo[];
+  /** 安装过程输出（已去除终端控制序列），供设置页实时展示 */
+  "agent:install:progress": { agentId: string; chunk: string };
   /** 升级过程输出（已去除终端控制序列），供设置页实时展示 */
   "agent:upgrade:progress": { agentId: string; chunk: string };
   /** 自动化任务状态变更（轮询器拾取 / 完成 / 失败时触发） */

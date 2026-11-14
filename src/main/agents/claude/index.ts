@@ -48,7 +48,7 @@ import {
   modeMayAsk,
 } from "../../../shared/permission";
 import { formatModelEntry } from "./models";
-import { checkClaudeUpgrade, upgradeClaude } from "./upgrade";
+import { checkClaudeUpgrade, installClaude, upgradeClaude } from "./upgrade";
 import {
   deleteSession as deleteSessionFile,
   fileVersion,
@@ -190,6 +190,8 @@ export const provider: AgentProvider = {
   detect: () => probeVersion(BIN),
 
   checkUpgrade: () => checkClaudeUpgrade(),
+
+  install: (onProgress) => installClaude(onProgress),
 
   upgrade: (onProgress) => upgradeClaude(onProgress),
 

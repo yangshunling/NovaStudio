@@ -58,19 +58,19 @@ export default defineConfig({
            */
           manualChunks(id) {
             if (!id.includes("node_modules")) return undefined;
+            /*
+             * 不要单独切出 markdown chunk。
+             *
+             * react-markdown 的依赖图（unified / hast / unist / vfile …）不是闭合的：
+             * 按包名匹配只能切走一部分，剩下的传递依赖落在 vendor。只要 vendor
+             * 里的包反过来 import 了被切走的包（例如 vfile → unist-util-stringify-position），
+             * 就会形成 vendor → markdown → vendor 的循环 chunk。
+             *
+             * Rollup 无法为循环 chunk 保证顶层语句的执行顺序，压缩后表现为
+             * `Cannot access 'X' before initialization` —— 渲染进程在入口就抛错，
+             * 页面只剩窗口底色（深色皮肤下就是黑屏）。0.3.0 首次发布即因此无法启动。
+             */
             if (id.includes("@assistant-ui")) return "assistant-ui";
-            if (
-              id.includes("react-markdown") ||
-              id.includes("remark-") ||
-              id.includes("rehype-") ||
-              id.includes("micromark") ||
-              id.includes("mdast") ||
-              id.includes("hast") ||
-              id.includes("unified") ||
-              id.includes("unist")
-            ) {
-              return "markdown";
-            }
             if (
               id.includes("/react/") ||
               id.includes("/react-dom/") ||

@@ -69,6 +69,7 @@ export const ipc = {
     authMode?: AgentAuthMode;
     customHeaders?: string;
   }) => call("agent:models:list", input),
+  installAgent: (agentId: string) => call("agent:install:run", { agentId }),
   checkAgentUpgrade: (agentId: string) =>
     call("agent:upgrade:check", { agentId }),
   upgradeAgent: (agentId: string) => call("agent:upgrade:run", { agentId }),
@@ -379,6 +380,9 @@ export const ipc = {
     ) => on("agent:permission:resolved", cb),
     agentsDetected: (cb: (payload: IpcPushMap["agents:detected"]) => void) =>
       on("agents:detected", cb),
+    agentInstallProgress: (
+      cb: (payload: IpcPushMap["agent:install:progress"]) => void,
+    ) => on("agent:install:progress", cb),
     agentUpgradeProgress: (
       cb: (payload: IpcPushMap["agent:upgrade:progress"]) => void,
     ) => on("agent:upgrade:progress", cb),

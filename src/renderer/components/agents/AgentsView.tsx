@@ -4,13 +4,14 @@
  * 当前只支持 Claude Code：
  * - 显示 Base URL / API Key / 默认模型 / 模型别名 / 默认权限
  * - 修改直接写回 ~/.claude/settings.json，Claude CLI 与 Nova 共用同一份配置
- * - 未安装时展示安装命令与检测入口
+ * - 未安装时只展示安装引导：一键安装 + 实时日志 + 检测入口；
+ *   先安装、后配置，未安装时不渲染任何配置项（URL / Key / 模型等）
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import type { LucideIcon } from "lucide-react";
-import { AlertCircle, ArrowUpCircle, Bot, Copy, Eye, EyeOff, FolderOpen, KeyRound, RefreshCw, RotateCw, Save, ShieldCheck, Sparkles, Terminal } from "lucide-react";
+import { AlertCircle, ArrowUpCircle, Bot, CheckCircle2, Copy, Download, Eye, EyeOff, FolderOpen, KeyRound, RefreshCw, RotateCw, Save, ShieldCheck, Sparkles, Terminal } from "lucide-react";
 import {
   AGENT_MODEL_ALIASES,
   type AgentInfo,
@@ -26,6 +27,8 @@ import { notifyAgentSettingsChanged } from "../../lib/agent-events";
 import { toMessage } from "../../lib/utils";
 import { useChatStore } from "../../stores/chat";
 import { toast } from "../../stores/toast";
+import { useAgentInstall } from "./useAgentInstall";
+import type { AgentInstallState } from "./useAgentInstall";
 import { useAgentUpgrade } from "./useAgentUpgrade";
 import { Button } from "../ui/Button";
 import { Combobox } from "../ui/Combobox";
@@ -192,12 +195,24 @@ export function AgentsView() {
     refreshAgents: detectAgents,
   });
 
-  // 加载 Claude 本机配置
+  /** 未安装时的一键安装；成功后 detectAgents 会把状态切成「已安装」 */
+  const install = useAgentInstall({
+    agentId: CLAUDE_ID,
+    refreshAgents: detectAgents,
+  });
+
+  /*
+   * 加载 Claude 本机配置。
+   *
+   * 未安装时跳过：先安装、后配置。此时既没有可编辑的配置，也不该因为
+   * 读取 settings.json 而提前创建配置目录。
+   */
   useEffect(() => {
-    if (selected?.id !== CLAUDE_ID) {
+    if (selected?.id !== CLAUDE_ID || !selected.status.installed) {
       setSettings(null);
       setForm(null);
       setLoadError(null);
+      setLoading(false);
       return;
     }
 
@@ -224,7 +239,7 @@ export function AgentsView() {
     return () => {
       cancelled = true;
     };
-  }, [selected?.id]);
+  }, [selected?.id, selected?.status.installed]);
 
   // 配置加载 / 保存完成后自动拉取一次；之后每次展开下拉时按最新输入刷新
   useEffect(() => {
@@ -425,7 +440,11 @@ export function AgentsView() {
       <PageHeader
         title="Agent 配置"
         badge={
-          dirty ? (
+          selected && !selected.status.installed ? (
+            <span className="rounded-full bg-error-bg px-2 py-0.5 ui-type-label text-error">
+              未安装
+            </span>
+          ) : dirty ? (
             <span className="rounded-full bg-accent-soft px-2 py-0.5 ui-type-label text-accent">
               有未保存的修改
             </span>
@@ -446,35 +465,40 @@ export function AgentsView() {
                 />
               }
               onClick={refreshAgents}
-              disabled={detecting}
+              disabled={detecting || install.installing}
             >
               检测 Agent
             </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="rounded-full"
-              icon={
-                <RotateCw
-                  className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`}
-                />
-              }
-              onClick={handleReload}
-              disabled={loading || selected?.id !== CLAUDE_ID}
-            >
-              刷新配置
-            </Button>
-            <Button
-              variant="primary"
-              size="sm"
-              className="rounded-full"
-              loading={saving}
-              icon={<Save className="h-3.5 w-3.5" />}
-              onClick={handleSave}
-              disabled={!dirty}
-            >
-              保存并同步
-            </Button>
+            {/* 先安装、后配置：未安装时不出现任何配置操作 */}
+            {selected?.status.installed && (
+              <>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="rounded-full"
+                  icon={
+                    <RotateCw
+                      className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`}
+                    />
+                  }
+                  onClick={handleReload}
+                  disabled={loading || selected?.id !== CLAUDE_ID}
+                >
+                  刷新配置
+                </Button>
+                <Button
+                  variant="primary"
+                  size="sm"
+                  className="rounded-full"
+                  loading={saving}
+                  icon={<Save className="h-3.5 w-3.5" />}
+                  onClick={handleSave}
+                  disabled={!dirty}
+                >
+                  保存并同步
+                </Button>
+              </>
+            )}
           </div>
         }
       />
@@ -514,6 +538,17 @@ export function AgentsView() {
               <div className="mx-auto max-w-4xl space-y-4 px-section pt-section pb-6">
                 {!selected ? (
                   <EmptyAgent />
+                ) : !selected.status.installed ? (
+                  <AgentInstallView
+                    agent={selected}
+                    install={install}
+                    onDetect={async () => {
+                      install.reset();
+                      await refreshAgents();
+                    }}
+                    detecting={detecting}
+                    onCopy={handleCopyInstall}
+                  />
                 ) : loading ? (
                   <div className="flex h-60 items-center justify-center gap-2 ui-type-body text-text-muted">
                     <Spinner className="h-4 w-4" />
@@ -532,15 +567,6 @@ export function AgentsView() {
                   </div>
                 ) : form && settings ? (
                   <>
-                    {!selected.status.installed && (
-                      <InstallCard
-                        agent={selected}
-                        onCopy={handleCopyInstall}
-                        onDetect={refreshAgents}
-                        detecting={detecting}
-                      />
-                    )}
-
                     <AgentStatusCard
                       agent={selected}
                       form={form}
@@ -1012,30 +1038,166 @@ function SectionCard({
   );
 }
 
-function InstallCard({
+/**
+ * 未安装态：安装引导卡片。
+ *
+ * 原则是「先安装、后配置」—— 这里不出现任何 URL / Key / 模型字段，
+ * 安装并检测通过后，页面才切换到完整配置视图。
+ */
+function AgentInstallView({
   agent,
-  onCopy,
+  install,
   onDetect,
   detecting,
+  onCopy,
 }: {
   agent: AgentInfo;
-  onCopy: () => void;
-  onDetect: () => void;
+  install: AgentInstallState;
+  onDetect: () => void | Promise<void>;
   detecting: boolean;
+  onCopy: () => void;
 }) {
+  const installed = Boolean(install.installedVersion);
+  const busy = install.installing || detecting;
+
   return (
-    <section className="rounded-xl border border-error/40 bg-error-bg/30 p-card">
-      <div className="flex items-start gap-2">
-        <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-error" />
-        <div className="min-w-0 flex-1">
-          <h2 className="ui-type-body font-semibold text-text">
-            未检测到 {agent.displayName}
-          </h2>
-          <p className="mt-1 ui-type-note leading-relaxed text-text-secondary">
-            请先在终端执行安装命令，安装完成后回到这里点击「检测 Agent」。
+    <div className="mx-auto flex min-h-[60vh] w-full max-w-2xl flex-col justify-center py-2">
+      <section className="relative overflow-hidden rounded-2xl border border-border/60 bg-surface-2/40 p-7 shadow-[var(--c-shadow-sm)]">
+        <span
+          aria-hidden
+          className="pointer-events-none absolute inset-x-10 top-0 h-px bg-accent/40"
+        />
+
+        <div className="flex flex-col items-center text-center">
+          <span className="relative grid h-16 w-16 place-items-center rounded-2xl bg-accent-soft text-accent ring-1 ring-inset ring-accent/20">
+            <Bot className="h-7 w-7" />
+            <span className="absolute -bottom-1.5 -right-1.5 grid h-7 w-7 place-items-center rounded-full border border-border bg-surface shadow-[var(--c-shadow-sm)]">
+              {installed ? (
+                <CheckCircle2 className="h-3.5 w-3.5 text-success" />
+              ) : (
+                <Download className="h-3.5 w-3.5 text-accent" />
+              )}
+            </span>
+          </span>
+
+          <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
+            <h2 className="ui-type-heading tracking-tight text-text">
+              {installed
+                ? `${agent.displayName} 安装完成`
+                : `安装 ${agent.displayName}`}
+            </h2>
+            <span
+              className={`rounded-full px-2 py-0.5 ui-type-sub font-medium ${
+                installed
+                  ? "bg-accent-soft text-accent"
+                  : "bg-error-bg text-error"
+              }`}
+            >
+              {installed ? "待检测" : "未安装"}
+            </span>
+          </div>
+
+          <p className="mt-2 max-w-lg ui-type-body leading-relaxed text-text-secondary">
+            Nova 通过本机 {agent.displayName} 命令行运行。安装并检测通过后，
+            才会显示连接、模型与权限等配置。
           </p>
-          {agent.installCommand ? (
-            <div className="mt-2 flex items-center gap-2 rounded-lg border border-border bg-input-bg px-inset py-2">
+
+          <div className="mt-5 flex flex-wrap items-center justify-center gap-2">
+            <Button
+              variant="primary"
+              className="rounded-full"
+              loading={install.installing}
+              icon={<Download className="h-4 w-4" />}
+              onClick={() => void install.runInstall()}
+              disabled={install.installing}
+            >
+              {install.installing
+                ? "正在安装…"
+                : installed
+                  ? "重新安装"
+                  : "立即安装"}
+            </Button>
+            <Button
+              variant="ghost"
+              className="rounded-full"
+              icon={
+                <RefreshCw
+                  className={`h-4 w-4 ${detecting ? "animate-spin" : ""}`}
+                />
+              }
+              onClick={() => void onDetect()}
+              disabled={busy}
+            >
+              重新检测
+            </Button>
+          </div>
+        </div>
+
+        <div className="mt-7 grid grid-cols-1 gap-2 sm:grid-cols-3">
+          <InstallStep
+            index={1}
+            title="安装命令行"
+            description="自动执行 npm 全局安装"
+            state={
+              installed
+                ? "done"
+                : install.installing
+                  ? "done"
+                  : "active"
+            }
+          />
+          <InstallStep
+            index={2}
+            title="自动检测"
+            description="安装完成立即识别版本"
+            state={installed ? "done" : install.installing ? "active" : "pending"}
+          />
+          <InstallStep
+            index={3}
+            title="配置模型与密钥"
+            description="检测通过后才显示配置"
+            state={installed ? "active" : "pending"}
+          />
+        </div>
+
+        {install.error && (
+          <div className="mt-4 flex items-start gap-2 rounded-xl border border-error/30 bg-error-bg/40 px-3.5 py-3 text-left">
+            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-error" />
+            <div className="min-w-0">
+              <p className="ui-type-note font-medium text-error">安装未完成</p>
+              <p className="mt-0.5 ui-type-sub leading-relaxed text-text-secondary">
+                {install.error}
+              </p>
+            </div>
+          </div>
+        )}
+
+        {(install.installing || install.log) && (
+          <div className="mt-4 overflow-hidden rounded-xl border border-border/60 bg-input-bg text-left">
+            <div className="flex items-center justify-between border-b border-border/60 px-3 py-2">
+              <span className="ui-type-sub font-medium text-text-muted">
+                安装输出
+              </span>
+              {install.installing && (
+                <span className="flex items-center gap-1.5 ui-type-sub text-accent">
+                  <Spinner className="h-3 w-3" />
+                  进行中
+                </span>
+              )}
+            </div>
+            <pre className="max-h-52 overflow-auto whitespace-pre-wrap break-all px-3 py-2.5 ui-type-code leading-relaxed text-text-secondary">
+              {install.log || "正在准备安装…"}
+            </pre>
+          </div>
+        )}
+
+        {agent.installCommand ? (
+          <details className="mt-4 rounded-xl border border-border/60 bg-input-bg/50 px-3.5 py-3 text-left">
+            <summary className="flex cursor-pointer list-none items-center gap-1.5 ui-type-note text-text-muted transition-colors hover:text-text [&::-webkit-details-marker]:hidden">
+              <Terminal className="h-3.5 w-3.5" />
+              或手动执行安装命令
+            </summary>
+            <div className="mt-2.5 flex items-center gap-2 rounded-lg border border-border/60 bg-surface px-inset py-2">
               <code className="min-w-0 flex-1 truncate ui-type-code text-text">
                 {agent.installCommand}
               </code>
@@ -1048,33 +1210,66 @@ function InstallCard({
                 复制
               </button>
             </div>
-          ) : (
-            <p className="mt-2 ui-type-note text-text-muted">
-              请参考该 Agent 的官方文档完成安装。
+            <p className="mt-2 ui-type-sub leading-relaxed text-text-muted">
+              在终端执行后点击「重新检测」；若仍检测不到，请重启 Nova
+              以刷新 PATH。
             </p>
-          )}
-          <div className="mt-2 flex items-center gap-2">
-            <Button
-              variant="ghost"
-              size="sm"
-              className="rounded-full"
-              icon={
-                <RefreshCw
-                  className={`h-3.5 w-3.5 ${detecting ? "animate-spin" : ""}`}
-                />
-              }
-              onClick={onDetect}
-              disabled={detecting}
-            >
-              检测 Agent
-            </Button>
-            <span className="ui-type-sub text-text-muted">
-              若已安装仍检测不到，请重启 Nova 以刷新 PATH。
-            </span>
-          </div>
+          </details>
+        ) : (
+          <p className="mt-4 text-left ui-type-note text-text-muted">
+            请参考 {agent.displayName} 的官方文档完成安装。
+          </p>
+        )}
+      </section>
+
+      <p className="mt-3 text-center ui-type-sub leading-relaxed text-text-muted">
+        安装需要联网。公司网络受限时，可展开「手动执行安装命令」在终端完成。
+      </p>
+    </div>
+  );
+}
+
+function InstallStep({
+  index,
+  title,
+  description,
+  state,
+}: {
+  index: number;
+  title: string;
+  description: string;
+  state: "active" | "done" | "pending";
+}) {
+  return (
+    <div
+      className={`flex items-start gap-2.5 rounded-xl border px-3 py-2.5 text-left transition-colors ${
+        state === "active"
+          ? "border-accent/40 bg-accent-soft/40"
+          : "border-border/60 bg-input-bg/50"
+      }`}
+    >
+      <span
+        className={`grid h-6 w-6 shrink-0 place-items-center rounded-full ui-type-sub font-semibold ${
+          state === "done"
+            ? "bg-success/10 text-success"
+            : state === "active"
+              ? "bg-accent text-accent-foreground"
+              : "bg-surface-hover text-text-muted"
+        }`}
+      >
+        {state === "done" ? (
+          <CheckCircle2 className="h-3.5 w-3.5" />
+        ) : (
+          index
+        )}
+      </span>
+      <div className="min-w-0">
+        <div className="ui-type-note font-medium text-text">{title}</div>
+        <div className="mt-0.5 ui-type-sub leading-relaxed text-text-muted">
+          {description}
         </div>
       </div>
-    </section>
+    </div>
   );
 }
 

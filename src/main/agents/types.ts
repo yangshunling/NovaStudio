@@ -25,6 +25,7 @@ import type {
 import type {
   AgentManifest,
   AgentStatus,
+  AgentInstallResult,
   AgentUpgradeCheck,
   AgentUpgradeResult,
 } from "../../shared/contracts/agent";
@@ -266,6 +267,12 @@ export interface AgentProvider {
 
   /** 检测本机是否安装 */
   detect(): Promise<AgentStatus>;
+
+  /**
+   * 安装到本机；过程文本通过 onProgress 增量回调。
+   * 缺省表示该 Agent 不支持由宿主安装，UI 只展示 manifest.installCommand。
+   */
+  install?(onProgress?: (chunk: string) => void): Promise<AgentInstallResult>;
 
   /**
    * 检查是否有新版本。

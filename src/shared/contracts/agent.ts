@@ -98,6 +98,21 @@ export interface AgentUpgradeResult {
 }
 
 /**
+ * 一次安装操作的结果。
+ *
+ * 安装是「从无到有」：没有 previousVersion；失败时 output 里保留
+ * npm 的原始输出，供界面直接展示排查。
+ */
+export interface AgentInstallResult {
+  ok: boolean;
+  /** 安装后探测到的版本 */
+  version?: string;
+  /** 安装命令输出（已截断，用于排查失败原因） */
+  output?: string;
+  error?: string;
+}
+
+/**
  * manifest + status + 本机配置信息的合并视图，UI 只消费这一个结构。
  */
 export interface AgentInfo extends AgentManifest {

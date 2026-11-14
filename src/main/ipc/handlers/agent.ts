@@ -57,6 +57,17 @@ export function registerAgentHandlers(service: AgentService): void {
     },
   );
 
+  /** 安装 Agent 到本机；输出实时推送到设置页 */
+  handle("agent:install:run", async ({ agentId }) => {
+    const provider = getProvider(agentId);
+    if (!provider?.install) {
+      throw new Error(`该 Agent 不支持由 Nova 安装：${agentId}`);
+    }
+    return provider.install((chunk) =>
+      push("agent:install:progress", { agentId, chunk }),
+    );
+  });
+
   /** 检查 Agent 是否有新版本（不修改本机安装） */
   handle("agent:upgrade:check", ({ agentId }) => {
     const provider = getProvider(agentId);
