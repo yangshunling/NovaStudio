@@ -26,6 +26,7 @@ import { usePermissionPromptStore } from "./permissionPrompt";
 import type { AgentInfo } from "@shared/contracts/agent";
 import type {
   AgentEvent,
+  DisplayReference,
   InputImage,
   Message,
   Project,
@@ -64,6 +65,8 @@ export interface QueuedMessage {
   images?: InputImage[];
   /** 暂存区里展示的正文：只放用户输入，引用说明另起行 */
   display: string;
+  /** 引用标签：随消息一起落库，聊天里渲染成块 */
+  references?: DisplayReference[];
   createdAt: number;
   /**
    * 入队时选定的回答者。出队时按这个值发送，
@@ -200,6 +203,7 @@ interface ChatState {
     prompt: string,
     display?: string,
     images?: InputImage[],
+    references?: DisplayReference[],
   ) => Promise<void>;
   abort: (sessionId?: string) => Promise<void>;
   /** 从暂存区移除一条；默认作用于当前会话 */
@@ -480,13 +484,23 @@ async function dispatchPrompt(
   prompt: string,
   employeeId: string | null,
   images?: InputImage[],
+  display?: string,
+  references?: DisplayReference[],
 ): Promise<void> {
   if (useChatStore.getState().streamingBySession[sessionId]) return;
 
+  /*
+   * 乐观消息与主进程落库保持一致：正文用 displayPrompt，
+   * 引用单独存成 reference 事件，界面据此渲染块状引用。
+   */
+  const visibleText = display ?? prompt;
   const userMsg: Message = {
     id: newId(),
     role: "user",
     content: [
+      ...(references ?? []).map(
+        (reference): AgentEvent => ({ type: "reference", ...reference }),
+      ),
       ...(images ?? []).map(
         (image): AgentEvent => ({
           type: "image",
@@ -494,7 +508,7 @@ async function dispatchPrompt(
           data: image.data,
         }),
       ),
-      ...(prompt ? [{ type: "text" as const, content: prompt }] : []),
+      ...(visibleText ? [{ type: "text" as const, content: visibleText }] : []),
     ],
     timestamp: Date.now(),
   };
@@ -512,7 +526,14 @@ async function dispatchPrompt(
 
   try {
     // 回答者随消息一起传入：队列里的消息始终用入队时选定的员工
-    const result = await ipc.sendAgent(sessionId, prompt, employeeId, images);
+    const result = await ipc.sendAgent(
+      sessionId,
+      prompt,
+      employeeId,
+      images,
+      display,
+      references,
+    );
     if (!result.ok) throw new Error(result.error);
     if (result.canceled) {
       /*
@@ -578,7 +599,14 @@ function drainQueue(sessionId: string): void {
     return { queuedBySession };
   });
 
-  void dispatchPrompt(sessionId, head.prompt, head.employeeId, head.images);
+  void dispatchPrompt(
+    sessionId,
+    head.prompt,
+    head.employeeId,
+    head.images,
+    head.display,
+    head.references,
+  );
 }
 
 export const useChatStore = create<ChatState>((set, get) => ({
@@ -1167,10 +1195,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
   // 对话
   // ==========================================================================
 
-  sendMessage: async (prompt, display, images) => {
+  sendMessage: async (prompt, display, images, references) => {
     const state = get();
     const currentId = state.currentSessionId;
-    const label = display ?? prompt;
 
     if (currentId) {
       /*
@@ -1206,7 +1233,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
                 id: newId(),
                 prompt,
                 images,
-                display: label,
+                references,
+                // 展示正文允许为空（只有引用块）；暂存区自行做兜底文案
+                display: display ?? prompt,
                 createdAt: Date.now(),
                 employeeId,
               },
@@ -1218,7 +1247,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
         return;
       }
 
-      await dispatchPrompt(currentId, prompt, employeeId, images);
+      await dispatchPrompt(
+        currentId,
+        prompt,
+        employeeId,
+        images,
+        display,
+        references,
+      );
       return;
     }
 
@@ -1256,7 +1292,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
       .loadSessions()
       .catch((err) => console.warn("[chat] 会话列表刷新失败", err));
 
-    await dispatchPrompt(sessionId, prompt, employeeId, images);
+    await dispatchPrompt(
+      sessionId,
+      prompt,
+      employeeId,
+      images,
+      display,
+      references,
+    );
   },
 
   abort: async (sessionId) => {

@@ -25,6 +25,7 @@ import { imageSrc } from "../../lib/attachment";
 import { extractFileChanges } from "../../lib/tool-diff";
 import { ToolCallCard } from "./ToolCallCard";
 import { ThinkingCard } from "./ThinkingCard";
+import { ReferenceBlock } from "./ReferenceBlock";
 import type { AgentEvent } from "@shared/types";
 
 // ============================================================================
@@ -184,9 +185,21 @@ export function MessageGroup({ events, isUser }: { events: AgentEvent[]; isUser:
       (event): event is Extract<AgentEvent, { type: "image" }> =>
         event.type === "image",
     );
+    const references = events.filter(
+      (event): event is Extract<AgentEvent, { type: "reference" }> =>
+        event.type === "reference",
+    );
     return (
       <div className="mb-4 flex justify-end">
         <UserBubble>
+          {references.map((reference) => (
+            <ReferenceBlock
+              key={`${reference.kind}:${reference.name}`}
+              kind={reference.kind}
+              name={reference.name}
+              detail={reference.detail}
+            />
+          ))}
           {images.map((image, index) => {
             const src = imageSrc(image);
             if (!src) return null;

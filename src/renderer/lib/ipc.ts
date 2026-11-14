@@ -20,6 +20,7 @@ import type { PermissionPromptDecision } from "@shared/permission-prompt";
 import type {
   AppSettings,
   DigitalEmployeeDraft,
+  DisplayReference,
   InputImage,
   McpServerDraft,
   PromptDraft,
@@ -79,8 +80,17 @@ export const ipc = {
     prompt: string,
     employeeId?: string | null,
     images?: InputImage[],
+    display?: string,
+    references?: DisplayReference[],
   ): Promise<SendAgentResult> =>
-    call("agent:send", { sessionId, prompt, images, employeeId }),
+    call("agent:send", {
+      sessionId,
+      prompt,
+      display,
+      images,
+      references,
+      employeeId,
+    }),
   abortAgent: (sessionId: string) => call("agent:abort", { sessionId }),
   respondPermission: (
     sessionId: string,
@@ -187,6 +197,10 @@ export const ipc = {
     options?: { limit?: number; before?: number; beforeId?: string },
   ) => call("session:get", { id, ...options }),
   renameSession: (id: string, title: string) => call("session:rename", { id, title }),
+  /** 导出完整会话过程为 Markdown；返回保存路径，取消返回 null */
+  exportSession: (id: string) => call("session:export", { id }),
+  /** 取会话原始存储文件路径，供 `#` 引用交给 Agent 自己读取 */
+  getSessionFilePath: (id: string) => call("session:filePath", { id }),
   deleteSession: (id: string) => call("session:delete", { id }),
   setSessionPinned: (id: string, pinned: boolean) =>
     call("session:setPinned", { id, pinned }),

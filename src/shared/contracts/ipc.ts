@@ -18,6 +18,7 @@ import type {
   AutomationTask,
   DigitalEmployee,
   DigitalEmployeeDraft,
+  DisplayReference,
   FileEntry,
   GitStatusSummary,
   InputImage,
@@ -166,8 +167,15 @@ export interface IpcInvokeMap {
       {
         sessionId: string;
         prompt: string;
+        /** 聊天里展示的正文；缺省为 prompt。引用说明不进入展示正文 */
+        display?: string;
         /** 随消息发送的图片（base64）；与 prompt 一起落库并送入 Agent */
         images?: InputImage[];
+        /**
+         * 引用标签的展示信息：只落库供界面渲染成块，不送给 Agent。
+         * 实际送入 CLI 的仍是 prompt 里的引用说明。
+         */
+        references?: DisplayReference[];
         /**
          * 本轮回答者；不传则沿用会话当前的 employee_id。
          * 传入时会在运行前写回会话，保证“所选即本轮所用”。
@@ -362,6 +370,16 @@ export interface IpcInvokeMap {
     result: Session | null;
   };
   "session:rename": { args: [{ id: string; title: string }]; result: boolean };
+  /**
+   * 导出完整会话过程为 Markdown，弹出原生「另存为」对话框。
+   * 返回保存路径；用户取消返回 null。
+   */
+  "session:export": { args: [{ id: string }]; result: string | null };
+  /**
+   * 取会话原始存储文件的绝对路径，供输入框 `#` 引用使用。
+   * 引用只把路径交给 Agent，由它自己读取；找不到文件返回 null。
+   */
+  "session:filePath": { args: [{ id: string }]; result: string | null };
   "session:delete": { args: [{ id: string }]; result: boolean };
   /** 置顶 / 取消置顶会话；不改变 updated_at，不影响时间分组 */
   /**

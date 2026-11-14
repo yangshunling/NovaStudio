@@ -20,11 +20,22 @@
          * 与皮肤注册表、主进程窗口背景共用同一份常量。
          */
         var theme = hasCache ? parsed.theme : "%NOVA_DEFAULT_SKIN%";
+
+        /*
+         * 已移除的旧皮肤：把缓存里的 id 映射到现有皮肤，
+         * 否则首帧会带上一个没有任何 token 的 data-theme，闪一下未样式化内容。
+         */
+        var legacyNight = theme === "classic-night";
+        if (legacyNight) theme = "nova-nocturne";
+        if (theme === "classic-day") theme = "nova-paper";
+
         var appearance =
           parsed && typeof parsed.appearance === "string"
             ? parsed.appearance
             : hasCache
-              ? theme.indexOf("night") >= 0
+              ? legacyNight ||
+                theme.indexOf("night") >= 0 ||
+                theme.indexOf("nocturne") >= 0
                 ? "dark"
                 : "light"
               : "%NOVA_DEFAULT_APPEARANCE%";

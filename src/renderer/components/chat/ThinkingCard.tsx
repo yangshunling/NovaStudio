@@ -43,7 +43,7 @@ export const ThinkingCard = memo(function ThinkingCard({
 
   return (
     <div
-      className={`w-full overflow-hidden rounded-xl border transition-colors ${
+      className={`ui-depth w-full overflow-hidden rounded-xl border transition-colors ${
         running
           ? "border-accent/25 bg-accent-soft/15"
           : "border-border/60 bg-surface-2/40"
@@ -93,7 +93,7 @@ export const ThinkingCard = memo(function ThinkingCard({
         <div
           ref={bodyRef}
           onScroll={handleBodyScroll}
-          className="max-h-60 overflow-auto border-t border-border/60 bg-surface/50 p-3 ui-type-note leading-relaxed text-text-secondary"
+          className="ui-well max-h-60 overflow-auto border-t border-border/60 p-3 ui-type-note leading-relaxed text-text-secondary"
         >
           <StreamingMarkdown content={text} streaming={running} />
         </div>

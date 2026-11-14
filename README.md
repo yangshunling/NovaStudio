@@ -20,10 +20,10 @@
 <h2 align="center">会话工作台</h2>
 
 <p align="center">
-  <a href="resources/preview/经典夜.png"><img src="resources/preview/经典夜.png" alt="Nova Studio 界面" width="100%"></a>
+  <a href="resources/preview/Nova夜.png"><img src="resources/preview/Nova夜.png" alt="Nova Studio 界面" width="100%"></a>
 </p>
 
-<p align="center"><sub>经典 · 夜间 &nbsp;|&nbsp; 会话、文件、Git 与终端在同一个窗口</sub></p>
+<p align="center"><sub>Nova · 夜间 &nbsp;|&nbsp; 会话、文件、Git 与终端在同一个窗口</sub></p>
 
 <br>
 

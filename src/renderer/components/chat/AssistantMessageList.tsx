@@ -30,15 +30,22 @@ import {
 import {
   Bug,
   Check,
+  ChevronRight,
   Copy,
   FileText,
   FolderTree,
   ListChecks,
   RotateCcw,
-  Sparkles,
   AlertTriangle,
 } from "lucide-react";
-import type { AgentEvent, Message, ToolKind, ToolResultImage } from "@shared/types";
+import type {
+  AgentEvent,
+  DisplayReference,
+  Message,
+  ReferenceKind,
+  ToolKind,
+  ToolResultImage,
+} from "@shared/types";
 import { clamp } from "@shared/math";
 import { TOOL_TARGET_KEYS, readStringField } from "@shared/tool-input";
 import {
@@ -51,6 +58,7 @@ import { useEmployeesStore } from "../../stores/employees";
 import { REVEAL_MESSAGE_EVENT } from "../../lib/chat-events";
 import { formatJson, toMessage } from "../../lib/utils";
 import { imageSrc } from "../../lib/attachment";
+import logoAvatarUrl from "../../assets/logo-avatar.png";
 import { copyText } from "../../lib/clipboard";
 import { toast } from "../../stores/toast";
 import { CHAT_VIEWPORT_ID, scrollToMessage } from "../../lib/chat-scroll";
@@ -65,6 +73,7 @@ import { extractFileChanges } from "../../lib/tool-diff";
 import { markdownInterval, useThrottledValue } from "../../hooks/useThrottledValue";
 import { ToolCallCard } from "./ToolCallCard";
 import { ThinkingCard } from "./ThinkingCard";
+import { ReferenceBlock } from "./ReferenceBlock";
 
 /** 欢迎卡上的示例：点击后填入输入框，由用户决定是否发送 */
 const SUGGESTIONS = [
@@ -188,6 +197,11 @@ const SYSTEM_PART_COMPONENTS = { Text: SystemTextPart };
 const USER_PART_COMPONENTS = {
   Text: UserTextPart,
   Image: UserImagePart,
+  data: {
+    by_name: {
+      novaReference: UserReferencePart,
+    },
+  },
 };
 
 /**
@@ -480,48 +494,55 @@ function ThreadEmpty({
   }
 
   return (
-    <div className="flex min-h-full flex-col items-center justify-center px-4 py-8">
-      <div className="relative w-full max-w-[680px] overflow-hidden rounded-2xl border border-border/60 bg-surface-2/40 p-8 shadow-[var(--c-shadow-sm)]">
-        {/* 编辑式空态：一条静态强调线代替渐变/光晕 */}
-        <span
-          aria-hidden
-          className="pointer-events-none absolute inset-x-10 top-0 h-px bg-accent/30"
-        />
+    <div className="ui-entrance relative flex min-h-full flex-col items-center justify-center px-6 py-10">
+      {/* 入口的两次装饰：顶部弥散光 + 极轻噪点，离开空态即消失 */}
+      <div aria-hidden className="ui-entrance-glow" />
 
-        <div className="relative flex flex-col items-center text-center">
-          <div className="grid h-14 w-14 place-items-center rounded-2xl bg-accent text-accent-foreground shadow-[var(--c-shadow-sm)]">
-            <Sparkles className="h-6 w-6" />
-          </div>
-
-          <h1 className="mt-5 ui-type-heading tracking-tight text-text">
-            {project ? `在「${project.name}」中开始对话` : "有什么可以帮你？"}
-          </h1>
-          <p className="mt-2 max-w-md ui-type-body leading-relaxed text-text-secondary">
-            {project
-              ? "描述任务，或从下面的示例开始。Nova 会在当前工作目录中读取和改动文件。"
-              : "描述你的任务，或从下面的示例开始。需要读写本地文件时，在输入框旁指定工作区。"}
-          </p>
-
-          {onSuggestion && (
-            <div className="mt-6 flex flex-wrap justify-center gap-2">
-              {SUGGESTIONS.map(({ icon: Icon, label, prompt }) => (
-                <button
-                  key={label}
-                  type="button"
-                  onClick={() => onSuggestion(prompt)}
-                  className="flex items-center gap-1.5 rounded-full border border-border/60 bg-surface/80 px-3 py-1.5 ui-type-note text-text-secondary shadow-[var(--c-shadow-sm)] transition-colors hover:border-accent/40 hover:bg-accent-soft hover:text-accent"
-                >
-                  <Icon className="h-3.5 w-3.5" />
-                  {label}
-                </button>
-              ))}
-            </div>
-          )}
-
-          <p className="mt-6 ui-type-sub text-text-muted">
-            Enter 发送 · Shift + Enter 换行
-          </p>
+      {/* 一次性的入场编排：品牌标记 → 标题 → 说明 → 起手式 → 快捷键提示 */}
+      <div className="ui-entrance-stack relative z-10 flex w-full max-w-[620px] flex-col items-center text-center">
+        <div className="ui-brand-mark overflow-hidden">
+          <img
+            src={logoAvatarUrl}
+            alt="Nova"
+            draggable={false}
+            className="h-8 w-8 select-none object-cover"
+          />
         </div>
+
+        <h1 className="mt-6 ui-type-entrance text-text">Work is Agentic</h1>
+
+        {/* 全站唯一的渐变元素：入口标题下的一条光谱细线 */}
+        <div aria-hidden className="ui-spectral-rule mt-5" />
+
+        <p className="mt-4 max-w-[520px] ui-type-body leading-relaxed text-text-secondary">
+          {project
+            ? `在「${project.name}」中开始工作。描述任务，或从下面的起手式开始。`
+            : "描述任务，或从下面的起手式开始。需要读写本地文件时，在输入框旁指定工作区。"}
+        </p>
+
+        {/* 窄窗口（尤其右侧工作区展开时）保持单列，避免标签被截断 */}
+        {onSuggestion && (
+          <div className="mt-8 grid w-full grid-cols-1 border-b border-border min-[1400px]:grid-cols-2 min-[1400px]:gap-x-8">
+            {SUGGESTIONS.map(({ icon: Icon, label, prompt }) => (
+              <button
+                key={label}
+                type="button"
+                onClick={() => onSuggestion(prompt)}
+                className="ui-starter group"
+              >
+                <span className="ui-starter-icon">
+                  <Icon className="h-4 w-4" />
+                </span>
+                <span className="min-w-0 flex-1 truncate">{label}</span>
+                <ChevronRight className="h-3.5 w-3.5 shrink-0 text-text-muted opacity-0 transition-all group-hover:translate-x-0.5 group-hover:opacity-100" />
+              </button>
+            ))}
+          </div>
+        )}
+
+        <p className="mt-6 ui-type-sub text-text-muted">
+          Enter 发送 · Shift + Enter 换行
+        </p>
       </div>
     </div>
   );
@@ -553,6 +574,17 @@ function UserImagePart() {
       className="mb-1.5 max-h-64 w-auto max-w-full rounded-lg border border-border/50 object-contain last:mb-0"
     />
   );
+}
+
+/** 用户消息里的引用块：文件 / 会话 / 工具 / 技能 / 知识库 */
+function UserReferencePart(
+  props: DataMessagePartProps<{
+    kind: ReferenceKind;
+    name: string;
+    detail?: string;
+  }>,
+) {
+  return <ReferenceBlock {...props.data} />;
 }
 
 /**
@@ -807,11 +839,34 @@ function ErrorPart(props: DataMessagePartProps<{ message: string }>) {
     const messages = state.messagesBySession[sessionId] ?? [];
     const lastUser = [...messages].reverse().find((item) => item.role === "user");
     const text = lastUser ? textFromEvents(lastUser.content) : "";
-    if (!text) {
+    /*
+     * 重试要把引用一起带上：引用说明不在展示正文里，
+     * 用落库时保留的 promptText 重建完整 prompt。
+     */
+    const references: DisplayReference[] = lastUser
+      ? lastUser.content
+          .filter(
+            (event): event is Extract<AgentEvent, { type: "reference" }> =>
+              event.type === "reference",
+          )
+          .map((event) => ({
+            kind: event.kind,
+            name: event.name,
+            detail: event.detail,
+            promptText: event.promptText,
+          }))
+      : [];
+    const prompt = [
+      text,
+      ...references
+        .map((reference) => reference.promptText)
+        .filter((value): value is string => Boolean(value)),
+    ].join("\n");
+    if (!prompt.trim()) {
       toast.error("没有找到可重试的用户消息");
       return;
     }
-    void state.sendMessage(text).catch((err) => {
+    void state.sendMessage(prompt, text, undefined, references).catch((err) => {
       toast.error(toMessage(err), 5000);
     });
   };
@@ -1036,6 +1091,16 @@ function userContentParts(
     } else if (event.type === "image") {
       const src = imageSrc(event);
       if (src) parts.push({ type: "image", image: src });
+    } else if (event.type === "reference") {
+      parts.push({
+        type: "data",
+        name: "novaReference",
+        data: {
+          kind: event.kind,
+          name: event.name,
+          detail: event.detail,
+        },
+      });
     }
   }
   return parts;

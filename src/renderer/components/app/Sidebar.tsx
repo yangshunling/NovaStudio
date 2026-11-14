@@ -14,7 +14,6 @@ import {
 } from "../../lib/workflow-run-sync";
 import { hasUpdateNotice, useUpdaterStore } from "../../stores/updater";
 import { toast } from "../../stores/toast";
-import sloganUrl from "../../assets/slogan.png";
 import type { WorkflowRun } from "@shared/types";
 import {
   AlarmClock,
@@ -126,29 +125,28 @@ export function Sidebar() {
   ).length;
 
   const itemClass = (active: boolean) =>
-    `relative flex w-full items-center gap-2 rounded-lg px-2.5 py-2 ${FONT_BODY} transition-colors ${
+    `ui-nav-item relative flex w-full items-center gap-2 rounded-lg px-2.5 py-2 ${FONT_BODY} transition-colors ${
       active
-        ? "bg-selected font-medium text-text before:absolute before:left-0 before:top-1/2 before:h-5 before:w-indicator before:-translate-y-1/2 before:rounded-full before:bg-accent"
+        ? "ui-nav-item-active font-medium"
         : "text-text-secondary hover:bg-surface-hover/70 hover:text-text"
     }`;
 
   return (
     <aside className="ui-sidebar relative flex h-full w-[var(--c-layout-sidebar)] flex-col border-r-0">
-      {/* 头部：标语图品牌「Work is Agentic」（透明底 PNG，无 icon）。
-          皮肤切换已移入「设置 → 外观」，刊头独占整行，因此居中排布。 */}
+      {/* 头部：三个词分别用不同字族 / 字号 / 颜色，基线对齐并撑满整块。
+          不放 logo（窗口标题栏已有图标），也不重复产品名。 */}
       <div
         style={{ zIndex: 30 }}
-        className="relative flex h-[var(--c-layout-header)] items-center justify-center overflow-hidden border-b border-border px-8"
+        className="relative flex h-[var(--c-layout-header)] shrink-0 items-center overflow-hidden border-b border-border"
       >
-        {/* 图片按 4x 导出（768×110）；左右各留 32px，可用宽 152px，等比显示为 152×21.8。
-            宽度撑满而不是固定高度：素材就是按这个尺寸做的，避免再次降采样。 */}
-        <div className="relative flex w-full min-w-0 items-center justify-center">
-          <img
-            src={sloganUrl}
-            alt="Work is Agentic"
-            draggable={false}
-            className="h-auto w-full select-none"
-          />
+        <div
+          className="ui-slogan-frame"
+          role="img"
+          aria-label="Work is Agentic"
+        >
+          <span className="ui-slogan-word">Work</span>
+          <span className="ui-slogan-conj">is</span>
+          <span className="ui-slogan-mark">Agentic</span>
         </div>
       </div>
 
@@ -156,7 +154,7 @@ export function Sidebar() {
       <div className="min-h-0 flex-1 overflow-y-auto">
         {/* 个人分组 */}
         <div className="px-3 pt-3 pb-1">
-        <span className="px-1 ui-type-note font-semibold tracking-wide text-text-muted">个人</span>
+        <span className="ui-nav-group-label px-1 ui-type-note font-semibold tracking-wide text-text-muted">个人</span>
       </div>
       <div className="space-y-1 px-2.5 pb-2">
         <button
@@ -187,7 +185,7 @@ export function Sidebar() {
 
       {/* 工程分组 */}
       <div className="px-3 pt-4 pb-1">
-        <span className="px-1 ui-type-note font-semibold tracking-wide text-text-muted">工程</span>
+        <span className="ui-nav-group-label px-1 ui-type-note font-semibold tracking-wide text-text-muted">工程</span>
       </div>
       <div className="space-y-1 px-2.5 pb-2">
         <button
@@ -250,7 +248,7 @@ export function Sidebar() {
 
       {/* 资产分组 */}
       <div className="px-3 pt-4 pb-1">
-        <span className="px-1 ui-type-note font-semibold tracking-wide text-text-muted">资产</span>
+        <span className="ui-nav-group-label px-1 ui-type-note font-semibold tracking-wide text-text-muted">资产</span>
       </div>
       <div className="space-y-1 px-2.5 pb-2">
         <button
@@ -289,7 +287,7 @@ export function Sidebar() {
 
       {/* 运行时分组 */}
       <div className="px-3 pt-4 pb-1">
-        <span className="px-1 ui-type-note font-semibold tracking-wide text-text-muted">
+        <span className="ui-nav-group-label px-1 ui-type-note font-semibold tracking-wide text-text-muted">
           运行时
         </span>
       </div>
@@ -311,11 +309,11 @@ export function Sidebar() {
         <button
           type="button"
           onClick={() => setShowSettings(true)}
-          className={`ui-ring group flex w-full items-center gap-2.5 rounded-lg bg-input-bg px-inset py-2 text-left outline-none transition-all hover:border-input-border-focus focus:border-input-border-focus ${
+          className={`ui-card-material ui-ring group flex w-full items-center gap-2.5 rounded-lg px-inset py-2 text-left outline-none transition-all hover:border-input-border-focus focus:border-input-border-focus ${
             showSettings ? "border-input-border-focus" : ""
           }`}
         >
-          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-accent-soft text-accent">
+          <span className="ui-tile flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-accent-soft text-accent">
             <Settings className="h-4 w-4" />
           </span>
           <span className="min-w-0 flex-1 truncate ui-type-body font-medium text-text">

@@ -16,7 +16,7 @@ import type { AgentInfo } from "@shared/contracts/agent";
 
 /** 头像容器的统一尺寸与圆角；描边由各品牌自行决定 */
 const AVATAR_BASE =
-  "flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-full";
+  "flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-full ring-1 ring-border/60";
 
 /** 回复方头像：当前会话的 Agent */
 export function AgentAvatar({

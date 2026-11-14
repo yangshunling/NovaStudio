@@ -28,6 +28,7 @@ import {
   PenLine,
   Pin,
   PinOff,
+  Share2,
   SquareTerminal,
   Trash2,
 } from "lucide-react";
@@ -37,6 +38,9 @@ import { usePermissionPromptStore } from "../../stores/permissionPrompt";
 import { useFileViewerStore } from "../../stores/fileViewer";
 import { useTerminalStore } from "../../stores/terminal";
 import { confirmDialog } from "../../stores/confirm";
+import { toast } from "../../stores/toast";
+import { ipc } from "../../lib/ipc";
+import { toMessage } from "../../lib/utils";
 import { requestComposerFocus } from "../../lib/chat-events";
 import { clampMenuPosition } from "../../lib/popup";
 import { useDismissableLayer } from "../../hooks/useDismissableLayer";
@@ -53,8 +57,8 @@ import {
   WEEKDAY_LABELS,
 } from "@shared/time";
 
-/** 会话操作菜单尺寸：用于贴近视口边缘时收拢位置（置顶 / 重命名 / 终端 / 删除） */
-const MENU_HEIGHT = 160;
+/** 会话操作菜单尺寸：用于贴近视口边缘时收拢位置（置顶 / 重命名 / 分享 / 终端 / 删除） */
+const MENU_HEIGHT = 200;
 
 /** 分组折叠状态：纯界面偏好，存 localStorage；不可用时退化为内存态 */
 const COLLAPSED_KEY = "nova-session-groups-collapsed";
@@ -218,6 +222,16 @@ export function SessionListPanel() {
     void pinSession(session.id, pinning);
   };
 
+  /** 导出完整会话过程：原生另存为 + Markdown 转录 */
+  const shareSession = async (session: Session) => {
+    try {
+      const path = await ipc.exportSession(session.id);
+      if (path) toast.success(`会话已导出到 ${path}`, 5000);
+    } catch (err) {
+      toast.error(toMessage(err), 6000);
+    }
+  };
+
   /** 在会话工作目录里新建终端，并作为中心区域的新标签打开 */
   const openSessionTerminal = (session: Session) => {
     const usedNames = new Set(terminals.map((tab) => tab.name));
@@ -265,7 +279,7 @@ export function SessionListPanel() {
                 onClick={() => toggleGroup(group.id)}
                 aria-expanded={!collapsed}
                 title={collapsed ? `展开${group.label}` : `收起${group.label}`}
-                className="group/header flex w-full cursor-pointer items-center gap-1.5 rounded-md px-2 pb-1 pt-2 text-left text-text-muted transition-colors hover:text-text"
+                className="ui-group-seam group/header flex w-full cursor-pointer items-center gap-1.5 rounded-md px-2 pb-1 pt-2 text-left text-text-muted transition-colors hover:text-text"
               >
                 <ChevronRight
                   className={`h-3 w-3 shrink-0 opacity-60 transition-transform group-hover/header:opacity-100 ${
@@ -304,6 +318,7 @@ export function SessionListPanel() {
                       }}
                       onDelete={() => deleteSession(session.id)}
                       onRename={(title) => renameSession(session.id, title)}
+                      onShare={() => void shareSession(session)}
                       onTogglePin={() => togglePin(session)}
                       onNewTerminal={() => openSessionTerminal(session)}
                     />
@@ -333,6 +348,7 @@ function SessionRow({
   onOpen,
   onDelete,
   onRename,
+  onShare,
   onTogglePin,
   onNewTerminal,
 }: {
@@ -349,6 +365,8 @@ function SessionRow({
   onOpen: () => void;
   onDelete: () => void;
   onRename: (title: string) => void;
+  /** 导出完整会话过程（Markdown） */
+  onShare: () => void;
   /** 置顶 / 取消置顶 */
   onTogglePin: () => void;
   /** 在会话工作目录中打开终端 */
@@ -406,7 +424,7 @@ function SessionRow({
     return (
       <div
         className={`group flex items-center gap-2 rounded-lg px-2.5 py-2.5 ${
-          isActive ? "bg-selected" : ""
+          isActive ? "ui-row-active" : ""
         }`}
       >
         <input
@@ -449,9 +467,9 @@ function SessionRow({
           onOpen();
         }
       }}
-      className={`ui-cv-row group relative cursor-pointer select-none rounded-lg px-2.5 py-2 transition-colors ${
+      className={`ui-cv-row ui-interactive group relative rounded-lg px-2.5 py-2.5 ${
         isActive
-          ? "bg-selected text-text"
+          ? "ui-row-active text-text"
           : "text-text-secondary hover:bg-surface-hover/70 hover:text-text"
       }`}
     >
@@ -459,7 +477,7 @@ function SessionRow({
       {isActive && (
         <span
           aria-hidden
-          className="absolute left-0 top-1/2 h-5 w-indicator -translate-y-1/2 rounded-full bg-accent"
+          className="ui-row-rail absolute left-0 top-1/2 h-5 w-indicator -translate-y-1/2 rounded-full"
         />
       )}
 
@@ -535,7 +553,7 @@ function SessionRow({
         <MoreHorizontal className="h-3.5 w-3.5" />
       </button>
 
-      {/* 置顶 / 重命名 / 终端 / 删除统一收进「…」菜单，保持列表清爽 */}
+      {/* 置顶 / 重命名 / 分享 / 终端 / 删除统一收进「…」菜单，保持列表清爽 */}
       {menu && (
         <MenuPanel x={menu.x} y={menu.y} menuRef={menuRef}>
           <MenuItem
@@ -547,6 +565,14 @@ function SessionRow({
             }}
           />
           <MenuItem icon={PenLine} label="重命名" onClick={startEdit} />
+          <MenuItem
+            icon={Share2}
+            label="分享会话"
+            onClick={() => {
+              setMenu(null);
+              onShare();
+            }}
+          />
           <MenuItem
             icon={SquareTerminal}
             label="新建终端"

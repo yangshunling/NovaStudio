@@ -114,7 +114,7 @@ export const ToolCallCard = memo(function ToolCallCard({
 
   return (
     <div
-      className={`w-full overflow-hidden rounded-xl border transition-colors ${
+      className={`ui-depth w-full overflow-hidden rounded-xl border transition-colors ${
         status === "error"
           ? "border-error/30 bg-error-bg/25"
           : status === "running"
@@ -179,7 +179,7 @@ export const ToolCallCard = memo(function ToolCallCard({
       </button>
 
       {!collapsed && (
-        <div className="space-y-2 border-t border-border/60 bg-surface/50 p-3">
+        <div className="ui-well space-y-2 border-t border-border/60 p-3">
           {changes.length > 0 ? (
             <ToolDiffView changes={changes} />
           ) : (

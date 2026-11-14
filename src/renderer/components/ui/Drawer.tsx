@@ -98,7 +98,7 @@ export function Drawer({
         aria-modal="true"
         aria-label={ariaLabel}
         tabIndex={-1}
-        className={`ui-glass-strong relative flex h-full max-w-[94vw] flex-col border-l border-border-strong shadow-[var(--c-shadow)] outline-none ${widthClass ?? DRAWER_WIDTHS[width]} ${className}`}
+        className={`ui-panel-material relative flex h-full max-w-[94vw] flex-col border-l border-border-strong outline-none ${widthClass ?? DRAWER_WIDTHS[width]} ${className}`}
         onClick={(e) => e.stopPropagation()}
       >
         {children}

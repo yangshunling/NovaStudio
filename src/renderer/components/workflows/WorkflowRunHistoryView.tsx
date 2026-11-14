@@ -268,7 +268,7 @@ export function WorkflowRunHistoryView({
                         onOpenRun(run.id, run.workflowId);
                       }
                     }}
-                    className="ui-cv-row flex w-full cursor-pointer items-start gap-3 border-b border-border px-4 py-3 text-left transition-colors last:border-b-0 hover:bg-surface-hover"
+                    className="ui-cv-row ui-interactive flex w-full items-start gap-3 border-b border-border px-4 py-3 text-left last:border-b-0 hover:bg-surface-hover"
                   >
                     <span
                       className={`flex w-24 shrink-0 items-center gap-1.5 pt-0.5 ui-type-label ${meta.className}`}

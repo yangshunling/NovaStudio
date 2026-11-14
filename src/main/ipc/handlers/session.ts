@@ -18,6 +18,11 @@ import {
   removeSessionRuntime,
 } from "../../sessions/runtime";
 import { externalizeImageEvents } from "../../attachments/store";
+import {
+  formatSessionTranscript,
+  transcriptFileName,
+} from "../../sessions/transcript";
+import { saveTextFile } from "../nativeUi";
 import { handle } from "../register";
 
 /**
@@ -155,6 +160,67 @@ export function registerSessionHandlers(service: AgentService): void {
     if (next.length > 120) throw new Error("会话标题不能超过 120 个字符");
     db.setSessionTitle(id, next);
     return true;
+  });
+
+  /**
+   * 构造完整会话的 Markdown 转录。
+   *
+   * 必须走 getSessionWithHistory：列表与分页接口只返回窗口内的消息，
+   * 导出 / 引用需要完整的对话、思考与工具调用事件。
+   * 导出与 `#` 会话引用共用同一份内容，避免两处格式漂移。
+   */
+  const buildTranscript = async (
+    id: string,
+  ): Promise<{ title: string; markdown: string }> => {
+    const session = await service.getSessionWithHistory(id);
+    if (!session) throw new Error("会话不存在");
+    if (!session.messages || session.messages.length === 0) {
+      throw new Error("该会话还没有可导出的内容");
+    }
+
+    // 消息级员工归属可能中途变化：按出现过的 id 统一解析名称
+    const employeeNames: Record<string, string> = {};
+    const employeeIds = new Set<string>();
+    if (session.employeeId) employeeIds.add(session.employeeId);
+    for (const message of session.messages) {
+      if (message.employeeId) employeeIds.add(message.employeeId);
+    }
+    for (const employeeId of employeeIds) {
+      const employee = db.getDigitalEmployee(employeeId);
+      if (employee) employeeNames[employeeId] = employee.name;
+    }
+
+    const provider = getProvider(session.agentId);
+    return {
+      title: session.title,
+      markdown: formatSessionTranscript(session, {
+        agentName: provider?.manifest.displayName ?? session.agentId,
+        employeeNames,
+      }),
+    };
+  };
+
+  /** 导出完整会话过程为 Markdown，弹出原生另存为 */
+  handle("session:export", async ({ id }) => {
+    const { title, markdown } = await buildTranscript(id);
+    return saveTextFile(markdown, transcriptFileName(title));
+  });
+
+  /**
+   * 取会话原始存储文件的绝对路径，供输入框 `#` 引用。
+   *
+   * 引用只传路径，不把会话内容拼进用户消息：Agent 拿到路径后
+   * 自己决定读多少、怎么读，避免一次引用就占满上下文。
+   */
+  handle("session:filePath", async ({ id }) => {
+    const session = db.getSession(id);
+    if (!session?.agentSessionId) return null;
+    const provider = getProvider(session.agentId);
+    if (!provider?.sessionFilePath) return null;
+    return provider.sessionFilePath(session.agentSessionId, {
+      cwd: session.cwd,
+      configDir: session.configDir ?? null,
+    });
   });
 
   /** 置顶是浏览偏好，只改 pinned_at，不触碰 updated_at 与 Agent 上下文 */

@@ -39,7 +39,10 @@ import { onActivityChanged } from "./lifecycle/activity";
 import { installWindowCloseGuard } from "./lifecycle/unsaved";
 import { installQuitHandler } from "./lifecycle/quit";
 import { errorMessage } from "../shared/error";
-import { DEFAULT_WINDOW_BACKGROUND } from "../shared/skin-default";
+import {
+  DEFAULT_WINDOW_BACKGROUND,
+  LIGHT_WINDOW_BACKGROUND,
+} from "../shared/skin-default";
 import {
   ATTACHMENT_SCHEME,
   registerAttachmentProtocol,
@@ -122,18 +125,10 @@ function resolveWindowIcon(): string | undefined {
  */
 function initialWindowBackground(): string {
   try {
+    // 渲染层每次换肤都会写入 nativeAppearance，直接跟随即可
     const appearance = getSetting("nativeAppearance");
-    if (appearance === "dark") return "#000000";
-    if (appearance === "light") return "#ffffff";
-
-    /*
-     * 升级兼容：旧版本只存了 theme，没有 nativeAppearance。
-     * 仅在缺少新记录时按已知皮肤推断，避免昼间用户升级后的首帧变黑；
-     * 新装（theme 为空）继续走共享默认值（夜间）。
-     */
-    const theme = getSetting("theme");
-    if (theme === "classic-day") return "#ffffff";
-    if (theme === "classic-night") return "#000000";
+    if (appearance === "dark") return DEFAULT_WINDOW_BACKGROUND;
+    if (appearance === "light") return LIGHT_WINDOW_BACKGROUND;
   } catch {
     // 数据库尚未初始化：走内置默认
   }

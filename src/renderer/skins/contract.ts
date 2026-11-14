@@ -174,6 +174,30 @@ export const OPTIONAL_TOKENS: readonly string[] = [
   "--c-page-inset",
   // 列表侧栏（会话 / 工作区）
   "--c-panel-bg",
+  // 第三阶表面：浮层 / 输入框 / 抬起卡片（新皮肤使用，旧皮肤未声明时走兜底）
+  "--c-surface-3",
+  // 品牌光谱：只用于品牌标记 / 入口标题线 / 生成态
+  "--c-brand-gradient",
+  // 焦点光晕：输入区与品牌时刻的柔和外环
+  "--c-glow",
+  // 入口装饰：顶部弥散光与噪点强度
+  "--c-entrance-glow",
+  "--c-noise-opacity",
+  // 材质：倒角高光 / 倒角暗边 / 浮起阴影 / 凹陷阴影 / 玻璃描边
+  "--c-bevel-highlight",
+  "--c-bevel-shadow",
+  "--c-raised-shadow",
+  "--c-inset-shadow",
+  "--c-glass-border",
+  // 板材：侧栏环境光 / 卡片渐变 / 列表托盘渐变 / 强调色光晕
+  "--c-sidebar-glow",
+  "--c-card-gradient",
+  "--c-panel-gradient",
+  "--c-accent-glow",
+  // 选中态：半透明强调色叠层。深色皮肤需要更高的不透明度才看得清
+  "--c-sel-top",
+  "--c-sel-bottom",
+  "--c-sel-border",
   // 设置页可选字体族；选项清单见 skins/typography.ts
   "--c-font-preset-system",
   "--c-font-preset-yahei",
@@ -200,4 +224,6 @@ export const DERIVED_TOKENS: readonly string[] = [
   "--c-font-size-heading",
   "--c-font-size-display",
   "--c-font-size-hero",
+  // 入口主标题：唯一一次「大声说话」的展示字号
+  "--c-font-size-entrance",
 ];

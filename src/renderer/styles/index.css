@@ -45,6 +45,8 @@
   --c-font-size-heading: calc(var(--c-font-size) + 3px);
   --c-font-size-display: calc(var(--c-font-size) + 5px);
   --c-font-size-hero: calc(var(--c-font-size) + 7px);
+  /* 入口主标题：全站唯一一次大字排版，随基准字号等比缩放 */
+  --c-font-size-entrance: calc(var(--c-font-size) + 19px);
 }
 
 /* 聊天记录区域：字号与全局解耦。
@@ -67,6 +69,7 @@
   --color-bg: var(--c-bg);
   --color-surface: var(--c-surface);
   --color-surface-2: var(--c-surface-2);
+  --color-surface-3: var(--c-surface-3, var(--c-surface-2));
   --color-surface-hover: var(--c-surface-hover);
   --color-surface-active: var(--c-surface-active);
 
@@ -110,6 +113,7 @@
   /* 气泡 */
   --color-bubble-user: var(--c-bubble-user);
   --color-bubble-user-text: var(--c-bubble-user-text);
+  --color-bubble-border: var(--c-bubble-border);
 
   /* 输入框 */
   --color-input-bg: var(--c-input-bg);
@@ -208,6 +212,24 @@ body {
 .theme-switching *::before,
 .theme-switching *::after {
   transition: none !important;
+}
+
+/* === 可交互元素的手型光标（全站唯一来源） ===
+ *
+ * 会话行、工作区列表、资产卡片、提交记录等不再逐个写 cursor-pointer：
+ * 只要语义是 button / role="button" / summary / 链接，就自动获得手型。
+ * 禁用态与 aria-disabled 保持默认光标。
+ */
+@layer base {
+  :where(
+    button,
+    [role="button"],
+    a[href],
+    summary,
+    [role="menuitem"]
+  ):not(:disabled):not([aria-disabled="true"]) {
+    cursor: pointer;
+  }
 }
 
 /* === 键盘焦点（全局兜底） ===
@@ -327,6 +349,18 @@ body {
  * 每个原语只消费 token，因此皮肤文件里不需要写任何覆写规则。
  * ============================================================================ */
 
+/* 整行可点击的统一基座：手型 + 禁止选中 + 统一过渡。
+ * 行内具体的 hover 背景仍由所在列表决定（列表行 / 卡片 / 菜单语义不同），
+ * 但「看起来可点」这件事只在这里定义。 */
+.ui-interactive {
+  cursor: pointer;
+  user-select: none;
+  transition:
+    background-color var(--c-motion-fast) var(--c-ease-standard),
+    color var(--c-motion-fast) var(--c-ease-standard),
+    border-color var(--c-motion-fast) var(--c-ease-standard);
+}
+
 /* 按钮基座：尺寸 / 排布 / 圆角。颜色由 ui-btn-* 变体决定 */
 .ui-btn {
   display: inline-flex;
@@ -389,7 +423,9 @@ body {
   transform: translateY(-1px);
 }
 .ui-btn-primary:active:not(:disabled) {
-  transform: translateY(0);
+  /* 按下去的实体感：下沉 1px，并把外高光换成内阴影 */
+  transform: translateY(1px);
+  box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.28);
 }
 .ui-btn-primary:disabled {
   opacity: 0.55;
@@ -408,6 +444,9 @@ body {
   color: var(--c-btn-ghost-hover-text);
   border-color: var(--c-btn-ghost-hover-border);
   background: var(--c-btn-ghost-hover-bg);
+}
+.ui-btn-ghost:active {
+  transform: translateY(1px);
 }
 
 /* 危险按钮（删除等不可恢复操作） */
@@ -484,6 +523,8 @@ body {
   background: var(--c-glass-bg);
   backdrop-filter: var(--c-glass-filter);
   -webkit-backdrop-filter: var(--c-glass-filter);
+  /* 玻璃顶边的细高光：让顶栏 / 停靠栏像一块有厚度的玻璃，而不是半透明色块 */
+  box-shadow: inset 0 1px 0 var(--c-bevel-highlight, transparent);
 }
 .ui-glass-strong {
   background: var(--c-glass-strong-bg);
@@ -628,6 +669,65 @@ body {
   font-family: var(--c-font-display);
   font-size: var(--c-font-size-hero);
 }
+/* ============================================================================
+ * 侧栏标语刊头
+ *
+ * 三个词各自承担一种排版角色，靠字族 / 字号 / 颜色三重对比建立层次：
+ *   WORK     无衬线、极粗、紧缩大写，主文字色 —— 动词，重量感
+ *   is       衬线斜体、最小、弱化灰 —— 连接词，退后一步
+ *   AGENTIC  衬线、最大、品牌渐变 —— 名词，视觉落点
+ *
+ * 三个词基线对齐、两端对齐撑满侧栏宽度，整行在头部垂直居中。
+ * ============================================================================ */
+.ui-slogan-frame {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  padding-inline: 10px;
+}
+
+.ui-slogan-word {
+  font-family: var(--c-font-sans);
+  font-size: var(--c-font-size-display);
+  font-weight: 800;
+  letter-spacing: 0.01em;
+  line-height: 1;
+  color: var(--c-text);
+}
+
+.ui-slogan-conj {
+  font-family: var(--c-font-display);
+  font-size: var(--c-font-size-display);
+  font-style: italic;
+  letter-spacing: 0.02em;
+  line-height: 1;
+  color: var(--c-text-muted);
+}
+
+.ui-slogan-mark {
+  font-family: var(--c-font-display);
+  font-size: var(--c-font-size-display);
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  line-height: 1;
+  background: var(--c-brand-gradient, var(--c-accent));
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+}
+/* 入口主标题：全站唯一的大号展示衬线。字号由 --c-font-size-entrance 派生，
+ * 中文回退宋体系，英文保持 Palatino / Georgia 的人文衬线气质。 */
+.ui-type-entrance {
+  font-family: var(--c-font-display);
+  font-size: var(--c-font-size-entrance);
+  font-weight: 400;
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+}
 
 /* ============================================================================
  * 工具条选择器
@@ -647,6 +747,7 @@ body {
     border-radius: var(--c-radius-md);
     font-size: var(--c-font-size-caption);
     outline: none;
+    box-shadow: inset 0 1px 0 var(--c-bevel-highlight, transparent);
     transition:
       background-color var(--c-motion-fast) var(--c-ease-standard),
       color var(--c-motion-fast) var(--c-ease-standard);
@@ -753,12 +854,321 @@ body {
  *
  * 三个 token 都是可选的：未声明的皮肤等同于「没有这张纸」——
  * 背景透明、无投影、无内缩，与其此前的观感一致。
- * 因此需要层叠质感的皮肤（经典 · 昼）在自己的 tokens.css 里声明即可。
+ * 因此需要层叠质感的皮肤（Nova · 昼 / 夜）在自己的 tokens.css 里声明即可。
  * ============================================================================ */
 .ui-page {
   margin: var(--c-page-inset, 0);
   background: var(--c-page-bg, transparent);
   box-shadow: var(--c-page-shadow, none);
+}
+
+/* ============================================================================
+ * 材质层
+ *
+ * 三种关系，全站统一：
+ *   ui-card-material / ui-panel-material  抬起：顶部内高光 + 板材渐变 + 浮起阴影
+ *   ui-well / input.ui-ring               凹陷：顶部内阴影 + 更深的底色
+ *   ui-depth                             只加浮起阴影，保留卡片自身的状态色
+ *
+ * 未声明材质 token 的皮肤（经典昼夜）走兜底，观感与之前基本一致。
+ * ============================================================================ */
+
+/* 抬起的板材：资产卡片 / 输入区 / 入口品牌块 */
+.ui-card-material {
+  background: var(--c-card-gradient, var(--c-surface-2));
+  box-shadow: var(--c-raised-shadow, var(--c-shadow-sm));
+}
+
+/* 浮起的实体面板：弹窗 / 抽屉 */
+.ui-panel-material {
+  background: var(--c-card-gradient, var(--c-surface));
+  box-shadow: var(--c-raised-shadow, var(--c-shadow));
+}
+
+/* 只加深度：用于工具卡 / 思考卡这类需要保留成功、失败底色的卡片 */
+.ui-depth {
+  box-shadow: var(--c-raised-shadow, var(--c-shadow-sm));
+}
+
+/* 凹陷的槽：工具输出 / 代码块 / 输入区内部的井 */
+.ui-well {
+  background: color-mix(in srgb, var(--c-bg) 42%, var(--c-surface-2));
+  box-shadow: var(--c-inset-shadow, none);
+}
+
+/* 列表托盘：与纸面同层但略微下沉，右侧一道发丝线 */
+.ui-tray {
+  background: var(--c-panel-gradient, var(--c-panel-bg));
+  box-shadow: inset -1px 0 0 var(--c-border);
+}
+
+/* 图标底座：给彩色图标块补一道顶部内高光 */
+.ui-tile {
+  box-shadow: inset 0 1px 0 var(--c-bevel-highlight, transparent),
+    inset 0 -1px 0 var(--c-bevel-shadow, transparent);
+}
+
+/* 输入框统一做「凹陷」：顶部内阴影比单纯的描边更有实体感 */
+input.ui-ring,
+textarea.ui-ring,
+select.ui-ring {
+  box-shadow: var(--c-inset-shadow, var(--c-ring-shadow));
+}
+
+/* 侧栏环境光：从顶部往下渗的一层极淡强调色 */
+.ui-sidebar::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: var(--c-sidebar-glow, none);
+}
+
+/* 导航项：图标做成立体底座，选中项是一块抬起的按键 */
+.ui-nav-item > svg:first-child {
+  width: 15px;
+  height: 15px;
+  padding: 5px;
+  box-sizing: content-box;
+  border-radius: var(--c-radius-md);
+  background: color-mix(in srgb, var(--c-text) 5%, transparent);
+  color: var(--c-text-secondary);
+  box-shadow: inset 0 1px 0 var(--c-bevel-highlight, transparent);
+  transition: background-color var(--c-motion-fast) var(--c-ease-standard),
+    color var(--c-motion-fast) var(--c-ease-standard),
+    box-shadow var(--c-motion-fast) var(--c-ease-standard);
+}
+.ui-nav-item-active {
+  /* 选中态只做轻微抬升：一段强调色叠层 + 顶部内高光，不加外投影。
+   * 叠层强度由皮肤提供 —— 深色底需要更高不透明度才分得清。 */
+  background: linear-gradient(
+    180deg,
+    var(--c-sel-top, var(--c-selection-bg)),
+    var(--c-sel-bottom, var(--c-selection-bg))
+  );
+  box-shadow: inset 0 1px 0 var(--c-bevel-highlight, transparent),
+    inset 0 0 0 1px var(--c-sel-border, transparent);
+  color: var(--c-text);
+}
+.ui-nav-item-active > svg:first-child {
+  background: var(--c-accent-soft);
+  color: var(--c-accent);
+  box-shadow: inset 0 1px 0 var(--c-bevel-highlight, transparent);
+}
+
+/* 分组标题后的渐隐细线：用结构线取代孤立的标签 */
+.ui-nav-group-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.ui-nav-group-label::after {
+  content: "";
+  height: 1px;
+  flex: 1;
+  background: linear-gradient(90deg, var(--c-border), transparent);
+}
+
+/* 会话行选中态：只留一层淡底色与顶部内高光，不再整行浮起。
+ * 与侧栏共用 --c-sel-*，但落在列表托盘底色上，深色下同样清楚。 */
+.ui-row-active {
+  background: linear-gradient(
+    180deg,
+    var(--c-sel-top, var(--c-selection-bg)),
+    var(--c-sel-bottom, var(--c-selection-bg))
+  );
+  box-shadow: inset 0 1px 0 var(--c-bevel-highlight, transparent),
+    inset 0 0 0 1px var(--c-sel-border, transparent);
+}
+.ui-row-rail {
+  background: var(--c-accent);
+  box-shadow: 0 0 6px color-mix(in srgb, var(--c-accent) 35%, transparent);
+}
+
+/* 页头：顶部内高光 + 底边外侧一道细亮线，形成「双线缝」 */
+.ui-header-bar {
+  box-shadow: inset 0 1px 0 var(--c-bevel-highlight, transparent),
+    0 1px 0 var(--c-bevel-highlight, transparent);
+}
+
+/* 输入区内部的工具条分隔：一条凹陷的槽，而不是一根平线 */
+.ui-groove {
+  border-top: 1px solid var(--c-border);
+  box-shadow: inset 0 1px 0 var(--c-bevel-shadow, transparent);
+}
+
+/* 列表分组标题后的渐隐线（与侧栏同一套结构语言） */
+.ui-group-seam::after {
+  content: "";
+  height: 1px;
+  flex: 1;
+  background: linear-gradient(90deg, var(--c-border), transparent);
+}
+
+/* 用户气泡：顶部只提亮 4%，保留一点厚度但不形成明显的色带 */
+.ui-bubble-user {
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--c-bubble-user) 96%, #ffffff),
+    var(--c-bubble-user)
+  );
+}
+
+/* 页头图标：统一的小方块底座 */
+.ui-header-icon {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: var(--c-radius-md);
+  background: var(--c-accent-soft);
+  color: var(--c-accent);
+  box-shadow: inset 0 1px 0 var(--c-bevel-highlight, transparent);
+}
+
+/* 右侧工作区停靠栏：跟随纸面的内缩，让三栏在视觉上共处一张桌面。
+ * 窄窗口下工作区变为覆盖层，此时取消内缩以铺满。 */
+.ui-workspace-dock {
+  margin-block: var(--c-page-inset, 0);
+  margin-inline-end: var(--c-page-inset, 0);
+}
+@media (max-width: 1180px) {
+  .ui-workspace-dock {
+    margin: 0;
+  }
+}
+
+/* ============================================================================
+ * 入口（新会话空态）
+ *
+ * 入口是整套界面唯一允许「大声说话」的地方：
+ * 一处弥散光、一层极轻噪点、一次入场编排，其余区域保持安静。
+ * 全部由可选 token 驱动，经典皮肤未声明时等同于不启用。
+ * ============================================================================ */
+.ui-entrance {
+  isolation: isolate;
+}
+
+/* 噪点：消除大面积纯色的塑料感，强度由 --c-noise-opacity 控制 */
+.ui-entrance::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  opacity: var(--c-noise-opacity, 0);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+/* 顶部弥散光：只在入口出现，滚动离开即消失 */
+.ui-entrance-glow {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background: var(--c-entrance-glow, none);
+}
+
+/* 入场编排：一次性的上浮 + 淡入，索引决定先后 */
+.ui-entrance-stack > * {
+  animation: entrance-rise var(--c-motion-slow) var(--c-ease-standard) both;
+}
+.ui-entrance-stack > *:nth-child(1) {
+  animation-delay: 0ms;
+}
+.ui-entrance-stack > *:nth-child(2) {
+  animation-delay: 70ms;
+}
+.ui-entrance-stack > *:nth-child(3) {
+  animation-delay: 140ms;
+}
+.ui-entrance-stack > *:nth-child(4) {
+  animation-delay: 210ms;
+}
+.ui-entrance-stack > *:nth-child(5) {
+  animation-delay: 280ms;
+}
+.ui-entrance-stack > *:nth-child(6) {
+  animation-delay: 330ms;
+}
+
+@keyframes entrance-rise {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* 品牌标记：抬起的方形底座，承载 logo */
+.ui-brand-mark {
+  display: grid;
+  place-items: center;
+  width: 56px;
+  height: 56px;
+  border-radius: var(--c-radius-xl);
+  background: var(--c-card-gradient, var(--c-surface-3, var(--c-surface-2)));
+  box-shadow: var(--c-raised-shadow, var(--c-shadow-sm));
+}
+
+/* 品牌光谱细线：全站唯一的渐变元素，只出现在入口标题下 */
+.ui-spectral-rule {
+  width: 56px;
+  height: 1px;
+  border-radius: var(--c-radius-full);
+  background: var(--c-brand-gradient, var(--c-accent));
+  opacity: 0.9;
+}
+
+/* 起手式：细分隔线行，替代营销页式的胶囊标签 */
+.ui-starter {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 10px;
+  padding: 11px 8px;
+  border-top: 1px solid var(--c-border);
+  font-size: var(--c-font-size-body);
+  color: var(--c-text-secondary);
+  text-align: left;
+  transition: color var(--c-motion-fast) var(--c-ease-standard),
+    background var(--c-motion-fast) var(--c-ease-standard);
+}
+.ui-starter:hover {
+  color: var(--c-text);
+  background: var(--c-surface-hover);
+}
+.ui-starter-icon {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  border-radius: var(--c-radius-md);
+  background: var(--c-accent-soft);
+  color: var(--c-accent);
+  transition: color var(--c-motion-fast) var(--c-ease-standard),
+    background var(--c-motion-fast) var(--c-ease-standard);
+}
+.ui-starter:hover .ui-starter-icon {
+  background: var(--c-accent);
+  color: var(--c-accent-foreground);
+}
+
+/* 输入区：抬起的书写纸，聚焦时画一圈柔和光谱环 */
+.ui-composer {
+  background: var(--c-card-gradient, var(--c-input-bg));
+  box-shadow: var(--c-raised-shadow, var(--c-shadow-sm));
+  transition: border-color var(--c-motion-fast) var(--c-ease-standard),
+    box-shadow var(--c-motion-fast) var(--c-ease-standard);
+}
+.ui-composer:focus-within {
+  border-color: var(--c-input-border-focus);
+  box-shadow: var(--c-glow, 0 0 0 3px var(--c-accent-soft)),
+    var(--c-raised-shadow, var(--c-shadow-sm));
 }
 
 /* ============================================================================
@@ -801,11 +1211,11 @@ body {
  * ============================================================================ */
 .shimmer {
   /* 整句只由两种颜色构成：
-     1) 文字本体 —— 纯白；
+     1) 文字本体 —— 正文色（深色皮肤近似纯白，浅色皮肤自动转深）；
      2) 流光 —— 一种亮蓝（直接取强调色，不再压暗）。
-     渐变用 oklab 插值：白与蓝在中间过渡时不会经过发闷的脏色，
+     渐变用 oklab 插值：正文色与强调色在中间过渡时不会经过发闷的脏色，
      蓝色像「经过」文字，而不是贴上去的一条色带。 */
-  --shimmer-text: #ffffff;
+  --shimmer-text: var(--c-text);
   --shimmer-color: var(--c-accent);
   background-image: linear-gradient(
     90deg in oklab,
@@ -824,11 +1234,6 @@ body {
   -webkit-background-clip: text;
   background-clip: text;
   -webkit-text-fill-color: transparent;
-}
-
-/* 白底主题下纯白文字会看不见，回退为正文色；夜色主题保持纯白 */
-[data-theme="classic-day"] .shimmer {
-  --shimmer-text: var(--c-text);
 }
 
 /* 「正在工作」文案：略快于默认循环，但仍是平缓的匀速划过（约 2.6s / 周期） */

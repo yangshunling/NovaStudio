@@ -116,7 +116,7 @@ export function Modal({
         aria-label={ariaLabel}
         aria-labelledby={ariaLabel ? undefined : titleId ?? undefined}
         tabIndex={-1}
-        className={`ui-glass-strong ui-ring relative flex max-h-[calc(100vh-48px)] flex-col overflow-y-auto rounded-2xl shadow-[var(--c-shadow)] outline-none ${widthClass} ${className}`}
+        className={`ui-panel-material ui-ring relative flex max-h-[calc(100vh-48px)] flex-col overflow-y-auto rounded-2xl outline-none ${widthClass} ${className}`}
         style={size}
         onClick={(e) => e.stopPropagation()}
       >

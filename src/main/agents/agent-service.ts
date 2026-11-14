@@ -14,6 +14,7 @@ import { existsSync } from "fs";
 import { randomUUID } from "crypto";
 import type {
   AgentEvent,
+  DisplayReference,
   InputImage,
   Message,
   Session,
@@ -62,6 +63,13 @@ function resolveTimeoutMs(): number {
 export interface RunParams {
   sessionId: string;
   prompt: string;
+  /**
+   * 聊天里展示的正文；缺省等于 prompt。
+   * 引用说明只存在于 prompt 中，不写进用户可见的历史。
+   */
+  displayPrompt?: string;
+  /** 引用标签：只落库供界面渲染成块，不送给 Agent */
+  displayReferences?: DisplayReference[];
   /** 随本轮消息发送的图片；落库与送入 CLI 使用同一份数据 */
   images?: InputImage[];
   /**
@@ -566,11 +574,22 @@ export function createAgentService(
         };
       }
 
-      // 持久化用户消息：在运行前落库，确保即使运行失败也能看到原始指令
+      /*
+       * 持久化用户消息：在运行前落库，确保即使运行失败也能看到原始指令。
+       *
+       * 落库内容与送入 CLI 的 prompt 分开：正文用 displayPrompt（缺省回退
+       * 到 prompt），引用说明单独存成 reference 事件，界面渲染成块状引用，
+       * 不再把「请读取…@path」这类长指令原样展示给用户。
+       */
+      const visiblePrompt =
+        params.displayPrompt !== undefined ? params.displayPrompt : prompt;
       const userMsg: Message = {
         id: randomUUID(),
         role: "user",
         content: [
+          ...(params.displayReferences ?? []).map(
+            (reference): AgentEvent => ({ type: "reference", ...reference }),
+          ),
           ...(images ?? []).map(
             (image): AgentEvent => ({
               type: "image",
@@ -578,7 +597,9 @@ export function createAgentService(
               data: image.data,
             }),
           ),
-          ...(prompt ? [{ type: "text" as const, content: prompt }] : []),
+          ...(visiblePrompt
+            ? [{ type: "text" as const, content: visiblePrompt }]
+            : []),
         ],
         timestamp: Date.now(),
       };
