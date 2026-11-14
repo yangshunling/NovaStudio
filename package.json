@@ -1,6 +1,6 @@
 {
   "name": "nova",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Nova — AI 智能体 CLI 的桌面 GUI 客户端",
   "type": "module",
   "main": "out/main/index.js",
@@ -15,7 +15,8 @@
     "test": "node --test tests/agent-events.test.ts tests/parse.test.ts tests/history.test.ts tests/image-input.test.ts tests/permission-prompt.test.ts tests/protocol.test.ts tests/trigger-schedule.test.ts tests/graph.test.ts tests/mcp.test.ts tests/execution-report.test.ts tests/batch.test.ts tests/upgrade.test.ts tests/models.test.ts tests/markdown-blocks.test.ts tests/report.test.ts",
     "package": "electron-vite build && electron-builder",
     "package:win": "electron-vite build && electron-builder --win",
-    "package:win:publish": "electron-vite build && electron-builder --win --publish always"
+    "package:win:publish": "electron-vite build && electron-builder --win --publish always && node scripts/publish-release-notes.mjs",
+    "release:notes": "node scripts/publish-release-notes.mjs"
   },
   "dependencies": {
     "@assistant-ui/react": "^0.15.26",
