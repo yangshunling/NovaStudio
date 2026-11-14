@@ -123,28 +123,45 @@ if (dryRun) {
 }
 
 const { token, source } = resolveToken();
-const url = `https://api.github.com/repos/${owner}/${repo}/releases/tags/${encodeURIComponent(tag)}`;
+const headers = {
+  Authorization: `Bearer ${token}`,
+  Accept: "application/vnd.github+json",
+  "X-GitHub-Api-Version": "2022-11-28",
+  "User-Agent": "nova-release-notes",
+};
+const apiRoot = `https://api.github.com/repos/${owner}/${repo}`;
+
+/**
+ * GitHub 没有「按 tag PATCH」的接口：先用 tags/{tag} 取 release id，
+ * 再按 id 更新。直接 PATCH tags/{tag} 会一律返回 404。
+ */
+let found;
+try {
+  found = await fetch(`${apiRoot}/releases/tags/${encodeURIComponent(tag)}`, { headers });
+} catch (error) {
+  fail(`请求 GitHub 失败：${error.message}（token 来源：${source}）`);
+}
+
+if (found.status === 404) {
+  fail(`GitHub 上还没有 ${tag} 的 Release。请先运行 npm run package:win:publish 上传安装包，或手动创建该 Release`);
+}
+if (!found.ok) {
+  const text = await found.text().catch(() => "");
+  fail(`读取 Release 失败：HTTP ${found.status} ${text.slice(0, 300)}`);
+}
+const current = await found.json();
 
 let response;
 try {
-  response = await fetch(url, {
+  response = await fetch(`${apiRoot}/releases/${current.id}`, {
     method: "PATCH",
-    headers: {
-      Authorization: `Bearer ${token}`,
-      Accept: "application/vnd.github+json",
-      "X-GitHub-Api-Version": "2022-11-28",
-      "User-Agent": "nova-release-notes",
-      "Content-Type": "application/json; charset=utf-8",
-    },
+    headers: { ...headers, "Content-Type": "application/json; charset=utf-8" },
     body: JSON.stringify({ name, body }),
   });
 } catch (error) {
   fail(`请求 GitHub 失败：${error.message}（token 来源：${source}）`);
 }
 
-if (response.status === 404) {
-  fail(`GitHub 上还没有 ${tag} 的 Release。请先运行 npm run package:win:publish 上传安装包，或手动创建该 Release`);
-}
 if (!response.ok) {
   const text = await response.text().catch(() => "");
   fail(`更新 Release 说明失败：HTTP ${response.status} ${text.slice(0, 300)}`);
