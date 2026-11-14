@@ -60,6 +60,8 @@ claude -p --resume <session_id> \
 | `--mcp-config` / `--strict-mcp-config` | 员工 MCP 投影 | 隔离全局 MCP |
 | `--system-prompt-snapshot off` | 每轮重新渲染系统提示词 | 切换员工时提示词必须跟着变 |
 
+> 全部 CLI 参数（含子命令与未文档化参数）的完整清单见《27 Claude Code CLI 参数参考》。
+
 ### 2.4 不传的参数
 
 - **`--model` 仅在会话显式选择模型时传**：未选择时不传，模型由 `~/.claude/settings.json` 的 `ANTHROPIC_MODEL` / 别名决定。

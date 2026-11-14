@@ -24,11 +24,7 @@ import {
   denyPendingPermissions,
   hasActiveBackgroundWork,
   initIpcHandlers,
-  stopAgents,
-  stopAutomation,
   stopTerminals,
-  stopTriggers,
-  stopWorkflows,
 } from "./ipc";
 import { initDatabase, closeDatabase, getSetting } from "./db/sqlite";
 import { closeAllWorkspaceWatchers } from "./files/watcher";
@@ -37,6 +33,10 @@ import { migrateLegacyAssets } from "./migration/legacy-assets";
 import { syncKnowledgeIndex } from "./knowledge/catalog";
 import { initUpdater } from "./updater";
 import { purgeStaleTempDirs } from "./utils/fs";
+import { logLifecycle } from "./utils/lifecycle-log";
+import { appLifecycle } from "./lifecycle";
+import { installWindowCloseGuard } from "./lifecycle/unsaved";
+import { installQuitHandler } from "./lifecycle/quit";
 import { errorMessage } from "../shared/error";
 import { DEFAULT_WINDOW_BACKGROUND } from "../shared/skin-default";
 import {
@@ -62,13 +62,6 @@ protocol.registerSchemesAsPrivileged([
 ]);
 
 let mainWindow: BrowserWindow | null = null;
-/** 退出清理只执行一次：before-quit 与 will-quit 都可能被触发 */
-let backgroundStopped = false;
-let databaseClosed = false;
-/** 异步退出流程是否已经启动：防止 before-quit 重入时重复等待 */
-let quitting = false;
-/** 清理是否完成；完成前所有 before-quit 都必须继续阻止退出 */
-let cleanupFinished = false;
 /** 知识库外部变更的后台索引同步（搜索路径不再扫盘） */
 let knowledgeSyncTimer: NodeJS.Timeout | null = null;
 
@@ -177,6 +170,24 @@ function createWindow(): BrowserWindow {
 
   mainWindow = win;
 
+  /*
+   * 未保存改动的关窗确认：渲染层只登记「哪里没保存」，主进程负责询问与决定。
+   * 详见 lifecycle/unsaved.ts 的设计约束。
+   */
+  installWindowCloseGuard(win);
+
+  /*
+   * 不变量：渲染层的 beforeunload **不得**否决关窗。
+   *
+   * Electron 对 beforeunload 的处理是静默取消关闭（不弹框、不报错），
+   * 这正是本缺陷的成因。业务侧已不再依赖 beforeunload；这里作为兜底，
+   * 忽略任何第三方/遗留监听，保证窗口永远关得掉。
+   */
+  win.webContents.on("will-prevent-unload", (event) => {
+    logLifecycle("忽略渲染层 beforeunload 拦截（正常不应出现）");
+    event.preventDefault();
+  });
+
   win.on("ready-to-show", () => {
     win.show();
   });
@@ -224,6 +235,9 @@ function createWindow(): BrowserWindow {
    * 窗口关闭 / 渲染进程崩溃时统一回收，避免 powershell.exe 越积越多。
    */
   win.on("closed", () => {
+    // 必须置空：否则退出清理期间再启动应用，second-instance 会拿到
+    // 已销毁的窗口并调用 isMinimized()，抛异常后无法再开窗
+    if (mainWindow === win) mainWindow = null;
     clearInterval(throttleTimer);
     stopTerminals();
     denyPendingPermissions();
@@ -307,33 +321,33 @@ async function bootstrap(): Promise<void> {
     });
   }, 5 * 60 * 1000);
   knowledgeSyncTimer.unref?.();
-}
 
-/**
- * 退出前中断所有后台任务（不关闭数据库，避免收尾写入失败）。
- *
- * 必须先 abort（同步）再 await Agent 收尾：运行中的会话在 abort 之后还会
- * 写 messages / 更新会话引用，只有这些完成才能关库。
- */
-async function stopBackgroundTasks(): Promise<void> {
-  if (backgroundStopped) return;
-  backgroundStopped = true;
-  if (knowledgeSyncTimer) {
-    clearInterval(knowledgeSyncTimer);
-    knowledgeSyncTimer = null;
-  }
-  stopAutomation();
-  stopTriggers();
-  stopWorkflows();
-  stopTerminals();
-  closeAllWorkspaceWatchers();
-  await stopAgents();
-}
+  /*
+   * 退出步骤：本文件拥有的资源就地登记；IPC 层创建的资源在 initIpcHandlers
+   * 里登记。顺序由 order 决定，关库必须是最后一步。
+   */
+  appLifecycle.register({
+    name: "knowledge-index",
+    order: 10,
+    run: () => {
+      if (!knowledgeSyncTimer) return;
+      clearInterval(knowledgeSyncTimer);
+      knowledgeSyncTimer = null;
+    },
+  });
+  appLifecycle.register({
+    name: "workspace-watchers",
+    order: 60,
+    run: closeAllWorkspaceWatchers,
+  });
+  appLifecycle.register({
+    name: "database",
+    order: 100,
+    timeoutMs: 5_000,
+    run: closeDatabase,
+  });
 
-function closeDatabaseOnce(): void {
-  if (databaseClosed) return;
-  databaseClosed = true;
-  closeDatabase();
+  appLifecycle.markReady();
 }
 
 /** 只允许单实例：多实例会互相把对方的运行记录标记为“已中断” */
@@ -341,9 +355,24 @@ if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
   app.on("second-instance", () => {
-    const win = BrowserWindow.getAllWindows()[0] ?? mainWindow;
-    if (!win) return;
+    // 已经在退出或还没启动完：不要建窗，前者会打断退出，后者会绕过 IPC 初始化
+    if (!appLifecycle.isReady()) return;
+
+    const existing = BrowserWindow.getAllWindows()[0];
+    const win =
+      existing ?? (mainWindow && !mainWindow.isDestroyed() ? mainWindow : null);
+
+    if (!win) {
+      // 旧窗口已销毁但进程仍在（退出清理中）：重新开窗，而不是对
+      // destroyed 窗口调 isMinimized() 直接抛异常
+      logLifecycle("second-instance：没有存活窗口，重新创建");
+      const recreated = createWindow();
+      attachMainWindow(recreated);
+      return;
+    }
+
     if (win.isMinimized()) win.restore();
+    win.show();
     win.focus();
   });
 
@@ -370,22 +399,6 @@ if (!app.requestSingleInstanceLock()) {
     if (process.platform !== "darwin") app.quit();
   });
 
-  /*
-   * 退出要等运行收尾：before-quit 默认是同步的，直接关库会丢掉最后
-   * 一条 assistant 消息。这里先阻止默认退出，完成清理后再重新 quit。
-   * 清理完成前（包括用户重复点退出）始终 preventDefault，避免第二次
-   * 直接走到 will-quit 关库。
-   */
-  app.on("before-quit", (event) => {
-    if (cleanupFinished) return;
-    // 清理完成前反复点退出也必须继续阻止：否则第二次会直接走到关库
-    event.preventDefault();
-    if (quitting) return;
-    quitting = true;
-    void stopBackgroundTasks().finally(() => {
-      cleanupFinished = true;
-      app.quit();
-    });
-  });
-  app.on("will-quit", closeDatabaseOnce);
+  // 退出编排全部在 lifecycle/quit：确认未保存 → 按注册顺序清理 → 关库 → 退出
+  installQuitHandler();
 }

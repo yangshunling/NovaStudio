@@ -48,6 +48,8 @@ import { toast } from "../../stores/toast";
 import { confirmDialog } from "../../stores/confirm";
 import { EmployeeAvatar } from "../employees/EmployeeAvatar";
 import { DEFAULT_ASSISTANT } from "../../lib/employee-switch";
+import { useUnsavedGuard } from "../../lib/unsaved-guard";
+import claudeAvatarUrl from "../../assets/claude.png";
 import { Button } from "../ui/Button";
 import { Page } from "../ui/Page";
 import { Select } from "../ui/Select";
@@ -539,6 +541,18 @@ export function WorkflowEditor({
     }
   }, [persist, onDraftSaved]);
 
+  /*
+   * 关窗保护：只登记，不拦截。
+   * 是否真的退出由主进程弹原生确认框决定（见 main/lifecycle/unsaved.ts），
+   * 渲染层不再注册 beforeunload —— 那会被 Electron 静默吞掉。
+   */
+  useUnsavedGuard({
+    id: `workflow:${workflow.id}`,
+    label: `工作流「${name.trim() || "未命名工作流"}」`,
+    dirty,
+    save: async () => Boolean(await persist()),
+  });
+
   /** 重新进入编辑器时，如果该工作流还有活跃调试，直接把状态接回来 */
   useEffect(() => {
     let alive = true;
@@ -770,17 +784,6 @@ export function WorkflowEditor({
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [save, undo, redo]);
-
-  // 有未保存改动时拦截窗口关闭，避免直接丢画布
-  useEffect(() => {
-    if (!dirty) return;
-    const onBeforeUnload = (event: BeforeUnloadEvent) => {
-      event.preventDefault();
-      event.returnValue = "";
-    };
-    window.addEventListener("beforeunload", onBeforeUnload);
-    return () => window.removeEventListener("beforeunload", onBeforeUnload);
-  }, [dirty]);
 
   return (
     <Page>
@@ -1201,11 +1204,22 @@ function NodeInspector({
                   value: "",
                   label: DEFAULT_ASSISTANT.name,
                   description: DEFAULT_ASSISTANT.detail,
+                  icon: (
+                    <img
+                      src={claudeAvatarUrl}
+                      alt=""
+                      width={18}
+                      height={18}
+                      draggable={false}
+                      className="rounded-full object-cover"
+                    />
+                  ),
                 },
                 ...employees.map((item) => ({
                   value: item.id,
                   label: item.name,
                   description: item.role || (item.enabled ? "数字员工" : "已停用"),
+                  icon: <EmployeeAvatar employee={item} size={18} />,
                 })),
               ]}
             />

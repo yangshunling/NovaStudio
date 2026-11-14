@@ -44,6 +44,9 @@ import { registerPromptHandlers } from "./handlers/prompt";
 import { registerGitHandlers } from "./handlers/git";
 import { registerUpdaterHandlers } from "./handlers/updater";
 import { registerAppHandlers } from "./handlers/app";
+import { registerUnsavedHandlers } from "./handlers/unsaved";
+import { appLifecycle } from "../lifecycle";
+import { shutdownUpgradeCommands } from "../agents/claude/upgrade";
 
 /** 自动化轮询器实例；由本层（装配层）持有其生命周期 */
 let scheduler: AutomationScheduler | null = null;
@@ -151,6 +154,7 @@ export function initIpcHandlers(window: BrowserWindow): void {
   registerGitHandlers();
   registerUpdaterHandlers();
   registerAppHandlers();
+  registerUnsavedHandlers();
 
   // 调度器先于 handler 创建：停止任务的 handler 需要拿到调度器实例
   scheduler = createScheduler(service, { emit: push, flushEvents });
@@ -163,6 +167,27 @@ export function initIpcHandlers(window: BrowserWindow): void {
     emit: (trigger) => push("triggers:updated", trigger),
   });
   triggerScheduler.start();
+
+  /*
+   * 退出清理：在本层创建的资源就地登记，退出主流程不再逐个硬编码。
+   * order 决定顺序 —— 先停调度与触发器，再中断运行、回收终端，
+   * 最后等 Agent 收尾落库（它可能写 messages / 更新会话引用）。
+   */
+  appLifecycle.register({ name: "automation", order: 20, run: stopAutomation });
+  appLifecycle.register({ name: "triggers", order: 30, run: stopTriggers });
+  appLifecycle.register({ name: "workflows", order: 40, run: stopWorkflows });
+  appLifecycle.register({ name: "terminals", order: 50, run: stopTerminals });
+  appLifecycle.register({
+    name: "agent-install",
+    order: 70,
+    run: shutdownUpgradeCommands,
+  });
+  appLifecycle.register({
+    name: "agents",
+    order: 80,
+    timeoutMs: 10_000,
+    run: stopAgents,
+  });
 }
 
 /** 是否仍有需要保持全速运行的后台工作（聊天 / 自动化 / 工作流） */

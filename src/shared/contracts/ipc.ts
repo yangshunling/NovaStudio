@@ -88,6 +88,20 @@ import type {
  */
 export const EMPLOYEE_SESSION_IN_USE = "会话仍在使用该员工";
 
+/**
+ * 渲染层登记的一条「未保存改动」。
+ *
+ * 主进程在关窗 / 退出前询问一次；只有登记表非空时才弹确认框。
+ * label 用于告诉用户丢的是哪一份内容，canSave 决定是否给出「保存并退出」。
+ */
+export interface UnsavedEntry {
+  id: string;
+  /** 展示用名称，例如「工作流「客户回访」」 */
+  label: string;
+  /** 是否提供了保存回调（决定退出确认框里有没有「保存并退出」） */
+  canSave: boolean;
+}
+
 /** agent:send 的返回：显式区分成功与业务失败 */
 export type SendAgentResult =
   /**
@@ -406,6 +420,23 @@ export interface IpcInvokeMap {
   /** 应用与运行环境信息（关于页） */
   "app:info": { args: []; result: AppInfo };
 
+  /*
+   * 未保存改动协议（主进程询问 → 渲染层应答）
+   *
+   * 关闭窗口 / 退出应用的**决定权只在主进程**：渲染层只登记「哪里还有
+   * 未保存内容」，不再用 beforeunload 否决关闭 —— Electron 对
+   * beforeunload 的处理是静默取消窗口关闭，用户看不到任何提示。
+   */
+  "app:unsaved:answer": {
+    args: [{ requestId: string; entries: UnsavedEntry[] }];
+    result: boolean;
+  };
+  /** 「保存并退出」的保存结果；失败时主进程保留窗口 */
+  "app:unsaved:saveResult": {
+    args: [{ requestId: string; ok: boolean; error: string | null }];
+    result: boolean;
+  };
+
   /** 应用更新：查询当前状态 / 主动检查 / 下载 / 重启安装 */
   "updater:state": { args: []; result: UpdaterState };
   "updater:check": { args: []; result: UpdaterState };
@@ -687,6 +718,10 @@ export interface IpcInvokeMap {
 
 /** 主进程 → 渲染进程（push）通道表。事件均带 sessionId，供多会话并发路由。 */
 export interface IpcPushMap {
+  /** 关窗 / 退出前询问渲染层：有没有未保存改动（按 requestId 应答） */
+  "app:unsaved:query": { requestId: string };
+  /** 请求渲染层保存全部未保存改动（退出确认选择「保存并退出」时） */
+  "app:unsaved:saveAll": { requestId: string };
   "agent:event": { sessionId: string; event: AgentEvent };
   "agent:done": { sessionId: string; exitCode: number; duration: number };
   /**

@@ -234,6 +234,10 @@ npm run package:win   # 打包 Windows 安装包到 release/
 - [测试与质量保障](docs/23-测试与质量保障.md)
 - [复刻实施指南](docs/24-复刻实施指南.md)
 
+**参考手册**
+
+- [Claude Code CLI 参数参考](docs/27-Claude-Code-CLI参数参考.md)
+
 </details>
 
 <details open>

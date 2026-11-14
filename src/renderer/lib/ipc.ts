@@ -12,6 +12,7 @@ import type {
   IpcPushMap,
   IpcResult,
   SendAgentResult,
+  UnsavedEntry,
 } from "@shared/contracts/ipc";
 import type { AgentAuthMode, AgentSettingsDraft } from "@shared/contracts/agent";
 import type { WeeklyReportOptions } from "@shared/report";
@@ -362,6 +363,15 @@ export const ipc = {
   exportReport: (content: string, defaultName: string) =>
     call("report:export", { content, defaultName }),
 
+  // === 未保存改动（关窗 / 退出确认） ===
+  answerUnsavedQuery: (payload: { requestId: string; entries: UnsavedEntry[] }) =>
+    call("app:unsaved:answer", payload),
+  reportUnsavedSave: (payload: {
+    requestId: string;
+    ok: boolean;
+    error: string | null;
+  }) => call("app:unsaved:saveResult", payload),
+
   // === 常用提示词 ===
   listPrompts: () => call("prompts:list"),
   createPrompt: (draft: PromptDraft) => call("prompts:create", { draft }),
@@ -371,6 +381,11 @@ export const ipc = {
 
   // === 主进程推送订阅（返回取消订阅函数） ===
   on: {
+    unsavedQuery: (cb: (payload: IpcPushMap["app:unsaved:query"]) => void) =>
+      on("app:unsaved:query", cb),
+    unsavedSaveAll: (
+      cb: (payload: IpcPushMap["app:unsaved:saveAll"]) => void,
+    ) => on("app:unsaved:saveAll", cb),
     agentEvent: (cb: (payload: IpcPushMap["agent:event"]) => void) =>
       on("agent:event", cb),
     agentDone: (cb: (payload: IpcPushMap["agent:done"]) => void) => on("agent:done", cb),
