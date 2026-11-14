@@ -198,7 +198,7 @@ export function listWorkflowSessionIdsWithCliRef(): string[] {
 export function listSessionsByEmployee(employeeId: string): Session[] {
   const rows = getDb()
     .prepare(
-      "SELECT * FROM sessions WHERE employee_id = ? AND source <> 'workflow' ORDER BY updated_at DESC",
+      "SELECT * FROM sessions WHERE employee_id = ? AND source = 'chat' ORDER BY updated_at DESC",
     )
     .all(employeeId) as any[];
   return rows.map(rowToSession);
@@ -443,14 +443,14 @@ function rowToSession(row: any): Session {
 
 /**
  * 获取聊天会话列表（按更新时间倒序）。
- * 工作流节点会话只服务于运行详情，不应出现在项目会话树里。
+ * 工作流 / 自动化会话只服务于各自的运行详情，不应出现在会话列表里。
  */
 export function listSessions(): Session[] {
   const rows = getDb()
     .prepare(
       // source 列是 NOT NULL DEFAULT 'chat'，不需要 COALESCE；
       // 包一层函数会让部分索引 idx_sessions_chat_updated 失效。
-      "SELECT * FROM sessions WHERE source <> 'workflow' ORDER BY updated_at DESC",
+      "SELECT * FROM sessions WHERE source = 'chat' ORDER BY updated_at DESC",
     )
     .all() as any[];
   return rows.map(rowToSession);

@@ -282,9 +282,17 @@ function SkillDrawer({
   const [document, setDocument] = useState<SkillFileDocument | null>(null);
   const [content, setContent] = useState("");
   const [loadingFile, setLoadingFile] = useState(false);
+  const [fileError, setFileError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   /** 切换文件时保留未保存的编辑，避免一次误点丢掉内容 */
   const draftsRef = useRef<Record<string, string>>({});
+  /**
+   * 每个已加载文件的磁盘基线。
+   *
+   * 关闭抽屉时不能只看当前活动文件的 dirty：用户可能在 A 里改了内容、
+   * 切到未修改的 B 再关闭。这里用基线判断「是否存在任意未保存草稿」。
+   */
+  const savedRef = useRef<Record<string, string>>({});
 
   // 技能目录 → 文件列表；默认展开全部目录并选中 SKILL.md
   useEffect(() => {
@@ -295,7 +303,9 @@ function SkillDrawer({
     setActivePath(null);
     setDocument(null);
     setContent("");
+    setFileError(null);
     draftsRef.current = {};
+    savedRef.current = {};
 
     ipc
       .listSkillFiles(skill.id)
@@ -353,6 +363,7 @@ function SkillDrawer({
     let cancelled = false;
     setLoadingFile(true);
     setDocument(null);
+    setFileError(null);
     ipc
       .readSkillFile(skill.id, activePath)
       .then((doc) => {
@@ -360,13 +371,18 @@ function SkillDrawer({
         const normalized = doc
           ? { ...doc, content: normalizeNewlines(doc.content) }
           : null;
+        if (normalized) {
+          savedRef.current[activePath] = normalized.content;
+        }
         setDocument(normalized);
         setContent(
           draftsRef.current[activePath] ?? normalized?.content ?? "",
         );
       })
-      .catch(() => {
-        if (!cancelled) setDocument(null);
+      .catch((err) => {
+        if (cancelled) return;
+        setDocument(null);
+        setFileError(toMessage(err));
       })
       .finally(() => {
         if (!cancelled) setLoadingFile(false);
@@ -394,19 +410,28 @@ function SkillDrawer({
 
   const handleSave = async () => {
     if (saving || !document || !activePath || !canEdit) return;
+    const path = activePath;
+    /** 保存期间用户可能继续输入：以发起时的内容为准，新输入保留为草稿 */
+    const snapshot = content;
     setSaving(true);
     try {
-      const result = await ipc.writeSkillFile(
-        skill.id,
-        activePath,
-        content,
-      );
+      const result = await ipc.writeSkillFile(skill.id, path, snapshot);
       if (!result.ok) {
         toast.error(result.error, 5000);
         return;
       }
-      setDocument({ ...document, content });
-      toast.success(`${activePath} 已保存`);
+
+      savedRef.current[path] = snapshot;
+      // 保存期间没有新输入才清掉草稿；否则保留，让 dirty 继续为真
+      if (draftsRef.current[path] === snapshot) {
+        delete draftsRef.current[path];
+      }
+      setDocument((current) =>
+        current && current.relativePath === path
+          ? { ...current, content: snapshot }
+          : current,
+      );
+      toast.success(`${path} 已保存`);
       await onChanged();
     } catch (err) {
       toast.error(toMessage(err));
@@ -440,15 +465,34 @@ function SkillDrawer({
     }
   };
 
-  /** 文件有未保存修改时，遮罩与 Esc 需要确认 */
+  /**
+   * 关闭前检查全部文件的草稿，而不是只看当前活动文件。
+   * 用户可能在 A 里修改后切到未修改的 B 再关闭，此时闭包里的 dirty 为 false。
+   */
   const requestClose = async () => {
-    if (!dirty) {
+    if (saving) {
+      toast.info("正在保存，请稍候", 3000);
+      return;
+    }
+
+    const dirtyPaths = Object.keys(draftsRef.current).filter((path) => {
+      const baseline = savedRef.current[path];
+      // 没有基线（读取失败/未加载）时保守视为脏
+      if (baseline === undefined) return true;
+      return !isSameText(draftsRef.current[path], baseline);
+    });
+
+    if (dirtyPaths.length === 0) {
       onClose();
       return;
     }
+
     const confirmed = await confirmDialog({
       title: "放弃未保存的修改？",
-      message: "当前技能文件尚未保存。",
+      message:
+        dirtyPaths.length === 1
+          ? `文件「${dirtyPaths[0]}」尚未保存。`
+          : `有 ${dirtyPaths.length} 个文件尚未保存。`,
       confirmLabel: "放弃修改",
       tone: "danger",
     });
@@ -630,8 +674,13 @@ function SkillDrawer({
                   />
                 </>
               ) : (
-                <div className="flex flex-1 items-center justify-center rounded-lg border border-border bg-surface-2/40 p-4 ui-type-body text-text-muted">
-                  读取不到该文件。目录可能已被移动或删除，请返回列表重新扫描。
+                <div className="flex flex-1 flex-col items-center justify-center gap-1 rounded-lg border border-border bg-surface-2/40 p-4 text-center ui-type-body text-text-muted">
+                  <span>读取不到该文件。目录可能已被移动或删除，请返回列表重新扫描。</span>
+                  {fileError && (
+                    <span className="max-w-full break-words ui-type-sub text-error">
+                      {fileError}
+                    </span>
+                  )}
                 </div>
               )}
             </div>

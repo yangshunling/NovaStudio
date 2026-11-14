@@ -35,6 +35,7 @@ import type {
   PermissionRespondResult,
 } from "../../shared/permission-prompt";
 import * as db from "../db/sqlite";
+import { externalizeImageEvents } from "../attachments/store";
 import { errorMessage } from "../../shared/error";
 
 /** 事件发射器，由 IPC 层注入（负责批量聚合与窗口推送） */
@@ -111,6 +112,13 @@ export interface RunParams {
   onUserMessage?: (messageId: string) => void;
   /** 子进程启动前拿到精确调用信息（运行产物审计用） */
   onInvocation?: (info: AgentInvocationInfo) => void;
+  /**
+   * 宿主在启动前询问是否已取消。
+   *
+   * 用于覆盖「运行时准备」阶段的停止请求：此时还没有 RunSession 可中断，
+   * 由调用方（聊天入口）维护取消标记，这里在落用户消息前最后一刻检查。
+   */
+  shouldCancel?: () => boolean;
 }
 
 export interface RunOutcome {
@@ -119,6 +127,11 @@ export interface RunOutcome {
   duration: number;
   /** 被用户中断：不记为完成，也不推送 done */
   aborted: boolean;
+  /**
+   * 启动前被取消：没有落用户消息、没有拉起进程。
+   * 调用方应回滚会话计数并推送 aborted，而不是当作失败。
+   */
+  canceled?: boolean;
   error?: string;
   /** 本轮落库的用户消息 id；会话不存在等早期失败时为空 */
   userMessageId?: string;
@@ -525,7 +538,31 @@ export function createAgentService(
         session.agentSessionId
       ) {
         const history = await readHistoryCached(session);
-        if (history.length > 0) db.importSessionMessages(sessionId, history);
+        if (history.length > 0) {
+          // CLI 回放里可能带 base64 图片：导入前同样转成附件 ref
+          const persisted = await Promise.all(
+            history.map(async (message) => ({
+              ...message,
+              content: await externalizeImageEvents(sessionId, message.content),
+            })),
+          );
+          db.importSessionMessages(sessionId, persisted);
+        }
+      }
+
+      /*
+       * 历史导入是启动前最后一个 await：用户可能在这段时间点了停止。
+       * 从这里到 provider.start 之间全是同步代码，所以只需要在这里检查一次。
+       * 尚未落用户消息，取消是干净的无副作用退出。
+       */
+      if (params.shouldCancel?.()) {
+        return {
+          ok: true,
+          exitCode: -1,
+          duration: 0,
+          aborted: true,
+          canceled: true,
+        };
       }
 
       // 持久化用户消息：在运行前落库，确保即使运行失败也能看到原始指令
@@ -544,7 +581,19 @@ export function createAgentService(
         ],
         timestamp: Date.now(),
       };
-      db.saveSessionMessage(sessionId, userMsg);
+      /*
+       * 图片落盘后再落库：DB 只保存 ref，避免把几 MB 的 base64 写进
+       * messages 行、并在每次打开会话时重复经 IPC 搬运。
+       * 单张落盘失败时保留 base64，消息完整性优先。
+       */
+      const persistedUserContent = await externalizeImageEvents(
+        sessionId,
+        userMsg.content,
+      );
+      db.saveSessionMessage(sessionId, {
+        ...userMsg,
+        content: persistedUserContent,
+      });
       const userMessageId = userMsg.id;
       params.onUserMessage?.(userMessageId);
 
@@ -704,10 +753,15 @@ export function createAgentService(
         let assistantMessageId: string | null = null;
         if (assistantContent.length > 0) {
           assistantMessageId = randomUUID();
+          // 工具输出图片同样落盘，DB 只留 ref
+          const persistedContent = await externalizeImageEvents(
+            sessionId,
+            assistantContent,
+          );
           await db.saveSessionMessageAsync(sessionId, {
             id: assistantMessageId,
             role: "assistant",
-            content: assistantContent,
+            content: persistedContent,
             timestamp: Date.now(),
             employeeId: params.employeeId ?? null,
           });

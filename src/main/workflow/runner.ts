@@ -19,6 +19,7 @@ import { join } from "path";
 import { clamp } from "../../shared/math";
 import { HEADLESS_PERMISSION_MODE } from "../../shared/permission";
 import { getProvider, listProviders } from "../agents/registry";
+import { BASE_CHAT_NAME } from "../agents/chat-identity";
 import type { AgentInvocationInfo, PreparedAgentRun } from "../agents/types";
 import type { AgentService, RunOutcome } from "../agents/agent-service";
 import * as db from "../db/sqlite";
@@ -411,9 +412,12 @@ export function createWorkflowRunner(deps: WorkflowRunnerDeps): WorkflowRunner {
       db.updateWorkflowRun(runId, { startedAt: now });
 
       for (const node of validated.order) {
-        const employee = employees.get(node.config.employeeId ?? "");
-        if (!employee) {
-          throw new Error(`节点「${node.name}」绑定的数字员工已不存在`);
+        // employeeId 为空表示通用助手：节点运行记录不绑定员工
+        const employee = node.config.employeeId
+          ? employees.get(node.config.employeeId)
+          : undefined;
+        if (node.config.employeeId && !employee) {
+          throw new Error(`节点「${node.name}」选择的数字员工已不存在`);
         }
         db.createWorkflowNodeRun({
           id: randomUUID(),
@@ -421,8 +425,8 @@ export function createWorkflowRunner(deps: WorkflowRunnerDeps): WorkflowRunner {
           nodeId: node.id,
           nodeName: node.name,
           nodeType: node.type,
-          employeeId: employee.id,
-          employeeName: employee.name,
+          employeeId: employee?.id ?? null,
+          employeeName: employee?.name ?? null,
           agentId: resolveAgentId(),
           status: "pending",
           attempt: 1,
@@ -910,8 +914,13 @@ export function createWorkflowRunner(deps: WorkflowRunnerDeps): WorkflowRunner {
     active: ActiveRun,
     node: WorkflowNode,
   ): Promise<"succeeded" | "skipped" | "failed" | "canceled" | "interrupted"> {
-    const employee = active.employees.get(node.config.employeeId ?? "");
-    if (!employee) throw new Error(`节点「${node.name}」没有可用数字员工`);
+    // employee 为 null 表示节点使用通用助手，按 Agent 全局配置执行
+    const employee = node.config.employeeId
+      ? (active.employees.get(node.config.employeeId) ?? null)
+      : null;
+    if (node.config.employeeId && !employee) {
+      throw new Error(`节点「${node.name}」选择的数字员工已不存在`);
+    }
 
     const initial = nodeRunOf(active, node.id);
     updateStatus(initial.id, "running", {
@@ -1161,7 +1170,7 @@ export function createWorkflowRunner(deps: WorkflowRunnerDeps): WorkflowRunner {
   async function createAttemptChain(
     active: ActiveRun,
     node: WorkflowNode,
-    employee: DigitalEmployee,
+    employee: DigitalEmployee | null,
     attempt: number,
   ): Promise<AttemptChain> {
     const nodeRun = nodeRunOf(active, node.id);
@@ -1180,8 +1189,10 @@ export function createWorkflowRunner(deps: WorkflowRunnerDeps): WorkflowRunner {
 
     const warnings: string[] = [];
     const capabilities = provider.manifest.capabilities;
-    const enabledSkills = employee.skills.filter((skill) => skill.enabled);
-    const enabledMcp = employee.mcpServers.filter((server) => server.enabled);
+    // 通用助手没有员工档案，也就没有可注入的技能 / MCP / 知识库
+    const enabledSkills = employee?.skills.filter((skill) => skill.enabled) ?? [];
+    const enabledMcp =
+      employee?.mcpServers.filter((server) => server.enabled) ?? [];
     if (enabledSkills.length > 0 && !capabilities.skills) {
       warnings.push(
         `当前 Agent（${agentId}）不支持技能注入，本次已忽略 ${enabledSkills.length} 个技能。`,
@@ -1194,7 +1205,9 @@ export function createWorkflowRunner(deps: WorkflowRunnerDeps): WorkflowRunner {
     }
 
     // 知识库属于员工能力的一部分：解析成目录清单后写进系统提示词
-    const knowledge = await resolveEmployeeKnowledge(employee.knowledgeBases);
+    const knowledge = employee
+      ? await resolveEmployeeKnowledge(employee.knowledgeBases)
+      : { bases: [], promptSection: "", warnings: [] };
     warnings.push(...knowledge.warnings);
 
     const systemPrompt = buildSystemPrompt(employee, knowledge.promptSection);
@@ -1206,6 +1219,7 @@ export function createWorkflowRunner(deps: WorkflowRunnerDeps): WorkflowRunner {
       `工作流「${active.workflow.name}」· ${node.name} · 第 ${attempt} 次`,
       null,
       "workflow",
+      employee?.id ?? null,
     );
     active.sessions.add(session.id);
 
@@ -1223,7 +1237,7 @@ export function createWorkflowRunner(deps: WorkflowRunnerDeps): WorkflowRunner {
           mode: "workflow",
           sessionId: session.id,
           cwd: active.workspacePath,
-          employee,
+          ...(employee ? { employee } : {}),
           opts,
         })) ?? {};
     } catch (err) {
@@ -1268,7 +1282,7 @@ export function createWorkflowRunner(deps: WorkflowRunnerDeps): WorkflowRunner {
   async function runRound(
     active: ActiveRun,
     node: WorkflowNode,
-    employee: DigitalEmployee,
+    employee: DigitalEmployee | null,
     chain: AttemptChain,
     round: number,
     kind: WorkflowNodeAttemptKind,
@@ -1322,9 +1336,9 @@ export function createWorkflowRunner(deps: WorkflowRunnerDeps): WorkflowRunner {
         nodeId: node.id,
         nodeName: node.name,
         nodeType: node.type,
-        employeeId: employee.id,
-        employeeName: employee.name,
-        employeeRole: employee.role,
+        employeeId: employee?.id ?? null,
+        employeeName: employee?.name ?? null,
+        employeeRole: employee?.role ?? "",
         attempt: chain.attempt,
         round,
         kind,
@@ -1422,6 +1436,8 @@ export function createWorkflowRunner(deps: WorkflowRunnerDeps): WorkflowRunner {
          */
         permissionMode: HEADLESS_PERMISSION_MODE,
         interactivePermissions: false,
+        // 消息按本轮执行者归属；null 表示通用助手
+        employeeId: employee?.id ?? null,
         opts: chain.systemPrompt ? { systemPrompt: chain.systemPrompt } : {},
         env: chain.prepared.env,
         envRemove: chain.prepared.envRemove,
@@ -1621,7 +1637,7 @@ export function createWorkflowRunner(deps: WorkflowRunnerDeps): WorkflowRunner {
   async function runChain(
     active: ActiveRun,
     node: WorkflowNode,
-    employee: DigitalEmployee,
+    employee: DigitalEmployee | null,
     attempt: number,
   ): Promise<AttemptOutcome> {
     const nodeRun = nodeRunOf(active, node.id);
@@ -1843,7 +1859,7 @@ export function createWorkflowRunner(deps: WorkflowRunnerDeps): WorkflowRunner {
   async function reviewNodeOutput(
     active: ActiveRun,
     node: WorkflowNode,
-    employee: DigitalEmployee,
+    employee: DigitalEmployee | null,
     nodeRunId: string,
     attempt: number,
     round: number,
@@ -1868,7 +1884,7 @@ export function createWorkflowRunner(deps: WorkflowRunnerDeps): WorkflowRunner {
     emitEvent(active.id, nodeRunId, "approval_required", {
       nodeId: node.id,
       nodeName: node.name,
-      employeeName: employee.name,
+      employeeName: employee?.name ?? BASE_CHAT_NAME,
       taskDetail: node.config.taskDetail,
       attempt,
       round,

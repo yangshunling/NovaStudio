@@ -35,15 +35,27 @@ export type SessionOptions = Record<string, string>;
  */
 export type ToolKind = "read" | "write" | "exec" | "search" | "other";
 
-/** 工具返回的图片。data 是不带 data: 前缀的 base64 原文 */
-export interface ToolResultImage {
+/**
+ * 图片载荷。
+ * - data：base64 原文（不带 data: 前缀），用于实时链路与旧数据；
+ * - ref：会话附件引用（`<sessionId>/att_<hash>.<ext>`），落库后使用。
+ *
+ * 两者至少存在一个；读取方按 ref → data 的顺序解析。
+ */
+export interface ImagePayload {
   /** MIME 类型，如 image/png */
+  mediaType: string;
+  data?: string;
+  ref?: string;
+}
+
+export type ToolResultImage = ImagePayload;
+
+/** 用户随提问发送的图片：入口必须带 base64，主进程落库时转成 ref */
+export interface InputImage {
   mediaType: string;
   data: string;
 }
-
-/** 用户随提问发送的图片，结构与工具返回图片一致 */
-export type InputImage = ToolResultImage;
 
 export type AgentEvent =
   | { type: "thinking"; content: string }
@@ -51,9 +63,9 @@ export type AgentEvent =
   /**
    * 用户随消息附带的图片。
    * 只出现在用户消息里；助手侧的工具图片走 tool_result.images。
-   * data 是不带 data: 前缀的 base64 原文。
+   * 实时与旧数据用 data（不带 data: 前缀的 base64），落库后用 ref。
    */
-  | ({ type: "image" } & InputImage)
+  | ({ type: "image" } & ImagePayload)
   | { type: "thinking_delta"; delta: string }
   | { type: "text_delta"; delta: string }
   | {
@@ -139,8 +151,13 @@ export interface Project {
   updatedAt: number;
 }
 
-/** 会话来源：普通聊天 / 工作流节点执行 */
-export type SessionSource = "chat" | "workflow";
+/**
+ * 会话来源：
+ * - chat：用户主动发起的对话，出现在会话列表里；
+ * - workflow：工作流节点执行，只服务运行详情；
+ * - automation：自动化任务执行，只服务任务详情，不进入会话列表。
+ */
+export type SessionSource = "chat" | "workflow" | "automation";
 
 /**
  * 会话可选地绑定一个项目（工作目录）。
@@ -337,6 +354,8 @@ export interface AutomationTask {
   prompt: string;
   projectId: string;
   agentId: string;
+  /** 指定执行该任务的数字员工；null 表示使用通用助手（Agent 全局配置） */
+  employeeId: string | null;
   status: AutomationStatus;
   /** 任务执行时创建的会话 ID，用于查看执行详情 */
   sessionId: string | null;
@@ -675,9 +694,12 @@ export type WorkflowFailureStrategy = "stop" | "skip" | "retry";
 export type WorkflowReviewMode = "auto" | "manual";
 
 export interface WorkflowNodeConfig {
-  /** 绑定的数字员工 id；仅 employee 节点使用，未配置时为 null */
+  /**
+   * 绑定的数字员工 id；仅 employee 节点使用。
+   * null / 空表示不绑定员工，由「通用助手」按 Agent 全局配置执行。
+   */
   employeeId: string | null;
-  /** 任务详情：节点执行时交给数字员工的完整指令 */
+  /** 任务详情：节点执行时交给执行人（通用助手 / 数字员工）的完整指令 */
   taskDetail: string;
   failureStrategy: WorkflowFailureStrategy;
   /** 自动重试次数（不含首次执行），仅在 retry 策略下生效，范围 1-5 */

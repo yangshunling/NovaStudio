@@ -111,6 +111,43 @@ export function WeeklyReportDialog({
     startedAtRef.current = null;
   }, [open]);
 
+  /*
+   * 周期 / 口径 / 素材变化后，旧结果不再代表当前请求：
+   * - 运行中先取消旧生成，避免结果回来覆盖新周期；
+   * - 非运行中清空预览，复制 / 导出随之禁用。
+   * 不依赖 stop 函数本身（它每次渲染都会换引用），直接操作请求句柄。
+   */
+  useEffect(() => {
+    if (!open) return;
+    const activeRequest = activeRequestRef.current;
+    if (activeRequest) {
+      activeRequestRef.current = null;
+      abortedRef.current = true;
+      void ipc.abortWeeklyReport(activeRequest).catch(() => {
+        // 主进程会按超时自行收尾
+      });
+    }
+    setStatus("idle");
+    setMarkdown("");
+    setError("");
+    setElapsed(0);
+    startedAtRef.current = null;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, range.start, range.end, options, todos]);
+
+  /* 组件卸载（切走侧栏页面）时取消仍在进行的生成，避免白跑模型调用 */
+  useEffect(
+    () => () => {
+      const requestId = activeRequestRef.current;
+      if (!requestId) return;
+      activeRequestRef.current = null;
+      void ipc.abortWeeklyReport(requestId).catch(() => {
+        // 主进程会按超时自行收尾
+      });
+    },
+    [],
+  );
+
   /* 流式片段：只接收本弹窗发起的那一次生成 */
   useEffect(() => {
     const off = ipc.on.reportChunk(({ requestId, chunk }) => {
@@ -163,6 +200,8 @@ export function WeeklyReportDialog({
     setError("");
 
     if (bundle.entries.length === 0) {
+      // 不能保留上一周期的结果：复制 / 导出必须不可用
+      setMarkdown("");
       setError(
         "所选周期没有符合条件的记录。换个周期，或在「包含」里勾选未完成 / 无日期项。",
       );

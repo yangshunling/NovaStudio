@@ -17,6 +17,7 @@ import {
   ensureSessionEmployeeRuntime,
   removeSessionRuntime,
 } from "../../sessions/runtime";
+import { externalizeImageEvents } from "../../attachments/store";
 import { handle } from "../register";
 
 /**
@@ -25,8 +26,12 @@ import { handle } from "../register";
  */
 function withEffectivePermissionMode(session: Session): Session {
   if (session.permissionMode) return session;
-  // 自动化任务的会话 source 也是 chat，且落库时 permission_mode 为 NULL；
-  // 它的运行实际固定 bypass，展示必须与行为一致。
+  // 自动化任务的会话落库时 permission_mode 为 NULL，运行固定 bypass，
+  // 展示必须与行为一致。
+  if (session.source === "automation") {
+    return { ...session, permissionMode: HEADLESS_PERMISSION_MODE };
+  }
+  // 旧数据：升级前创建的自动化会话 source 仍是 chat，按任务表反查兜底。
   if (db.getAutomationTaskBySessionId(session.id)) {
     return { ...session, permissionMode: HEADLESS_PERMISSION_MODE };
   }
@@ -179,8 +184,8 @@ export function registerSessionHandlers(service: AgentService): void {
   handle("session:setEmployee", async ({ sessionId, employeeId }) => {
     const session = db.getSession(sessionId);
     if (!session) return null;
-    if (session.source === "workflow") {
-      throw new Error("工作流会话不能切换数字员工");
+    if (session.source !== "chat") {
+      throw new Error("工作流 / 自动化会话不能切换数字员工");
     }
 
     let employee: ReturnType<typeof db.getDigitalEmployee> = null;
@@ -232,13 +237,12 @@ export function registerSessionHandlers(service: AgentService): void {
   handle("session:setPermissionMode", ({ sessionId, permissionMode }) => {
     const session = db.getSession(sessionId);
     if (!session) return null;
-    if (session.source === "workflow") {
-      throw new Error("工作流会话不能修改权限模式");
+    if (session.source !== "chat") {
+      throw new Error("工作流 / 自动化会话不能修改权限模式");
     }
     /*
-     * 自动化任务的会话在 sessions 表中 source 也是 chat，
-     * 只能通过 automation_tasks.session_id 反查。它的运行固定 bypass，
-     * 允许在这里改权限只会让工具栏展示与真实行为不一致。
+     * 旧数据的自动化会话 source 仍是 chat，只能通过任务表反查。
+     * 它的运行固定 bypass，允许在这里改权限只会让工具栏展示与真实行为不一致。
      */
     if (db.getAutomationTaskBySessionId(sessionId)) {
       throw new Error("自动化任务的会话不能修改权限模式");
@@ -262,8 +266,8 @@ export function registerSessionHandlers(service: AgentService): void {
   handle("session:setModel", ({ sessionId, model }) => {
     const session = db.getSession(sessionId);
     if (!session) return null;
-    if (session.source === "workflow") {
-      throw new Error("工作流会话不能修改模型");
+    if (session.source !== "chat") {
+      throw new Error("工作流 / 自动化会话不能修改模型");
     }
     if (db.getAutomationTaskBySessionId(sessionId)) {
       throw new Error("自动化任务的会话不能修改模型");
@@ -284,6 +288,9 @@ export function registerSessionHandlers(service: AgentService): void {
   handle("session:setProject", async ({ sessionId, projectId }) => {
     const session = db.getSession(sessionId);
     if (!session) return null;
+    if (session.source !== "chat") {
+      throw new Error("工作流 / 自动化会话不能切换工作区");
+    }
 
     /*
      * 渲染层的 streaming 状态不是权威来源（刷新 / DevTools reload 后会丢）。
@@ -311,16 +318,18 @@ export function registerSessionHandlers(service: AgentService): void {
      * 旧会话的历史可能只存在于 CLI 侧。清空引用后就无法再回放，
      * 因此在改动 cwd 之前先把 CLI 历史导入本地，保证切换后旧对话仍可查看。
      */
-    if (
-      changed &&
-      session.agentSessionId &&
-      session.source !== "workflow" &&
-      !db.hasSessionMessages(sessionId)
-    ) {
+    if (changed && session.agentSessionId && !db.hasSessionMessages(sessionId)) {
       try {
         const withHistory = await service.getSessionWithHistory(sessionId);
         if (withHistory?.messages?.length) {
-          db.importSessionMessages(sessionId, withHistory.messages);
+          // 导入前把 CLI 历史里的 base64 图片转成附件 ref
+          const persisted = await Promise.all(
+            withHistory.messages.map(async (message) => ({
+              ...message,
+              content: await externalizeImageEvents(sessionId, message.content),
+            })),
+          );
+          db.importSessionMessages(sessionId, persisted);
         }
       } catch (err) {
         console.warn("[session] 切换工作区前导入 CLI 历史失败：", err);
@@ -328,14 +337,13 @@ export function registerSessionHandlers(service: AgentService): void {
     }
 
     // 只在确实换了目录、且会话已有上下文时才重置引用
-    const resetAgentSession =
-      changed && Boolean(session.agentSessionId) && session.source !== "workflow";
+    const resetAgentSession = changed && Boolean(session.agentSessionId);
 
     db.setSessionProject(sessionId, nextProjectId, cwd, resetAgentSession);
 
     // 有旧对话才插入分隔提示；空会话直接换目录，不需要提醒
     let marker: Message | null = null;
-    if (changed && hadContext && session.source !== "workflow") {
+    if (changed && hadContext) {
       marker = {
         id: randomUUID(),
         role: "system",

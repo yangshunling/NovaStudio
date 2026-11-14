@@ -37,6 +37,8 @@ export async function deleteWorkflowData(
   for (const sessionId of sessionIds) {
     await deps.service.releaseSession(sessionId);
     db.deleteSession(sessionId);
+    // 运行时目录里可能带图片附件，随会话一起清理
+    await removeSessionRuntime(sessionId);
   }
 
   db.deleteWorkflow(workflow.id);
@@ -61,6 +63,7 @@ export async function deleteRunData(
   for (const sessionId of sessionIds) {
     await deps.service.releaseSession(sessionId);
     db.deleteSession(sessionId);
+    await removeSessionRuntime(sessionId);
   }
 
   await rm(run.artifactDir, { recursive: true, force: true }).catch(() => {});

@@ -13,6 +13,7 @@ import {
   BrowserWindow,
   Menu,
   dialog,
+  protocol,
   shell,
   type MenuItemConstructorOptions,
 } from "electron";
@@ -37,6 +38,28 @@ import { syncKnowledgeIndex } from "./knowledge/catalog";
 import { initUpdater } from "./updater";
 import { purgeStaleTempDirs } from "./utils/fs";
 import { errorMessage } from "../shared/error";
+import { DEFAULT_WINDOW_BACKGROUND } from "../shared/skin-default";
+import {
+  ATTACHMENT_SCHEME,
+  registerAttachmentProtocol,
+} from "./attachments/protocol";
+
+/*
+ * 自定义协议必须在 app ready 之前声明特权；放在模块顶层是为了保证
+ * 无论单实例检查是否通过，注册都发生在 ready 之前。
+ */
+protocol.registerSchemesAsPrivileged([
+  {
+    scheme: ATTACHMENT_SCHEME,
+    privileges: {
+      standard: true,
+      secure: true,
+      supportFetchAPI: true,
+      corsEnabled: true,
+      stream: true,
+    },
+  },
+]);
 
 let mainWindow: BrowserWindow | null = null;
 /** 退出清理只执行一次：before-quit 与 will-quit 都可能被触发 */
@@ -97,13 +120,30 @@ function resolveWindowIcon(): string | undefined {
   return undefined;
 }
 
-/** 建窗时的底色：与渲染进程首帧主题缓存保持一致，避免深色皮肤白闪 */
+/**
+ * 建窗时的底色：与渲染进程首帧主题保持一致，避免深色皮肤白闪。
+ *
+ * 渲染层每次换肤都会通过 window:setAppearance 写入 nativeAppearance，
+ * 因此这里不再猜「哪个皮肤 id 是深色」；首次启动没有记录时使用共享默认值。
+ */
 function initialWindowBackground(): string {
   try {
-    return getSetting("theme") === "classic-night" ? "#000000" : "#ffffff";
+    const appearance = getSetting("nativeAppearance");
+    if (appearance === "dark") return "#000000";
+    if (appearance === "light") return "#ffffff";
+
+    /*
+     * 升级兼容：旧版本只存了 theme，没有 nativeAppearance。
+     * 仅在缺少新记录时按已知皮肤推断，避免昼间用户升级后的首帧变黑；
+     * 新装（theme 为空）继续走共享默认值（夜间）。
+     */
+    const theme = getSetting("theme");
+    if (theme === "classic-day") return "#ffffff";
+    if (theme === "classic-night") return "#000000";
   } catch {
-    return "#ffffff";
+    // 数据库尚未初始化：走内置默认
   }
+  return DEFAULT_WINDOW_BACKGROUND;
 }
 
 function createWindow(): BrowserWindow {
@@ -231,6 +271,8 @@ async function bootstrap(): Promise<void> {
   }
 
   initDatabase();
+  // 会话图片附件协议：渲染层通过 nova-attachment:// 按需读取
+  registerAttachmentProtocol();
   // 上次异常退出可能留下含系统提示词的临时目录（员工 / 知识库内容），先清掉
   purgeStaleTempDirs("novastudio-system-");
   await migrateLegacyAssets();

@@ -211,8 +211,12 @@ export const ipc = {
 
   // === 自动化任务 ===
   listAutomationTasks: () => call("automation:list"),
-  createAutomationTask: (prompt: string, projectId: string, agentId: string) =>
-    call("automation:create", { prompt, projectId, agentId }),
+  createAutomationTask: (
+    prompt: string,
+    projectId: string,
+    agentId: string,
+    employeeId: string | null = null,
+  ) => call("automation:create", { prompt, projectId, agentId, employeeId }),
   deleteAutomationTask: (id: string) => call("automation:delete", { id }),
   retryAutomationTask: (id: string) => call("automation:retry", { id }),
   stopAutomationTask: (id: string) => call("automation:stop", { id }),

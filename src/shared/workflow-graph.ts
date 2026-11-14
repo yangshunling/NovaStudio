@@ -174,20 +174,23 @@ export function validateGraph(
       issues.push(`节点「${node.name}」无法到达结束节点`);
     }
 
-    const employee = node.config.employeeId
-      ? employees.get(node.config.employeeId)
-      : undefined;
+    /*
+     * employeeId 为空表示「通用助手」：不绑定员工，按 Agent 全局配置执行。
+     * 只有显式选了员工却找不到 / 已停用时才是阻断问题。
+     */
+    if (!node.config.employeeId) continue;
+    const employee = employees.get(node.config.employeeId);
     if (!employee) {
-      issues.push(`节点「${node.name}」未绑定数字员工`);
+      issues.push(`节点「${node.name}」选择的数字员工已不存在，请重新选择`);
       continue;
     }
     if (!employee.enabled) {
-      issues.push(`节点「${node.name}」绑定的数字员工「${employee.name}」已停用`);
+      issues.push(`节点「${node.name}」选择的数字员工「${employee.name}」已停用`);
     }
   }
 
   if (executable.length === 0) {
-    issues.push("工作流中没有可执行的数字员工节点");
+    issues.push("工作流中没有可执行的节点");
   }
 
   // ---- 不阻断运行、但会让结果不符合直觉的配置 ----

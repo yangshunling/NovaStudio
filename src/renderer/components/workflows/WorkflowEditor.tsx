@@ -47,6 +47,7 @@ import { newId } from "../../lib/utils";
 import { toast } from "../../stores/toast";
 import { confirmDialog } from "../../stores/confirm";
 import { EmployeeAvatar } from "../employees/EmployeeAvatar";
+import { DEFAULT_ASSISTANT } from "../../lib/employee-switch";
 import { Button } from "../ui/Button";
 import { Page } from "../ui/Page";
 import { Select } from "../ui/Select";
@@ -304,6 +305,12 @@ export function WorkflowEditor({
     }
     if (historyTimer.current) clearTimeout(historyTimer.current);
     historyTimer.current = setTimeout(() => {
+      /*
+       * 必须先断开句柄：undo()/redo() 用 `historyTimer.current` 判断
+       * 「是否还有未提交改动」。只 clearTimeout 不置空的话，定时器触发后
+       * 句柄仍然为真，撤销会永远走「未提交」分支，重做永远提前返回。
+       */
+      historyTimer.current = null;
       const current = { nodes, edges };
       const last = lastCommitted.current;
       if (last.nodes === nodes && last.edges === edges) return;
@@ -318,7 +325,10 @@ export function WorkflowEditor({
       setHistoryVersion((value) => value + 1);
     }, 350);
     return () => {
-      if (historyTimer.current) clearTimeout(historyTimer.current);
+      if (historyTimer.current) {
+        clearTimeout(historyTimer.current);
+        historyTimer.current = null;
+      }
     };
   }, [nodes, edges]);
 
@@ -956,7 +966,7 @@ export function WorkflowEditor({
                   icon={<Bot className="h-4 w-4" />}
                   tone="text-accent bg-accent-soft"
                   title="节点"
-                  description="绑定数字员工执行任务"
+                  description="指定执行人（默认通用助手）"
                   onClick={() => addNode("employee")}
                 />
               </div>
@@ -1130,7 +1140,9 @@ function NodeInspector({
       ? "开始节点"
       : node.type === "end"
         ? "结束节点"
-        : "数字员工节点";
+        : employee
+          ? "数字员工节点"
+          : "执行节点";
 
   return (
     <aside
@@ -1177,7 +1189,7 @@ function NodeInspector({
       {node.type === "employee" ? (
         <>
           <div className="mt-4 border-t border-border pt-4">
-            <label className={LABEL_CLASS}>数字员工</label>
+            <label className={LABEL_CLASS}>执行人</label>
             <Select
               value={node.config.employeeId ?? ""}
               onChange={(next) =>
@@ -1185,17 +1197,32 @@ function NodeInspector({
               }
               className={INPUT_CLASS}
               options={[
-                { value: "", label: "选择数字员工…" },
+                {
+                  value: "",
+                  label: DEFAULT_ASSISTANT.name,
+                  description: DEFAULT_ASSISTANT.detail,
+                },
                 ...employees.map((item) => ({
                   value: item.id,
-                  label: `${item.name}${item.role ? ` · ${item.role}` : ""}`,
+                  label: item.name,
+                  description: item.role || (item.enabled ? "数字员工" : "已停用"),
                 })),
               ]}
             />
 
-            {!employee && (
+            {node.config.employeeId && !employee && (
               <p className="mt-2 rounded-lg bg-error-bg px-3 py-2 ui-type-note text-error">
-                尚未绑定数字员工，该节点无法执行。
+                所选数字员工已不存在，请重新选择执行人。
+              </p>
+            )}
+            {employee && !employee.enabled && (
+              <p className="mt-2 rounded-lg bg-error-bg px-3 py-2 ui-type-note text-error">
+                数字员工「{employee.name}」已停用，启用后才能运行；也可以改用其他执行人。
+              </p>
+            )}
+            {!node.config.employeeId && (
+              <p className="mt-2 ui-type-note leading-relaxed text-text-muted">
+                不绑定数字员工，由通用助手按 Agent 全局配置执行。
               </p>
             )}
           </div>
@@ -1212,7 +1239,7 @@ function NodeInspector({
               className={`${INPUT_CLASS} resize-none cursor-text leading-relaxed`}
             />
             <p className="mt-2 ui-type-note leading-relaxed text-text-muted">
-              节点执行时会把任务详情交给所选数字员工。例如：基于上一步结论，梳理需要修改的文件。
+              节点执行时会把任务详情交给所选执行人（通用助手或数字员工）。例如：基于上一步结论，梳理需要修改的文件。
             </p>
           </div>
 

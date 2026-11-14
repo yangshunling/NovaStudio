@@ -1138,7 +1138,7 @@ function EmptyWorkflows({ onCreate }: { onCreate: () => void }) {
     <EmptyState
       icon={<WorkflowIcon />}
       title="把数字员工串成流水线"
-      description="一个工作流由开始、数字员工节点和结束组成。在画布上连线，就能定义任务在团队之间的流转顺序。"
+      description="一个工作流由开始、执行节点和结束组成，执行节点可指定数字员工或通用助手。在画布上连线，就能定义任务在团队之间的流转顺序。"
       action={
         <Button
           variant="primary"

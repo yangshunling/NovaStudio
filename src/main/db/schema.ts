@@ -134,6 +134,8 @@ export function initDatabase(): void {
       prompt TEXT NOT NULL,
       project_id TEXT NOT NULL,
       agent_id TEXT NOT NULL,
+      -- 指定执行任务的数字员工；NULL 表示通用助手（Agent 全局配置）
+      employee_id TEXT,
       status TEXT NOT NULL DEFAULT 'pending',
       session_id TEXT,
       created_at INTEGER NOT NULL,
@@ -332,6 +334,8 @@ export function initDatabase(): void {
   ensureColumn(conn, "sessions", "permission_mode", "TEXT");
   ensureColumn(conn, "sessions", "model", "TEXT");
   ensureColumn(conn, "messages", "employee_id", "TEXT");
+  // 自动化任务可指定执行任务的数字员工（旧库补列，历史任务保持通用助手）
+  ensureColumn(conn, "automation_tasks", "employee_id", "TEXT");
   // 短词检索只扫前 8KB 摘要，避免对整篇正文做 LIKE
   ensureColumn(conn, "knowledge_documents", "content_excerpt", "TEXT NOT NULL DEFAULT ''");
   conn
@@ -342,16 +346,46 @@ export function initDatabase(): void {
 
   ensureKnowledgeFts();
 
+  /*
+   * 旧版本的自动化任务会话被记成了 chat，会混进会话列表。
+   * 这里按任务表反查并改回 automation；之后新建的会话由调度器显式写入
+   * 来源，不再依赖这一步。用 settings 里的标记保证只扫一次。
+   */
+  const sourceMigrationKey = "migratedAutomationSessionSource";
+  const sourceMigrated = conn
+    .prepare("SELECT 1 FROM settings WHERE key = ?")
+    .get(sourceMigrationKey);
+  if (!sourceMigrated) {
+    conn
+      .prepare(
+        `UPDATE sessions SET source = 'automation'
+         WHERE source = 'chat'
+           AND id IN (
+             SELECT session_id FROM automation_tasks WHERE session_id IS NOT NULL
+           )`,
+      )
+      .run();
+    conn
+      .prepare("INSERT OR REPLACE INTO settings (key, value) VALUES (?, '1')")
+      .run(sourceMigrationKey);
+  }
+
   // 上次进程遗留的运行不可能还活着：统一标记为中断
   interruptStaleWorkflowRuns();
 
   conn.exec(`
+    -- 旧索引的谓词是 source <> 'workflow'，会把自动化会话也算进聊天列表，
+    -- 因此必须删掉重建；仅改 CREATE 语句不会更新已存在的索引。
+    DROP INDEX IF EXISTS idx_sessions_chat_updated;
     CREATE INDEX IF NOT EXISTS idx_sessions_chat_updated
-      ON sessions (updated_at DESC) WHERE source <> 'workflow';
+      ON sessions (updated_at DESC) WHERE source = 'chat';
     CREATE INDEX IF NOT EXISTS idx_sessions_project
       ON sessions (project_id);
     CREATE INDEX IF NOT EXISTS idx_sessions_employee
       ON sessions (employee_id);
+    -- 自动化任务详情 / 旧数据反查会话
+    CREATE INDEX IF NOT EXISTS idx_automation_tasks_session
+      ON automation_tasks (session_id);
     -- 节点详情 / 尝试列表按节点过滤
     CREATE INDEX IF NOT EXISTS idx_workflow_node_attempts_node
       ON workflow_node_attempts (node_run_id, attempt, round);

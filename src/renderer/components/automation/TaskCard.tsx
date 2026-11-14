@@ -5,7 +5,7 @@
  * hover 显示操作按钮（重试 / 删除）；执行中显示旋转图标与「停止」按钮
  */
 
-import { RotateCcw, AlertCircle, Square, Clock } from "lucide-react";
+import { RotateCcw, AlertCircle, Square, Clock, UserRound } from "lucide-react";
 import { ConfirmDeleteButton } from "../ui/ConfirmDeleteButton";
 import { IconButton } from "../ui/IconButton";
 import { AgentPill } from "../ui/AgentPill";
@@ -13,6 +13,7 @@ import { FolderTypeIcon } from "../ui/FolderTypeIcon";
 import { Pill } from "../ui/Pill";
 import { StatusDot } from "../ui/StatusDot";
 import { timeAgo } from "../../lib/utils";
+import { useEmployeesStore } from "../../stores/employees";
 import type { AutomationTask, Project } from "@shared/types";
 import type { AgentInfo } from "@shared/contracts/agent";
 import { Spinner } from "../ui/Spinner";
@@ -34,6 +35,11 @@ export function TaskCard({
   onStop: () => void;
   onViewDetail: () => void;
 }) {
+  const employees = useEmployeesStore((s) => s.employees);
+  const employee = task.employeeId
+    ? employees.find((item) => item.id === task.employeeId)
+    : null;
+
   const isRunning = task.status === "running";
   const isFailed = task.status === "failed";
   const isCompleted = task.status === "completed";
@@ -87,6 +93,11 @@ export function TaskCard({
           </Pill>
         )}
         {task.agentId && <AgentPill agents={agents} agentId={task.agentId} />}
+        {employee && (
+          <Pill icon={<UserRound className="h-3 w-3" />} variant="accent">
+            {employee.name}
+          </Pill>
+        )}
       </div>
 
       {/* 时间 */}

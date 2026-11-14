@@ -90,7 +90,11 @@ export const EMPLOYEE_SESSION_IN_USE = "会话仍在使用该员工";
 
 /** agent:send 的返回：显式区分成功与业务失败 */
 export type SendAgentResult =
-  | { ok: true; exitCode: number; duration: number }
+  /**
+   * canceled = 用户在准备阶段点了停止，本轮没有拉起进程、也没有落用户消息。
+   * 渲染层据此移除乐观消息，不写错误气泡。
+   */
+  | { ok: true; exitCode: number; duration: number; canceled?: boolean }
   | { ok: false; error: string };
 
 /**
@@ -410,7 +414,15 @@ export interface IpcInvokeMap {
 
   "automation:list": { args: []; result: AutomationTask[] };
   "automation:create": {
-    args: [{ prompt: string; projectId: string; agentId: string }];
+    args: [
+      {
+        prompt: string;
+        projectId: string;
+        agentId: string;
+        /** 指定执行的数字员工；null / 缺省表示通用助手 */
+        employeeId?: string | null;
+      },
+    ];
     result: AutomationTask;
   };
   "automation:delete": { args: [{ id: string }]; result: boolean };

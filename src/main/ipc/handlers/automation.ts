@@ -8,6 +8,7 @@
 import type { AgentService } from "../../agents/agent-service";
 import type { AutomationScheduler } from "../../automation/scheduler";
 import { getProvider } from "../../agents/registry";
+import { removeSessionRuntime } from "../../sessions/runtime";
 import * as db from "../../db/sqlite";
 import { push } from "../push";
 import { handle } from "../register";
@@ -18,19 +19,50 @@ export function registerAutomationHandlers(
 ): void {
   handle("automation:list", () => db.listAutomationTasks());
 
-  handle("automation:create", ({ prompt, projectId, agentId }) => {
+  handle("automation:create", ({ prompt, projectId, agentId, employeeId }) => {
     if (!prompt.trim()) throw new Error("任务指令不能为空");
     if (!db.getProject(projectId)) throw new Error("任务必须绑定一个已存在的工作区");
     if (!getProvider(agentId)) throw new Error(`未知 Agent：${agentId}`);
 
-    const task = db.createAutomationTask(prompt, projectId, agentId);
+    /*
+     * 执行人：null / 缺省表示通用助手。指定员工时必须在创建阶段就校验，
+     * 否则任务下发后才在调度器里失败，用户要等到执行时才知道选错了。
+     */
+    let resolvedEmployeeId: string | null = null;
+    if (employeeId) {
+      const employee = db.getDigitalEmployee(employeeId);
+      if (!employee) throw new Error("指定的数字员工不存在，请重新选择");
+      if (!employee.enabled) {
+        throw new Error(`数字员工「${employee.name}」已停用，请启用后再下发任务`);
+      }
+      resolvedEmployeeId = employee.id;
+    }
+
+    const task = db.createAutomationTask(
+      prompt,
+      projectId,
+      agentId,
+      resolvedEmployeeId,
+    );
     push("automation:updated", task);
     return task;
   });
 
-  handle("automation:delete", ({ id }) => {
+  handle("automation:delete", async ({ id }) => {
     // 运行中的任务不允许删除
-    if (db.getAutomationTask(id)?.status === "running") return false;
+    const task = db.getAutomationTask(id);
+    if (!task || task.status === "running") return false;
+
+    /*
+     * 自动化会话不再出现在会话列表里，删除任务时必须一并清理，
+     * 否则会留下用户既看不到、也无法删除的孤儿会话与附件目录。
+     */
+    if (task.sessionId) {
+      await service.releaseSession(task.sessionId);
+      db.deleteSession(task.sessionId);
+      await removeSessionRuntime(task.sessionId);
+    }
+
     db.deleteAutomationTask(id);
     return true;
   });
@@ -45,6 +77,8 @@ export function registerAutomationHandlers(
     if (task.sessionId) {
       await service.releaseSession(task.sessionId);
       db.deleteSession(task.sessionId);
+      // 会话运行时目录里可能已有图片附件，必须一起清理
+      await removeSessionRuntime(task.sessionId);
     }
 
     db.updateAutomationTask(id, {

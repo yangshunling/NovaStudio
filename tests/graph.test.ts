@@ -76,7 +76,16 @@ test("拒绝环", () => {
   );
 });
 
-test("拒绝未绑定 / 停用的员工与不可达节点", () => {
+test("未指定员工的节点由通用助手执行，不阻断校验", () => {
+  const g = graph(
+    [node("s", "start"), node("a", "employee", null), node("e", "end")],
+    [["s", "a"], ["a", "e"]],
+  );
+  const validated = validateGraph(g, new Map());
+  assert.deepEqual(validated.order.map((item) => item.id), ["a"]);
+});
+
+test("拒绝停用的员工与不可达节点", () => {
   const g = graph(
     [node("s", "start"), node("a", "employee", null), node("b", "employee", "disabled"), node("e", "end")],
     [["s", "a"], ["a", "e"]],
@@ -87,9 +96,22 @@ test("拒绝未绑定 / 停用的员工与不可达节点", () => {
     () => validateGraph(g, employees),
     (err: unknown) =>
       err instanceof GraphValidationError &&
-      err.issues.some((issue) => issue.includes("未绑定数字员工")) &&
       err.issues.some((issue) => issue.includes("已停用")) &&
-      err.issues.some((issue) => issue.includes("不可达")),
+      err.issues.some((issue) => issue.includes("不可达")) &&
+      !err.issues.some((issue) => issue.includes("未绑定")),
+  );
+});
+
+test("拒绝引用已不存在员工的节点", () => {
+  const g = graph(
+    [node("s", "start"), node("a", "employee", "missing"), node("e", "end")],
+    [["s", "a"], ["a", "e"]],
+  );
+  assert.throws(
+    () => validateGraph(g, new Map()),
+    (err: unknown) =>
+      err instanceof GraphValidationError &&
+      err.issues.some((issue) => issue.includes("已不存在")),
   );
 });
 

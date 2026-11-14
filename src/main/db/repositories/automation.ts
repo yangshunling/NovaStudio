@@ -32,18 +32,24 @@ export function getAutomationTaskBySessionId(
   return row ? rowToAutomationTask(row) : null;
 }
 
-export function createAutomationTask(prompt: string, projectId: string, agentId: string): AutomationTask {
+export function createAutomationTask(
+  prompt: string,
+  projectId: string,
+  agentId: string,
+  employeeId: string | null = null,
+): AutomationTask {
   const id = randomUUID();
   const now = Date.now();
   prepare(
-    "INSERT INTO automation_tasks (id, prompt, project_id, agent_id, status, session_id, created_at, started_at, completed_at, error) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-  ).run(id, prompt, projectId, agentId, "pending", null, now, null, null, null);
-  return { id, prompt, projectId, agentId, status: "pending", sessionId: null, createdAt: now, startedAt: null, completedAt: null, error: null };
+    "INSERT INTO automation_tasks (id, prompt, project_id, agent_id, employee_id, status, session_id, created_at, started_at, completed_at, error) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+  ).run(id, prompt, projectId, agentId, employeeId, "pending", null, now, null, null, null);
+  return { id, prompt, projectId, agentId, employeeId, status: "pending", sessionId: null, createdAt: now, startedAt: null, completedAt: null, error: null };
 }
 
 export function updateAutomationTask(id: string, fields: Partial<Omit<AutomationTask, "id" | "prompt" | "projectId" | "agentId" | "createdAt">>): void {
   const sets: string[] = [];
   const vals: unknown[] = [];
+  if (fields.employeeId !== undefined) { sets.push("employee_id = ?"); vals.push(fields.employeeId); }
   if (fields.status !== undefined) { sets.push("status = ?"); vals.push(fields.status); }
   if (fields.sessionId !== undefined) { sets.push("session_id = ?"); vals.push(fields.sessionId); }
   if (fields.startedAt !== undefined) { sets.push("started_at = ?"); vals.push(fields.startedAt); }
@@ -64,6 +70,7 @@ function rowToAutomationTask(row: any): AutomationTask {
     prompt: row.prompt,
     projectId: row.project_id,
     agentId: row.agent_id,
+    employeeId: row.employee_id ?? null,
     status: row.status as AutomationStatus,
     sessionId: row.session_id,
     createdAt: row.created_at,

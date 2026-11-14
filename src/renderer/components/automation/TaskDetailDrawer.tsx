@@ -7,6 +7,7 @@
  */
 
 import { useState, useEffect, useCallback, useRef } from "react";
+import { UserRound } from "lucide-react";
 
 import { MessageGroup } from "../chat/MessageList";
 import {
@@ -21,12 +22,17 @@ import { FolderTypeIcon } from "../ui/FolderTypeIcon";
 import { ipc } from "../../lib/ipc";
 import { timeAgo } from "../../lib/utils";
 import { useChatStore } from "../../stores/chat";
+import { useEmployeesStore } from "../../stores/employees";
 import type { AutomationTask, Message } from "@shared/types";
 import { Spinner } from "../ui/Spinner";
 
 export function TaskDetailDrawer({ task, onClose }: { task: AutomationTask; onClose: () => void }) {
   const projects = useChatStore((s) => s.projects);
   const agents = useChatStore((s) => s.agents);
+  const employees = useEmployeesStore((s) => s.employees);
+  const employee = task.employeeId
+    ? employees.find((item) => item.id === task.employeeId)
+    : null;
 
   const isRunning = task.status === "running";
   const sessionId = task.sessionId;
@@ -128,6 +134,12 @@ export function TaskDetailDrawer({ task, onClose }: { task: AutomationTask; onCl
               </span>
             )}
             {task.agentId && <AgentPill agents={agents} agentId={task.agentId} />}
+            {employee && (
+              <span className="inline-flex items-center gap-1 rounded-full bg-surface-hover px-2 py-0.5 text-text-muted">
+                <UserRound className="h-3 w-3" />
+                {employee.name}
+              </span>
+            )}
             {task.startedAt && (
               <span className="text-text-muted">开始: {timeAgo(task.startedAt)}</span>
             )}

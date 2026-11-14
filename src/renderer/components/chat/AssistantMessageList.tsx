@@ -50,6 +50,7 @@ import {
 import { useEmployeesStore } from "../../stores/employees";
 import { REVEAL_MESSAGE_EVENT } from "../../lib/chat-events";
 import { formatJson, toMessage } from "../../lib/utils";
+import { imageSrc } from "../../lib/attachment";
 import { copyText } from "../../lib/clipboard";
 import { toast } from "../../stores/toast";
 import { CHAT_VIEWPORT_ID, scrollToMessage } from "../../lib/chat-scroll";
@@ -1033,10 +1034,8 @@ function userContentParts(
     if (event.type === "text") {
       if (event.content) parts.push({ type: "text", text: event.content });
     } else if (event.type === "image") {
-      parts.push({
-        type: "image",
-        image: `data:${event.mediaType};base64,${event.data}`,
-      });
+      const src = imageSrc(event);
+      if (src) parts.push({ type: "image", image: src });
     }
   }
   return parts;
@@ -1085,7 +1084,8 @@ function readResultImages(images: unknown): ToolResultImage[] | undefined {
       !!image &&
       typeof image === "object" &&
       typeof (image as { mediaType?: unknown }).mediaType === "string" &&
-      typeof (image as { data?: unknown }).data === "string",
+      (typeof (image as { data?: unknown }).data === "string" ||
+        typeof (image as { ref?: unknown }).ref === "string"),
   );
   return valid.length > 0 ? valid : undefined;
 }

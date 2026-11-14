@@ -18,6 +18,7 @@ import {
 import type { ToolKind, ToolResultImage } from "@shared/types";
 import type { FileChange } from "../../lib/tool-diff";
 import { formatJson, truncateText } from "../../lib/utils";
+import { imageSrc } from "../../lib/attachment";
 import { ToolDiffView } from "./ToolDiffView";
 import { Spinner } from "../ui/Spinner";
 
@@ -217,14 +218,18 @@ export const ToolCallCard = memo(function ToolCallCard({
                 图片
               </div>
               <div className="flex flex-wrap gap-2">
-                {resultImages.map((image, index) => (
-                  <img
-                    key={index}
-                    src={`data:${image.mediaType};base64,${image.data}`}
-                    alt={`工具输出图片 ${index + 1}`}
-                    className="max-h-80 max-w-full rounded-lg border border-border/60 object-contain"
-                  />
-                ))}
+                {resultImages.map((image, index) => {
+                  const src = imageSrc(image);
+                  if (!src) return null;
+                  return (
+                    <img
+                      key={index}
+                      src={src}
+                      alt={`工具输出图片 ${index + 1}`}
+                      className="max-h-80 max-w-full rounded-lg border border-border/60 object-contain"
+                    />
+                  );
+                })}
               </div>
             </div>
           )}

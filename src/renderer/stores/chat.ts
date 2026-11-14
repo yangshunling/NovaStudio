@@ -512,6 +512,24 @@ async function dispatchPrompt(
     // 回答者随消息一起传入：队列里的消息始终用入队时选定的员工
     const result = await ipc.sendAgent(sessionId, prompt, employeeId, images);
     if (!result.ok) throw new Error(result.error);
+    if (result.canceled) {
+      /*
+       * 用户在准备阶段点了停止：主进程没有落用户消息、也没有拉起进程。
+       * 移除这里的乐观消息并复位流式状态；不写错误气泡，队列保持暂停。
+       */
+      activeEmployeeBySession.delete(sessionId);
+      useChatStore.setState((s) => ({
+        messagesBySession: {
+          ...s.messagesBySession,
+          [sessionId]: (s.messagesBySession[sessionId] ?? []).filter(
+            (message) => message.id !== userMsg.id,
+          ),
+        },
+        streamingBySession: { ...s.streamingBySession, [sessionId]: false },
+        stoppingBySession: { ...s.stoppingBySession, [sessionId]: false },
+      }));
+      return;
+    }
     // done 事件会复位 streaming；此处不提前复位，避免中间闪烁
   } catch (err) {
     // 发送失败：写进消息流，并让暂存区保持暂停，

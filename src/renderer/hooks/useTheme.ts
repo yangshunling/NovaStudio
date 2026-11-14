@@ -107,7 +107,14 @@ function writeCache(
   try {
     localStorage.setItem(
       CACHE_KEY,
-      JSON.stringify({ theme, fontSize, chatFontSize, fontFamily }),
+      JSON.stringify({
+        theme,
+        // 首帧引导用它判断明暗，避免依赖皮肤 id 是否包含 "night"
+        appearance: getSkin(theme).appearance,
+        fontSize,
+        chatFontSize,
+        fontFamily,
+      }),
     );
   } catch {
     // localStorage 不可用时忽略：只是少了启动缓存

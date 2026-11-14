@@ -662,7 +662,7 @@ export function WorkflowRunView({
                         产物待审核 · {awaitingNode.nodeName}
                       </p>
                       <span className="rounded-full bg-surface/60 px-2 py-0.5 ui-type-sub text-text-secondary">
-                        {awaitingNode.employeeName}
+                        {awaitingNode.employeeName ?? "通用助手"}
                       </span>
                     </div>
                     <p className="mt-2 ui-type-note text-text-secondary">
@@ -798,7 +798,7 @@ function NodeListItem({
           </span>
         </span>
         <span className="mt-0.5 block truncate ui-type-note text-text-muted">
-          {node.employeeName ?? "未绑定员工"}
+          {node.employeeName ?? "通用助手"}
           {node.attempt > 1 ? ` · 第 ${node.attempt} 次` : ""} ·{" "}
           <Elapsed startedAt={node.startedAt} finishedAt={node.finishedAt} />
         </span>
@@ -903,7 +903,7 @@ function NodeDetailPanel({
             {meta.label}
           </span>
           <span className="ui-type-note text-text-secondary">
-            执行者：{node.employeeName ?? "—"}
+            执行者：{node.employeeName ?? "通用助手"}
           </span>
           <span className="ui-type-note text-text-secondary">
             Agent：{node.agentId ?? "—"}

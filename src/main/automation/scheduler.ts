@@ -4,7 +4,8 @@
  * 定时检查 pending 任务，按「并发上限」并行拾取执行（默认 3，可在设置-通用里改），
  * 有空位就继续拾取，直到没有 pending 任务或跑满并发。
  *
- * 执行流程：创建会话 → 记录用户消息 → AgentService.run → 按退出码更新任务状态。
+ * 执行流程：确认执行人 → 创建会话 → 准备运行时 → 记录用户消息 →
+ * AgentService.run → 按退出码更新任务状态。
  * 复用对话基础设施，因此事件天然按 sessionId 路由，详情页可实时查看。
  *
  * 关键约定：任务一旦被拾取就必须离开 running —— 成功 → completed，
@@ -16,10 +17,13 @@
  * 不用模块级变量 —— 生命周期由调用方通过 start / stop 掌握。
  */
 
-import type { AutomationTask } from "../../shared/types";
+import type { AutomationTask, DigitalEmployee } from "../../shared/types";
 import { HEADLESS_PERMISSION_MODE } from "../../shared/permission";
+import { errorMessage } from "../../shared/error";
 import type { Emit } from "../../shared/contracts/ipc";
 import type { AgentService } from "../agents/agent-service";
+import { BASE_CHAT_NAME } from "../agents/chat-identity";
+import { prepareSessionChatRun } from "../sessions/runtime";
 import * as db from "../db/sqlite";
 
 /**
@@ -161,19 +165,66 @@ export function createScheduler(
 
     const cwd = agentService.resolveCwd(project.cwd, db.getSetting("defaultCwd"));
 
-    // 创建会话（复用对话基础设施），并让详情抽屉能立刻看到原始指令
+    /*
+     * 执行人：任务创建时已校验过，但员工可能在排队期间被停用 / 删除，
+     * 运行前必须再确认一次，否则会按不存在的员工静默降级。
+     */
+    let employee: DigitalEmployee | null = null;
+    if (task.employeeId) {
+      const found = db.getDigitalEmployee(task.employeeId);
+      if (!found) throw new Error("任务指定的数字员工已不存在，请重新创建任务");
+      if (!found.enabled) {
+        throw new Error(`任务指定的数字员工「${found.name}」已停用，请启用后重试`);
+      }
+      employee = found;
+    }
+
+    /*
+     * 创建会话（复用对话基础设施），并让详情抽屉能立刻看到原始指令。
+     * 来源必须标成 automation：它只服务任务详情，不能出现在会话列表里
+     * （listSessions 只取 source = 'chat'）。
+     */
     const session = db.createSession(
       task.agentId,
       task.projectId,
       cwd,
       task.prompt.slice(0, 40),
+      null,
+      "automation",
+      employee?.id ?? null,
     );
     patchTask(task.id, { sessionId: session.id });
     db.touchSession(session.id, { countDelta: 1 });
 
+    // 与聊天一致：按执行人物化运行时（配置目录 / MCP / 技能 / 系统提示词）
+    let run: Awaited<ReturnType<typeof prepareSessionChatRun>>;
+    try {
+      run = await prepareSessionChatRun(session, employee);
+    } catch (err) {
+      throw new Error(`会话运行环境准备失败：${errorMessage(err)}`);
+    }
+    if (run.configDir) db.setSessionConfigDir(session.id, run.configDir);
+    if (run.warnings.length > 0) {
+      console.warn(
+        `[automation] 会话运行时警告：\n${run.warnings.join("\n")}`,
+      );
+    }
+
+    /*
+     * 发言者前缀只加在送入 CLI 的上下文里（与聊天入口一致）：
+     * 落库与详情页仍是用户原始指令，模型则能明确本次由谁执行。
+     */
+    const speaker = employee?.name ?? BASE_CHAT_NAME;
+    const contextPrompt = task.prompt.startsWith(`@${speaker}`)
+      ? task.prompt
+      : task.prompt.trim()
+        ? `@${speaker} ${task.prompt}`
+        : `@${speaker}`;
+
     const outcome = await agentService.run({
       sessionId: session.id,
       prompt: task.prompt,
+      contextPrompt,
       cwd,
       /*
        * 自动化任务无人值守：不等待人工授权，并显式使用 bypassPermissions，
@@ -181,6 +232,13 @@ export function createScheduler(
        */
       permissionMode: HEADLESS_PERMISSION_MODE,
       interactivePermissions: false,
+      employeeId: employee?.id ?? null,
+      ...(run.env ? { env: run.env } : {}),
+      ...(run.envRemove ? { envRemove: run.envRemove } : {}),
+      extraArgs: run.extraArgs,
+      ...(run.systemPrompt
+        ? { opts: { systemPrompt: run.systemPrompt } }
+        : {}),
     });
     flushEvents();
 

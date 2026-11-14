@@ -17,6 +17,7 @@ import {
 import { useChatStore } from "../../stores/chat";
 import { useFileViewerStore } from "../../stores/fileViewer";
 import { useElementVisible } from "../../hooks/useElementVisible";
+import { useGitStatusRefresh } from "../../hooks/useGitStatusRefresh";
 import {
   readExpandedPaths,
   writeExpandedPaths,
@@ -218,6 +219,9 @@ export function WorkspacePanel({
   const cwd = project?.cwd ?? "";
   const projectId = project?.id ?? "";
   const projectIdRef = useRef(projectId);
+  // 同步赋值（而非 effect）：Git 刷新 hook 在 effect 里会立即读取它，
+  // 必须保证项目切换后的第一个 effect 就能看到新值。
+  projectIdRef.current = projectId;
   const [rootItems, setRootItems] = useState<FileEntry[]>([]);
   const [childrenByPath, setChildrenByPath] = useState<Record<string, FileEntry[]>>({});
   const [expandedPaths, setExpandedPaths] = useState<Set<string>>(new Set());
@@ -230,15 +234,40 @@ export function WorkspacePanel({
   const panelRef = useRef<HTMLElement>(null);
   /** 切到别的页面时面板被隐藏：此时不保留目录监听 */
   const panelVisible = useElementVisible(panelRef);
+
+  /*
+   * Git 状态独立于目录树刷新：文件监听只覆盖已展开目录，Agent 在深层
+   * 目录写文件不会产生事件。这里合并 Agent 结束 / 工作流结束 / 文件变化
+   * 三类信号，并在面板重新可见时补一次。
+   */
+  const gitStatusInflight = useRef(false);
+  const refreshGitStatus = useCallback(() => {
+    const id = projectIdRef.current;
+    if (!id || gitStatusInflight.current) return;
+    gitStatusInflight.current = true;
+    void ipc
+      .getGitStatus(id)
+      .then((status) => {
+        if (projectIdRef.current === id) setGitStatus(status);
+      })
+      .catch(() => {
+        // 保留旧值：一次失败不应把标记清空
+      })
+      .finally(() => {
+        gitStatusInflight.current = false;
+      });
+  }, []);
+  useGitStatusRefresh(
+    projectId || null,
+    panelVisible,
+    refreshGitStatus,
+    "git-status-panel",
+  );
   const dragRef = useRef<{
     pointerId: number;
     startX: number;
     startWidth: number;
   } | null>(null);
-
-  useEffect(() => {
-    projectIdRef.current = projectId;
-  }, [projectId]);
 
   /** 文件变更回调里读到的必须是最新展开状态，不能是订阅那一刻的闭包 */
   const expandedPathsRef = useRef(expandedPaths);
@@ -330,17 +359,6 @@ export function WorkspacePanel({
           });
         });
     }
-
-    ipc
-      .getGitStatus(projectId)
-      .then((status) => {
-        if (cancelled) return;
-        setGitStatus(status);
-      })
-      .catch(() => {
-        if (cancelled) return;
-        setGitStatus({ available: false, branch: null, files: [] });
-      });
 
     return () => {
       cancelled = true;

@@ -1,7 +1,39 @@
 import { defineConfig, externalizeDepsPlugin } from "electron-vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
+import type { Plugin } from "vite";
 import { resolve } from "path";
+import {
+  DEFAULT_SKIN_APPEARANCE,
+  DEFAULT_SKIN_ID,
+  DEFAULT_WINDOW_BACKGROUND,
+  LIGHT_WINDOW_BACKGROUND,
+} from "./src/shared/skin-default";
+
+/**
+ * 首帧主题引导注入。
+ *
+ * index.html 是静态文件，不能直接 import TS 常量；这里在构建期把
+ * shared/skin-default.ts 的值替换进去，保证「注册表 / 首帧脚本 / 主进程
+ * 窗口底色」三处不会各自漂移。
+ */
+function injectDefaultSkin(): Plugin {
+  const replacements: Record<string, string> = {
+    "%NOVA_DEFAULT_SKIN%": DEFAULT_SKIN_ID,
+    "%NOVA_DEFAULT_APPEARANCE%": DEFAULT_SKIN_APPEARANCE,
+    "%NOVA_DEFAULT_WINDOW_BACKGROUND%": DEFAULT_WINDOW_BACKGROUND,
+    "%LIGHT_WINDOW_BACKGROUND%": LIGHT_WINDOW_BACKGROUND,
+  };
+  return {
+    name: "nova-default-skin",
+    transformIndexHtml(html) {
+      return Object.entries(replacements).reduce(
+        (out, [placeholder, value]) => out.replaceAll(placeholder, value),
+        html,
+      );
+    },
+  };
+}
 
 export default defineConfig({
   main: {
@@ -38,7 +70,7 @@ export default defineConfig({
         "@renderer": resolve(__dirname, "src/renderer"),
       },
     },
-    plugins: [react(), tailwindcss()],
+    plugins: [react(), tailwindcss(), injectDefaultSkin()],
     build: {
       /*
        * electron-vite 的 renderer 预设默认 minify:false，产物是 5.2MB、

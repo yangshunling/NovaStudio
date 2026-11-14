@@ -67,6 +67,11 @@ export function PromptsView() {
   const [saving, setSaving] = useState(false);
   /** Ctrl/⌘+S 需要访问最新的保存逻辑 */
   const saveRef = useRef<() => void>(() => {});
+  /** 异步保存返回时用来判断用户是否已经切换条目 / 继续输入 */
+  const formRef = useRef(form);
+  formRef.current = form;
+  const selectionRef = useRef({ creating, selectedId });
+  selectionRef.current = { creating, selectedId };
   const usePromptInChat = useChatStore((s) => s.usePromptInChat);
 
   useEffect(() => {
@@ -93,18 +98,6 @@ export function PromptsView() {
 
   const selected = items.find((item) => item.id === selectedId) ?? null;
 
-  const startCreate = () => {
-    setCreating(true);
-    setSelectedId(null);
-    setForm(EMPTY_DRAFT);
-  };
-
-  const selectItem = (item: PromptItem) => {
-    setCreating(false);
-    setSelectedId(item.id);
-    setForm(toDraft(item));
-  };
-
   const dirty = creating
     ? form.title !== "" || form.content !== ""
     : !!selected &&
@@ -113,25 +106,84 @@ export function PromptsView() {
   const canSave =
     dirty && !saving && form.title.trim() !== "" && form.content.trim() !== "";
 
+  /** 切换条目前确认，避免未保存正文被静默替换 */
+  const confirmDiscard = async (): Promise<boolean> => {
+    if (saving) {
+      toast.info("正在保存，请稍候", 3000);
+      return false;
+    }
+    if (!dirty) return true;
+    return confirmDialog({
+      title: "放弃未保存的修改？",
+      message: "当前提示词的修改尚未保存。",
+      confirmLabel: "放弃修改",
+      tone: "danger",
+    });
+  };
+
+  const startCreate = async () => {
+    if (!(await confirmDiscard())) return;
+    setCreating(true);
+    setSelectedId(null);
+    setForm(EMPTY_DRAFT);
+  };
+
+  const selectItem = async (item: PromptItem) => {
+    if (!(await confirmDiscard())) return;
+    setCreating(false);
+    setSelectedId(item.id);
+    setForm(toDraft(item));
+  };
+
   const save = async () => {
     if (!canSave) return;
+    /*
+     * 保存是异步的，期间用户可能切换条目或继续输入。
+     * 快照目标与表单；返回时只有「目标未变且表单未改」才回填，
+     * 否则只更新列表，避免把 A 的正文写进 B 或覆盖新输入。
+     */
+    const snapshot = {
+      creating,
+      selectedId,
+      form: { ...form },
+    };
     const draft: PromptDraft = { ...form, title: form.title.trim() };
+    const formUnchanged = () =>
+      formRef.current.title === snapshot.form.title &&
+      formRef.current.content === snapshot.form.content;
+
     setSaving(true);
     try {
-      if (creating) {
+      if (snapshot.creating) {
         const item = await ipc.createPrompt(draft);
         setItems((prev) => [item, ...prev]);
-        setCreating(false);
-        setSelectedId(item.id);
-        setForm(toDraft(item));
+
+        const current = selectionRef.current;
+        if (current.creating) {
+          /*
+           * 绑定到刚创建的条目；保存期间用户继续输入时保留新文本，
+           * 让它成为该条目的未保存修改，避免下一次保存又创建一条重复项。
+           */
+          setCreating(false);
+          setSelectedId(item.id);
+          if (formUnchanged()) setForm(toDraft(item));
+        }
         toast.success("提示词已创建");
-      } else if (selectedId) {
-        const item = await ipc.updatePrompt(selectedId, draft);
+      } else if (snapshot.selectedId) {
+        const item = await ipc.updatePrompt(snapshot.selectedId, draft);
         if (!item) throw new Error("提示词已不存在，可能已被删除");
         setItems((prev) =>
           prev.map((current) => (current.id === item.id ? item : current)),
         );
-        setForm(toDraft(item));
+
+        const current = selectionRef.current;
+        if (
+          !current.creating &&
+          current.selectedId === snapshot.selectedId &&
+          formUnchanged()
+        ) {
+          setForm(toDraft(item));
+        }
         toast.success("提示词已保存");
       }
     } catch (err) {
@@ -156,6 +208,7 @@ export function PromptsView() {
 
   const remove = async () => {
     if (!selected) return;
+    const targetId = selected.id;
     const ok = await confirmDialog({
       title: "删除这条提示词？",
       message: selected.title,
@@ -164,13 +217,18 @@ export function PromptsView() {
     });
     if (!ok) return;
     try {
-      const deleted = await ipc.deletePrompt(selected.id);
+      const deleted = await ipc.deletePrompt(targetId);
       if (!deleted) throw new Error("提示词已不存在");
-      const remaining = items.filter((item) => item.id !== selected.id);
-      const next = remaining[0] ?? null;
+      const remaining = items.filter((item) => item.id !== targetId);
       setItems(remaining);
-      setSelectedId(next?.id ?? null);
-      setForm(next ? toDraft(next) : EMPTY_DRAFT);
+
+      // 删除期间用户可能已切到别的条目：此时不要改他的选择
+      const current = selectionRef.current;
+      if (!current.creating && current.selectedId === targetId) {
+        const next = remaining[0] ?? null;
+        setSelectedId(next?.id ?? null);
+        setForm(next ? toDraft(next) : EMPTY_DRAFT);
+      }
       toast.success("已删除");
     } catch (err) {
       toast.error(toMessage(err));

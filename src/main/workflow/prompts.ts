@@ -10,6 +10,7 @@
  */
 
 import type { DigitalEmployee, WorkflowNode } from "../../shared/types";
+import { BASE_CHAT_NAME } from "../agents/chat-identity";
 import * as db from "../db/sqlite";
 
 /** 构建提示词所需的最小运行快照，避免依赖 runner 内部类型 */
@@ -21,16 +22,24 @@ export interface WorkflowPromptRun {
   order: WorkflowNode[];
 }
 
+/**
+ * 节点执行者的系统提示词。
+ *
+ * employee 为 null 表示节点选择了「通用助手」：没有员工人设 / 知识库，
+ * 直接使用本机 Agent 全局配置，只需要身份边界与工作流协作约定。
+ */
 export function buildSystemPrompt(
-  employee: DigitalEmployee,
+  employee: DigitalEmployee | null,
   knowledgeSection: string,
 ): string {
   return [
-    employee.role
-      ? `你是「${employee.name}」，职位：${employee.role}。`
-      : `你是「${employee.name}」。`,
+    employee
+      ? employee.role
+        ? `你是「${employee.name}」，职位：${employee.role}。`
+        : `你是「${employee.name}」。`
+      : `你是「${BASE_CHAT_NAME}」，使用本机 Agent 的全局配置执行工作流节点。`,
     // 简介已从员工配置中移除，身份与职责统一由系统提示词表达
-    employee.systemPrompt,
+    employee?.systemPrompt ?? "",
     knowledgeSection,
     [
       "## 工作流协作约定",

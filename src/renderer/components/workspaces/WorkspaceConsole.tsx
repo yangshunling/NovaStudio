@@ -6,7 +6,7 @@
  * 两个 Tab 常驻挂载，切换不丢文件预览标签和 Git 提交草稿。
  */
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   AlertTriangle,
   FolderKanban,
@@ -23,6 +23,8 @@ import type {
 import { ipc } from "../../lib/ipc";
 import { toMessage } from "../../lib/utils";
 import { IconButton } from "../ui/IconButton";
+import { useElementVisible } from "../../hooks/useElementVisible";
+import { useGitStatusRefresh } from "../../hooks/useGitStatusRefresh";
 import { FilesTab, type FilesRequest } from "./FilesTab";
 import { GitTab } from "./GitTab";
 import { changeCount } from "./gitUi";
@@ -57,6 +59,37 @@ export function WorkspaceConsole({
 
   const [filesRequest, setFilesRequest] = useState<FilesRequest | null>(null);
   const requestNonce = useRef(0);
+
+  const rootRef = useRef<HTMLDivElement>(null);
+  /** 页面被侧栏切走时整块 hidden：不保留监听、也不后台刷 Git */
+  const visible = useElementVisible(rootRef);
+  const projectIdRef = useRef(project.id);
+  projectIdRef.current = project.id;
+
+  /** 轻量刷新：只拉 Git 状态，不重拉分支 / 日志（那是全量刷新的事） */
+  const gitStatusInflight = useRef(false);
+  const refreshGitStatus = useCallback(() => {
+    const id = projectIdRef.current;
+    if (!id || gitStatusInflight.current) return;
+    gitStatusInflight.current = true;
+    void ipc
+      .getGitStatusDetail(id)
+      .then((status) => {
+        if (projectIdRef.current === id) setGit(status);
+      })
+      .catch(() => {
+        // 保留旧值
+      })
+      .finally(() => {
+        gitStatusInflight.current = false;
+      });
+  }, []);
+  useGitStatusRefresh(
+    project.id,
+    visible,
+    refreshGitStatus,
+    "git-status-console",
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -125,7 +158,7 @@ export function WorkspaceConsole({
   };
 
   return (
-    <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+    <div ref={rootRef} className="flex min-h-0 min-w-0 flex-1 flex-col">
       <div className="ws-head">
         <span className="ws-head-icon">
           <FolderKanban className="h-4 w-4" />

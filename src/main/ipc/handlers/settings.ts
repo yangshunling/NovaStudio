@@ -117,6 +117,12 @@ export function registerSettingsHandlers(): void {
    */
   handle("window:setAppearance", ({ appearance }) => {
     nativeTheme.themeSource = appearance;
+    try {
+      // 供下次启动的首帧窗口底色使用：此时渲染层还没加载完，读不到皮肤信息
+      db.setSetting("nativeAppearance", appearance);
+    } catch {
+      // 退出竞态下数据库可能已关闭：主题本身已经生效，无需上报
+    }
     return true;
   });
 }

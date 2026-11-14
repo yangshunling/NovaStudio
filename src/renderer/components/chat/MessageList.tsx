@@ -21,6 +21,7 @@ import { MarkdownRenderer } from "../ui/MarkdownRenderer";
 import { StreamingIndicator } from "../ui/StreamingIndicator";
 import { UserBubble } from "../ui/UserBubble";
 import { isToolResultError, firstText } from "../../lib/utils";
+import { imageSrc } from "../../lib/attachment";
 import { extractFileChanges } from "../../lib/tool-diff";
 import { ToolCallCard } from "./ToolCallCard";
 import { ThinkingCard } from "./ThinkingCard";
@@ -186,14 +187,18 @@ export function MessageGroup({ events, isUser }: { events: AgentEvent[]; isUser:
     return (
       <div className="mb-4 flex justify-end">
         <UserBubble>
-          {images.map((image, index) => (
-            <img
-              key={index}
-              src={`data:${image.mediaType};base64,${image.data}`}
-              alt="图片"
-              className="mb-1.5 max-h-64 w-auto max-w-full rounded-lg border border-border/50 object-contain last:mb-0"
-            />
-          ))}
+          {images.map((image, index) => {
+            const src = imageSrc(image);
+            if (!src) return null;
+            return (
+              <img
+                key={index}
+                src={src}
+                alt="图片"
+                className="mb-1.5 max-h-64 w-auto max-w-full rounded-lg border border-border/50 object-contain last:mb-0"
+              />
+            );
+          })}
           {text}
         </UserBubble>
       </div>

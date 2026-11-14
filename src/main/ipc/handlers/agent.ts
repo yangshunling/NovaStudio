@@ -30,6 +30,39 @@ const pendingSends = new Set<string>();
 /** 发送尚在准备阶段时用户点了停止：准备完成后不再启动本轮 */
 const canceling = new Set<string>();
 
+/** 单条消息的图片上限：与渲染层输入区保持一致 */
+const MAX_IMAGES = 8;
+/** base64 总量上限，约 20MB 原始字节 */
+const MAX_IMAGE_TOTAL_BASE64 = 28 * 1024 * 1024;
+
+/**
+ * IPC 边界校验：渲染层不可信，超限或缺字段直接拒绝，
+ * 避免一次消息把内存 / DB / CLI stdin 同时撑爆。
+ */
+function validateImages(images?: InputImage[]): string | null {
+  if (!images || images.length === 0) return null;
+  if (images.length > MAX_IMAGES) {
+    return `单条消息最多 ${MAX_IMAGES} 张图片`;
+  }
+  let total = 0;
+  for (const image of images) {
+    if (
+      !image ||
+      typeof image.mediaType !== "string" ||
+      !image.mediaType.startsWith("image/") ||
+      typeof image.data !== "string" ||
+      !image.data
+    ) {
+      return "图片数据不合法";
+    }
+    total += image.data.length;
+  }
+  if (total > MAX_IMAGE_TOTAL_BASE64) {
+    return "图片总大小超过限制（约 20MB）";
+  }
+  return null;
+}
+
 export function registerAgentHandlers(service: AgentService): void {
   handle("agent:detect", async () => {
     const agents = await service.listAgentInfos();
@@ -171,6 +204,18 @@ export function registerAgentHandlers(service: AgentService): void {
       );
     }
 
+    /*
+     * 用户在准备运行时点过停止：此时还没有 RunSession，service.abort 找不到
+     * 句柄，只能由 canceling 标记在这里刹车。尚未 touchSession、也未落用户
+     * 消息，因此取消是干净的无副作用退出。
+     */
+    if (canceling.has(sessionId)) {
+      canceling.delete(sessionId);
+      flushEvents();
+      push("agent:aborted", { sessionId });
+      return { ok: true, exitCode: -1, duration: 0, canceled: true };
+    }
+
     // 记录用户消息：刷新索引（首条消息写标题），正文不入库
     db.touchSession(sessionId, {
       title:
@@ -212,7 +257,16 @@ export function registerAgentHandlers(service: AgentService): void {
       ...(run.systemPrompt
         ? { opts: { systemPrompt: run.systemPrompt } }
         : {}),
+      // 覆盖历史导入 await 期间到达的停止请求
+      shouldCancel: () => canceling.has(sessionId),
     });
+    if (outcome.canceled) {
+      // 取消发生在 touchSession 之后、用户消息落库之前：撤回计数
+      db.touchSession(sessionId, { countDelta: -1 });
+      flushEvents();
+      push("agent:aborted", { sessionId });
+      return { ok: true, exitCode: -1, duration: 0, canceled: true };
+    }
     if (!outcome.ok) {
       // 运行没起来：把刚才记的用户消息撤回，避免消息数虚增导致
       // 「首条消息自动命名」和侧栏计数都失真。
@@ -242,6 +296,8 @@ export function registerAgentHandlers(service: AgentService): void {
   };
 
   handle("agent:send", async (input) => {
+    const imageError = validateImages(input.images);
+    if (imageError) return { ok: false, error: imageError };
     if (pendingSends.has(input.sessionId)) {
       return { ok: false, error: "会话正在运行，请等待本次执行结束" };
     }

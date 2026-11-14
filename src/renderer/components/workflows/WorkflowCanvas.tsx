@@ -727,7 +727,7 @@ function NodeCard({
         ? "工作流出口"
         : employee
           ? `数字员工 · ${employee.name}`
-          : "未绑定数字员工";
+          : "通用助手";
 
   /** 画布上只保留最影响流程走向的两条信息：失败策略 + 是否人工审核 */
   const failureLabel =

@@ -9,6 +9,7 @@
  */
 
 import type { SkinVariant } from "@shared/contracts/skin";
+import { DEFAULT_SKIN_ID } from "@shared/skin-default";
 
 /** Vite 静态收集：每个皮肤目录导出自己的 variant */
 const modules = import.meta.glob<{ variant: SkinVariant }>("./*/index.ts", {
@@ -23,8 +24,20 @@ if (skins.length === 0) {
   throw new Error("未加载到任何皮肤，请检查 src/renderer/skins/<id>/index.ts");
 }
 
-/** 默认皮肤：排序最靠前的一套 */
-export const defaultSkinId: string = skins[0].id;
+/**
+ * 默认皮肤：来自 shared 常量，而不是「目录顺序碰巧排第一」。
+ * 缺失时仍回退 skins[0]，避免新增皮肤时因一次笔误导致白屏。
+ */
+export const defaultSkinId: string = skins.some((s) => s.id === DEFAULT_SKIN_ID)
+  ? DEFAULT_SKIN_ID
+  : skins[0].id;
+
+if (import.meta.env.DEV && skins[0].id !== DEFAULT_SKIN_ID) {
+  throw new Error(
+    `默认皮肤不一致：registry 排首位的是 ${skins[0].id}，` +
+      `shared/skin-default 声明的是 ${DEFAULT_SKIN_ID}`,
+  );
+}
 
 /** 按 id 取皮肤；未知 id 回退默认皮肤（避免历史设置里的旧 id 导致白屏） */
 export function getSkin(id: string): SkinVariant {

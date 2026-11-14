@@ -60,6 +60,16 @@ import { FOCUS_COMPOSER_EVENT } from "../../lib/chat-events";
 /** 输入区里待发送的图片：带本地 key，便于预览列表增删 */
 type PendingImage = InputImage & { id: string };
 
+/** 单条消息的图片上限：与主进程 agent:send 的校验保持一致 */
+const MAX_PENDING_IMAGES = 8;
+/** 编码前（base64 字符串）的总量上限，约 20MB 原始字节 */
+const MAX_PENDING_IMAGE_BASE64 = 28 * 1024 * 1024;
+
+/** 粗略估算 base64 对应的原始字节数，用于总量限制 */
+function base64Bytes(data: string): number {
+  return Math.floor((data.length * 3) / 4);
+}
+
 /** 拖入路径是否位于工作区内；是则返回相对路径（统一用 /） */
 function relativePathIn(root: string | undefined, target: string): string | null {
   if (!root) return null;
@@ -154,6 +164,9 @@ export function ChatArea({ embedded = false }: { embedded?: boolean } = {}) {
   /** 待发送图片：只存在于当前草稿，切换会话即清空 */
   const [pendingImages, setPendingImages] = useState<PendingImage[]>([]);
   const [imagesBusy, setImagesBusy] = useState(false);
+  /** 异步处理完成时读取最新的待发送列表，避免闭包拿到旧值 */
+  const pendingImagesRef = useRef<PendingImage[]>([]);
+  pendingImagesRef.current = pendingImages;
   useEffect(() => {
     setPendingImages([]);
   }, [draftKey]);
@@ -164,9 +177,26 @@ export function ChatArea({ embedded = false }: { embedded?: boolean } = {}) {
    */
   const addImageFiles = useCallback(async (files: File[]) => {
     if (files.length === 0) return;
+
+    // 先按数量裁剪，避免为注定被拒绝的图片做缩放 / 编码
+    const room = Math.max(
+      0,
+      MAX_PENDING_IMAGES - pendingImagesRef.current.length,
+    );
+    if (room === 0) {
+      toast.info(`单条消息最多 ${MAX_PENDING_IMAGES} 张图片`, 4000);
+      return;
+    }
+    const candidates = files.slice(0, room);
+    if (files.length > room) {
+      toast.info(`单条消息最多 ${MAX_PENDING_IMAGES} 张图片`, 4000);
+    }
+
     setImagesBusy(true);
     try {
-      const results = await Promise.allSettled(files.map(fileToInputImage));
+      const results = await Promise.allSettled(
+        candidates.map(fileToInputImage),
+      );
       const added: PendingImage[] = [];
       for (const result of results) {
         if (result.status === "fulfilled") {
@@ -175,8 +205,31 @@ export function ChatArea({ embedded = false }: { embedded?: boolean } = {}) {
           toast.error(toMessage(result.reason), 5000);
         }
       }
+
       if (added.length > 0) {
-        setPendingImages((previous) => [...previous, ...added]);
+        let total = pendingImagesRef.current.reduce(
+          (sum, image) => sum + base64Bytes(image.data),
+          0,
+        );
+        const accepted: PendingImage[] = [];
+        let rejectedByBytes = false;
+
+        for (const image of added) {
+          const bytes = base64Bytes(image.data);
+          if (total + bytes > MAX_PENDING_IMAGE_BASE64) {
+            rejectedByBytes = true;
+            continue;
+          }
+          total += bytes;
+          accepted.push(image);
+        }
+
+        if (rejectedByBytes) {
+          toast.info("图片总大小超过 20MB，部分图片未附加", 5000);
+        }
+        if (accepted.length > 0) {
+          setPendingImages((previous) => [...previous, ...accepted]);
+        }
       }
     } finally {
       setImagesBusy(false);

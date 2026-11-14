@@ -19,7 +19,7 @@
  * - TaskDetailDrawer（任务详情抽屉）
  */
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   AlertTriangle,
   Check,
@@ -30,6 +30,7 @@ import {
 } from "lucide-react";
 import { useAutomationStore } from "../../stores/automation";
 import { useChatStore } from "../../stores/chat";
+import { useEmployeesStore } from "../../stores/employees";
 import { Page, PageHeader } from "../ui/Page";
 import { Button } from "../ui/Button";
 import { BoardColumn } from "./BoardColumn";
@@ -44,14 +45,24 @@ import { Spinner } from "../ui/Spinner";
 
 export function AutomationView() {
   const tasks = useAutomationStore((s) => s.tasks);
+  const loading = useAutomationStore((s) => s.loading);
+  const error = useAutomationStore((s) => s.error);
+  const loadTasks = useAutomationStore((s) => s.loadTasks);
   const deleteTask = useAutomationStore((s) => s.deleteTask);
   const retryTask = useAutomationStore((s) => s.retryTask);
   const stopTask = useAutomationStore((s) => s.stopTask);
   const projects = useChatStore((s) => s.projects);
   const agents = useChatStore((s) => s.agents);
 
+  const loadEmployees = useEmployeesStore((s) => s.load);
+
   const [showCreate, setShowCreate] = useState(false);
   const [detailTask, setDetailTask] = useState<AutomationTask | null>(null);
+
+  // 任务卡片 / 详情要显示执行人名称；员工数据由该页首次进入时拉取
+  useEffect(() => {
+    void loadEmployees();
+  }, [loadEmployees]);
 
   const pending = tasks.filter((t) => t.status === "pending");
   const running = tasks.filter((t) => t.status === "running");
@@ -100,92 +111,120 @@ export function AutomationView() {
 
         {/* 四列看板：列是独立圆角卡片，窄窗口横向滚动 */}
         <div className="relative z-10 flex min-h-0 flex-1 gap-3 overflow-x-auto p-4">
-          <BoardColumn
-            title="待执行"
-            count={pending.length}
-            icon={<Clock className="h-3.5 w-3.5" />}
-            tone="pending"
-            tasks={pending}
-            projects={projects}
-            agents={agents}
-            onDelete={deleteTask}
-            onRetry={retryTask}
-            onStop={stopTask}
-            onViewDetail={setDetailTask}
-            onAdd={() => setShowCreate(true)}
-            emptyHint="暂无待执行任务"
-          />
-          {/* 没有任务在跑时不用静止的转圈图标：那看起来像卡住的加载态 */}
-          <BoardColumn
-            title="执行中"
-            count={running.length}
-            icon={
-              hasRunning ? (
-                <Spinner className="h-4 w-4" />
-              ) : (
-                <CircleDashed className="h-3.5 w-3.5" />
-              )
-            }
-            tone="running"
-            tasks={running}
-            projects={projects}
-            agents={agents}
-            onDelete={deleteTask}
-            onRetry={retryTask}
-            onStop={stopTask}
-            onViewDetail={setDetailTask}
-            emptyHint="当前无执行中任务"
-          />
-          <BoardColumn
-            title="需处理"
-            count={failed.length}
-            icon={<AlertTriangle className="h-3.5 w-3.5" />}
-            tone="failed"
-            tasks={visibleFailed}
-            projects={projects}
-            agents={agents}
-            onDelete={deleteTask}
-            onRetry={retryTask}
-            onStop={stopTask}
-            onViewDetail={setDetailTask}
-            emptyHint="没有失败任务"
-            footer={
-              failed.length > failedLimit ? (
-                <button
-                  type="button"
-                  className={moreButtonClass}
-                  onClick={() => setFailedLimit((value) => value + COLUMN_PAGE_SIZE)}
+          {loading && tasks.length === 0 ? (
+            <div className="flex flex-1 items-center justify-center gap-2 text-text-muted">
+              <Spinner className="h-5 w-5" />
+              正在加载任务…
+            </div>
+          ) : error && tasks.length === 0 ? (
+            <div className="flex flex-1 items-center justify-center p-4">
+              <div className="max-w-md rounded-xl border border-error/30 bg-error-bg/60 p-5 text-center">
+                <p className="ui-type-body text-error">
+                  任务列表加载失败：{error}
+                </p>
+                <Button
+                  size="sm"
+                  className="mt-3"
+                  onClick={() => {
+                    void loadTasks().catch(() => {
+                      // 错误已写入 store，由上面的错误态展示
+                    });
+                  }}
                 >
-                  加载更多（剩余 {failed.length - failedLimit}）
-                </button>
-              ) : undefined
-            }
-          />
-          <BoardColumn
-            title="已完成"
-            count={done.length}
-            icon={<Check className="h-3.5 w-3.5" />}
-            tone="done"
-            tasks={visibleDone}
-            projects={projects}
-            agents={agents}
-            onDelete={deleteTask}
-            onRetry={retryTask}
-            onStop={stopTask}
-            onViewDetail={setDetailTask}
-            emptyHint="尚无已完成任务"
-            footer={
-              done.length > doneLimit ? (
-                <button
-                  type="button"
-                  className={moreButtonClass}
-                  onClick={() => setDoneLimit((value) => value + COLUMN_PAGE_SIZE)}
-                >
-                  加载更多（剩余 {done.length - doneLimit}）
-                </button>
-              ) : undefined
-            }
-          />
+                  重试
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <>
+            <BoardColumn
+              title="待执行"
+              count={pending.length}
+              icon={<Clock className="h-3.5 w-3.5" />}
+              tone="pending"
+              tasks={pending}
+              projects={projects}
+              agents={agents}
+              onDelete={deleteTask}
+              onRetry={retryTask}
+              onStop={stopTask}
+              onViewDetail={setDetailTask}
+              onAdd={() => setShowCreate(true)}
+              emptyHint="暂无待执行任务"
+            />
+            {/* 没有任务在跑时不用静止的转圈图标：那看起来像卡住的加载态 */}
+            <BoardColumn
+              title="执行中"
+              count={running.length}
+              icon={
+                hasRunning ? (
+                  <Spinner className="h-4 w-4" />
+                ) : (
+                  <CircleDashed className="h-3.5 w-3.5" />
+                )
+              }
+              tone="running"
+              tasks={running}
+              projects={projects}
+              agents={agents}
+              onDelete={deleteTask}
+              onRetry={retryTask}
+              onStop={stopTask}
+              onViewDetail={setDetailTask}
+              emptyHint="当前无执行中任务"
+            />
+            <BoardColumn
+              title="需处理"
+              count={failed.length}
+              icon={<AlertTriangle className="h-3.5 w-3.5" />}
+              tone="failed"
+              tasks={visibleFailed}
+              projects={projects}
+              agents={agents}
+              onDelete={deleteTask}
+              onRetry={retryTask}
+              onStop={stopTask}
+              onViewDetail={setDetailTask}
+              emptyHint="没有失败任务"
+              footer={
+                failed.length > failedLimit ? (
+                  <button
+                    type="button"
+                    className={moreButtonClass}
+                    onClick={() => setFailedLimit((value) => value + COLUMN_PAGE_SIZE)}
+                  >
+                    加载更多（剩余 {failed.length - failedLimit}）
+                  </button>
+                ) : undefined
+              }
+            />
+            <BoardColumn
+              title="已完成"
+              count={done.length}
+              icon={<Check className="h-3.5 w-3.5" />}
+              tone="done"
+              tasks={visibleDone}
+              projects={projects}
+              agents={agents}
+              onDelete={deleteTask}
+              onRetry={retryTask}
+              onStop={stopTask}
+              onViewDetail={setDetailTask}
+              emptyHint="尚无已完成任务"
+              footer={
+                done.length > doneLimit ? (
+                  <button
+                    type="button"
+                    className={moreButtonClass}
+                    onClick={() => setDoneLimit((value) => value + COLUMN_PAGE_SIZE)}
+                  >
+                    加载更多（剩余 {done.length - doneLimit}）
+                  </button>
+                ) : undefined
+              }
+            />
+            </>
+          )}
         </div>
       </Page>
 

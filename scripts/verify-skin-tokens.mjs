@@ -116,5 +116,59 @@ if (undocumented.length) {
   fail(`以下 token 出现在 CSS 里但未登记进 ${CONTRACT}:\n      ${undocumented.join(", ")}`);
 }
 
+/*
+ * 首帧主题守卫：默认皮肤 / 明暗 / 启动脚本必须来自同一份常量。
+ * 这三处一旦漂移，用户会看到「首帧白底、随后跳夜间」的闪屏。
+ */
+const defaultSource = readFileSync(
+  join(process.cwd(), "src/shared/skin-default.ts"),
+  "utf8",
+);
+const defaultId = /DEFAULT_SKIN_ID\s*=\s*"([^"]+)"/.exec(defaultSource)?.[1];
+const defaultAppearance =
+  /DEFAULT_SKIN_APPEARANCE\s*=\s*"([^"]+)"/.exec(defaultSource)?.[1];
+
+if (!defaultId) fail("shared/skin-default.ts 缺少 DEFAULT_SKIN_ID");
+if (!defaultAppearance) {
+  fail("shared/skin-default.ts 缺少 DEFAULT_SKIN_APPEARANCE");
+}
+
+const orderedSkins = findSkins()
+  .map((id) => {
+    const source = readFileSync(
+      join(process.cwd(), SKINS_DIR, id, "index.ts"),
+      "utf8",
+    );
+    const order = Number(/order:\s*(\d+)/.exec(source)?.[1] ?? Number.NaN);
+    return { id, order };
+  })
+  .sort((a, b) => a.order - b.order);
+
+if (orderedSkins[0] && defaultId && orderedSkins[0].id !== defaultId) {
+  fail(
+    `默认皮肤不一致：order 最小的是 ${orderedSkins[0].id}，` +
+      `shared/skin-default 声明的是 ${defaultId}`,
+  );
+}
+
+const htmlPath = join(process.cwd(), "out/renderer/index.html");
+if (existsSync(htmlPath)) {
+  const html = readFileSync(htmlPath, "utf8");
+  if (html.includes("%NOVA_DEFAULT_SKIN%")) {
+    fail("index.html 的默认皮肤占位符未被注入（检查 electron.vite.config 插件）");
+  }
+  if (defaultId && !html.includes(`"${defaultId}"`)) {
+    fail(`index.html 首帧默认主题不是 ${defaultId}`);
+  }
+  if (defaultAppearance && !html.includes(`"${defaultAppearance}"`)) {
+    fail(`index.html 首帧默认明暗不是 ${defaultAppearance}`);
+  }
+  if (defaultId && defaultAppearance) {
+    console.log(`OK    first-frame: ${defaultId} / ${defaultAppearance}`);
+  }
+} else {
+  console.log("SKIP  index.html 首帧检查（尚未构建）");
+}
+
 console.log(failed ? "\n结果：存在差异" : "\n结果：全部一致");
 process.exit(failed ? 1 : 0);

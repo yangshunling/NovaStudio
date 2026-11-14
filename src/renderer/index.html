@@ -12,17 +12,31 @@
     (function () {
       try {
         var raw = localStorage.getItem("nova-skin");
-        var theme = "classic-day";
-        if (raw) {
-          var parsed = JSON.parse(raw);
-          if (parsed && typeof parsed.theme === "string") theme = parsed.theme;
-        }
-        var dark = theme.indexOf("night") >= 0;
+        var parsed = raw ? JSON.parse(raw) : null;
+        var hasCache = parsed && typeof parsed.theme === "string";
+
+        /*
+         * 默认值由 electron.vite.config 从 shared/skin-default.ts 注入，
+         * 与皮肤注册表、主进程窗口背景共用同一份常量。
+         */
+        var theme = hasCache ? parsed.theme : "%NOVA_DEFAULT_SKIN%";
+        var appearance =
+          parsed && typeof parsed.appearance === "string"
+            ? parsed.appearance
+            : hasCache
+              ? theme.indexOf("night") >= 0
+                ? "dark"
+                : "light"
+              : "%NOVA_DEFAULT_APPEARANCE%";
+        var dark = appearance === "dark";
+
         document.documentElement.setAttribute("data-theme", theme);
         document.documentElement.style.colorScheme = dark ? "dark" : "light";
-        document.documentElement.style.backgroundColor = dark ? "#000000" : "#ffffff";
+        document.documentElement.style.backgroundColor = dark
+          ? "%NOVA_DEFAULT_WINDOW_BACKGROUND%"
+          : "%LIGHT_WINDOW_BACKGROUND%";
       } catch (_) {
-        // 缓存损坏时保持默认浅色，由应用启动后修正
+        // 缓存损坏时保持内置默认值，由应用启动后修正
       }
     })();
   </script>

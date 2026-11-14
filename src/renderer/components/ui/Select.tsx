@@ -8,7 +8,7 @@
  * 菜单挂到 body，避免被 Modal / Drawer 的 overflow 裁切。
  */
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { Check, ChevronDown } from "lucide-react";
 import { estimateMenuHeight, placePopup } from "../../lib/popup";
@@ -17,7 +17,9 @@ import { useDismissableLayer } from "../../hooks/useDismissableLayer";
 export interface SelectOption {
   value: string;
   label: string;
-  /** 菜单项的第二行说明文字；不传则保持单行 */
+  /** 选项图标（头像 / 品牌图）；菜单与触发器都会展示 */
+  icon?: ReactNode;
+  /** 与名称同一行的补充说明（如工作区路径）；不传则只显示名称 */
   description?: string;
   disabled?: boolean;
 }
@@ -142,6 +144,9 @@ export function Select({
         }}
         className={`flex items-center justify-between gap-2 text-left outline-none transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${className}`}
       >
+        {selected?.icon && (
+          <span className="flex shrink-0 items-center">{selected.icon}</span>
+        )}
         <span
           className={`min-w-0 flex-1 truncate ${
             selected ? "" : "text-text-muted"
@@ -194,6 +199,11 @@ export function Select({
                         : "text-text-secondary hover:bg-surface-hover hover:text-text"
                     }`}
                   >
+                    {option.icon && (
+                      <span className="flex shrink-0 items-center">
+                        {option.icon}
+                      </span>
+                    )}
                     <span className="min-w-0 flex-1 truncate">
                       {option.label}
                       {option.description && (

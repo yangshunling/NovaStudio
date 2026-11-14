@@ -13,6 +13,8 @@
  */
 
 import type { AgentInvocationInfo } from "../agents/types";
+// 显式带 .ts：执行报告会被 node --test 直接加载，Node 的 ESM 解析需要扩展名
+import { BASE_CHAT_NAME } from "../agents/chat-identity.ts";
 
 export interface ExecutionReportKnowledgeBase {
   name: string;
@@ -28,8 +30,9 @@ export interface ExecutionReportInput {
   nodeId: string;
   nodeName: string;
   nodeType: string;
-  employeeId: string;
-  employeeName: string;
+  /** null 表示节点使用通用助手（不绑定数字员工） */
+  employeeId: string | null;
+  employeeName: string | null;
   employeeRole: string;
   attempt: number;
   /** 该尝试内的修正轮次，从 1 开始 */
@@ -153,7 +156,13 @@ export function buildExecutionReport(input: ExecutionReportInput): string {
     `| 节点 | ${cell(input.nodeName)} |`,
     `| 节点 ID | ${cell(input.nodeId)} |`,
     `| 节点类型 | ${cell(input.nodeType)} |`,
-    `| 数字员工 | ${cell(`${input.employeeName}（${input.employeeId}）`)} |`,
+    `| 执行人 | ${
+      cell(
+        input.employeeId
+          ? `${input.employeeName ?? "未知员工"}（${input.employeeId}）`
+          : `${BASE_CHAT_NAME}（Agent 全局配置）`,
+      )
+    } |`,
     `| 员工职位 | ${cell(input.employeeRole || "—")} |`,
     `| 尝试次数 | 第 ${input.attempt} 次（最多重试 ${input.maxRetries} 次） |`,
     `| 调用来源 | ${cell(input.kind === "revise" ? "人工审核要求修改" : input.kind === "retry" ? "执行失败重试" : "初次执行")} |`,
