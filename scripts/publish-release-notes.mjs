@@ -137,7 +137,12 @@ const apiRoot = `https://api.github.com/repos/${owner}/${repo}`;
  */
 let found;
 try {
-  found = await fetch(`${apiRoot}/releases/tags/${encodeURIComponent(tag)}`, { headers });
+  // 刚创建的 Release 偶尔会短暂查不到，重试几次再判定不存在
+  for (let attempt = 1; attempt <= 4; attempt += 1) {
+    found = await fetch(`${apiRoot}/releases/tags/${encodeURIComponent(tag)}`, { headers });
+    if (found.status !== 404) break;
+    if (attempt < 4) await new Promise((resolve) => setTimeout(resolve, 2000));
+  }
 } catch (error) {
   fail(`请求 GitHub 失败：${error.message}（token 来源：${source}）`);
 }
