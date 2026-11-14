@@ -17,6 +17,7 @@ import { useFileViewerStore } from "./stores/fileViewer";
 import { useTerminalStore } from "./stores/terminal";
 import { useAutomationStore } from "./stores/automation";
 import { preloadAssets } from "./stores/assets";
+import { initUpdaterSync } from "./stores/updater";
 import { useAgentStream } from "./hooks/useAgentStream";
 import { loadSkinSettings } from "./hooks/useTheme";
 import { Sidebar } from "./components/app/Sidebar";
@@ -138,6 +139,9 @@ export default function App() {
   const [workflowMounted, setWorkflowMounted] = useState(false);
 
   useEffect(() => {
+    // 更新状态全局常驻：侧栏红点不依赖关于页是否打开过
+    initUpdaterSync();
+
     // 开发期检查皮肤 token 完整性，避免新增皮肤时漏定义导致静默失效
     if (import.meta.env.DEV) validateSkins();
 

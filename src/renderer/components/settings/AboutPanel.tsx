@@ -3,11 +3,15 @@
  */
 
 import { useEffect, useState } from "react";
+import type { ReactNode } from "react";
 import logoUrl from "../../assets/logo.png";
 import { ipc } from "../../lib/ipc";
 import { confirmDialog } from "../../stores/confirm";
-import type { AppInfo, UpdaterState } from "@shared/types";
+import { setUpdaterState, useUpdaterStore } from "../../stores/updater";
+import type { AppInfo } from "@shared/types";
 import { Button } from "../ui/Button";
+import { Pill } from "../ui/Pill";
+import { Spinner } from "../ui/Spinner";
 import { SettingsCard, SettingsPage } from "./SettingsLayout";
 
 function platformLabel(platform: string): string {
@@ -23,32 +27,35 @@ function platformLabel(platform: string): string {
   }
 }
 
-/** 关于页里「名称 - 值」的一行 */
-function InfoRow({ label, value }: { label: string; value: string }) {
+/** 关于页的一行：左侧名称，右侧值或操作 */
+function Row({ label, children }: { label: string; children: ReactNode }) {
   return (
     <div className="flex items-center justify-between gap-4 px-4 py-2.5">
       <span className="ui-type-note text-text-muted">{label}</span>
-      <span className="select-text ui-type-note text-text-secondary">
-        {value}
-      </span>
+      <div className="flex min-w-0 items-center justify-end gap-2">
+        {children}
+      </div>
     </div>
   );
 }
 
-function UpdateCard() {
-  const [state, setState] = useState<UpdaterState | null>(null);
+/** 「名称 - 值」的一行 */
+function InfoRow({ label, value }: { label: string; value: string }) {
+  return (
+    <Row label={label}>
+      <span className="select-text ui-type-note text-text-secondary">
+        {value}
+      </span>
+    </Row>
+  );
+}
 
-  useEffect(() => {
-    void ipc
-      .getUpdaterState()
-      .then((next) => setState(next))
-      .catch(() => {});
-    // 主进程是唯一状态源：检查 / 下载 / 下载完成都通过推送同步
-    return ipc.on.updaterChanged((next) => setState(next));
-  }, []);
+function UpdateCard() {
+  // 更新状态由 App 启动时统一同步，打开设置页不会重新订阅
+  const state = useUpdaterStore((s) => s.state);
 
   const handleCheck = async () => {
-    setState(await ipc.checkForUpdates());
+    setUpdaterState(await ipc.checkForUpdates());
   };
 
   const handleDownload = async () => {
@@ -73,6 +80,7 @@ function UpdateCard() {
   }
 
   const { phase, version, percent, message, supported } = state;
+  const versionLabel = version ? `v${version}` : "新版本";
 
   return (
     <SettingsCard
@@ -83,74 +91,105 @@ function UpdateCard() {
           : "开发模式下不可用，打包安装后生效。"
       }
     >
-      <div className="px-4 py-3">
-        {phase === "checking" && (
-          <p className="ui-type-body text-text-secondary">正在检查更新…</p>
-        )}
-        {phase === "up-to-date" && (
-          <p className="ui-type-body text-text-secondary">已是最新版本。</p>
-        )}
-        {phase === "available" && (
-          <p className="ui-type-body text-text-secondary">
-            发现新版本{" "}
-            <span className="font-semibold text-text">v{version}</span>
-            ，可以立即下载。
-          </p>
-        )}
-        {phase === "downloading" && (
-          <div>
-            <div className="h-1.5 w-full overflow-hidden rounded-full bg-surface-active">
-              <div
-                className="h-full rounded-full bg-accent transition-[width] duration-300"
-                style={{ width: `${percent}%` }}
-              />
-            </div>
-            <p className="mt-2 ui-type-note text-text-muted">
-              正在下载更新… {percent}%
-            </p>
-          </div>
-        )}
-        {phase === "downloaded" && (
-          <p className="ui-type-body text-text-secondary">
-            v{version} 已下载完成，重启应用即可完成安装。
-          </p>
-        )}
-        {phase === "error" && (
-          <p className="ui-type-body text-error">
-            {message ?? "检查更新失败。"}
-          </p>
-        )}
-        {phase === "idle" && message && (
-          <p className="ui-type-note text-text-muted">{message}</p>
-        )}
+      {phase === "idle" && (
+        <Row label="更新状态">
+          <span className="ui-type-note text-text-muted">
+            {supported ? "尚未检查" : "开发模式下不可用"}
+          </span>
+          {supported && (
+            <Button size="xs" onClick={() => void handleCheck()}>
+              检查更新
+            </Button>
+          )}
+        </Row>
+      )}
 
-        <div className="mt-3 flex items-center gap-2">
-          {supported &&
-            (phase === "idle" || phase === "up-to-date" || phase === "error") && (
-              <Button size="sm" onClick={() => void handleCheck()}>
-                检查更新
+      {phase === "checking" && (
+        <Row label="更新状态">
+          <Spinner className="h-3.5 w-3.5 text-text-muted" />
+          <span className="ui-type-note text-text-secondary">
+            正在检查更新…
+          </span>
+        </Row>
+      )}
+
+      {phase === "up-to-date" && (
+        <Row label="更新状态">
+          <Pill toneClassName="bg-success/10 text-success">已是最新版本</Pill>
+          <Button size="xs" onClick={() => void handleCheck()}>
+            检查更新
+          </Button>
+        </Row>
+      )}
+
+      {phase === "available" && (
+        <Row label="更新状态">
+          <span className="ui-type-note text-text-secondary">发现新版本</span>
+          <Pill variant="accent">{versionLabel}</Pill>
+          <Button
+            size="xs"
+            variant="primary"
+            onClick={() => void handleDownload()}
+          >
+            下载更新
+          </Button>
+        </Row>
+      )}
+
+      {phase === "downloading" && (
+        <>
+          <Row label="更新状态">
+            <span className="ui-type-note text-text-secondary">
+              正在下载 {versionLabel}
+            </span>
+          </Row>
+          <div className="flex items-center justify-between gap-4 px-4 py-2.5">
+            <span className="ui-type-note text-text-muted">下载进度</span>
+            <div className="flex min-w-0 flex-1 items-center justify-end gap-3">
+              <div className="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-surface-active">
+                <div
+                  className="h-full rounded-full bg-accent transition-[width]"
+                  style={{ width: `${percent}%` }}
+                />
+              </div>
+              <span className="w-9 shrink-0 text-right tabular-nums ui-type-note text-text-secondary">
+                {percent}%
+              </span>
+            </div>
+          </div>
+        </>
+      )}
+
+      {phase === "downloaded" && (
+        <Row label="更新状态">
+          <Pill toneClassName="bg-success/10 text-success">
+            {versionLabel} 已下载
+          </Pill>
+          <Button
+            size="xs"
+            variant="primary"
+            onClick={() => void handleInstall()}
+          >
+            重启并安装
+          </Button>
+        </Row>
+      )}
+
+      {phase === "error" && (
+        <>
+          <Row label="更新状态">
+            <Pill variant="error">检查失败</Pill>
+            {supported && (
+              <Button size="xs" onClick={() => void handleCheck()}>
+                重试
               </Button>
             )}
-          {phase === "available" && (
-            <Button
-              size="sm"
-              variant="primary"
-              onClick={() => void handleDownload()}
-            >
-              下载更新
-            </Button>
-          )}
-          {phase === "downloaded" && (
-            <Button
-              size="sm"
-              variant="primary"
-              onClick={() => void handleInstall()}
-            >
-              重启并安装
-            </Button>
-          )}
-        </div>
-      </div>
+          </Row>
+          <p className="px-4 py-2.5 ui-type-note leading-relaxed text-error">
+            {message ?? "检查更新失败。"}
+          </p>
+        </>
+      )}
     </SettingsCard>
   );
 }
@@ -182,7 +221,10 @@ export function AboutPanel() {
         </div>
       </div>
 
-      <SettingsCard>
+      <SettingsCard
+        title="版本信息"
+        description="当前安装的客户端与运行环境。"
+      >
         <InfoRow label="版本" value={info ? `v${info.version}` : "—"} />
         <InfoRow label="Electron" value={info?.electron || "—"} />
         <InfoRow label="Chromium" value={info?.chrome || "—"} />

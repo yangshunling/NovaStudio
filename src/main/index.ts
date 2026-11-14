@@ -68,6 +68,35 @@ function resolvePreloadPath(): string {
   return join(dir, "index.cjs");
 }
 
+/**
+ * 解析窗口 / 任务栏图标路径。
+ *
+ * extraResources 当前是 `{ from: "resources", to: "resources" }`，打包后
+ * 实际文件在 `<resourcesPath>/resources/logo.png`。这里按候选顺序查找，
+ * 并保留根路径作为兼容项，避免以后调整打包布局时再次静默失效。
+ *
+ * 找不到时返回 undefined，让 BrowserWindow 回退到可执行文件内嵌图标；
+ * 不能返回不存在的路径：Electron 会得到空 NativeImage，标题栏反而空白。
+ */
+function resolveWindowIcon(): string | undefined {
+  const candidates = app.isPackaged
+    ? [
+        join(process.resourcesPath, "resources", "logo.png"),
+        join(process.resourcesPath, "logo.png"),
+      ]
+    : [join(__dirname, "../../resources/logo.png")];
+
+  for (const candidate of candidates) {
+    if (existsSync(candidate)) return candidate;
+  }
+
+  console.warn(
+    "[nova] 未找到窗口图标，回退到可执行文件内嵌图标。候选路径：",
+    candidates.join(", "),
+  );
+  return undefined;
+}
+
 /** 建窗时的底色：与渲染进程首帧主题缓存保持一致，避免深色皮肤白闪 */
 function initialWindowBackground(): string {
   try {
@@ -79,9 +108,7 @@ function initialWindowBackground(): string {
 
 function createWindow(): BrowserWindow {
   // 窗口/任务栏图标：打包后在 extraResources 里，开发时读项目根 resources/
-  const iconPath = app.isPackaged
-    ? join(process.resourcesPath, "logo.png")
-    : join(__dirname, "../../resources/logo.png");
+  const iconPath = resolveWindowIcon();
 
   const preloadPath = resolvePreloadPath();
 
@@ -197,6 +224,12 @@ function createWindow(): BrowserWindow {
 
 /** 启动主流程：数据库 → 迁移 → 窗口 → IPC → 后台清理/索引 */
 async function bootstrap(): Promise<void> {
+  // Windows 任务栏分组与通知身份；必须与 package.json 的 build.appId 一致，
+  // 否则快捷方式与运行中的窗口会被系统认成两个应用。
+  if (process.platform === "win32") {
+    app.setAppUserModelId("com.nova.app");
+  }
+
   initDatabase();
   // 上次异常退出可能留下含系统提示词的临时目录（员工 / 知识库内容），先清掉
   purgeStaleTempDirs("novastudio-system-");

@@ -8,6 +8,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useChatStore } from "../../stores/chat";
 import { ipc } from "../../lib/ipc";
+import { hasUpdateNotice, useUpdaterStore } from "../../stores/updater";
 import { toast } from "../../stores/toast";
 import sloganUrl from "../../assets/slogan.png";
 import type { WorkflowRun } from "@shared/types";
@@ -36,6 +37,7 @@ export function Sidebar() {
   const setViewMode = useChatStore((s) => s.setViewMode);
   const setShowSettings = useChatStore((s) => s.setShowSettings);
   const showSettings = useChatStore((s) => s.showSettings);
+  const updateNotice = useUpdaterStore((s) => hasUpdateNotice(s.state));
 
   /*
    * 全局活跃运行提示。
@@ -321,6 +323,14 @@ export function Sidebar() {
           <span className="min-w-0 flex-1 truncate ui-type-body font-medium text-text">
             设置
           </span>
+          {updateNotice && (
+            <span
+              role="img"
+              aria-label="有可用更新"
+              title="有可用更新"
+              className="h-2 w-2 shrink-0 rounded-full bg-error"
+            />
+          )}
           <ChevronRight className="h-4 w-4 shrink-0 text-text-muted transition-transform group-hover:translate-x-0.5" />
         </button>
       </div>

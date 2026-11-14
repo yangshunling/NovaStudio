@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { Modal, ModalHeader } from "../ui/Modal";
 import { useChatStore } from "../../stores/chat";
+import { hasUpdateNotice, useUpdaterStore } from "../../stores/updater";
 import { loadAppSettings } from "../../hooks/useAppSettings";
 import { GeneralPanel } from "../settings/GeneralPanel";
 import { AppearancePanel } from "../settings/AppearancePanel";
@@ -44,6 +45,7 @@ const SETTINGS_SECTIONS: Array<{
 
 export function SettingsModal() {
   const setShowSettings = useChatStore((s) => s.setShowSettings);
+  const updateNotice = useUpdaterStore((s) => hasUpdateNotice(s.state));
   const [section, setSection] = useState<SettingsSection>("general");
 
   // 运行设置是共享状态：打开设置页时读一次，之后各面板共用
@@ -101,6 +103,14 @@ export function SettingsModal() {
                   <Icon className="h-3.5 w-3.5" />
                 </span>
                 {label}
+                {id === "about" && updateNotice && (
+                  <span
+                    role="img"
+                    aria-label="有可用更新"
+                    title="有可用更新"
+                    className="ml-auto h-1.5 w-1.5 shrink-0 rounded-full bg-error"
+                  />
+                )}
               </button>
             );
           })}

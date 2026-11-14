@@ -51,6 +51,20 @@ module.exports = async function patchWinExe(context) {
     throw new Error(`[patch-win-exe] 找不到主程序：${exePath}`);
   }
 
+  // 运行时窗口图标由 main 的 resolveWindowIcon() 读取。extraResources 当前
+  // 落在 resources/resources/ 下，这里在构建期断言文件存在，避免打包布局
+  // 与读取路径再次不一致时，只有客户安装后才发现标题栏图标空白。
+  const runtimeIcons = [
+    path.join(context.appOutDir, "resources", "resources", "logo.png"),
+    path.join(context.appOutDir, "resources", "logo.png"),
+  ];
+  if (!runtimeIcons.some((p) => fs.existsSync(p))) {
+    throw new Error(
+      "[patch-win-exe] 安装包内缺少窗口图标，主进程将回退到默认图标。已检查：\n" +
+        runtimeIcons.map((p) => `  - ${p}`).join("\n"),
+    );
+  }
+
   const rcedit = findRcedit();
   if (rcedit == null) {
     // 不阻断打包，但要让问题可见：没有 rcedit 时图标仍是 Electron 默认图标
@@ -64,6 +78,11 @@ module.exports = async function patchWinExe(context) {
 
   // 图标由 electron-builder 从 win.icon 的 png 惰性转换成 ico（不依赖 winCodeSign）
   const iconPath = await packager.getIconPath();
+  if (iconPath == null) {
+    throw new Error(
+      "[patch-win-exe] electron-builder 未解析出应用图标，拒绝产出无图标安装包。",
+    );
+  }
 
   const args = [
     exePath,
@@ -91,9 +110,7 @@ module.exports = async function patchWinExe(context) {
   if (appInfo.companyName) {
     args.push("--set-version-string", "CompanyName", appInfo.companyName);
   }
-  if (iconPath) {
-    args.push("--set-icon", iconPath);
-  }
+  args.push("--set-icon", iconPath);
 
   execFileSync(rcedit, args, { stdio: "inherit" });
   console.log(`[patch-win-exe] 已写入图标与版本信息：${path.basename(exePath)}`);
