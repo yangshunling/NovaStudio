@@ -260,6 +260,19 @@ export interface AgentModelOption {
   displayName?: string;
 }
 
+/**
+ * 模型列表查询结果。
+ *
+ * 模型列表是可选能力：Anthropic 兼容网关通常只实现 /v1/messages，
+ * 不一定实现 /v1/models。此时返回空列表 + unsupported 说明，
+ * 由界面降级为「可手动输入模型 ID」，而不是当成配置错误。
+ */
+export interface AgentModelListResult {
+  models: AgentModelOption[];
+  /** 接入点未提供模型列表接口时的说明 */
+  unsupported?: string;
+}
+
 export interface AgentSettingsDraft {
   agentId: string;
   baseUrl: string;

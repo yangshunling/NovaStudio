@@ -66,7 +66,7 @@ import type {
   AgentAuthMode,
   AgentInfo,
   AgentInstallResult,
-  AgentModelOption,
+  AgentModelListResult,
   AgentSettingsDraft,
   AgentSettingsView,
   AgentUpgradeCheck,
@@ -111,7 +111,10 @@ export interface IpcInvokeMap {
     args: [{ draft: AgentSettingsDraft }];
     result: AgentSettingsView;
   };
-  /** 按当前 Base URL / API Key 拉取可用模型列表（鉴权方式与自定义请求头需与 CLI 一致） */
+  /**
+   * 按当前 Base URL / API Key 拉取可用模型列表（鉴权方式与自定义请求头需与 CLI 一致）。
+   * 接入点没有 /v1/models 时返回 unsupported 说明，由界面降级为手动输入。
+   */
   "agent:models:list": {
     args: [
       {
@@ -122,7 +125,7 @@ export interface IpcInvokeMap {
         customHeaders?: string;
       },
     ];
-    result: AgentModelOption[];
+    result: AgentModelListResult;
   };
   /** 安装 Agent 到本机；过程文本经 agent:install:progress 推送 */
   "agent:install:run": {

@@ -249,14 +249,17 @@ function normalizePermissionMode(value) {
 
 `listClaudeModels(baseUrl, apiKey, authMode, customHeaders)`：
 
-- `GET <baseUrl>/v1/models?limit=1000`；
+- 候选地址按顺序尝试：`GET <baseUrl>/v1/models?limit=1000`、`GET <baseUrl>/models?limit=1000`；
 - Base URL 已带 `/v1` 不重复拼；
+- 误粘贴完整接口地址（`/v1/messages`、`/v1/chat/completions` 等）时先还原成根路径；
 - 空 Base URL 用官方 `https://api.anthropic.com`；
 - 鉴权方式与 CLI 实际请求头一致：
   - `auth-token` → `Authorization: Bearer`
   - `api-key` → `x-api-key`
-- `apiKeyHelper` 模式直接报错；
+- `apiKeyHelper` 模式返回 `unsupported` 说明，不报错；
 - 15 秒超时；
+- 404 / 405 视为「该接入点没有模型列表接口」，返回空列表 + `unsupported`，
+  界面降级为手动输入模型 ID，不当作配置错误；
 - 兼容 `data: [{id, display_name}]` 与 `data: [string]`；
 - 去重、过滤空 id。
 

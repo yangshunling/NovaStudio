@@ -23,7 +23,11 @@ import {
   type AgentSettingsDraft,
   type AgentSettingsView,
 } from "../../../shared/contracts/agent";
-import { claudeSettingsPath, isOfficialBaseUrl } from "./config";
+import {
+  claudeSettingsPath,
+  isOfficialBaseUrl,
+  stripApiEndpoint,
+} from "./config";
 import { formatModelEntry } from "./models";
 import { errorMessage } from "../../../shared/error";
 import { DEFAULT_PERMISSION_MODE } from "../../../shared/permission";
@@ -33,15 +37,21 @@ const ALIASES = AGENT_MODEL_ALIASES;
 function normalizeBaseUrl(raw: string): string {
   const trimmed = raw.trim().replace(/\/+$/, "");
   if (!trimmed) return "";
+  let parsed: URL;
   try {
-    const parsed = new URL(trimmed);
-    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
-      throw new Error("Base URL 只支持 http / https");
-    }
+    parsed = new URL(trimmed);
   } catch {
     throw new Error("Base URL 不是合法地址，请填写完整的 http(s) 地址");
   }
-  return trimmed;
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    throw new Error("Base URL 只支持 http / https");
+  }
+  // 清掉查询串 / 锚点，并还原误粘贴的完整接口地址
+  // （Claude CLI 会自己在根地址后拼 /v1/messages）
+  parsed.search = "";
+  parsed.hash = "";
+  const path = stripApiEndpoint(parsed.pathname);
+  return `${parsed.origin}${path === "/" ? "" : path}`;
 }
 
 function normalizePermissionMode(value: unknown): string {

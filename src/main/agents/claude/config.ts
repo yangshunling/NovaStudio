@@ -14,6 +14,26 @@ import { join } from "path";
 import { writeFileAtomicSync } from "../../utils/fs";
 import { parseJsonSafe } from "../../../shared/json";
 
+/**
+ * 去掉误粘贴的完整接口后缀，只保留服务根路径。
+ *
+ * 用户常把 `https://api.anthropic.com/v1/messages` 这类完整接口地址
+ * 填进 Base URL。Claude CLI 会在 Base URL 后自己拼 `/v1/messages`，
+ * 所以这类值必须还原成根地址；模型列表查询也复用同一规则。
+ *
+ * 只处理明确的端点后缀，保留 `/anthropic` 这类网关前缀。
+ */
+export function stripApiEndpoint(pathname: string): string {
+  return pathname
+    // 先去掉结尾斜杠，否则 `/v1/messages/` 匹配不到端点后缀
+    .replace(/\/+$/, "")
+    .replace(
+      /\/(?:v1\/)?(?:messages|chat\/completions|completions|responses)$/i,
+      "",
+    )
+    .replace(/\/+$/, "");
+}
+
 /** 是否是 Anthropic 官方端点（空值按官方处理，与 Claude CLI 默认行为一致） */
 export function isOfficialBaseUrl(baseUrl: string): boolean {
   const trimmed = baseUrl.trim();

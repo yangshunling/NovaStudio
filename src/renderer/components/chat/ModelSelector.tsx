@@ -52,6 +52,8 @@ export function ModelSelector() {
   const [models, setModels] = useState<AgentModelOption[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /** 接入点没有模型列表接口：中性提示，不是错误 */
+  const [note, setNote] = useState<string | null>(null);
   const [hoverIdx, setHoverIdx] = useState(0);
 
   const rootRef = useRef<HTMLDivElement>(null);
@@ -135,12 +137,13 @@ export function ModelSelector() {
     const requestId = ++requestRef.current;
     setLoading(true);
     setError(null);
+    setNote(null);
     try {
       const view = await ipc.getAgentSettings(agentId);
       if (requestId !== requestRef.current) return;
       setSettings(view);
       try {
-        const list = await ipc.listAgentModels({
+        const result = await ipc.listAgentModels({
           agentId,
           baseUrl: view.baseUrl,
           apiKey: view.apiKey,
@@ -148,10 +151,12 @@ export function ModelSelector() {
           customHeaders: view.customHeaders,
         });
         if (requestId !== requestRef.current) return;
-        setModels(list);
+        setModels(result.models);
+        setNote(result.unsupported ?? null);
       } catch (err) {
         if (requestId !== requestRef.current) return;
         setModels([]);
+        setNote(null);
         setError(errorMessage(err));
       }
     } catch (err) {
@@ -298,6 +303,11 @@ export function ModelSelector() {
                 模型列表获取失败：{error}（可直接输入模型 ID）
               </p>
             )}
+            {note && !error && (
+              <p className="mt-1 px-1 ui-type-sub text-text-muted">
+                {note}
+              </p>
+            )}
             {loading && (
               <p className="mt-1 px-1 ui-type-sub text-text-muted">
                 正在获取模型列表…
@@ -345,7 +355,7 @@ export function ModelSelector() {
                 当前使用：{value}（不在可用列表中）
               </div>
             )}
-            {!loading && rows.length === 1 && !error && (
+            {!loading && rows.length === 1 && !error && !note && (
               <div className="px-2.5 py-1.5 ui-type-sub text-text-muted">
                 当前接入点没有返回模型列表
               </div>

@@ -496,10 +496,12 @@ Claude Code 用同一套规则判断开关：空串 / `"0"` / `"false"` 视为�
 ### 8.1 请求
 
 ```
-GET <baseUrl>/v1/models?limit=1000
+GET <baseUrl>/v1/models?limit=1000    // 首选
+GET <baseUrl>/models?limit=1000       // 兜底：部分网关只在根路径提供
 ```
 
 - Base URL 已带 `/v1` 时不重复拼；
+- 误粘贴完整接口地址（`/v1/messages` 等）时先还原成根路径；
 - 空 Base URL 用官方 `https://api.anthropic.com`；
 - 请求头：
   - `accept: application/json`
@@ -510,9 +512,16 @@ GET <baseUrl>/v1/models?limit=1000
 - 15 秒超时；
 - 主进程发起，避免渲染层 CORS。
 
-### 8.2 `apiKeyHelper` 模式
+### 8.2 可选能力与降级
 
-无法代其请求模型列表，直接抛错提示。
+模型列表不是 Anthropic 协议的一部分，Claude Code 运行时也不依赖它：
+很多兼容网关只实现 `/v1/messages`，`/v1/models` 会返回 404。此时
+
+- 依次尝试候选地址；
+- 全部 404 / 405 时返回空列表 + `unsupported` 说明；
+- 界面把它展示为「可手动输入模型 ID」的中性提示，不当作配置错误。
+
+`apiKeyHelper` 模式同理：无法代其请求模型列表，返回 `unsupported` 提示。
 
 ### 8.3 响应解析
 

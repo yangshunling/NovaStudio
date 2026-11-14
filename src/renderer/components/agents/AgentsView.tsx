@@ -119,6 +119,10 @@ export function AgentsView() {
   const [showKey, setShowKey] = useState(false);
   const [remoteModels, setRemoteModels] = useState<AgentModelOption[]>([]);
   const [modelsLoading, setModelsLoading] = useState(false);
+  /** 接入点没有模型列表接口时的说明：不是错误，允许手动输入模型名 */
+  const [modelsUnavailable, setModelsUnavailable] = useState<string | null>(
+    null,
+  );
   const [modelsError, setModelsError] = useState<string | null>(null);
   /** 只接受最后一次请求的结果，避免旧响应覆盖新列表 */
   const modelRequestRef = useRef(0);
@@ -157,17 +161,20 @@ export function AgentsView() {
     const requestId = ++modelRequestRef.current;
     setModelsLoading(true);
     setModelsError(null);
+    setModelsUnavailable(null);
     try {
-      const models = await ipc.listAgentModels({
+      const result = await ipc.listAgentModels({
         agentId: CLAUDE_ID,
         baseUrl: form.baseUrl,
         apiKey: form.apiKey,
       });
       if (requestId !== modelRequestRef.current) return;
-      setRemoteModels(models);
+      setRemoteModels(result.models);
+      setModelsUnavailable(result.unsupported ?? null);
     } catch (err) {
       if (requestId !== modelRequestRef.current) return;
       setRemoteModels([]);
+      setModelsUnavailable(null);
       setModelsError(toMessage(err));
     } finally {
       if (requestId === modelRequestRef.current) setModelsLoading(false);
@@ -301,9 +308,11 @@ export function AgentsView() {
 
   const modelListHint = modelsLoading
     ? "正在按当前 Base URL 与 API Key 获取模型列表…"
-    : modelsError
-      ? `模型列表获取失败：${modelsError}`
-      : "模型列表按当前 Base URL 与 API Key 动态获取；也可直接输入自定义模型名。";
+    : modelsUnavailable
+      ? modelsUnavailable
+      : modelsError
+        ? `模型列表获取失败：${modelsError}`
+        : "模型列表按当前 Base URL 与 API Key 动态获取；也可直接输入自定义模型名。";
 
   const permissionOptions = useMemo(() => {
     if (!form) return [...PERMISSION_MODE_OPTIONS];
