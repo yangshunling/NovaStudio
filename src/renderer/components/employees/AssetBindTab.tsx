@@ -17,10 +17,10 @@ import { BindAction, EmptyTab } from "./BindUi";
 export type BindChipTone = "muted" | "warn" | "error" | "success";
 
 const CHIP_TONE_CLASS: Record<BindChipTone, string> = {
-  muted: "bg-surface-hover text-text-muted",
-  warn: "bg-agent-amber/10 text-agent-amber",
-  error: "bg-error-bg text-error",
-  success: "bg-success/10 text-success",
+  muted: "text-text-muted",
+  warn: "text-agent-amber",
+  error: "text-error",
+  success: "text-success",
 };
 
 /** 绑定卡片上的状态芯片 */
@@ -41,7 +41,7 @@ export function BindChip({
   return (
     <span
       title={title}
-      className={`flex shrink-0 items-center gap-0.5 rounded-full px-2 py-0.5 ui-type-note ${
+      className={`flex shrink-0 items-center gap-1 rounded-md border border-border px-1.5 py-0.5 ui-type-note ${
         className || CHIP_TONE_CLASS[tone]
       }`}
     >

@@ -16,7 +16,7 @@ import type { AgentInfo } from "@shared/contracts/agent";
 
 /** 头像容器的统一尺寸与圆角；描边由各品牌自行决定 */
 const AVATAR_BASE =
-  "flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-full ring-1 ring-border/60";
+  "flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-full ring-1 ring-border";
 
 /** 回复方头像：当前会话的 Agent */
 export function AgentAvatar({
@@ -79,7 +79,7 @@ export function EmployeeChatAvatar({
           draggable={false}
         />
       ) : initial ? (
-        <span className="ui-type-item font-semibold text-accent">{initial}</span>
+        <span className="ui-type-item font-medium text-text-secondary">{initial}</span>
       ) : (
         <Bot className="h-4 w-4 text-text-muted" />
       )}
@@ -92,7 +92,7 @@ export function NovaAvatar({ className = "" }: { className?: string }) {
   return (
     <span
       title="Nova"
-      className={`${AVATAR_BASE} bg-accent-soft ${className}`}
+      className={`${AVATAR_BASE} bg-surface-2 ${className}`}
     >
       {/* logo 自带透明留白，稍微放大让标记的视觉大小与 Claude 头像接近 */}
       <img

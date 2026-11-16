@@ -115,7 +115,7 @@ function UpdateCard() {
 
       {phase === "up-to-date" && (
         <Row label="更新状态">
-          <Pill toneClassName="bg-success/10 text-success">已是最新版本</Pill>
+          <Pill toneClassName="border-success/30 text-success">已是最新版本</Pill>
           <Button size="xs" onClick={() => void handleCheck()}>
             检查更新
           </Button>
@@ -162,7 +162,7 @@ function UpdateCard() {
 
       {phase === "downloaded" && (
         <Row label="更新状态">
-          <Pill toneClassName="bg-success/10 text-success">
+          <Pill toneClassName="border-success/30 text-success">
             {versionLabel} 已下载
           </Pill>
           <Button
@@ -214,7 +214,7 @@ export function AboutPanel() {
           className="h-14 w-14 shrink-0 rounded-xl object-cover"
         />
         <div className="min-w-0">
-          <p className="ui-type-item font-semibold text-text">Nova Studio</p>
+          <p className="ui-type-item font-medium text-text">Nova Studio</p>
           <p className="mt-0.5 ui-type-note text-text-muted">
             AI 智能体 CLI 的桌面 GUI 客户端
           </p>

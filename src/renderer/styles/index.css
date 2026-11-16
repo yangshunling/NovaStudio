@@ -87,6 +87,13 @@
   --color-accent-hover: var(--c-accent-hover);
   --color-accent-foreground: var(--c-accent-foreground);
   --color-accent-soft: var(--c-accent-soft);
+
+  /* 分区色：text-hue-teal / border-hue-amber/30 这类工具类 */
+  --color-hue-teal: var(--c-hue-teal);
+  --color-hue-amber: var(--c-hue-amber);
+  --color-hue-rose: var(--c-hue-rose);
+  --color-hue-moss: var(--c-hue-moss);
+  --color-hue-sky: var(--c-hue-sky);
   /* 列表 / 导航选中底色（bg-selected） */
   --color-selected: var(--c-selection-bg);
 
@@ -377,9 +384,9 @@ body {
   cursor: pointer;
   transition: color var(--c-motion-fast) var(--c-ease-standard),
     border-color var(--c-motion-fast) var(--c-ease-standard),
-    background var(--c-motion-fast) var(--c-ease-standard),
-    filter var(--c-motion-fast) var(--c-ease-standard),
-    transform var(--c-motion-fast) var(--c-ease-standard);
+    background-color var(--c-motion-fast) var(--c-ease-standard),
+    box-shadow var(--c-motion-fast) var(--c-ease-standard),
+    filter var(--c-motion-fast) var(--c-ease-standard);
 }
 .ui-btn:disabled {
   opacity: 0.55;
@@ -414,18 +421,19 @@ body {
   background: var(--c-btn-primary-bg);
   color: var(--c-btn-primary-text);
   box-shadow: var(--c-btn-primary-shadow);
-  transition: transform var(--c-motion-fast) var(--c-ease-standard),
-    box-shadow var(--c-motion-fast) var(--c-ease-standard),
-    filter var(--c-motion-fast) var(--c-ease-standard);
+  transition: background-color var(--c-motion-fast) var(--c-ease-standard),
+    filter var(--c-motion-fast) var(--c-ease-standard),
+    transform var(--c-motion-fast) var(--c-ease-standard),
+    box-shadow var(--c-motion-fast) var(--c-ease-standard);
 }
 .ui-btn-primary:hover:not(:disabled) {
-  filter: brightness(1.08);
+  filter: brightness(1.04);
   transform: translateY(-1px);
+  box-shadow: var(--c-shadow-sm);
 }
 .ui-btn-primary:active:not(:disabled) {
-  /* 按下去的实体感：下沉 1px，并把外高光换成内阴影 */
-  transform: translateY(1px);
-  box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.28);
+  filter: brightness(0.96);
+  transform: translateY(0) scale(0.98);
 }
 .ui-btn-primary:disabled {
   opacity: 0.55;
@@ -446,7 +454,7 @@ body {
   background: var(--c-btn-ghost-hover-bg);
 }
 .ui-btn-ghost:active {
-  transform: translateY(1px);
+  filter: brightness(0.96);
 }
 
 /* 危险按钮（删除等不可恢复操作） */
@@ -458,11 +466,10 @@ body {
     transform var(--c-motion-fast) var(--c-ease-standard);
 }
 .ui-btn-danger:hover:not(:disabled) {
-  filter: brightness(1.08);
-  transform: translateY(-1px);
+  filter: brightness(0.94);
 }
 .ui-btn-danger:active:not(:disabled) {
-  transform: translateY(0);
+  filter: brightness(0.88);
 }
 .ui-btn-danger:disabled {
   opacity: 0.55;
@@ -497,7 +504,7 @@ body {
   box-shadow: var(--c-btn-round-shadow);
   transition: color var(--c-motion-fast) var(--c-ease-standard),
     border-color var(--c-motion-fast) var(--c-ease-standard),
-    background var(--c-motion-fast) var(--c-ease-standard),
+    background-color var(--c-motion-fast) var(--c-ease-standard),
     transform var(--c-motion-fast) var(--c-ease-standard);
 }
 .ui-btn-round:hover {
@@ -657,67 +664,17 @@ body {
 .ui-type-display {
   font-family: var(--c-font-sans);
   font-size: var(--c-font-size-display);
-  font-weight: 700;
+  font-weight: 600;
 }
 /* 页面大字：与品牌同字号，但走系统默认字体 */
 .ui-type-hero {
   font-family: var(--c-font-sans);
   font-size: var(--c-font-size-hero);
 }
-/* 唯一使用展示衬线的角色：侧栏品牌刊头（当前刊头用标语图，角色保留） */
+/* 唯一使用展示衬线的角色：品牌刊头（保留给需要衬线的品牌时刻） */
 .ui-type-brand {
   font-family: var(--c-font-display);
   font-size: var(--c-font-size-hero);
-}
-/* ============================================================================
- * 侧栏标语刊头
- *
- * 三个词各自承担一种排版角色，靠字族 / 字号 / 颜色三重对比建立层次：
- *   WORK     无衬线、极粗、紧缩大写，主文字色 —— 动词，重量感
- *   is       衬线斜体、最小、弱化灰 —— 连接词，退后一步
- *   AGENTIC  衬线、最大、品牌渐变 —— 名词，视觉落点
- *
- * 三个词基线对齐、两端对齐撑满侧栏宽度，整行在头部垂直居中。
- * ============================================================================ */
-.ui-slogan-frame {
-  display: flex;
-  width: 100%;
-  height: 100%;
-  align-items: center;
-  justify-content: center;
-  gap: 9px;
-  padding-inline: 10px;
-}
-
-.ui-slogan-word {
-  font-family: var(--c-font-sans);
-  font-size: var(--c-font-size-display);
-  font-weight: 800;
-  letter-spacing: 0.01em;
-  line-height: 1;
-  color: var(--c-text);
-}
-
-.ui-slogan-conj {
-  font-family: var(--c-font-display);
-  font-size: var(--c-font-size-display);
-  font-style: italic;
-  letter-spacing: 0.02em;
-  line-height: 1;
-  color: var(--c-text-muted);
-}
-
-.ui-slogan-mark {
-  font-family: var(--c-font-display);
-  font-size: var(--c-font-size-display);
-  font-weight: 700;
-  letter-spacing: 0.02em;
-  line-height: 1;
-  background: var(--c-brand-gradient, var(--c-accent));
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
-  color: transparent;
 }
 /* 入口主标题：全站唯一的大号展示衬线。字号由 --c-font-size-entrance 派生，
  * 中文回退宋体系，英文保持 Palatino / Georgia 的人文衬线气质。 */
@@ -757,14 +714,11 @@ body {
 /* ============================================================================
  * 自动化看板列
  *
- * 三列以语义色区分身份：待执行=次要文本灰、执行中=强调蓝、已完成=成功绿。
- * 通过 data-tone 把语义色绑到局部变量 --board-tone，列内一切色相（顶部色条 /
- * 列头软染 / 计数徽章 / 列体淡染 / 标题与图标）都由它派生，因此换肤即整套
- * 变色，不出现任何硬编码颜色。色相选择即 kanban 通用语义：灰=排队、
- * 蓝=进行、绿=完成；已完成列内的失败卡片仍保留 error 红边以单独可辨。
+ * 四列共用中性表面与发丝线，列身份由标题说明；状态色只留在卡片的状态点上。
+ * data-tone 保留为语义标记，供将来做筛选 / 辅助色，不再驱动大面积染色。
  * ============================================================================ */
 .board-col[data-tone="pending"] {
-  --board-tone: var(--c-text-secondary);
+  --board-tone: var(--c-text-muted);
 }
 .board-col[data-tone="running"] {
   --board-tone: var(--c-accent);
@@ -777,45 +731,20 @@ body {
   --board-tone: var(--c-success);
 }
 
-/* 顶部色条 —— 列身份的唯一强锚点，其余结构保持安静 */
+/* 顶部 2px 色条：列身份的唯一色块 */
 .board-col-rail {
   background: var(--board-tone);
-  opacity: 0.92;
-}
-/* 执行中且有任务时，色条呼吸提示「正在进行」—— 动效回应状态而非装饰 */
-.board-col[data-tone="running"][data-has-items] .board-col-rail {
-  animation: board-rail-pulse var(--c-motion-loop) var(--c-ease-standard) infinite;
-}
-@keyframes board-rail-pulse {
-  0%,
-  100% {
-    opacity: 0.92;
-  }
-  50% {
-    opacity: 0.4;
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  .board-col[data-tone="running"][data-has-items] .board-col-rail {
-    animation: none;
-  }
 }
 
-/* 列头软染 + 标题/图标着色 */
-.board-col-head {
-  background: color-mix(in srgb, var(--board-tone) 7%, transparent);
-}
+/* 列头与计数保持中性文字 */
 .board-col-accent {
-  color: var(--board-tone);
+  color: var(--c-text);
 }
-
-/* 计数徽章：软色底 + 列色字 */
 .board-col-badge {
-  background: color-mix(in srgb, var(--board-tone) 16%, transparent);
-  color: var(--board-tone);
+  color: var(--c-text-muted);
 }
 
-/* 列体保持中性：颜色只出现在顶部色条与列头，避免整列大面积染色显旧 */
+/* 列体保持中性 */
 .board-col-body {
   background: transparent;
 }
@@ -924,106 +853,89 @@ select.ui-ring {
   background: var(--c-sidebar-glow, none);
 }
 
-/* 导航项：图标做成立体底座，选中项是一块抬起的按键 */
+/* 导航项：图标与标签同一列，选中项只是一层淡淡的底色与发丝线 */
 .ui-nav-item > svg:first-child {
-  width: 15px;
-  height: 15px;
-  padding: 5px;
-  box-sizing: content-box;
-  border-radius: var(--c-radius-md);
-  background: color-mix(in srgb, var(--c-text) 5%, transparent);
+  width: 16px;
+  height: 16px;
+  flex: none;
+  color: var(--c-text-muted);
+  transition: color var(--c-motion-fast) var(--c-ease-standard);
+}
+.ui-nav-item:hover > svg:first-child {
   color: var(--c-text-secondary);
-  box-shadow: inset 0 1px 0 var(--c-bevel-highlight, transparent);
-  transition: background-color var(--c-motion-fast) var(--c-ease-standard),
-    color var(--c-motion-fast) var(--c-ease-standard),
-    box-shadow var(--c-motion-fast) var(--c-ease-standard);
 }
 .ui-nav-item-active {
-  /* 选中态只做轻微抬升：一段强调色叠层 + 顶部内高光，不加外投影。
-   * 叠层强度由皮肤提供 —— 深色底需要更高不透明度才分得清。 */
-  background: linear-gradient(
-    180deg,
-    var(--c-sel-top, var(--c-selection-bg)),
-    var(--c-sel-bottom, var(--c-selection-bg))
-  );
-  box-shadow: inset 0 1px 0 var(--c-bevel-highlight, transparent),
-    inset 0 0 0 1px var(--c-sel-border, transparent);
+  background: var(--c-selection-bg);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--c-accent) 22%, transparent);
   color: var(--c-text);
 }
 .ui-nav-item-active > svg:first-child {
-  background: var(--c-accent-soft);
   color: var(--c-accent);
-  box-shadow: inset 0 1px 0 var(--c-bevel-highlight, transparent);
 }
 
-/* 分组标题后的渐隐细线：用结构线取代孤立的标签 */
+/* 分组标题：文本 + 一个分区色小点，承担导航里的色相记忆 */
 .ui-nav-group-label {
   display: flex;
   align-items: center;
   gap: 8px;
 }
-.ui-nav-group-label::after {
-  content: "";
-  height: 1px;
-  flex: 1;
-  background: linear-gradient(90deg, var(--c-border), transparent);
-}
 
-/* 会话行选中态：只留一层淡底色与顶部内高光，不再整行浮起。
- * 与侧栏共用 --c-sel-*，但落在列表托盘底色上，深色下同样清楚。 */
+/* 会话行选中态：与侧栏同一层淡底色，落在列表托盘上同样清楚。
+ * 左侧竖条是唯一的强调色标记，不加发光。 */
 .ui-row-active {
-  background: linear-gradient(
-    180deg,
-    var(--c-sel-top, var(--c-selection-bg)),
-    var(--c-sel-bottom, var(--c-selection-bg))
-  );
-  box-shadow: inset 0 1px 0 var(--c-bevel-highlight, transparent),
-    inset 0 0 0 1px var(--c-sel-border, transparent);
+  background: var(--c-selection-bg);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--c-accent) 18%, transparent);
 }
 .ui-row-rail {
   background: var(--c-accent);
-  box-shadow: 0 0 6px color-mix(in srgb, var(--c-accent) 35%, transparent);
 }
 
-/* 页头：顶部内高光 + 底边外侧一道细亮线，形成「双线缝」 */
+/* 列表选中态：跟随页面分区色（ListPane 上注入 --list-hue） */
+.ui-list-active {
+  background: color-mix(
+    in srgb,
+    var(--list-hue, var(--c-accent)) 10%,
+    transparent
+  );
+  box-shadow: inset 0 0 0 1px
+    color-mix(in srgb, var(--list-hue, var(--c-accent)) 22%, transparent);
+}
+.ui-list-rail {
+  background: var(--list-hue, var(--c-accent));
+}
+.ui-list-icon-active {
+  color: var(--list-hue, var(--c-accent));
+}
+
+/* 页头：只有底边一道发丝线，没有双线缝 */
 .ui-header-bar {
-  box-shadow: inset 0 1px 0 var(--c-bevel-highlight, transparent),
-    0 1px 0 var(--c-bevel-highlight, transparent);
+  box-shadow: none;
 }
 
-/* 输入区内部的工具条分隔：一条凹陷的槽，而不是一根平线 */
+/* 输入区内部的工具条分隔：一条平线 */
 .ui-groove {
   border-top: 1px solid var(--c-border);
-  box-shadow: inset 0 1px 0 var(--c-bevel-shadow, transparent);
 }
 
-/* 列表分组标题后的渐隐线（与侧栏同一套结构语言） */
+/* 列表分组标题：不拉渐隐线，靠间距分组 */
 .ui-group-seam::after {
-  content: "";
-  height: 1px;
-  flex: 1;
-  background: linear-gradient(90deg, var(--c-border), transparent);
+  content: none;
 }
 
-/* 用户气泡：顶部只提亮 4%，保留一点厚度但不形成明显的色带 */
+/* 用户气泡：实色表面，靠表面阶与描边和正文区分 */
 .ui-bubble-user {
-  background: linear-gradient(
-    180deg,
-    color-mix(in srgb, var(--c-bubble-user) 96%, #ffffff),
-    var(--c-bubble-user)
-  );
+  background: var(--c-bubble-user);
 }
 
-/* 页头图标：统一的小方块底座 */
+/* 页头图标：中性小底座，不占强调色 */
 .ui-header-icon {
   display: grid;
   place-items: center;
   width: 26px;
   height: 26px;
   border-radius: var(--c-radius-md);
-  background: var(--c-accent-soft);
-  color: var(--c-accent);
-  box-shadow: inset 0 1px 0 var(--c-bevel-highlight, transparent);
+  background: var(--c-surface-hover);
+  color: var(--c-text-secondary);
 }
 
 /* 右侧工作区停靠栏：跟随纸面的内缩，让三栏在视觉上共处一张桌面。
@@ -1032,7 +944,7 @@ select.ui-ring {
   margin-block: var(--c-page-inset, 0);
   margin-inline-end: var(--c-page-inset, 0);
 }
-@media (max-width: 1180px) {
+@media (max-width: 1400px) {
   .ui-workspace-dock {
     margin: 0;
   }
@@ -1129,13 +1041,13 @@ select.ui-ring {
   width: 100%;
   align-items: center;
   gap: 10px;
-  padding: 11px 8px;
+  padding: 12px 8px;
   border-top: 1px solid var(--c-border);
   font-size: var(--c-font-size-body);
   color: var(--c-text-secondary);
   text-align: left;
   transition: color var(--c-motion-fast) var(--c-ease-standard),
-    background var(--c-motion-fast) var(--c-ease-standard);
+    background-color var(--c-motion-fast) var(--c-ease-standard);
 }
 .ui-starter:hover {
   color: var(--c-text);
@@ -1144,18 +1056,14 @@ select.ui-ring {
 .ui-starter-icon {
   display: grid;
   place-items: center;
-  width: 28px;
-  height: 28px;
+  width: 24px;
+  height: 24px;
   flex-shrink: 0;
-  border-radius: var(--c-radius-md);
-  background: var(--c-accent-soft);
-  color: var(--c-accent);
-  transition: color var(--c-motion-fast) var(--c-ease-standard),
-    background var(--c-motion-fast) var(--c-ease-standard);
+  color: var(--c-text-muted);
+  transition: color var(--c-motion-fast) var(--c-ease-standard);
 }
 .ui-starter:hover .ui-starter-icon {
-  background: var(--c-accent);
-  color: var(--c-accent-foreground);
+  color: var(--c-text);
 }
 
 /* 输入区：抬起的书写纸，聚焦时画一圈柔和光谱环 */
@@ -1412,6 +1320,99 @@ select.ui-ring {
 }
 
 /* ============================================================================
+ * 页面入场
+ *
+ * 切页时整块内容淡入并上浮 6px，卡片网格按 40ms 递进；
+ * 只用 transform / opacity，不触发布局，也不参与循环。
+ * ============================================================================ */
+@keyframes ui-enter-rise {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* 播完必须把 transform 交还给普通样式：页面里有 position: fixed 的菜单，
+ * 如果动画一直保留 transform，fixed 会以页面为包含块而错位。 */
+.ui-page-enter {
+  animation: ui-enter-rise 240ms var(--c-ease-standard) backwards;
+}
+
+/* 弹层入场：遮罩淡入，模态居中轻微上浮，抽屉从右侧滑入 14px */
+.ui-overlay-in {
+  animation: ui-fade-in 160ms var(--c-ease-standard) backwards;
+}
+.ui-modal-in {
+  animation: ui-modal-in 180ms var(--c-ease-standard) backwards;
+}
+.ui-drawer-in {
+  animation: ui-drawer-in 200ms var(--c-ease-standard) backwards;
+}
+
+@keyframes ui-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes ui-modal-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+@keyframes ui-drawer-in {
+  from {
+    opacity: 0.6;
+    transform: translateX(14px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+/* backwards：延迟期间保持起始态，播完交还给普通样式，
+ * 否则 fill-mode 会一直锁住 transform，卡片 hover 上浮就失效了。 */
+.ui-stagger > * {
+  animation: ui-enter-rise 260ms var(--c-ease-standard) backwards;
+}
+.ui-stagger > *:nth-child(1) {
+  animation-delay: 0ms;
+}
+.ui-stagger > *:nth-child(2) {
+  animation-delay: 40ms;
+}
+.ui-stagger > *:nth-child(3) {
+  animation-delay: 80ms;
+}
+.ui-stagger > *:nth-child(4) {
+  animation-delay: 120ms;
+}
+.ui-stagger > *:nth-child(5) {
+  animation-delay: 160ms;
+}
+.ui-stagger > *:nth-child(6) {
+  animation-delay: 200ms;
+}
+.ui-stagger > *:nth-child(7) {
+  animation-delay: 240ms;
+}
+.ui-stagger > *:nth-child(n + 8) {
+  animation-delay: 280ms;
+}
+
+/* ============================================================================
  * 自定义下拉面板：淡入 + 轻微上滑（从触发器上方滑入）
  * ============================================================================ */
 .ui-dropdown-in {
@@ -1541,7 +1542,7 @@ select.ui-ring {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 11px 13px;
+  padding: 12px;
   border-bottom: 1px solid var(--c-border);
 }
 .wf-node-icon {
@@ -1559,12 +1560,11 @@ select.ui-ring {
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: var(--c-font-size-body-lg);
-  font-weight: 600;
-  letter-spacing: 0.01em;
+  font-weight: 500;
   color: var(--c-text);
 }
 .wf-node-body {
-  padding: 9px 13px 11px;
+  padding: 12px;
 }
 .wf-node-desc {
   overflow: hidden;
@@ -1581,14 +1581,14 @@ select.ui-ring {
   margin-top: 8px;
 }
 .wf-node-chip {
-  border-radius: var(--c-radius-full);
-  background: var(--c-surface-hover);
+  border-radius: var(--c-radius-md);
+  border: 1px solid var(--c-border);
   padding: 2px 8px;
   font-size: var(--c-font-size-meta);
   color: var(--c-text-secondary);
 }
 .wf-node-chip.warn {
-  background: var(--c-error-bg);
+  border-color: color-mix(in srgb, var(--c-error) 30%, transparent);
   color: var(--c-error);
 }
 
@@ -1757,20 +1757,19 @@ select.ui-ring {
 .wf-node-chip[data-state="running"],
 .wf-node-chip[data-state="retrying"],
 .wf-node-chip[data-state="awaiting_approval"] {
-  background: var(--c-accent-soft);
+  border-color: color-mix(in srgb, var(--c-accent) 30%, transparent);
   color: var(--c-accent);
 }
 .wf-node-chip[data-state="succeeded"] {
-  background: color-mix(in srgb, var(--c-success) 14%, transparent);
+  border-color: color-mix(in srgb, var(--c-success) 30%, transparent);
   color: var(--c-success);
 }
 .wf-node-chip[data-state="failed"] {
-  background: var(--c-error-bg);
+  border-color: color-mix(in srgb, var(--c-error) 30%, transparent);
   color: var(--c-error);
 }
 .wf-node-chip[data-state="skipped"],
 .wf-node-chip[data-state="canceled"] {
-  background: var(--c-surface-hover);
   color: var(--c-text-muted);
 }
 

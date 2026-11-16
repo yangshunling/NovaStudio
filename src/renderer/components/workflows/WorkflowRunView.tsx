@@ -472,6 +472,7 @@ export function WorkflowRunView({
     return (
       <Page>
         <EmptyState
+          hue="blue"
           icon={<FileText />}
           title={error ?? "运行记录不存在"}
           action={
@@ -535,7 +536,7 @@ export function WorkflowRunView({
           </div>
 
           <span
-            className={`ml-1 flex shrink-0 items-center gap-1.5 rounded-full bg-surface-hover px-2.5 py-1 ui-type-label ${statusMeta.className}`}
+            className={`ml-1 flex shrink-0 items-center gap-1.5 ui-type-sub ${statusMeta.className}`}
           >
             <StatusIcon
               className={`h-3.5 w-3.5 ${active ? "animate-spin" : ""}`}
@@ -563,7 +564,7 @@ export function WorkflowRunView({
           <Button
             variant="ghost"
             size="sm"
-            className="shrink-0 rounded-full"
+            className="shrink-0"
             icon={<FolderOpen className="h-4 w-4" />}
             onClick={async () => {
               const ok = await ipc.openWorkflowArtifacts(runId);
@@ -577,7 +578,7 @@ export function WorkflowRunView({
             <Button
               variant="dangerSoft"
               size="sm"
-              className="shrink-0 rounded-full"
+              className="shrink-0"
               icon={<Square className="h-3.5 w-3.5" />}
               onClick={() => void cancelRun()}
               disabled={busy}
@@ -594,7 +595,7 @@ export function WorkflowRunView({
               <Button
                 variant="primary"
                 size="sm"
-                className="shrink-0 rounded-full"
+                className="shrink-0"
                 icon={<RotateCw className="h-3.5 w-3.5" />}
                 onClick={() => void resumeRun()}
                 disabled={busy}
@@ -618,7 +619,7 @@ export function WorkflowRunView({
           {/* 左：节点列表 */}
           <aside className="flex w-[300px] shrink-0 flex-col border-r border-border bg-[var(--c-panel-bg)]">
             <div className="flex items-center justify-between px-4 pb-2 pt-4">
-              <p className="ui-type-note font-semibold tracking-wide text-text-muted">
+              <p className="ui-type-note font-medium text-text-muted">
                 节点
               </p>
               <span className="ui-type-code-sm text-text-muted">
@@ -654,14 +655,14 @@ export function WorkflowRunView({
                 return (
                   <section
                     key={awaitingNode.id}
-                    className="mb-4 rounded-xl border border-accent/40 bg-accent-soft p-4"
+                    className="mb-4 rounded-xl border border-accent/40 bg-accent-soft/30 p-4"
                   >
                     <div className="flex items-center gap-2">
                       <PauseCircle className="h-4 w-4 shrink-0 text-accent" />
-                      <p className="ui-type-item font-semibold text-text">
+                      <p className="ui-type-item font-medium text-text">
                         产物待审核 · {awaitingNode.nodeName}
                       </p>
-                      <span className="rounded-full bg-surface/60 px-2 py-0.5 ui-type-sub text-text-secondary">
+                      <span className="ui-type-sub text-text-secondary">
                         {awaitingNode.employeeName ?? "通用助手"}
                       </span>
                     </div>
@@ -899,7 +900,7 @@ function NodeDetailPanel({
       {/* 基本信息 */}
       <section className="rounded-xl border border-border bg-surface-2/50 p-3.5">
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5">
-          <span className={`flex items-center gap-1.5 ui-type-item font-semibold ${meta.className}`}>
+          <span className={`flex items-center gap-1.5 ui-type-item font-medium ${meta.className}`}>
             {meta.label}
           </span>
           <span className="ui-type-note text-text-secondary">
@@ -947,7 +948,7 @@ function NodeDetailPanel({
             <Button
               variant="ghost"
               size="sm"
-              className="rounded-full"
+              className=""
               icon={<RotateCw className="h-3.5 w-3.5" />}
               onClick={onResume}
             >
@@ -966,7 +967,7 @@ function NodeDetailPanel({
         </div>
       ) : tab === "conversation" ? (
         !hasConversation ? (
-          <p className="py-10 text-center ui-type-note italic text-text-muted">
+          <p className="py-10 text-center ui-type-note text-text-muted">
             （还没有记录到对话）
           </p>
         ) : (
@@ -979,7 +980,7 @@ function NodeDetailPanel({
                 <div className="flex items-center justify-between gap-2 border-b border-border px-3 py-2 ui-type-note">
                   <span className="font-medium text-text-secondary">
                     第 {attempt.attempt} 次尝试 · 第 {attempt.round} 轮
-                    <span className="ml-2 rounded-full bg-surface/70 px-2 py-0.5 ui-type-sub text-text-muted">
+                    <span className="ml-2 ui-type-sub text-text-muted">
                       {attempt.kind === "revise"
                         ? "人工要求修改"
                         : attempt.kind === "retry"
@@ -995,7 +996,7 @@ function NodeDetailPanel({
                 </div>
                 <div className="space-y-3 p-3">
                   {attempt.messages.length === 0 ? (
-                    <p className="ui-type-note italic text-text-muted">
+                    <p className="ui-type-note text-text-muted">
                       （本次尝试没有对话记录）
                     </p>
                   ) : (
@@ -1029,7 +1030,7 @@ function NodeDetailPanel({
             <MarkdownRenderer content={detail.result} />
           </div>
         ) : (
-          <p className="py-10 text-center ui-type-note italic text-text-muted">
+          <p className="py-10 text-center ui-type-note text-text-muted">
             （没有结果文件）
           </p>
         )
@@ -1050,7 +1051,7 @@ function NodeDetailPanel({
             </Button>
           </div>
           {files.length === 0 ? (
-            <p className="px-3 py-8 text-center ui-type-note italic text-text-muted">
+            <p className="px-3 py-8 text-center ui-type-note text-text-muted">
               （没有产物文件）
             </p>
           ) : (
@@ -1075,7 +1076,7 @@ function NodeDetailPanel({
                   <Button
                     variant="ghost"
                     size="xs"
-                    className="shrink-0 rounded-full"
+                    className="shrink-0"
                     loading={previewLoading === file.relativePath}
                     onClick={() => void previewFile(file.relativePath)}
                   >
@@ -1084,7 +1085,7 @@ function NodeDetailPanel({
                   <Button
                     variant="ghost"
                     size="xs"
-                    className="shrink-0 rounded-full"
+                    className="shrink-0"
                     onClick={() => void openFile(file.relativePath)}
                   >
                     打开

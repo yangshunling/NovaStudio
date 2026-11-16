@@ -55,14 +55,14 @@ export function SegmentedTabs<T extends string>({
                 : "gap-1.5 rounded-lg px-3 py-1.5"
             } ui-type-label transition-colors ${
               active
-                ? "bg-surface text-text shadow-[var(--c-shadow-sm)]"
+                ? "bg-surface text-text"
                 : "text-text-muted hover:text-text"
             }`}
           >
             {option.icon}
             {option.label}
             {typeof option.count === "number" && (
-              <span className="rounded-full bg-surface-hover px-1.5 ui-type-sub">
+              <span className="ui-type-sub tabular-nums opacity-60">
                 {option.count}
               </span>
             )}

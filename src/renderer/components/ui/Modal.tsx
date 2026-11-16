@@ -108,7 +108,7 @@ export function Modal({
       className="fixed inset-0 z-50 flex items-center justify-center"
       onClick={handleRequestClose}
     >
-      <div className="absolute inset-0 bg-bg/60 backdrop-blur-sm" />
+      <div className="ui-overlay-in absolute inset-0 bg-bg/60 backdrop-blur-sm" />
       <div
         ref={panelRef}
         role="dialog"
@@ -116,7 +116,7 @@ export function Modal({
         aria-label={ariaLabel}
         aria-labelledby={ariaLabel ? undefined : titleId ?? undefined}
         tabIndex={-1}
-        className={`ui-panel-material ui-ring relative flex max-h-[calc(100vh-48px)] flex-col overflow-y-auto rounded-2xl outline-none ${widthClass} ${className}`}
+        className={`ui-modal-in ui-panel-material ui-ring relative flex max-h-[calc(100vh-48px)] flex-col overflow-y-auto rounded-2xl outline-none ${widthClass} ${className}`}
         style={size}
         onClick={(e) => e.stopPropagation()}
       >

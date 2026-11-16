@@ -1,8 +1,8 @@
 /**
  * Nova · 夜（nova-nocturne）
  *
- * 深空石墨 + 星蓝紫。不是纯黑扁平，而是用三阶表面 + 顶部内高光
- * 建立材质层次，强调色只在品牌 / 入口 / 生成态出现。
+ * 深空石墨 + 浅品牌蓝。层次来自三阶表面与发丝线，
+ * 不做渐变、噪点与发光；颜色只留给内容与运行状态。
  *
  * 分层：字体栈、圆角刻度、布局尺寸来自 _base.css，
  * 本文件只声明这套皮肤独有的调色与质感。
@@ -11,41 +11,40 @@
 @import "../_base.css";
 
 [data-theme="nova-nocturne"] {
-  /* === 画布与表面：蓝黑石墨底盘，三阶表面拉出层次 === */
-  --c-bg: #08090d;
-  --c-surface: #10131a;
-  --c-surface-2: #181d27;
-  --c-surface-3: #212734;
-  --c-surface-hover: rgba(255, 255, 255, 0.055);
-  --c-surface-active: rgba(124, 140, 255, 0.16);
+  /* === 画布与表面：四步石墨，从画布到抬起有明确明度差 === */
+  --c-bg: #07090c;
+  --c-surface: #11141a;
+  --c-surface-2: #191d25;
+  --c-surface-3: #232833;
+  --c-surface-hover: rgba(255, 255, 255, 0.07);
+  --c-surface-active: rgba(255, 255, 255, 0.12);
 
-  /* === 玻璃：更明显的模糊，让顶栏 / 输入区浮在纸面上 === */
-  --c-glass-bg: rgba(17, 20, 27, 0.72);
-  --c-glass-filter: blur(18px) saturate(1.25);
-  --c-glass-strong-bg: rgba(23, 27, 36, 0.9);
-  --c-glass-strong-filter: blur(22px) saturate(1.2);
+  /* === 玻璃：顶栏 / 浮层使用实色，不做模糊 === */
+  --c-glass-bg: #11141a;
+  --c-glass-filter: none;
+  --c-glass-strong-bg: #191d25;
+  --c-glass-strong-filter: none;
 
-  /* === 边框：低对比发丝线，强调时转星蓝紫 === */
+  /* === 边框：低对比发丝线 === */
   --c-border: #2a3140;
   --c-border-strong: #414b60;
 
   /* === 文本 === */
-  --c-text: #e9ecf3;
-  --c-text-secondary: #a6aec0;
-  --c-text-muted: #7f899e;
+  --c-text: #e8eaef;
+  --c-text-secondary: #a3aab8;
+  --c-text-muted: #7e8797;
 
-  /* === 强调色：星蓝紫 === */
-  --c-accent: #7c8cff;
-  --c-accent-hover: #93a0ff;
-  --c-accent-foreground: #0b0d13;
-  --c-accent-soft: rgba(124, 140, 255, 0.14);
-  /* 选中底色：要比 accent-soft 明显，才能在石墨底上看清选中项 */
-  --c-selection-bg: rgba(124, 140, 255, 0.2);
+  /* === 强调色：品牌深蓝在暗底的提亮版本 === */
+  --c-accent: #7fb0dd;
+  --c-accent-hover: #9cc4e8;
+  --c-accent-foreground: #0b0d11;
+  --c-accent-soft: rgba(127, 176, 221, 0.14);
+  --c-selection-bg: rgba(127, 176, 221, 0.14);
 
   /* === 语义色 === */
-  --c-thinking: #a6aec0;
-  --c-thinking-bg: rgba(23, 27, 36, 0.9);
-  --c-tool: #57d6e8;
+  --c-thinking: #a3aab8;
+  --c-thinking-bg: rgba(26, 30, 38, 0.9);
+  --c-tool: #7fb0dd;
   --c-error: #ff6b6b;
   --c-error-bg: rgba(255, 107, 107, 0.12);
   --c-success: #46d39a;
@@ -54,113 +53,102 @@
   --c-diff-del: #ff9b94;
   --c-diff-del-bg: rgba(248, 81, 73, 0.32);
 
-  /* === 用户气泡：深靛蓝实心，白字 === */
-  --c-bubble-user: #3a46b8;
-  --c-bubble-user-text: #ffffff;
-  --c-bubble-border: #2b3344;
-  /* 气泡不要顶部内高光：靛蓝底上的白色 1px 会变成一条显眼的浅蓝细线 */
-  --c-bubble-shadow: 0 8px 24px rgba(0, 0, 0, 0.34),
-    0 2px 6px rgba(0, 0, 0, 0.3);
+  /* === 用户气泡：抬起的一阶表面，不是彩色色块 === */
+  --c-bubble-user: #232833;
+  --c-bubble-user-text: #e8eaef;
+  --c-bubble-border: #2c3341;
+  --c-bubble-shadow: none;
 
-  /* === 输入框：比纸面再深一档，聚焦时由 ui-composer 画光谱环 === */
-  --c-input-bg: #0d1016;
-  --c-input-border: #2a3140;
-  --c-input-border-focus: #7c8cff;
+  /* === 输入框：比纸面再深一档，聚焦时画一圈低透明度品牌蓝 === */
+  --c-input-bg: #0f1218;
+  --c-input-border: #262c38;
+  --c-input-border-focus: #7fb0dd;
 
   /* === 滚动条 === */
-  --c-scrollbar: rgba(166, 174, 192, 0.22);
-  --c-scrollbar-hover: #7c8cff;
+  --c-scrollbar: rgba(163, 170, 184, 0.22);
+  --c-scrollbar-hover: #7fb0dd;
 
-  /* === 阴影：外阴影拉开距离，内高光让边缘像机加工 === */
-  --c-shadow: 0 24px 64px rgba(0, 0, 0, 0.55),
-    0 4px 16px rgba(0, 0, 0, 0.4);
-  --c-shadow-sm: inset 0 1px 0 rgba(255, 255, 255, 0.05),
-    0 2px 10px rgba(0, 0, 0, 0.35);
+  /* === 阴影：暗色只做轻微浮起，深度由表面阶承担 === */
+  --c-shadow: 0 20px 48px rgba(0, 0, 0, 0.5),
+    0 4px 12px rgba(0, 0, 0, 0.35);
+  --c-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
 
-  /* === 材质：倒角、浮起、凹陷 ===
-   * 所有抬起的表面都有一道顶部内高光，凹陷的槽有一道顶部内阴影；
-   * 这是让界面从「色块」变成「板材」的关键，不依赖阴影大小。 */
-  --c-bevel-highlight: rgba(255, 255, 255, 0.07);
-  --c-bevel-shadow: rgba(0, 0, 0, 0.5);
-  --c-raised-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06),
-    0 1px 2px rgba(0, 0, 0, 0.45), 0 10px 28px rgba(0, 0, 0, 0.32);
-  --c-inset-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.5),
-    inset 0 -1px 0 rgba(255, 255, 255, 0.03);
+  /* === 材质：去掉倒角高光与玻璃感 === */
+  --c-bevel-highlight: transparent;
+  --c-bevel-shadow: transparent;
+  --c-raised-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+  --c-inset-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.4);
   --c-glass-border: rgba(255, 255, 255, 0.08);
 
-  /* === 板材渐变：大面不再是一块纯色 === */
-  --c-card-gradient: linear-gradient(180deg, #1f2532 0%, #171b24 100%);
-  --c-panel-gradient: linear-gradient(180deg, #11151f 0%, #0d1016 100%);
-  --c-sidebar-glow: radial-gradient(
-    120% 55% at 50% -8%,
-    rgba(124, 140, 255, 0.16),
-    transparent 62%
-  );
-  --c-accent-glow: 0 0 18px rgba(124, 140, 255, 0.45);
+  /* === 板材：实色表面，不做渐变 === */
+  --c-card-gradient: #161a22;
+  --c-panel-gradient: #11141a;
+  --c-sidebar-glow: none;
+  --c-accent-glow: none;
 
-  /* 选中态：深色底上需要更明显的强调色叠层，否则和未选中行分不开 */
-  --c-sel-top: rgba(124, 140, 255, 0.28);
-  --c-sel-bottom: rgba(124, 140, 255, 0.15);
-  --c-sel-border: rgba(124, 140, 255, 0.36);
+  /* === 选中态：一层淡淡的品牌蓝，不加渐变 === */
+  --c-sel-top: rgba(127, 176, 221, 0.14);
+  --c-sel-bottom: rgba(127, 176, 221, 0.14);
+  --c-sel-border: rgba(127, 176, 221, 0);
 
-  /* === 主体纸面：浮在画布上的第二层，内缩 8px === */
-  --c-page-bg: linear-gradient(180deg, #171c27 0%, #11141b 100%);
-  --c-page-shadow: inset 0 0 0 1px #1d2330,
-    inset 0 1px 0 rgba(255, 255, 255, 0.045), 0 20px 60px rgba(0, 0, 0, 0.35);
+  /* === 主体纸面：浮在画布上一层 === */
+  --c-page-bg: #0f1218;
+  --c-page-shadow: inset 0 0 0 1px #202633, 0 14px 40px rgba(0, 0, 0, 0.45);
   --c-page-inset: 8px;
 
-  /* === 字体：展示字体保持衬线；入口标题略收紧字距 === */
+  /* === 字体：入口标题略收紧字距 === */
   --c-display-tracking: -0.01em;
 
-  /* === 主按钮：星蓝紫微渐变，深色字 === */
-  --c-btn-primary-bg: linear-gradient(135deg, #6d7bf0 0%, #8b7cff 100%);
-  --c-btn-primary-border: rgba(124, 140, 255, 0.5);
-  --c-btn-primary-text: #0b0d13;
-  --c-btn-primary-shadow: 0 6px 18px rgba(90, 100, 255, 0.28),
-    inset 0 1px 0 rgba(255, 255, 255, 0.35);
+  /* === 主按钮：浅品牌蓝，深色字 === */
+  --c-btn-primary-bg: #7fb0dd;
+  --c-btn-primary-border: #7fb0dd;
+  --c-btn-primary-text: #0b0d11;
+  --c-btn-primary-shadow: none;
 
   /* === 次级按钮 === */
-  --c-btn-ghost-border: #2a3140;
-  --c-btn-ghost-text: #a6aec0;
-  --c-btn-ghost-hover-text: #e9ecf3;
-  --c-btn-ghost-hover-border: #7c8cff;
-  --c-btn-ghost-hover-bg: rgba(124, 140, 255, 0.08);
+  --c-btn-ghost-border: #2b3240;
+  --c-btn-ghost-text: #a3aab8;
+  --c-btn-ghost-hover-text: #e8eaef;
+  --c-btn-ghost-hover-border: #465065;
+  --c-btn-ghost-hover-bg: rgba(255, 255, 255, 0.05);
 
   /* === 圆形图标按钮 === */
-  --c-btn-round-bg: #171b24;
-  --c-btn-round-border: #2a3140;
-  --c-btn-round-text: #a6aec0;
-  --c-btn-round-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05),
-    0 1px 3px rgba(0, 0, 0, 0.35);
-  --c-btn-round-hover-text: #7c8cff;
-  --c-btn-round-hover-border: #7c8cff;
+  --c-btn-round-bg: #151920;
+  --c-btn-round-border: #262c38;
+  --c-btn-round-text: #a3aab8;
+  --c-btn-round-shadow: none;
+  --c-btn-round-hover-text: #e8eaef;
+  --c-btn-round-hover-border: #465065;
 
   /* === 描边芯片 === */
-  --c-ring-border: #2a3140;
-  --c-ring-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  --c-ring-border: #262c38;
+  --c-ring-shadow: none;
 
-  /* === 侧栏：比画布再深一档，右侧发丝线 + 极轻噪点 === */
-  --c-sidebar-bg: #0b0d12;
-  --c-sidebar-shadow: inset -1px 0 0 #20252f;
-  --c-sidebar-texture: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.04'/%3E%3C/svg%3E");
+  /* === 侧栏：比画布再深一档，右侧发丝线 === */
+  --c-sidebar-bg: #0a0c10;
+  --c-sidebar-shadow: inset -1px 0 0 #1e232c;
+  --c-sidebar-texture: none;
 
   /* === 列表侧栏 === */
-  --c-panel-bg: #0e1118;
+  --c-panel-bg: #0f1218;
 
-  /* === 历史回放进度条：细 + 微光 === */
+  /* === 历史回放进度条 === */
   --c-progress-height: 2px;
-  --c-progress-track: #1e232e;
-  --c-progress-fill: #7c8cff;
-  --c-progress-glow: 0 0 12px rgba(124, 140, 255, 0.55);
+  --c-progress-track: #232833;
+  --c-progress-fill: #7fb0dd;
+  --c-progress-glow: none;
 
-  /* === 入口装饰 === */
-  --c-entrance-glow: radial-gradient(
-    58% 46% at 50% 0%,
-    rgba(124, 140, 255, 0.2),
-    transparent 72%
-  );
-  --c-noise-opacity: 0.05;
-  --c-brand-gradient: linear-gradient(100deg, #7c8cff 0%, #57d6e8 100%);
-  --c-glow: 0 0 0 1px rgba(124, 140, 255, 0.35),
-    0 0 24px rgba(124, 140, 255, 0.18);
+  /* === 分区色：暗底提亮版本，保持低饱和 === */
+  --c-hue-teal: #5fd3c2;
+  --c-hue-amber: #e4b06a;
+  --c-hue-rose: #f08aa0;
+  --c-hue-moss: #c3cf7a;
+  --c-hue-sky: #7fb0dd;
+
+  /* === 入口装饰：不再有弥散光与噪点 === */
+  --c-entrance-glow: none;
+  --c-noise-opacity: 0;
+  --c-brand-gradient: #7fb0dd;
+  /* 焦点环：一圈低透明度品牌蓝，不是外发光 */
+  --c-glow: 0 0 0 3px rgba(127, 176, 221, 0.18);
 }

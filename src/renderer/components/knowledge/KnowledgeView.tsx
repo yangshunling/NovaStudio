@@ -14,7 +14,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, } from "react";
 import {
   MENU_WIDTH, MenuItem, MenuPanel, MenuSeparator, } from "../ui/Menu";
 import {
-  AlertTriangle, ChevronRight, ExternalLink, FileText, Folder, FolderOpen, FolderPlus, Library, Pencil, Plus, RefreshCw, Search, Trash2, Upload, Users } from "lucide-react";
+  AlertTriangle, ChevronRight, ExternalLink, FileText, Folder, FolderOpen, FolderPlus, Library, Pencil, RefreshCw, Search, Trash2, Upload, Users } from "lucide-react";
 import { ipc } from "../../lib/ipc";
 import { formatBytes, isSameText, normalizeNewlines, toMessage } from "../../lib/utils";
 import { clampMenuPosition } from "../../lib/popup";
@@ -357,6 +357,7 @@ export function KnowledgeView() {
             {/* 左：知识库列表 */}
             <ListPane
               title="知识库"
+              hue="teal"
               count={bases.length}
               action={
                 <IconButton
@@ -365,15 +366,6 @@ export function KnowledgeView() {
                   tone="muted"
                   onClick={() => setCreateOpen(true)}
                 />
-              }
-              footer={
-                <Button
-                  className="w-full"
-                  onClick={() => setCreateOpen(true)}
-                  icon={<Plus className="h-4 w-4" />}
-                >
-                  新建知识库
-                </Button>
               }
             >
               {bases.map((asset) => (
@@ -386,7 +378,7 @@ export function KnowledgeView() {
                   onClick={() => selectBase(asset.id)}
                   onContextMenu={(event) => openBaseMenu(asset, event)}
                   trailing={
-                    <span className="flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-surface-hover px-1.5 ui-type-code-sm leading-none text-text-muted">
+                    <span className="shrink-0 ui-type-sub tabular-nums text-text-muted">
                       {asset.documentCount}
                     </span>
                   }
@@ -398,19 +390,20 @@ export function KnowledgeView() {
             <div className="flex min-w-0 flex-1 flex-col">
               <PageHeader
                 title={selected?.name ?? "知识库"}
+                hue="teal"
                 icon={<Library className="h-4 w-4" />}
                 subtitle={selected?.path}
                 badge={
                   selected ? (
                     <>
-                      <span className="shrink-0 rounded-full bg-surface-hover px-2 py-0.5 ui-type-code text-text-muted">
+                      <span className="shrink-0 ui-type-sub tabular-nums text-text-muted">
                         {selected.documentCount} 个 ·{" "}
                         {formatBytes(selected.totalBytes)}
                       </span>
                       {(usageCount.get(selected.id) ?? 0) > 0 && (
                         <span
                           title="启用该知识库的数字员工数"
-                          className="flex shrink-0 items-center gap-1 rounded-full bg-success/10 px-2 py-0.5 ui-type-note text-success"
+                          className="flex shrink-0 items-center gap-1 ui-type-sub text-success"
                         >
                           <Users className="h-3 w-3" />
                           {usageCount.get(selected.id)} 位员工
@@ -487,10 +480,10 @@ export function KnowledgeView() {
                         ? "当前检索全部知识库，点击切换为仅当前知识库"
                         : "当前仅检索当前知识库，点击切换为全部知识库"
                     }
-                    className={`flex items-center gap-1 rounded-full border px-2.5 py-1 ui-type-sub transition-colors ${
+                    className={`flex items-center gap-1 rounded-md border px-2 py-1 ui-type-sub transition-colors ${
                       scopeAll
                         ? "border-accent/30 bg-accent-soft font-medium text-accent"
-                        : "border-border/60 bg-surface-2/40 text-text-secondary hover:border-border hover:text-text"
+                        : "border-border text-text-secondary hover:bg-surface-hover hover:text-text"
                     }`}
                   >
                     <Library className="h-3 w-3" />
@@ -543,8 +536,8 @@ export function KnowledgeView() {
                     uploading={uploading}
                   />
                 ) : (
-                  <div className="overflow-hidden rounded-xl border border-border/60 bg-surface-2/40 shadow-[var(--c-shadow-sm)]">
-                    <div className="sticky top-0 z-10 grid grid-cols-[28px_minmax(0,1fr)_90px_130px_36px] items-center gap-3 border-b border-border/60 bg-surface-2/95 px-3.5 py-2.5 ui-type-sub font-semibold text-text-muted">
+                  <div className="overflow-hidden rounded-xl border border-border bg-surface-2/40">
+                    <div className="sticky top-0 z-10 grid grid-cols-[28px_minmax(0,1fr)_90px_130px_36px] items-center gap-3 border-b border-border bg-surface-2 px-3 py-2 ui-type-sub font-medium text-text-muted">
                       <input
                         type="checkbox"
                         checked={allSelected}
@@ -630,7 +623,7 @@ export function KnowledgeView() {
                                     ? "超过 8MB，未建立全文索引"
                                     : "非文本格式，不建立全文索引"
                                 }
-                                className="shrink-0 rounded-full bg-agent-amber/10 px-1.5 py-0.5 text-micro text-agent-amber"
+                                className="shrink-0 text-micro text-agent-amber"
                               >
                                 未索引
                               </span>
@@ -828,6 +821,7 @@ function SearchResults({
     return (
       <EmptyState
         size="compact"
+        hue="teal"
         icon={<Search />}
         title={`没有找到匹配「${query.trim()}」的内容`}
         description="只检索文本类文件的正文；二进制格式（PDF、Office、图片等）不建立全文索引。"
@@ -845,7 +839,7 @@ function SearchResults({
         {result.degraded && (
           <span
             title="检索词过短，已使用逐字匹配"
-            className="rounded-full bg-agent-amber/10 px-2 py-0.5 ui-type-sub text-agent-amber"
+            className="ui-type-sub text-agent-amber"
           >
             短词匹配
           </span>
@@ -866,7 +860,7 @@ function SearchResults({
                 {hit.relativePath.split("/").pop()}
               </span>
               {showKbName && (
-                <span className="shrink-0 rounded-full bg-accent-soft px-2 py-0.5 ui-type-sub text-accent">
+                <span className="shrink-0 ui-type-sub text-accent">
                   {hit.kbName}
                 </span>
               )}
@@ -1319,6 +1313,7 @@ function FolderFormModal({
 function EmptyKnowledge({ onCreate }: { onCreate: () => void }) {
   return (
     <EmptyState
+      hue="teal"
       icon={<Library />}
       title="建立第一个知识库"
       description="创建一个知识库，上传资料文件，然后在数字员工里勾选引用。工作流执行节点时，Agent 会把这些资料当作自己的能力。"

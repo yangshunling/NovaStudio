@@ -47,7 +47,7 @@ export function SettingsCard({
       {(title || description) && (
         <div className="border-b border-border px-4 py-3">
           {title && (
-            <h3 className="ui-type-body font-semibold text-text">{title}</h3>
+            <h3 className="ui-type-body font-medium text-text">{title}</h3>
           )}
           {description && (
             <p className="mt-0.5 ui-type-note text-text-muted">{description}</p>

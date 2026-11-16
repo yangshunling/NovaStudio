@@ -172,25 +172,6 @@
   color: var(--c-text-muted);
 }
 
-/* 工作区内的图标按钮：方形、安静，hover 才出现浅底。
- * 全局 IconButton 仍是圆形灰底；这里用更高特异性把它拉回工作台语言。 */
-.ws-rail-head .ui-btn-round,
-.ws-head .ui-btn-round,
-.ws-toolbar .ui-btn-round {
-  border-radius: var(--c-radius-md);
-  background: transparent;
-  border-color: transparent;
-  box-shadow: none;
-  color: var(--c-text-muted);
-}
-
-.ws-rail-head .ui-btn-round:hover,
-.ws-head .ui-btn-round:hover,
-.ws-toolbar .ui-btn-round:hover {
-  background: var(--c-surface-hover);
-  color: var(--c-text);
-}
-
 /* ==========================================================================
  * 控制台头部 / 页签
  * ========================================================================== */

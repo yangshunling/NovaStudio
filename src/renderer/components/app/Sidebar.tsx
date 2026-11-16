@@ -125,38 +125,52 @@ export function Sidebar() {
   ).length;
 
   const itemClass = (active: boolean) =>
-    `ui-nav-item relative flex w-full items-center gap-2 rounded-lg px-2.5 py-2 ${FONT_BODY} transition-colors ${
+    `ui-nav-item relative flex h-9 w-full items-center gap-2.5 rounded-lg px-2 ${FONT_BODY} transition-colors ${
       active
         ? "ui-nav-item-active font-medium"
-        : "text-text-secondary hover:bg-surface-hover/70 hover:text-text"
+        : "text-text-secondary hover:bg-surface-hover hover:text-text"
     }`;
 
   return (
     <aside className="ui-sidebar relative flex h-full w-[var(--c-layout-sidebar)] flex-col border-r-0">
-      {/* 头部：三个词分别用不同字族 / 字号 / 颜色，基线对齐并撑满整块。
-          不放 logo（窗口标题栏已有图标），也不重复产品名。 */}
+      {/* 头部：扁平品牌标记 + 产品名 + 一行标语。
+          标记是 N 字形里的一个节点，取自产品「Agent 网络」的意象；
+          不用渐变、发光或星芒，保持工作台气质。 */}
       <div
         style={{ zIndex: 30 }}
-        className="relative flex h-[var(--c-layout-header)] shrink-0 items-center overflow-hidden border-b border-border"
+        className="relative flex h-[var(--c-layout-header)] shrink-0 items-center gap-2.5 overflow-hidden border-b border-border px-4"
       >
-        <div
-          className="ui-slogan-frame"
-          role="img"
-          aria-label="Work is Agentic"
-        >
-          <span className="ui-slogan-word">Work</span>
-          <span className="ui-slogan-conj">is</span>
-          <span className="ui-slogan-mark">Agentic</span>
+        <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-accent-soft text-accent">
+          <svg viewBox="0 0 24 24" className="h-5 w-5" aria-hidden>
+            <path
+              d="M6 18V6l12 12V6"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+            <circle cx="12" cy="12" r="1.7" fill="currentColor" />
+          </svg>
+        </span>
+        <div className="min-w-0">
+          <div className="ui-type-heading leading-none text-text">Nova</div>
+          <div className="mt-1 ui-type-sub leading-none text-text-muted">
+            Work is <span className="text-accent">Agentic</span>
+          </div>
         </div>
       </div>
 
       {/* 导航区：窗口较矮时可滚动，保证底部设置入口始终可见 */}
       <div className="min-h-0 flex-1 overflow-y-auto">
         {/* 个人分组 */}
-        <div className="px-3 pt-3 pb-1">
-        <span className="ui-nav-group-label px-1 ui-type-note font-semibold tracking-wide text-text-muted">个人</span>
+        <div className="px-3 pb-2 pt-4">
+        <span className="ui-nav-group-label px-1 ui-type-sub font-medium text-text-muted">
+          <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-hue-amber" />
+          个人
+        </span>
       </div>
-      <div className="space-y-1 px-2.5 pb-2">
+      <div className="space-y-0.5 px-2.5 pb-2">
         <button
           type="button"
           onClick={() => setViewMode("chat")}
@@ -175,7 +189,7 @@ export function Sidebar() {
           {pendingTodos > 0 && (
             <span
               title={`${pendingTodos} 件待办未完成`}
-              className="ml-auto shrink-0 rounded-full bg-accent-soft px-2 py-0.5 ui-type-label text-accent"
+              className="ml-auto shrink-0 ui-type-sub tabular-nums text-accent"
             >
               {pendingTodos}
             </span>
@@ -184,10 +198,13 @@ export function Sidebar() {
       </div>
 
       {/* 工程分组 */}
-      <div className="px-3 pt-4 pb-1">
-        <span className="ui-nav-group-label px-1 ui-type-note font-semibold tracking-wide text-text-muted">工程</span>
+      <div className="px-3 pb-2 pt-6">
+        <span className="ui-nav-group-label px-1 ui-type-sub font-medium text-text-muted">
+          <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-accent" />
+          工程
+        </span>
       </div>
-      <div className="space-y-1 px-2.5 pb-2">
+      <div className="space-y-0.5 px-2.5 pb-2">
         <button
           type="button"
           onClick={() => setViewMode("workspaces")}
@@ -210,10 +227,8 @@ export function Sidebar() {
                   ? `${awaitingCount} 个运行等待审核`
                   : `${activeRuns.length} 个工作流正在运行`
               }
-              className={`ml-auto shrink-0 rounded-full px-2 py-0.5 ui-type-label ${
-                awaitingCount > 0
-                  ? "bg-accent-soft text-accent"
-                  : "bg-surface-hover text-text-muted"
+              className={`ml-auto shrink-0 ui-type-sub tabular-nums ${
+                awaitingCount > 0 ? "text-accent" : "text-text-muted"
               }`}
             >
               {awaitingCount > 0 ? `${awaitingCount} 待审` : `${activeRuns.length} 运行`}
@@ -247,10 +262,13 @@ export function Sidebar() {
       </div>
 
       {/* 资产分组 */}
-      <div className="px-3 pt-4 pb-1">
-        <span className="ui-nav-group-label px-1 ui-type-note font-semibold tracking-wide text-text-muted">资产</span>
+      <div className="px-3 pb-2 pt-6">
+        <span className="ui-nav-group-label px-1 ui-type-sub font-medium text-text-muted">
+          <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-hue-moss" />
+          资产
+        </span>
       </div>
-      <div className="space-y-1 px-2.5 pb-2">
+      <div className="space-y-0.5 px-2.5 pb-2">
         <button
           type="button"
           onClick={() => setViewMode("mcp")}
@@ -286,12 +304,13 @@ export function Sidebar() {
       </div>
 
       {/* 运行时分组 */}
-      <div className="px-3 pt-4 pb-1">
-        <span className="ui-nav-group-label px-1 ui-type-note font-semibold tracking-wide text-text-muted">
+      <div className="px-3 pb-2 pt-6">
+        <span className="ui-nav-group-label px-1 ui-type-sub font-medium text-text-muted">
+          <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-hue-sky" />
           运行时
         </span>
       </div>
-      <div className="space-y-1 px-2.5 pb-2">
+      <div className="space-y-0.5 px-2.5 pb-2">
         <button
           type="button"
           onClick={() => setViewMode("agents")}
@@ -309,14 +328,15 @@ export function Sidebar() {
         <button
           type="button"
           onClick={() => setShowSettings(true)}
-          className={`ui-card-material ui-ring group flex w-full items-center gap-2.5 rounded-lg px-inset py-2 text-left outline-none transition-all hover:border-input-border-focus focus:border-input-border-focus ${
-            showSettings ? "border-input-border-focus" : ""
+          aria-expanded={showSettings}
+          className={`ui-nav-item group flex h-9 w-full items-center gap-2.5 rounded-lg px-2 text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-accent/40 ${
+            showSettings
+              ? "ui-nav-item-active font-medium"
+              : "text-text-secondary hover:bg-surface-hover hover:text-text"
           }`}
         >
-          <span className="ui-tile flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-accent-soft text-accent">
-            <Settings className="h-4 w-4" />
-          </span>
-          <span className="min-w-0 flex-1 truncate ui-type-body font-medium text-text">
+          <Settings className="h-4 w-4 shrink-0" />
+          <span className="min-w-0 flex-1 truncate ui-type-item font-medium text-text">
             设置
           </span>
           {updateNotice && (
@@ -324,10 +344,10 @@ export function Sidebar() {
               role="img"
               aria-label="有可用更新"
               title="有可用更新"
-              className="h-2 w-2 shrink-0 rounded-full bg-error"
+              className="h-1.5 w-1.5 shrink-0 rounded-full bg-error"
             />
           )}
-          <ChevronRight className="h-4 w-4 shrink-0 text-text-muted transition-transform group-hover:translate-x-0.5" />
+          <ChevronRight className="h-4 w-4 shrink-0 text-text-muted transition-[translate] group-hover:translate-x-0.5" />
         </button>
       </div>
     </aside>

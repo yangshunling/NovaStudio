@@ -174,7 +174,7 @@ export function McpTab({
             type="button"
             onClick={() => void migrateLegacy(binding, index)}
             title="写入 Claude MCP 配置"
-            className="shrink-0 rounded-lg p-2 text-text-muted transition-colors hover:bg-accent-soft hover:text-accent"
+            className="shrink-0 rounded-md p-2 text-text-muted transition-colors hover:bg-surface-hover hover:text-text"
           >
             <Upload className="h-4 w-4" />
           </button>

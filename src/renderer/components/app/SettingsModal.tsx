@@ -76,7 +76,7 @@ export function SettingsModal() {
       <div className="flex flex-1 overflow-hidden">
         {/* 左侧菜单 */}
         <aside className="flex w-[var(--c-layout-menu)] shrink-0 flex-col gap-1 border-r border-border bg-surface-2/40 p-2.5">
-          <p className="px-2 pb-1.5 pt-1 ui-type-sub font-semibold text-text-muted">
+          <p className="px-2 pb-1.5 pt-1 ui-type-sub font-medium text-text-muted">
             设置
           </p>
           {SETTINGS_SECTIONS.map(({ id, label, Icon }) => {

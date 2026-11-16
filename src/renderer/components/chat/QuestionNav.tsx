@@ -21,12 +21,11 @@ import {
 } from "../../lib/chat-scroll";
 
 /**
- * 置顶 / 到底部箭头：浅色圆片 + 细描边，hover 浮起并染 accent，
+ * 置顶 / 到底部箭头：浅色圆片 + 细描边，hover 只提升一档表面，
  * 到达边缘时褪成透明（disabled:pointer-events-none 保证不挡消息点击）。
- * 方向位移由上/下箭头各自追加。
  */
 const ARROW_CLASS =
-  "flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-border/60 bg-surface/85 text-text-muted shadow-[var(--c-shadow-sm)] transition-[color,background-color,border-color,box-shadow,transform] duration-150 ease-out hover:border-accent/40 hover:bg-accent-soft hover:text-accent active:scale-90 disabled:pointer-events-none disabled:border-transparent disabled:bg-transparent disabled:text-text-muted/25 disabled:shadow-none";
+  "flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-border bg-surface/85 text-text-muted transition-colors hover:bg-surface-hover hover:text-text active:scale-95 disabled:pointer-events-none disabled:border-transparent disabled:bg-transparent disabled:text-text-muted/25";
 
 export function QuestionNav() {
   const sessionId = useChatStore((s) => s.currentSessionId);
@@ -202,9 +201,9 @@ export function QuestionNav() {
         aria-label="回到会话开头"
         disabled={atTop}
         onClick={jumpToTop}
-        className={`${ARROW_CLASS} hover:-translate-y-px`}
+        className={ARROW_CLASS}
       >
-        <ChevronsUp className="h-3.5 w-3.5" strokeWidth={2.5} />
+        <ChevronsUp className="h-3.5 w-3.5" />
       </button>
 
       {/* 提问很多时只让中间索引滚动，上下箭头始终固定 */}
@@ -225,13 +224,13 @@ export function QuestionNav() {
                 title={question.text || `第 ${index + 1} 个问题`}
                 aria-label={`跳转到第 ${index + 1} 个问题`}
                 aria-current={active ? "true" : undefined}
-                className={`w-full cursor-pointer py-0.5 text-center ui-type-body font-semibold italic leading-none tabular-nums transition-colors ${
+                className={`w-full cursor-pointer py-0.5 text-center ui-type-sub font-medium leading-none tabular-nums transition-colors ${
                   active
                     ? "text-accent"
-                    : "text-text-muted/60 hover:text-text-secondary"
+                    : "text-text-muted/70 hover:text-text-secondary"
                 }`}
               >
-                {String(index + 1).padStart(2, "0")}
+                {index + 1}
               </button>
             );
           })}
@@ -244,9 +243,9 @@ export function QuestionNav() {
         aria-label="滚动到最新消息"
         disabled={atBottom}
         onClick={jumpToBottom}
-        className={`${ARROW_CLASS} hover:translate-y-px`}
+        className={ARROW_CLASS}
       >
-        <ChevronsDown className="h-3.5 w-3.5" strokeWidth={2.5} />
+        <ChevronsDown className="h-3.5 w-3.5" />
       </button>
     </div>
   );

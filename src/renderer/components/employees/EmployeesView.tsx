@@ -86,6 +86,7 @@ export function EmployeesView() {
       {/* 顶栏：标题 / 搜索 / 新建 */}
       <PageHeader
         title="数字员工"
+        hue="sky"
         count={employees.length}
         countSuffix=" 位"
         icon={<Users className="h-4 w-4" />}
@@ -115,14 +116,14 @@ export function EmployeesView() {
           ) : error ? (
             <ErrorState message={error} onRetry={() => void load(true)} />
           ) : employees.length === 0 ? (
-            <EmptyEmployees onCreate={openCreate} />
+            <EmptyEmployees />
           ) : filtered.length === 0 ? (
             <FilterEmpty
               title={`没有匹配「${query}」的数字员工`}
               onClear={() => setQuery("")}
             />
           ) : (
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
+            <div className="ui-stagger grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
               {filtered.map((employee) => (
                 <EmployeeCard
                   key={employee.id}
@@ -184,16 +185,8 @@ function EmployeeCard({
           onOpen();
         }
       }}
-      className={`${CARD_SHELL} cursor-pointer`}
+      className={`${CARD_SHELL} border-l-2 border-l-hue-sky/50 cursor-pointer`}
     >
-      {/* 顶部状态条：启用的员工亮起一条强调色 */}
-      <span
-        aria-hidden
-        className={`absolute inset-x-0 top-0 h-[2px] ${
-          employee.enabled ? "bg-accent/70" : "bg-border"
-        }`}
-      />
-
       <div className="flex min-w-0 items-start gap-3">
         <EmployeeAvatar employee={employee} size={48} />
         <div className="min-w-0 flex-1 overflow-hidden">
@@ -217,8 +210,8 @@ function EmployeeCard({
         </div>
       </div>
 
-      <p className={`mt-2.5 whitespace-pre-line ${CARD_DESCRIPTION}`}>
-        {employee.systemPrompt.trim() || "暂无系统提示词"}
+      <p className={`mt-2.5 ${CARD_DESCRIPTION}`}>
+        {employee.description.trim() || "暂无简介"}
       </p>
 
       {/* mt-auto 把工具标签顶到卡片底部，保证卡片上、下、左、右的 padding 一致。
@@ -228,19 +221,19 @@ function EmployeeCard({
           icon={Plug}
           count={mcpCount}
           label="MCP"
-          tone="bg-accent-soft text-accent"
+          tone="text-text-secondary"
         />
         <UsageChip
           icon={Sparkles}
           count={skillCount}
           label="技能"
-          tone="bg-agent-violet/10 text-agent-violet"
+          tone="text-text-secondary"
         />
         <UsageChip
           icon={Library}
           count={knowledgeCount}
           label="知识库"
-          tone="bg-agent-teal/10 text-agent-teal"
+          tone="text-text-secondary"
         />
       </div>
     </article>
@@ -263,8 +256,8 @@ function UsageChip({
   return (
     <span
       title={empty ? `未绑定${label}` : `已绑定 ${count} 个${label}`}
-      className={`flex items-center gap-1 rounded-full px-2 py-0.5 ${
-        empty ? "bg-surface-hover/70 text-text-muted" : tone
+      className={`flex items-center gap-1 rounded-md border border-border px-1.5 py-0.5 ${
+        empty ? "text-text-muted" : tone
       }`}
     >
       <Icon className="h-3 w-3" />
@@ -279,21 +272,13 @@ function UsageChip({
 // 空态（首页专用的大号引导）
 // ============================================================================
 
-function EmptyEmployees({ onCreate }: { onCreate: () => void }) {
+function EmptyEmployees() {
   return (
     <EmptyState
+      hue="sky"
       icon={<Users />}
       title="组建你的数字团队"
       description="每位数字员工都可以拥有独立的头像、职位、系统提示词、MCP 服务、技能与知识库。"
-      action={
-        <Button
-          variant="primary"
-          onClick={onCreate}
-          icon={<Plus className="h-4 w-4" />}
-        >
-          新建数字员工
-        </Button>
-      }
     />
   );
 }

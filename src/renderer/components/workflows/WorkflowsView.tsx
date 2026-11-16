@@ -618,6 +618,7 @@ export function WorkflowsView() {
             {/* 左：工作区列表 */}
             <ListPane
               title="工作区"
+              hue="blue"
               action={
                 <IconButton
                   icon={<FolderKanban className="h-4 w-4" />}
@@ -647,7 +648,7 @@ export function WorkflowsView() {
                     titleAttr={workspace.cwd}
                     onClick={() => selectWorkspace(workspace.id)}
                     trailing={
-                      <span className="flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-surface-hover px-1.5 ui-type-code-sm leading-none text-text-muted">
+                      <span className="shrink-0 ui-type-sub tabular-nums text-text-muted">
                         {count}
                       </span>
                     }
@@ -660,6 +661,7 @@ export function WorkflowsView() {
             <div className="flex min-w-0 flex-1 flex-col">
               <PageHeader
                 title={selectedWorkspace?.name ?? "工作流"}
+                hue="blue"
                 count={selectedWorkflows.length}
                 countSuffix=" 个"
                 icon={<WorkflowIcon className="h-4 w-4" />}
@@ -688,7 +690,7 @@ export function WorkflowsView() {
                     <SearchInput
                       value={query}
                       onChange={setQuery}
-                      placeholder="搜索名称 / 说明"
+                      placeholder="搜索名称 / 描述"
                     />
 
                     <Button
@@ -708,6 +710,7 @@ export function WorkflowsView() {
               <div className="min-h-0 flex-1 overflow-y-auto p-section">
                 {selectedWorkspace?.id === ORPHAN_ID ? (
                   <EmptyState
+                    hue="blue"
                     icon={<Folder />}
                     title="工作流还没有归属工作区"
                     description="这些工作流创建于「工作区」功能之前。请先到「工作区」页面登记目录，再把它们重新归入。"
@@ -723,14 +726,14 @@ export function WorkflowsView() {
                     }
                   />
                 ) : selectedWorkflows.length === 0 ? (
-                  <EmptyWorkflows onCreate={openCreateWorkflow} />
+                  <EmptyWorkflows />
                 ) : filtered.length === 0 ? (
                   <FilterEmpty
                     title={`没有匹配「${query}」的工作流`}
                     onClear={() => setQuery("")}
                   />
                 ) : (
-                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
+                  <div className="ui-stagger grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
                     {filtered.map((workflow) => (
                       <WorkflowCard
                         key={workflow.id}
@@ -881,7 +884,7 @@ export function WorkflowsView() {
                     key={trigger.id}
                     className={`flex cursor-pointer items-start gap-2.5 rounded-lg border px-3 py-2.5 transition-colors ${
                       selected
-                        ? "border-accent/50 bg-accent-soft/40"
+                        ? "border-accent/40 bg-accent-soft/20"
                         : "border-border bg-surface-2/40 hover:bg-surface-hover"
                     }`}
                   >
@@ -898,7 +901,7 @@ export function WorkflowsView() {
                           {trigger.title}
                         </span>
                         {!trigger.enabled && (
-                          <span className="shrink-0 rounded-full bg-surface-hover px-2 py-0.5 ui-type-note text-text-muted">
+                          <span className="shrink-0 ui-type-sub text-text-muted">
                             已停用
                           </span>
                         )}
@@ -1052,10 +1055,10 @@ function WorkflowCard({
           onOpen();
         }
       }}
-      className={`${CARD_SHELL} cursor-pointer`}
+      className={`${CARD_SHELL} border-l-2 border-l-accent/50 cursor-pointer`}
     >
       <div className="flex min-w-0 items-start gap-3">
-        <span className={cardIconTile("teal")}>
+        <span className={cardIconTile("accent")}>
           <WorkflowIcon className="h-5 w-5" />
         </span>
         <div className="min-w-0 flex-1 overflow-hidden">
@@ -1069,26 +1072,25 @@ function WorkflowCard({
         {workflow.description || "暂无说明"}
       </p>
 
-      <div className="mt-3 flex flex-wrap items-center gap-1.5 ui-type-note text-text-muted">
+      <div className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 ui-type-note text-text-muted">
         {runMeta && RunIcon && (
-          <span
-            className={`flex items-center gap-1 rounded-full bg-surface-hover px-2 py-0.5 ${runMeta.className}`}
-          >
+          <span className={`flex items-center gap-1 ${runMeta.className}`}>
             <RunIcon className={`h-3 w-3 ${active ? "animate-spin" : ""}`} />
             {runMeta.label}
+            <span className="text-text-muted/50">·</span>
           </span>
         )}
-        <span className="rounded-full bg-surface-hover px-2 py-0.5">
-          {nodeCount} 个节点
-        </span>
-        <span className="rounded-full bg-surface-hover px-2 py-0.5">
-          {employeeIds.size} 位数字员工
-        </span>
+        <span>{nodeCount} 个节点</span>
+        <span className="text-text-muted/50">·</span>
+        <span>{employeeIds.size} 位数字员工</span>
         {triggerCount > 0 && (
-          <span className="flex items-center gap-1 rounded-full bg-accent-soft px-2 py-0.5 text-accent">
-            <Zap className="h-3 w-3" />
-            {triggerCount} 个触发器
-          </span>
+          <>
+            <span className="text-text-muted/50">·</span>
+            <span className="flex items-center gap-1 text-accent">
+              <Zap className="h-3 w-3" />
+              {triggerCount} 个触发器
+            </span>
+          </>
         )}
       </div>
 
@@ -1129,21 +1131,13 @@ function WorkflowCard({
 // 空态
 // ============================================================================
 
-function EmptyWorkflows({ onCreate }: { onCreate: () => void }) {
+function EmptyWorkflows() {
   return (
     <EmptyState
+      hue="blue"
       icon={<WorkflowIcon />}
       title="把数字员工串成流水线"
       description="一个工作流由开始、执行节点和结束组成，执行节点可指定数字员工或通用助手。在画布上连线，就能定义任务在团队之间的流转顺序。"
-      action={
-        <Button
-          variant="primary"
-          onClick={onCreate}
-          icon={<Plus className="h-4 w-4" />}
-        >
-          新建工作流
-        </Button>
-      }
     />
   );
 }

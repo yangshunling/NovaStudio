@@ -429,6 +429,7 @@ export function TodosView() {
     <Page>
       <PageHeader
         title="待办事项"
+        hue="amber"
         icon={<ListTodo className="h-4 w-4" />}
         count={pendingCount}
         countSuffix=" 件待办"
@@ -466,19 +467,14 @@ export function TodosView() {
           <div className="grid grid-cols-1 gap-6 min-[1080px]:grid-cols-[minmax(0,1fr)_300px]">
             <div className="min-w-0">
               {/* 概览：日期主视觉 + 摘要 + 进度 */}
-              <section className="relative overflow-hidden rounded-2xl border border-border/60 bg-surface-2/40 p-5">
-                {/* 编辑式强调：一条静态细线 + 留白，取代渐变与光晕 */}
-                <span
-                  aria-hidden
-                  className="pointer-events-none absolute inset-x-10 top-0 h-px bg-accent/30"
-                />
+              <section className="relative overflow-hidden rounded-xl border border-border bg-surface-2/40 p-4">
                 <div className="relative flex flex-wrap items-end justify-between gap-x-8 gap-y-4">
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-baseline gap-x-2.5 gap-y-1">
-                      <h2 className="ui-type-hero font-semibold tracking-tight text-text">
+                      <h2 className="ui-type-hero font-medium text-hue-amber">
                         {dateLabel}
                       </h2>
-                      <span className="rounded-full bg-surface-hover px-2 py-0.5 ui-type-sub font-medium text-text-secondary">
+                      <span className="ui-type-sub text-text-muted">
                         {weekdayLabel}
                       </span>
                       {selectedDate !== null && (
@@ -502,7 +498,7 @@ export function TodosView() {
                         <span className="ui-type-sub text-text-muted">
                           {meterLabel}
                         </span>
-                        <span className="ui-type-note font-semibold tabular-nums text-text">
+                        <span className="ui-type-note font-medium tabular-nums text-text">
                           {progress}%
                         </span>
                       </div>
@@ -545,7 +541,7 @@ export function TodosView() {
                       </Button>
                     )
                   ) : (
-                    <div className="ui-ring flex h-8 items-center gap-1.5 rounded-full bg-input-bg px-3">
+                    <div className="ui-ring flex h-8 items-center gap-1.5 rounded-md bg-input-bg px-3">
                       <ArrowUpDown className="h-3.5 w-3.5 shrink-0 text-text-muted" />
                       <Select
                         value={sort}
@@ -591,10 +587,10 @@ export function TodosView() {
                             key={tag}
                             type="button"
                             onClick={() => toggleTagFilter(tag)}
-                            className={`rounded-full border px-2.5 py-0.5 ui-type-sub transition-colors ${
+                            className={`rounded-md border px-2 py-0.5 ui-type-sub transition-colors ${
                               active
                                 ? "border-accent/30 bg-accent-soft font-medium text-accent"
-                                : "border-border/60 bg-surface-2/40 text-text-muted hover:border-border hover:text-text"
+                                : "border-border bg-transparent text-text-muted hover:text-text"
                             }`}
                           >
                             #{tag}
@@ -753,11 +749,11 @@ function TodoGroupCard({
         : "text-text-secondary";
 
   return (
-    <section className="overflow-hidden rounded-xl border border-border/60 bg-surface-2/40 shadow-[var(--c-shadow-sm)]">
+    <section className="overflow-hidden rounded-xl border border-border bg-surface-2/40">
       <header className="flex items-center gap-2 border-b border-border/60 bg-surface-hover/35 px-4 py-2.5">
         <span aria-hidden className={`h-1.5 w-1.5 rounded-full ${dot}`} />
-        <h3 className={`ui-type-note font-semibold ${labelTone}`}>{label}</h3>
-        <span className="rounded-full bg-surface-hover px-1.5 ui-type-sub tabular-nums text-text-muted">
+        <h3 className={`ui-type-note font-medium ${labelTone}`}>{label}</h3>
+        <span className="ui-type-sub tabular-nums text-text-muted">
           {count}
         </span>
       </header>

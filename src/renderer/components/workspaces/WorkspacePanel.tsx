@@ -6,9 +6,10 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import {
-  ChevronRight, PanelRightClose, RefreshCw } from "lucide-react";
+import { ChevronRight, FolderOpen } from "lucide-react";
 import { ipc } from "../../lib/ipc";
+import { toMessage } from "../../lib/utils";
+import { toast } from "../../stores/toast";
 import {
   clearWatchSource,
   setWatchSource,
@@ -71,37 +72,37 @@ const GIT_STATUS_META: Record<GitStatusKind, GitStatusMeta> = {
   untracked: {
     label: "U",
     textClass: "text-success",
-    badge: "bg-success/10 text-success",
+    badge: "text-success",
   },
   added: {
     label: "A",
     textClass: "text-success",
-    badge: "bg-success/10 text-success",
+    badge: "text-success",
   },
   modified: {
     label: "M",
     textClass: "text-accent",
-    badge: "bg-accent-soft text-accent",
+    badge: "text-accent",
   },
   deleted: {
     label: "D",
     textClass: "text-error",
-    badge: "bg-error/10 text-error",
+    badge: "text-error",
   },
   renamed: {
     label: "R",
-    textClass: "text-agent-sky",
-    badge: "bg-agent-sky/10 text-agent-sky",
+    textClass: "text-text-muted",
+    badge: "text-text-muted",
   },
   copied: {
     label: "C",
-    textClass: "text-agent-teal",
-    badge: "bg-agent-teal/10 text-agent-teal",
+    textClass: "text-text-muted",
+    badge: "text-text-muted",
   },
   conflicted: {
     label: "!",
     textClass: "text-error",
-    badge: "bg-error/10 text-error",
+    badge: "text-error",
   },
   changed: {
     label: "M",
@@ -210,7 +211,6 @@ export function WorkspacePanel({
   const project = projectProp === undefined ? storeProject : projectProp;
   const openFile = useFileViewerStore((s) => s.openFile);
   const activeTabId = useFileViewerStore((s) => s.activeTabId);
-  const setShowWorkspace = useChatStore((s) => s.setShowWorkspace);
 
   const handleOpenFile = (entry: FileEntry, owner: Project) => {
     openFile(owner.id, entry.relativePath, entry.name);
@@ -228,7 +228,6 @@ export function WorkspacePanel({
   const [loadingPaths, setLoadingPaths] = useState<Set<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
   const [gitStatus, setGitStatus] = useState<GitStatusSummary | null>(null);
-  const [reloadKey, setReloadKey] = useState(0);
   const [panelWidth, setPanelWidth] = useState<number | null>(readStoredWidth);
   const [resizing, setResizing] = useState(false);
   const panelRef = useRef<HTMLElement>(null);
@@ -363,7 +362,7 @@ export function WorkspacePanel({
     return () => {
       cancelled = true;
     };
-  }, [projectId, reloadKey]);
+  }, [projectId]);
 
   /** 只重拉发生变化、且仍然展开的目录；根目录始终重拉 */
   const refreshChangedDirs = useCallback(async (dirs: string[]) => {
@@ -439,6 +438,17 @@ export function WorkspacePanel({
 
   const isLoadingRoot = loadingPaths.has("");
   const hasWorkspace = Boolean(cwd);
+
+  /** 在系统资源管理器中打开当前工作区目录 */
+  const openInExplorer = useCallback(async () => {
+    if (!project) return;
+    try {
+      const opened = await ipc.revealProject(project.id);
+      if (!opened) throw new Error("工作区目录不存在");
+    } catch (err) {
+      toast.error(toMessage(err), 5000);
+    }
+  }, [project]);
   const effectiveWidth = panelWidth ?? DEFAULT_WORKSPACE_WIDTH;
   const { statusByPath, directoryStatusByPath } = useMemo(
     () => buildGitStatusIndex(gitStatus),
@@ -564,27 +574,16 @@ export function WorkspacePanel({
         <PageHeader
           icon={<FolderTypeIcon open size={16} />}
           title={project?.name ?? "工作区"}
+          hue="teal"
           subtitle={cwd || "尚未选择工作区"}
           actions={
-            <>
-              <IconButton
-                icon={
-                  <RefreshCw
-                    className={`h-4 w-4 ${isLoadingRoot ? "animate-spin" : ""}`}
-                  />
-                }
-                label="刷新文件"
-                tone="muted"
-                disabled={!hasWorkspace || isLoadingRoot}
-                onClick={() => setReloadKey((value) => value + 1)}
-              />
-              <IconButton
-                icon={<PanelRightClose className="h-4 w-4" />}
-                label="收起工作区"
-                tone="muted"
-                onClick={() => setShowWorkspace(false)}
-              />
-            </>
+            <IconButton
+              icon={<FolderOpen className="h-4 w-4" />}
+              label="在资源管理器中打开"
+              tone="muted"
+              disabled={!project}
+              onClick={() => void openInExplorer()}
+            />
           }
         />
 
@@ -764,7 +763,7 @@ function TreeNode({
           {directoryStatus && (
             <span
               title={`${directoryStatus.count} 个文件有变更`}
-              className="shrink-0 rounded-full bg-agent-amber/10 px-1.5 ui-type-code-sm leading-4 text-agent-amber"
+              className="shrink-0 ui-type-sub tabular-nums leading-4 text-agent-amber"
             >
               {directoryStatus.count}
             </span>
@@ -794,7 +793,7 @@ function TreeNode({
           {statusMeta && (
             <span
               title={status}
-              className={`shrink-0 rounded-full px-1.5 ui-type-sub font-medium leading-4 ${statusMeta.badge}`}
+              className={`w-4 shrink-0 text-center ui-type-sub font-medium leading-4 ${statusMeta.badge}`}
             >
               {statusMeta.label}
             </span>

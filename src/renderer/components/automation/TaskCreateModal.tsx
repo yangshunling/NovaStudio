@@ -115,7 +115,7 @@ export function TaskCreateModal({ onClose }: { onClose: () => void }) {
             onKeyDown={(e) => {
               if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) handleSubmit();
             }}
-            placeholder="用自然语言描述你想让 Agent 做什么…"
+            placeholder="描述任务"
             rows={4}
             className="resize-none"
           />

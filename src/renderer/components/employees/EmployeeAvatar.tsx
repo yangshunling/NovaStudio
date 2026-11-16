@@ -25,7 +25,7 @@ export function EmployeeAvatar({
   return (
     <span
       style={{ width: size, height: size }}
-      className={`relative flex shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-surface-2 ring-1 ring-border/60 ${className}`}
+      className={`relative flex shrink-0 items-center justify-center overflow-hidden rounded-lg bg-surface-2 ring-1 ring-border ${className}`}
     >
       {employee.avatar ? (
         <img
@@ -36,7 +36,7 @@ export function EmployeeAvatar({
         />
       ) : initial ? (
         <span
-          className="font-semibold text-accent"
+          className="font-medium text-text-secondary"
           style={{ fontSize: Math.round(size * 0.4) }}
         >
           {initial}

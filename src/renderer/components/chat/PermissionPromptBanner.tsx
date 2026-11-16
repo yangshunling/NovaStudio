@@ -60,7 +60,7 @@ export function PermissionPromptBanner() {
     <div className="mb-2 rounded-md border border-error/30 bg-error-bg/25 px-2.5 py-2">
       <div className="flex items-center gap-2">
         <ShieldAlert className="h-3.5 w-3.5 shrink-0 text-error" />
-        <span className="shrink-0 ui-type-sub font-semibold text-error">
+        <span className="shrink-0 ui-type-sub font-medium text-error">
           需要授权
         </span>
         <span className="shrink-0 ui-type-note font-medium text-text">

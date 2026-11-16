@@ -256,6 +256,7 @@ export function PromptsView() {
           {/* 左：提示词列表 */}
           <ListPane
             title="提示词"
+            hue="amber"
             count={items.length}
             action={
               <IconButton
@@ -265,26 +266,13 @@ export function PromptsView() {
                 onClick={startCreate}
               />
             }
-            footer={
-              <Button
-                className="w-full"
-                onClick={startCreate}
-                icon={<Plus className="h-4 w-4" />}
-              >
-                新建提示词
-              </Button>
-            }
           >
             {items.length === 0 ? (
               <EmptyState
                 size="compact"
+                hue="amber"
                 title="还没有提示词"
                 description="把常用的提示词存进来，随用随取。"
-                action={
-                  <Button size="sm" onClick={startCreate}>
-                    新建提示词
-                  </Button>
-                }
               />
             ) : (
               items.map((item) => (
@@ -306,6 +294,7 @@ export function PromptsView() {
               <>
                 <PageHeader
                   title={creating ? "新建提示词" : selected!.title}
+                  hue="amber"
                   icon={<MessageSquareText className="h-4 w-4" />}
                   subtitle={
                     creating
@@ -359,49 +348,70 @@ export function PromptsView() {
 
                 {/* 正文占满剩余高度：页面本身不滚动，长文本在输入框内滚动 */}
                 <PageBody scroll={false}>
-                  <div className="mx-auto flex min-h-0 w-full max-w-3xl flex-1 flex-col gap-4">
-                    <Field label="标题" required className="shrink-0">
-                      <TextInput
-                        value={form.title}
-                        maxLength={120}
-                        onChange={(event) =>
-                          setForm((current) => ({
-                            ...current,
-                            title: event.target.value,
-                          }))
-                        }
-                        placeholder="例如：代码评审助手"
-                      />
-                    </Field>
+                  <div className="mx-auto flex min-h-0 w-full max-w-4xl flex-1 flex-col">
+                    <div className="ui-card-material flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-border border-l-2 border-l-hue-amber/50">
+                      <div className="flex items-center justify-between gap-3 border-b border-border px-4 py-3">
+                        <div className="flex min-w-0 items-center gap-2">
+                          <MessageSquareText className="h-4 w-4 shrink-0 text-hue-amber" />
+                          <div className="min-w-0">
+                            <p className="ui-type-label text-text">提示词正文</p>
+                            <p className="ui-type-sub text-text-muted">
+                              保存后可在会话输入框里直接插入
+                            </p>
+                          </div>
+                        </div>
+                        <span className="shrink-0 ui-type-sub tabular-nums text-text-muted">
+                          {form.content.length} 字符
+                        </span>
+                      </div>
 
-                    <Field
-                      label="提示词正文"
-                      required
-                      className="flex min-h-0 flex-1 flex-col"
-                    >
-                      <TextArea
-                        value={form.content}
-                        onChange={(event) =>
-                          setForm((current) => ({
-                            ...current,
-                            content: event.target.value,
-                          }))
-                        }
-                        spellCheck={false}
-                        placeholder="在这里写下提示词内容…"
-                        className="min-h-0 flex-1 resize-none leading-relaxed"
-                      />
-                    </Field>
+                      <div className="flex min-h-0 flex-1 flex-col gap-3 p-4">
+                        <Field label="标题" required className="shrink-0">
+                          <TextInput
+                            value={form.title}
+                            maxLength={120}
+                            onChange={(event) =>
+                              setForm((current) => ({
+                                ...current,
+                                title: event.target.value,
+                              }))
+                            }
+                            placeholder="例如：代码评审助手"
+                          />
+                        </Field>
 
-                    <div className="-mt-2 flex shrink-0 items-center justify-between ui-type-note text-text-muted">
-                      <span>{form.content.length} 字符</span>
-                      <span>Ctrl / ⌘ + S 保存</span>
+                        <Field
+                          label="正文"
+                          required
+                          className="flex min-h-0 flex-1 flex-col"
+                        >
+                          <TextArea
+                            value={form.content}
+                            onChange={(event) =>
+                              setForm((current) => ({
+                                ...current,
+                                content: event.target.value,
+                              }))
+                            }
+                            spellCheck={false}
+                            placeholder="在这里写下提示词内容"
+                            className="min-h-0 flex-1 resize-none leading-relaxed"
+                          />
+                        </Field>
+
+                        <div className="flex shrink-0 items-center justify-between ui-type-sub text-text-muted">
+                          <span>
+                            {dirty ? "有未保存的修改" : "已与本地记录同步"}
+                          </span>
+                          <span>Ctrl / ⌘ + S 保存</span>
+                        </div>
+                      </div>
                     </div>
                   </div>
                 </PageBody>
               </>
             ) : (
-              <EmptyPrompt onCreate={startCreate} />
+              <EmptyPrompt />
             )}
           </div>
         </div>
@@ -410,21 +420,13 @@ export function PromptsView() {
   );
 }
 
-function EmptyPrompt({ onCreate }: { onCreate: () => void }) {
+function EmptyPrompt() {
   return (
     <EmptyState
+      hue="amber"
       icon={<MessageSquareText />}
       title="管理常用提示词"
       description="把反复使用的提示词集中存下来，需要时一键复制。"
-      action={
-        <Button
-          variant="primary"
-          onClick={onCreate}
-          icon={<Plus className="h-4 w-4" />}
-        >
-          新建提示词
-        </Button>
-      }
     />
   );
 }

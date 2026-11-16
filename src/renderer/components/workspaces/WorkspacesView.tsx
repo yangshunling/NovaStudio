@@ -6,7 +6,7 @@
  */
 
 import { useEffect, useState } from "react";
-import { ChevronRight, Folder, FolderKanban, FolderPlus } from "lucide-react";
+import { Folder, FolderKanban, FolderPlus } from "lucide-react";
 import type { Project } from "@shared/types";
 import { ipc } from "../../lib/ipc";
 import { toMessage } from "../../lib/utils";
@@ -15,10 +15,11 @@ import { useFileViewerStore } from "../../stores/fileViewer";
 import { useTerminalStore } from "../../stores/terminal";
 import { toast } from "../../stores/toast";
 import { confirmDialog } from "../../stores/confirm";
-import { LoadingState } from "../ui/EmptyState";
+import { EmptyState, LoadingState } from "../ui/EmptyState";
 import { Page } from "../ui/Page";
 import { Button } from "../ui/Button";
 import { IconButton } from "../ui/IconButton";
+import { ListItem, ListPane } from "../ui/ListPane";
 import { WorkspaceConsole, type WorkspaceTab } from "./WorkspaceConsole";
 import { Spinner } from "../ui/Spinner";
 import { WorkspaceEmptyState } from "./workspaceUi";
@@ -183,13 +184,12 @@ export function WorkspacesView() {
   return (
     <Page>
       <div className="flex min-h-0 flex-1">
-        {/* 左：工作区列表 */}
-        <aside className="ws-rail">
-          <div className="ws-rail-head">
-            <div className="flex min-w-0 items-center gap-2">
-              <p className="ws-kicker truncate">工作区</p>
-              <span className="ws-count">{projects.length}</span>
-            </div>
+        {/* 左：工作区列表（与其他资产页共用 ListPane） */}
+        <ListPane
+          title="工作区"
+          hue="teal"
+          count={projects.length}
+          action={
             <IconButton
               icon={
                 creating ? (
@@ -200,28 +200,30 @@ export function WorkspacesView() {
               }
               label="新建工作区"
               tone="muted"
-              size="sm"
               disabled={creating}
               onClick={() => void createWorkspace()}
             />
-          </div>
-
-          <div className="ws-rail-list">
-            {projects.map((project) => (
-              <WorkspaceRailItem
-                key={project.id}
-                project={project}
-                active={project.id === selectedId}
-                onClick={() => setSelectedId(project.id)}
-              />
-            ))}
-          </div>
-
-          <div className="ws-rail-foot">
-            <span>本地目录</span>
-            <span>按需读取</span>
-          </div>
-        </aside>
+          }
+          footer={
+            <div className="flex items-center justify-between ui-type-sub text-text-muted">
+              <span>本地目录</span>
+              <span>按需读取</span>
+            </div>
+          }
+        >
+          {projects.map((project) => (
+            <ListItem
+              key={project.id}
+              active={project.id === selectedId}
+              icon={<Folder className="h-4 w-4" />}
+              title={project.name}
+              subtitle={project.cwd}
+              monoSubtitle
+              titleAttr={project.cwd}
+              onClick={() => setSelectedId(project.id)}
+            />
+          ))}
+        </ListPane>
 
         {/* 右：当前工作区控制台 */}
         <div className="flex min-w-0 flex-1 flex-col">
@@ -254,39 +256,6 @@ export function WorkspacesView() {
 }
 
 // ============================================================================
-// 左侧列表项
-// ============================================================================
-
-function WorkspaceRailItem({
-  project,
-  active,
-  onClick,
-}: {
-  project: Project;
-  active: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      title={project.cwd}
-      data-active={active}
-      className="ws-rail-item"
-    >
-      <span className="ws-rail-icon">
-        <Folder className="h-3.5 w-3.5" />
-      </span>
-      <span className="min-w-0 flex-1">
-        <span className="ws-rail-name">{project.name}</span>
-        <span className="ws-rail-path">{project.cwd}</span>
-      </span>
-      <ChevronRight className="ws-rail-chevron h-3.5 w-3.5" />
-    </button>
-  );
-}
-
-// ============================================================================
 // 空态 / 工具
 // ============================================================================
 
@@ -298,26 +267,23 @@ function EmptyWorkspaces({
   onCreate: () => void;
 }) {
   return (
-    <div className="ws-empty flex-1">
-      <span className="ws-empty-icon">
-        <FolderKanban className="h-5 w-5" />
-      </span>
-      <h2 className="ws-empty-title">先登记一个工作区</h2>
-      <p className="ws-empty-desc">
-        工作区是一个本地根目录，可以是代码仓库、Excel 资料库或知识库目录。
-        登记后可以浏览全部文件、预览内容，并进行 Git 操作。
-      </p>
-      <Button
-        variant="primary"
-        className="mt-2"
-        onClick={onCreate}
-        disabled={creating}
-        loading={creating}
-        icon={<FolderPlus className="h-4 w-4" />}
-      >
-        选择文件夹创建
-      </Button>
-    </div>
+    <EmptyState
+      hue="teal"
+      icon={<FolderKanban />}
+      title="先登记一个工作区"
+      description="工作区是一个本地根目录，可以是代码仓库、Excel 资料库或知识库目录。登记后可以浏览全部文件、预览内容，并进行 Git 操作。"
+      action={
+        <Button
+          variant="primary"
+          onClick={onCreate}
+          disabled={creating}
+          loading={creating}
+          icon={<FolderPlus className="h-4 w-4" />}
+        >
+          选择文件夹创建
+        </Button>
+      }
+    />
   );
 }
 

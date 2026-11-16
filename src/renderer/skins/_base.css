@@ -95,7 +95,7 @@
   --c-panel-bg: transparent;
 
   /* === 布局尺寸 === */
-  --c-layout-sidebar: 216px;
+  --c-layout-sidebar: 240px;
   --c-layout-session-list: 268px;
   --c-layout-workspace: clamp(240px, 28vw, 320px);
   --c-layout-drawer: 560px;
@@ -146,6 +146,14 @@
   --c-motion-slow: 620ms;
   --c-motion-loop: 2s; /* 循环动效的周期（流光、不确定进度） */
   --c-ease-standard: cubic-bezier(0.22, 0.78, 0.2, 1);
+
+  /* === 分区色兜底 ===
+   * 新皮肤未声明时退回品牌强调色，页面仍能正常显示。 */
+  --c-hue-teal: var(--c-accent);
+  --c-hue-amber: var(--c-accent);
+  --c-hue-rose: var(--c-accent);
+  --c-hue-moss: var(--c-accent);
+  --c-hue-sky: var(--c-accent);
 
   /* === Agent 标识色（跨皮肤共享的默认值，皮肤可按需覆盖） ===
    *

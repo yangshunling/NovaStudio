@@ -41,8 +41,8 @@ interface TodoRowProps {
 }
 
 const PRIORITY_DOT: Record<TodoPriority, string> = {
-  high: "bg-error shadow-[0_0_0_3px_var(--c-error-bg)]",
-  normal: "bg-accent/70",
+  high: "bg-error",
+  normal: "bg-text-muted",
   low: "bg-text-muted/35",
 };
 
@@ -68,10 +68,10 @@ export function TodoRow({
   const overdue = isOverdue(todo);
   const bucket = dueBucket(todo.dueAt);
   const dueChip = overdue
-    ? "bg-error-bg text-error"
+    ? "border-error/30 text-error"
     : bucket === "today"
-      ? "bg-accent-soft text-accent"
-      : "bg-surface-hover text-text-muted";
+      ? "border-accent/30 text-accent"
+      : "border-border text-text-muted";
 
   const dropLine = (position: DragPosition) =>
     dropPosition === position ? (
@@ -115,14 +115,14 @@ export function TodoRow({
         );
         setArmed(false);
       }}
-      className={`ui-cv-row group relative flex items-start gap-2 px-3.5 py-3 transition-colors ${
+      className={`ui-cv-row group relative flex items-start gap-2 px-3 py-3 transition-colors ${
         dragging ? "bg-surface-hover/30 opacity-40" : "hover:bg-surface-hover/60"
       }`}
     >
       {dropLine("before")}
 
       {/* 拖拽手柄槽位固定占位，避免 hover 时整行内容跳动 */}
-      <span className="mt-[3px] flex w-3.5 shrink-0 justify-center">
+      <span className="mt-0.5 flex w-4 shrink-0 justify-center">
         {manualSort && !todo.done && (
           <button
             type="button"
@@ -145,13 +145,13 @@ export function TodoRow({
           todo.done ? `取消完成：${todo.title}` : `标记完成：${todo.title}`
         }
         onClick={() => onToggle(todo)}
-        className={`mt-[2px] grid h-[19px] w-[19px] shrink-0 place-items-center rounded-md border transition-all active:scale-90 ${
+        className={`mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded-sm border transition-colors ${
           todo.done
-            ? "border-accent bg-accent text-accent-foreground shadow-[var(--c-shadow-sm)]"
-            : "border-text-muted/45 text-transparent hover:border-accent hover:bg-accent-soft hover:text-accent/50"
+            ? "border-accent bg-accent text-accent-foreground"
+            : "border-border-strong text-transparent hover:border-accent"
         }`}
       >
-        <Check className="h-3 w-3" strokeWidth={3.2} />
+        <Check className="h-3 w-3" strokeWidth={2.4} />
       </button>
 
       <div className="min-w-0 flex-1">
@@ -160,7 +160,7 @@ export function TodoRow({
             {!todo.done && (
               <span
                 title={`优先级：${PRIORITY_LABEL[todo.priority]}`}
-                className={`mt-[8px] h-1.5 w-1.5 shrink-0 rounded-full ${PRIORITY_DOT[todo.priority]}`}
+                className={`mt-2 h-1.5 w-1.5 shrink-0 rounded-full ${PRIORITY_DOT[todo.priority]}`}
               />
             )}
             <span
@@ -176,7 +176,7 @@ export function TodoRow({
 
           {!todo.done && !hideDue && todo.dueAt !== null && (
             <span
-              className={`inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 ui-type-sub leading-4 ${dueChip}`}
+              className={`inline-flex shrink-0 items-center gap-1 rounded-md border px-1.5 py-0.5 ui-type-sub leading-4 ${dueChip}`}
               title={
                 overdue
                   ? `已逾期，原定 ${formatDueLabel(todo.dueAt)}`
@@ -203,13 +203,13 @@ export function TodoRow({
                 type="button"
                 onClick={() => onTagClick?.(tag)}
                 title={`按标签 #${tag} 筛选`}
-                className="rounded-full bg-surface-hover/80 px-2 py-0.5 ui-type-sub text-text-muted transition-colors hover:bg-accent-soft hover:text-accent"
+                className="rounded-md border border-border px-1.5 py-0.5 ui-type-sub text-text-muted transition-colors hover:bg-surface-hover hover:text-text"
               >
                 #{tag}
               </button>
             ))}
             {todo.done && todo.completedAt !== null && (
-              <span className="inline-flex items-center gap-1 rounded-full bg-surface-hover/80 px-2 py-0.5 ui-type-sub text-text-muted">
+              <span className="inline-flex items-center gap-1 rounded-md border border-border px-1.5 py-0.5 ui-type-sub text-text-muted">
                 <Check className="h-3 w-3" />
                 {formatCompletedAt(todo.completedAt)}
               </span>
@@ -225,7 +225,7 @@ export function TodoRow({
           onClick={() => onEdit(todo)}
           title="编辑"
           aria-label="编辑"
-          className="flex h-9 w-9 items-center justify-center rounded-full text-text-muted transition-colors hover:bg-surface-hover hover:text-text"
+          className="flex h-8 w-8 items-center justify-center rounded-md text-text-muted transition-colors hover:bg-surface-hover hover:text-text"
         >
           <Pencil className="h-3.5 w-3.5" />
         </button>

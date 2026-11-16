@@ -52,9 +52,9 @@ export function TodoStats({ todos }: { todos: TodoItem[] }) {
   const maxCount = Math.max(1, ...stats.series.map((day) => day.count));
 
   return (
-    <section className="rounded-2xl border border-border/60 bg-surface-2/40 p-4 shadow-[var(--c-shadow-sm)]">
+    <section className="rounded-xl border border-border bg-surface-2/40 p-4">
       <div className="flex items-baseline justify-between">
-        <h3 className="ui-type-note font-semibold text-text-secondary">完成情况</h3>
+        <h3 className="ui-type-note font-medium text-text-secondary">完成情况</h3>
         <span className="ui-type-sub tabular-nums text-text-muted">
           共 {stats.total} 件
         </span>
@@ -89,7 +89,7 @@ export function TodoStats({ todos }: { todos: TodoItem[] }) {
             />
           </svg>
           <div className="absolute inset-0 flex flex-col items-center justify-center">
-            <span className="text-title font-semibold tabular-nums text-text">
+            <span className="text-title font-medium tabular-nums text-text">
               {Math.round(stats.rate * 100)}%
             </span>
             <span className="ui-type-sub text-text-muted">完成率</span>
@@ -98,7 +98,7 @@ export function TodoStats({ todos }: { todos: TodoItem[] }) {
 
         <div className="min-w-0">
           <div className="ui-type-sub text-text-muted">累计完成</div>
-          <div className="mt-0.5 text-heading font-semibold tabular-nums text-text">
+          <div className="mt-0.5 text-heading font-medium tabular-nums text-text">
             {stats.done}
             <span className="ml-0.5 ui-type-note font-normal text-text-muted">
               件
@@ -121,7 +121,7 @@ export function TodoStats({ todos }: { todos: TodoItem[] }) {
         <Metric label="连续处理" value={stats.streak} suffix="天" />
       </div>
 
-      <div className="mt-4 border-t border-border/60 pt-3.5">
+      <div className="mt-4 border-t border-border pt-3">
         <div className="flex items-baseline justify-between">
           <span className="ui-type-label text-text-secondary">
             最近 7 天
@@ -152,7 +152,7 @@ export function TodoStats({ todos }: { todos: TodoItem[] }) {
                         ? "bg-surface-hover"
                         : day.isToday
                           ? "bg-accent"
-                          : "bg-accent/55"
+                          : "bg-text-muted/35"
                     }`}
                     style={{
                       height,
@@ -163,7 +163,7 @@ export function TodoStats({ todos }: { todos: TodoItem[] }) {
                 <span
                   className={`ui-type-sub ${
                     day.isToday
-                      ? "font-semibold text-accent"
+                      ? "font-medium text-text"
                       : "text-text-muted"
                   }`}
                 >
@@ -190,10 +190,10 @@ function Metric({
   tone?: "default" | "error";
 }) {
   return (
-    <div className="rounded-lg border border-border/60 bg-surface/60 px-2.5 py-2">
+    <div className="rounded-lg border border-border bg-surface/60 px-3 py-2">
       <div className="ui-type-sub text-text-muted">{label}</div>
       <div
-        className={`mt-0.5 text-title font-semibold tabular-nums ${
+        className={`mt-0.5 text-title font-medium tabular-nums ${
           tone === "error" ? "text-error" : "text-text"
         }`}
       >

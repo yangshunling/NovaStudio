@@ -489,8 +489,8 @@ export function WorkflowCanvas({
     >
       {/* 居中容器负责定位，胶囊自身不再做 translate —— 避免半像素位移让文字发虚 */}
       <div className="pointer-events-none absolute inset-x-0 top-3 z-10 flex justify-center px-4">
-        <span className="ui-ring rounded-full bg-bg px-4 py-2 ui-type-body leading-none text-text-secondary">
-          拖拽节点移动 · Shift/Ctrl 点击多选 · 右侧圆点连线 · 选中连线可删除或改连 · 滚轮缩放
+        <span className="ui-ring rounded-lg bg-bg px-3 py-1.5 ui-type-sub leading-none text-text-muted">
+          拖拽移动 · Shift 多选 · 右侧圆点连线 · 滚轮缩放
         </span>
       </div>
 
@@ -764,10 +764,10 @@ function NodeCard({
           <span
             className={`wf-node-icon ${
               node.type === "start"
-                ? "bg-success/10 text-success"
-                : node.type === "end"
-                  ? "bg-surface-hover text-text-muted"
-                  : "bg-accent-soft text-accent"
+                ? "text-success"
+                : node.type === "employee"
+                  ? "text-accent"
+                  : "text-text-muted"
             }`}
           >
             {node.type === "start" ? (

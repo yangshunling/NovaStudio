@@ -91,14 +91,14 @@ export function Drawer({
       onClick={onCloseRef.current}
       role="presentation"
     >
-      <div className="absolute inset-0 bg-bg/60 backdrop-blur-sm" />
+      <div className="ui-overlay-in absolute inset-0 bg-bg/60 backdrop-blur-sm" />
       <div
         ref={panelRef}
         role="dialog"
         aria-modal="true"
         aria-label={ariaLabel}
         tabIndex={-1}
-        className={`ui-panel-material relative flex h-full max-w-[94vw] flex-col border-l border-border-strong outline-none ${widthClass ?? DRAWER_WIDTHS[width]} ${className}`}
+        className={`ui-drawer-in ui-panel-material relative flex h-full max-w-[94vw] flex-col border-l border-border-strong outline-none ${widthClass ?? DRAWER_WIDTHS[width]} ${className}`}
         onClick={(e) => e.stopPropagation()}
       >
         {children}

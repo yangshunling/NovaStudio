@@ -85,7 +85,7 @@ export function WorkflowDebugPanel({
     <section className="shrink-0 border-b border-border bg-surface-2/40">
       <div className="h-0.5 w-full bg-border">
         <div
-          className="h-full bg-accent transition-all"
+          className="h-full bg-accent transition-[width] duration-300 ease-out motion-reduce:transition-none"
           style={{ width: `${percent}%` }}
         />
       </div>
@@ -96,7 +96,7 @@ export function WorkflowDebugPanel({
             run.status === "running" ? "animate-spin" : ""
           }`}
         />
-        <span className={`shrink-0 ui-type-item font-semibold ${meta.className}`}>
+        <span className={`shrink-0 ui-type-item font-medium ${meta.className}`}>
           {meta.label}
         </span>
 
@@ -135,7 +135,7 @@ export function WorkflowDebugPanel({
             <Button
               variant="ghost"
               size="sm"
-              className="shrink-0 rounded-full"
+              className="shrink-0"
               icon={<X className="h-3.5 w-3.5" />}
               onClick={() => onApprove(awaiting.id, "reject", note.trim())}
               disabled={busy}
@@ -146,7 +146,7 @@ export function WorkflowDebugPanel({
               <Button
                 variant="ghost"
                 size="sm"
-                className="shrink-0 rounded-full"
+                className="shrink-0"
                 icon={<Pencil className="h-3.5 w-3.5" />}
                 onClick={() => onApprove(awaiting.id, "revise", note.trim())}
                 disabled={busy || !note.trim()}
@@ -162,7 +162,7 @@ export function WorkflowDebugPanel({
             <Button
               variant="primary"
               size="sm"
-              className="shrink-0 rounded-full"
+              className="shrink-0"
               icon={<Check className="h-3.5 w-3.5" />}
               onClick={() => onApprove(awaiting.id, "approve", note.trim())}
               disabled={busy}
@@ -225,10 +225,10 @@ export function WorkflowDebugPanel({
                   key={node.id}
                   type="button"
                   onClick={() => setAwaitingId(node.id)}
-                  className={`rounded-full px-2.5 py-1 ui-type-sub transition-colors ${
+                  className={`rounded-md border px-2 py-1 ui-type-sub transition-colors ${
                     node.id === awaiting.id
-                      ? "bg-accent-soft font-medium text-accent"
-                      : "bg-surface/70 text-text-secondary hover:text-text"
+                      ? "border-accent/30 bg-accent-soft font-medium text-accent"
+                      : "border-border text-text-secondary hover:bg-surface-hover hover:text-text"
                   }`}
                 >
                   {node.nodeName}

@@ -279,20 +279,21 @@ export function SessionListPanel() {
                 onClick={() => toggleGroup(group.id)}
                 aria-expanded={!collapsed}
                 title={collapsed ? `展开${group.label}` : `收起${group.label}`}
-                className="ui-group-seam group/header flex w-full cursor-pointer items-center gap-1.5 rounded-md px-2 pb-1 pt-2 text-left text-text-muted transition-colors hover:text-text"
+                className="ui-group-seam group/header flex w-full cursor-pointer items-center gap-1.5 rounded-md px-2 pb-2 pt-4 text-left text-text-muted transition-colors hover:text-text"
               >
                 <ChevronRight
-                  className={`h-3 w-3 shrink-0 opacity-60 transition-transform group-hover/header:opacity-100 ${
+                  className={`h-3 w-3 shrink-0 transition-transform ${
                     collapsed ? "" : "rotate-90"
                   }`}
                 />
-                <span className="ui-type-sub font-semibold">{group.label}</span>
-                <span className="ui-type-sub tabular-nums text-text-muted/50">
+                <span className="ui-type-sub font-medium">{group.label}</span>
+                <span className="ui-type-sub tabular-nums text-text-muted">
                   {group.items.length}
                 </span>
               </button>
               {!collapsed && (
-                <div className="space-y-0.5">
+                <div className="ui-stagger space-y-0.5">
+
                   {group.items.map((session) => (
                     <SessionRow
                       key={session.id}
@@ -423,7 +424,7 @@ function SessionRow({
   if (editing) {
     return (
       <div
-        className={`group flex items-center gap-2 rounded-lg px-2.5 py-2.5 ${
+        className={`group flex min-h-13 items-center gap-2 rounded-lg px-3 py-2 ${
           isActive ? "ui-row-active" : ""
         }`}
       >
@@ -467,10 +468,10 @@ function SessionRow({
           onOpen();
         }
       }}
-      className={`ui-cv-row ui-interactive group relative rounded-lg px-2.5 py-2.5 ${
+      className={`ui-cv-row ui-interactive group relative min-h-13 rounded-lg px-3 py-2 ${
         isActive
           ? "ui-row-active text-text"
-          : "text-text-secondary hover:bg-surface-hover/70 hover:text-text"
+          : "text-text-secondary hover:bg-surface-hover hover:text-text"
       }`}
     >
       {/* 选中态：左侧细竖条，比整块变色更克制 */}
@@ -481,70 +482,64 @@ function SessionRow({
         />
       )}
 
-      <div className="flex items-center gap-2">
-        <div
-          className={`min-w-0 flex-1 truncate ui-type-item leading-5 ${
-            isActive ? "font-medium" : ""
-          }`}
-        >
-          {session.title}
-        </div>
-        <span className="flex shrink-0 items-center ui-type-sub tabular-nums text-text-muted transition-opacity group-hover:opacity-0">
+      {/* 标题独占第一行，时间与元信息放到第二行 */}
+      <div
+        className={`min-w-0 truncate pr-7 ui-type-item leading-5 ${
+          isActive ? "font-medium" : ""
+        }`}
+      >
+        {session.title}
+      </div>
+
+      <div className="mt-0.5 flex min-w-0 items-center gap-1.5 ui-type-sub text-text-muted">
+        {permissionCount > 0 && (
+          <span className="flex shrink-0 items-center gap-1.5 text-error">
+            <span className="h-1.5 w-1.5 rounded-full bg-error" />
+            等待授权
+          </span>
+        )}
+        {isStreaming && (
+          <span className="shrink-0 text-accent">
+            {permissionCount > 0 ? "· 执行中" : "执行中"}
+          </span>
+        )}
+        {queuedCount > 0 && (
+          <span className="flex min-w-0 items-center gap-1.5">
+            {(isStreaming || permissionCount > 0) && (
+              <span className="shrink-0 text-text-muted">·</span>
+            )}
+            <span className="shrink-0 text-accent">
+              {queuedCount} 条待发送
+            </span>
+          </span>
+        )}
+        {meta.map((item, index) => (
+          <span key={item} className="flex min-w-0 items-center gap-1.5">
+            {(index > 0 ||
+              isStreaming ||
+              queuedCount > 0 ||
+              permissionCount > 0) && (
+              <span className="shrink-0 text-text-muted">·</span>
+            )}
+            <span className="truncate">{item}</span>
+          </span>
+        ))}
+        <span className="ml-auto flex shrink-0 items-center tabular-nums transition-opacity group-hover:opacity-0">
           {isStreaming ? (
-            <Spinner label="正在执行" className="h-4 w-4 text-accent" />
+            <Spinner label="正在执行" className="h-3.5 w-3.5 text-accent" />
           ) : (
             sessionTimeLabel(session.updatedAt, group)
           )}
         </span>
       </div>
 
-      {(meta.length > 0 ||
-        isStreaming ||
-        queuedCount > 0 ||
-        permissionCount > 0) && (
-        <div className="mt-0.5 flex min-w-0 items-center gap-1 ui-type-sub text-text-muted">
-          {permissionCount > 0 && (
-            <span className="flex shrink-0 items-center gap-1 text-error">
-              <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-error" />
-              等待授权
-            </span>
-          )}
-          {isStreaming && (
-            <span className="shrink-0 text-accent">
-              {permissionCount > 0 ? "· 执行中" : "执行中"}
-            </span>
-          )}
-          {queuedCount > 0 && (
-            <span className="flex min-w-0 items-center gap-1">
-              {(isStreaming || permissionCount > 0) && (
-                <span className="shrink-0 opacity-50">·</span>
-              )}
-              <span className="shrink-0 text-accent">
-                {queuedCount} 条待发送
-              </span>
-            </span>
-          )}
-          {meta.map((item, index) => (
-            <span key={item} className="flex min-w-0 items-center gap-1">
-              {(index > 0 ||
-                isStreaming ||
-                queuedCount > 0 ||
-                permissionCount > 0) && (
-                <span className="shrink-0 opacity-50">·</span>
-              )}
-              <span className="truncate">{item}</span>
-            </span>
-          ))}
-        </div>
-      )}
-
-      {/* hover 时在时间位置出现「…」，点开重命名 / 删除菜单 */}
+      {/* hover 时在行右侧出现「…」，点开重命名 / 删除菜单 */}
       <button
         type="button"
         onClick={openMenuAtButton}
         title="会话操作"
         aria-label="会话操作"
-        className={`absolute right-1.5 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-md text-text-muted transition-all hover:bg-surface-hover hover:text-text ${
+        className={`absolute right-2 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-md text-text-muted transition-opacity hover:bg-surface-hover hover:text-text ${
           menu
             ? "pointer-events-auto opacity-100"
             : "pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100 focus-visible:pointer-events-auto focus-visible:opacity-100"
@@ -601,7 +596,7 @@ function SessionListSkeleton() {
       {[0, 1, 2, 3, 4].map((item) => (
         <div
           key={item}
-          className="h-10 animate-pulse rounded-lg bg-surface-hover/60"
+          className="h-13 animate-pulse rounded-lg bg-surface-hover/60"
           style={{ animationDelay: `${item * 60}ms` }}
         />
       ))}

@@ -83,6 +83,7 @@ export function FilePreview({
       <PageHeader
         icon={<FileTypeIcon name={tab.name} size={17} />}
         title={tab.name}
+        hue="teal"
         subtitle={tab.relativePath}
         actions={
           <>

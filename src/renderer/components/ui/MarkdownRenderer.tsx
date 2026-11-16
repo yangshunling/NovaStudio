@@ -301,7 +301,7 @@ const MARKDOWN_COMPONENTS: Components = {
     <h2 className={`ui-type-heading mb-2 mt-3 text-text${alignClass(node)}`}>{children}</h2>
   ),
   h3: ({ children, node }) => (
-    <h3 className={`mb-2 mt-3 text-body-lg font-bold text-text${alignClass(node)}`}>{children}</h3>
+    <h3 className={`mb-2 mt-3 text-body-lg font-semibold text-text${alignClass(node)}`}>{children}</h3>
   ),
 
   p: ({ children, node }) => (
@@ -332,7 +332,7 @@ const MARKDOWN_COMPONENTS: Components = {
     </table>
   ),
   th: ({ children, node }) => (
-    <th className={`border border-border bg-surface px-2 py-1 font-semibold text-text${alignClass(node)}`}>
+    <th className={`border border-border bg-surface px-2 py-1 font-medium text-text${alignClass(node)}`}>
       {children}
     </th>
   ),

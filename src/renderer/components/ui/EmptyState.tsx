@@ -15,6 +15,7 @@
 import type { ReactNode } from "react";
 import { Search } from "lucide-react";
 import { Spinner } from "./Spinner";
+import { PAGE_HUE_VAR, type PageHue } from "./Page";
 
 type EmptyStateSize = "default" | "compact";
 
@@ -29,6 +30,8 @@ interface EmptyStateProps {
   /** 说明与操作之间的自定义内容（如三步引导） */
   children?: ReactNode;
   size?: EmptyStateSize;
+  /** 分区色：空态图标跟着页面身份走 */
+  hue?: PageHue;
   className?: string;
 }
 
@@ -39,9 +42,11 @@ export function EmptyState({
   action,
   children,
   size = "default",
+  hue,
   className = "",
 }: EmptyStateProps) {
   const compact = size === "compact";
+  const iconStyle = hue ? { color: PAGE_HUE_VAR[hue] } : undefined;
 
   // 紧凑态：卡片内 / 侧栏里的局部空态，保持安静
   if (compact) {
@@ -50,7 +55,10 @@ export function EmptyState({
         className={`flex flex-col items-center justify-center gap-1.5 px-6 py-10 text-center ${className}`.trim()}
       >
         {icon && (
-          <div className="text-text-muted opacity-50 [&>svg]:h-6 [&>svg]:w-6">
+          <div
+            className="text-text-muted opacity-70 [&>svg]:h-6 [&>svg]:w-6"
+            style={iconStyle}
+          >
             {icon}
           </div>
         )}
@@ -66,40 +74,34 @@ export function EmptyState({
   }
 
   /*
-   * 整页空态：编辑式排版。
-   * 用静态细线 + 留白建立起点，不再使用渐变/光晕——与侧栏刊头保持同一气质。
+   * 整页空态：只留图标、标题、说明与操作。
+   * 不套卡片、不做强调色底座，空态本身就不该比页面内容更显眼。
    */
   return (
     <div
-      className={`flex min-h-[60vh] items-center justify-center ${className}`.trim()}
+      className={`flex items-center justify-center py-24 ${className}`.trim()}
     >
-      <div className="relative w-full max-w-[640px] overflow-hidden rounded-2xl border border-border/60 bg-surface-2/40 p-8 text-center shadow-[var(--c-shadow-sm)]">
-        <span
-          aria-hidden
-          className="pointer-events-none absolute inset-x-10 top-0 h-px bg-accent/30"
-        />
+      <div className="flex w-full max-w-[560px] flex-col items-center text-center">
+        {icon && (
+          <div
+            className="mb-4 text-text-muted [&>svg]:h-6 [&>svg]:w-6"
+            style={iconStyle}
+          >
+            {icon}
+          </div>
+        )}
 
-        <div className="relative flex flex-col items-center">
-          {icon && (
-            <div className="grid h-14 w-14 place-items-center rounded-2xl bg-accent text-accent-foreground shadow-[var(--c-shadow-sm)] [&>svg]:h-6 [&>svg]:w-6">
-              {icon}
-            </div>
-          )}
+        <h2 className="ui-type-heading text-text">{title}</h2>
 
-          <h2 className="ui-type-heading mt-5 tracking-tight text-text">
-            {title}
-          </h2>
+        {description && (
+          <p className="mt-2 ui-type-body leading-relaxed text-text-secondary">
+            {description}
+          </p>
+        )}
 
-          {description && (
-            <p className="ui-type-body mt-2 max-w-md leading-relaxed text-text-secondary">
-              {description}
-            </p>
-          )}
+        {children}
 
-          {children}
-
-          {action && <div className="mt-6">{action}</div>}
-        </div>
+        {action && <div className="mt-6">{action}</div>}
       </div>
     </div>
   );
