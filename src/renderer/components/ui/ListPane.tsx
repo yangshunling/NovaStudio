@@ -9,7 +9,8 @@
  * 业务只提供内容；选中态、悬浮态、右键菜单与键盘行为由这里统一。
  */
 
-import type { ReactNode, MouseEvent } from "react";
+import type { CSSProperties, ReactNode, MouseEvent } from "react";
+import { PAGE_HUE_VAR, type PageHue } from "./Page";
 
 interface ListPaneProps {
   title: string;
@@ -18,6 +19,8 @@ interface ListPaneProps {
   action?: ReactNode;
   /** 底部说明区 */
   footer?: ReactNode;
+  /** 分区色：列表选中态跟随页面身份 */
+  hue?: PageHue;
   children: ReactNode;
   className?: string;
 }
@@ -27,20 +30,24 @@ export function ListPane({
   count,
   action,
   footer,
+  hue,
   children,
   className = "",
 }: ListPaneProps) {
   return (
     <aside
       className={`ui-tray flex w-[var(--c-layout-session-list)] shrink-0 flex-col border-r border-border ${className}`.trim()}
+      style={
+        hue
+          ? ({ "--list-hue": PAGE_HUE_VAR[hue] } as CSSProperties)
+          : undefined
+      }
     >
       <div className="ui-header-bar flex h-[var(--c-layout-header)] shrink-0 items-center justify-between gap-2 border-b border-border px-4">
         <div className="flex min-w-0 items-center gap-2">
-          <p className="ui-type-label truncate tracking-wide text-text-muted">
-            {title}
-          </p>
+          <p className="ui-type-label truncate text-text-muted">{title}</p>
           {count !== undefined && (
-            <span className="flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-surface-hover px-1.5 ui-type-code-sm leading-none text-text-muted">
+            <span className="ui-type-sub shrink-0 tabular-nums text-text-muted">
               {count}
             </span>
           )}
@@ -48,7 +55,7 @@ export function ListPane({
         {action}
       </div>
 
-      <div className="min-h-0 flex-1 space-y-1 overflow-y-auto px-2.5 pb-4 pt-4">
+      <div className="min-h-0 flex-1 space-y-0.5 overflow-y-auto px-2 pb-4 pt-3">
         {children}
       </div>
 
@@ -91,15 +98,15 @@ export function ListItem({
     <div
       className={`ui-cv-row relative flex w-full items-center rounded-lg transition-colors ${
         active
-          ? "bg-selected text-text"
-          : "text-text-secondary hover:bg-surface-hover/70 hover:text-text"
+          ? "ui-list-active text-text"
+          : "text-text-secondary hover:bg-surface-hover hover:text-text"
       }`}
     >
       {/* 选中态：左侧细竖条，与会话列表保持一致 */}
       {active && (
         <span
           aria-hidden
-          className="absolute left-0 top-1/2 h-5 w-indicator -translate-y-1/2 rounded-full bg-accent"
+          className="ui-list-rail absolute left-0 top-1/2 h-5 w-indicator -translate-y-1/2 rounded-full"
         />
       )}
 
@@ -113,7 +120,7 @@ export function ListItem({
         {icon ? (
           <span
             className={`grid h-6 w-6 shrink-0 place-items-center ${
-              active ? "text-accent" : "text-text-muted"
+              active ? "ui-list-icon-active" : "text-text-muted"
             }`}
           >
             {icon}

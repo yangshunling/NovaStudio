@@ -181,7 +181,7 @@ export function WorkflowRunHistoryView({
             {title}
           </p>
 
-          <span className="shrink-0 rounded-full bg-surface-hover px-2.5 py-1 ui-type-code text-text-muted">
+          <span className="shrink-0 ui-type-sub tabular-nums text-text-muted">
             共 {runs.length} 次执行
           </span>
 
@@ -190,7 +190,7 @@ export function WorkflowRunHistoryView({
           <Button
             variant="ghost"
             size="sm"
-            className="shrink-0 rounded-full"
+            className="shrink-0"
             icon={<RefreshCw className="h-4 w-4" />}
             onClick={() => void load()}
           >
@@ -206,6 +206,7 @@ export function WorkflowRunHistoryView({
           ) : runs.length === 0 ? (
             <EmptyState
               size="compact"
+              hue="blue"
               icon={<Circle />}
               title="还没有运行记录"
               description="在工作流里运行，或由触发器启动后，会在这里生成记录。"
@@ -285,10 +286,10 @@ export function WorkflowRunHistoryView({
                           {run.workflowName}
                         </span>
                         <span
-                          className={`shrink-0 rounded-full px-2 py-0.5 ui-type-sub ${
+                          className={`shrink-0 ui-type-sub ${
                             run.source === "trigger"
-                              ? "bg-accent-soft text-accent"
-                              : "bg-surface-hover text-text-muted"
+                              ? "text-accent"
+                              : "text-text-muted"
                           }`}
                         >
                           {run.source === "trigger" ? "触发器" : "手动"}
@@ -352,7 +353,7 @@ export function WorkflowRunHistoryView({
                           void removeRun(run);
                         }}
                         disabled={active || busyRunId !== null}
-                        className="flex h-7 items-center rounded-full px-2.5 ui-type-label text-error transition-colors hover:bg-error-bg active:scale-95 disabled:opacity-40"
+                        className="flex h-7 items-center rounded-md px-2 ui-type-label text-error transition-colors hover:bg-error-bg disabled:opacity-40"
                       >
                         删除
                       </button>

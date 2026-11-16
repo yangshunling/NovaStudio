@@ -138,7 +138,7 @@ function EventBlock({ event }: { event: AgentEvent }) {
 
     case "error":
       return (
-        <div className="mb-2 flex items-start gap-2.5 rounded-xl border border-error/30 bg-error-bg/70 px-3.5 py-2.5 ui-type-body text-error">
+        <div className="mb-2 flex items-start gap-2.5 rounded-xl border border-error/30 bg-error-bg/70 px-3 py-2 ui-type-body text-error">
           <Bug className="mt-0.5 h-4 w-4 shrink-0" />
           <span className="min-w-0">{event.message}</span>
         </div>
@@ -147,7 +147,7 @@ function EventBlock({ event }: { event: AgentEvent }) {
     // 非致命提示：运行仍在继续，用中性底 + 警示图标与致命错误区分开
     case "warning":
       return (
-        <div className="mb-2 flex items-start gap-2.5 rounded-xl border border-border/60 bg-surface-2/40 px-3.5 py-2.5 ui-type-body text-text-secondary">
+        <div className="mb-2 flex items-start gap-2.5 rounded-xl border border-border bg-surface-2/40 px-3 py-2 ui-type-body text-text-secondary">
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-text-muted" />
           <span className="min-w-0">{event.message}</span>
         </div>

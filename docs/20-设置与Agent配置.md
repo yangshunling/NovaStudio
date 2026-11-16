@@ -180,7 +180,8 @@ Nova 不维护自己的 Agent 接入配置：
 
 - 登录、模型、权限全部复用 `~/.claude`；
 - 「Agent 配置」页直接编辑 `~/.claude/settings.json`；
-- 保存只改 `env` 与 `permissions.defaultMode`，保留 hooks / plugins / statusLine 等；
+- 修改后自动保存（500ms 防抖）写回，只改 `env` 与 `permissions.defaultMode`，
+  保留 hooks / plugins / statusLine 等；
 - 旧版 `~/.novastudio/agent-connections` 会在启动时迁移并归档。
 
 ---

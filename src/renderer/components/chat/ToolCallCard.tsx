@@ -96,42 +96,34 @@ export const ToolCallCard = memo(function ToolCallCard({
     return { adds: added, dels: deleted };
   }, [changes]);
 
-  const tileClass =
+  const iconTone =
     status === "error"
-      ? "bg-error-bg text-error"
+      ? "text-error"
       : status === "running"
-        ? "bg-accent-soft text-accent"
-        : "bg-surface-hover text-tool";
+        ? "text-accent"
+        : "text-text-muted";
 
-  const statusChip =
+  const statusTone =
     status === "error"
-      ? "bg-error-bg text-error"
-      : status === "done"
-        ? "bg-success/10 text-success"
-        : status === "running"
-          ? "bg-accent-soft text-accent"
-          : "bg-surface-hover text-text-muted";
+      ? "text-error"
+      : status === "running"
+        ? "text-accent"
+        : "text-text-muted";
 
   return (
     <div
-      className={`ui-depth w-full overflow-hidden rounded-xl border transition-colors ${
+      className={`w-full overflow-hidden rounded-xl border transition-colors ${
         status === "error"
           ? "border-error/30 bg-error-bg/25"
-          : status === "running"
-            ? "border-accent/25 bg-accent-soft/15"
-            : "border-border/60 bg-surface-2/40"
+          : "border-border bg-surface-2/40"
       }`}
     >
       <button
         type="button"
         onClick={() => setCollapsed((value) => !value)}
-        className="flex w-full items-center gap-2.5 px-3 py-1.5 text-left transition-colors hover:bg-surface-hover/40"
+        className="flex w-full items-center gap-2.5 px-3 py-2 text-left transition-colors hover:bg-surface-hover/60"
       >
-        <span
-          className={`grid h-6 w-6 shrink-0 place-items-center rounded-lg ${tileClass}`}
-        >
-          <Icon className="h-3 w-3" />
-        </span>
+        <Icon className={`h-4 w-4 shrink-0 ${iconTone}`} />
 
         <span className="min-w-0 flex-1">
           <span className="flex items-baseline gap-2">
@@ -161,13 +153,14 @@ export const ToolCallCard = memo(function ToolCallCard({
 
         <span className="flex shrink-0 items-center gap-2">
           <span
-            className={`inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 ui-type-sub ${statusChip}`}
+            className={`flex items-center gap-1.5 ui-type-sub ${statusTone}`}
           >
             {status === "done" && <Check className="h-3 w-3" />}
-            {status === "running" && (
-              <Spinner className="h-3 w-3" />
-            )}
+            {status === "running" && <Spinner className="h-3 w-3" />}
             {status === "error" && <AlertTriangle className="h-3 w-3" />}
+            {status === "pending" && (
+              <span className="h-1.5 w-1.5 rounded-full bg-current" aria-hidden />
+            )}
             {statusText}
           </span>
           <ChevronRight
@@ -179,15 +172,15 @@ export const ToolCallCard = memo(function ToolCallCard({
       </button>
 
       {!collapsed && (
-        <div className="ui-well space-y-2 border-t border-border/60 p-3">
+        <div className="ui-well space-y-2 border-t border-border p-3">
           {changes.length > 0 ? (
             <ToolDiffView changes={changes} />
           ) : (
             <div>
-              <div className="mb-1 text-micro font-medium text-text-muted">
+              <div className="mb-1 ui-type-sub font-medium text-text-muted">
                 输入
               </div>
-              <pre className="max-h-40 overflow-auto rounded-lg border border-border/60 bg-surface-2/50 px-2.5 py-2 ui-type-code-sm leading-relaxed text-text-secondary">
+              <pre className="max-h-40 overflow-auto rounded-lg border border-border bg-surface-2/50 px-3 py-2 ui-type-code-sm leading-relaxed text-text-secondary">
                 {truncateText(argsText ?? formatJson(args), 500)}
               </pre>
             </div>
@@ -196,14 +189,14 @@ export const ToolCallCard = memo(function ToolCallCard({
           {/* 有 diff 且成功时回执没有信息量；失败时错误信息必须保留 */}
           {done && result && (changes.length === 0 || failed) && (
             <div>
-              <div className="mb-1 text-micro font-medium text-text-muted">
+              <div className="mb-1 ui-type-sub font-medium text-text-muted">
                 {failed ? "错误" : "输出"}
               </div>
               <pre
-                className={`max-h-48 overflow-auto rounded-lg border px-2.5 py-2 ui-type-code-sm leading-relaxed ${
+                className={`max-h-48 overflow-auto rounded-lg border px-3 py-2 ui-type-code-sm leading-relaxed ${
                   failed
                     ? "border-error/30 bg-error-bg text-error"
-                    : "border-border/60 bg-surface-2/50 text-text-muted"
+                    : "border-border bg-surface-2/50 text-text-muted"
                 }`}
               >
                 {truncateText(result, 500)}
@@ -214,7 +207,7 @@ export const ToolCallCard = memo(function ToolCallCard({
           {/* 截图 / 图片类工具输出：base64 直接内联展示，避免再落文件 */}
           {resultImages && resultImages.length > 0 && (
             <div>
-              <div className="mb-1 text-micro font-medium text-text-muted">
+              <div className="mb-1 ui-type-sub font-medium text-text-muted">
                 图片
               </div>
               <div className="flex flex-wrap gap-2">

@@ -77,7 +77,7 @@ export function AutomationView() {
   const visibleDone = done.slice(0, doneLimit);
   const visibleFailed = failed.slice(0, failedLimit);
   const moreButtonClass =
-    "w-full rounded-lg border border-dashed border-border bg-surface/40 py-2 ui-type-note text-text-muted transition-colors hover:border-accent/40 hover:text-accent";
+    "w-full rounded-lg border border-dashed border-border py-2 ui-type-note text-text-muted transition-colors hover:border-border-strong hover:text-text-secondary";
   // 列头转圈只反映"真的有进程在跑"
   const hasRunning = tasks.some((t) => t.status === "running");
 
@@ -94,6 +94,7 @@ export function AutomationView() {
       <Page>
         <PageHeader
           title="自动化任务"
+          hue="amber"
           count={tasks.length}
           countSuffix=" 个任务"
           icon={<ListChecks className="h-4 w-4" />}
@@ -149,7 +150,6 @@ export function AutomationView() {
               onRetry={retryTask}
               onStop={stopTask}
               onViewDetail={setDetailTask}
-              onAdd={() => setShowCreate(true)}
               emptyHint="暂无待执行任务"
             />
             {/* 没有任务在跑时不用静止的转圈图标：那看起来像卡住的加载态 */}

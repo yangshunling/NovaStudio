@@ -245,6 +245,7 @@ export function TerminalView({
       <PageHeader
         icon={<SquareTerminal className="h-4 w-4" />}
         title={tab.name}
+        hue="teal"
         subtitle={`${runtime?.shell ?? "shell"} · ${runtime?.cwd ?? tab.cwd}`}
         actions={
           exited !== null ? (

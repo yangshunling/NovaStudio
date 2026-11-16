@@ -23,6 +23,8 @@ import type {
 import { ipc } from "../../lib/ipc";
 import { toMessage } from "../../lib/utils";
 import { IconButton } from "../ui/IconButton";
+import { PageHeader } from "../ui/Page";
+import { SegmentedTabs } from "../ui/SegmentedTabs";
 import { useElementVisible } from "../../hooks/useElementVisible";
 import { useGitStatusRefresh } from "../../hooks/useGitStatusRefresh";
 import { FilesTab, type FilesRequest } from "./FilesTab";
@@ -159,73 +161,57 @@ export function WorkspaceConsole({
 
   return (
     <div ref={rootRef} className="flex min-h-0 min-w-0 flex-1 flex-col">
-      <div className="ws-head">
-        <span className="ws-head-icon">
-          <FolderKanban className="h-4 w-4" />
-        </span>
-        <div className="min-w-0 flex-1">
-          <p className="ws-head-title">{project.name}</p>
-          <p className="ws-head-path" title={project.cwd}>
-            {project.cwd}
-          </p>
-        </div>
-        <div className="flex shrink-0 items-center gap-1.5">
-          <IconButton
-            icon={<SquareTerminal className="h-4 w-4" />}
-            label="在此工作区打开终端"
-            tone="muted"
-            size="sm"
-            onClick={onOpenTerminal}
-          />
-          <IconButton
-            icon={<FolderOpen className="h-4 w-4" />}
-            label="在文件管理器中打开"
-            tone="muted"
-            size="sm"
-            onClick={onOpenFolder}
-          />
-          <IconButton
-            icon={<Trash2 className="h-4 w-4" />}
-            label="删除工作区"
-            tone="danger"
-            size="sm"
-            onClick={onDelete}
-          />
-        </div>
-      </div>
+      <PageHeader
+        icon={<FolderKanban className="h-4 w-4" />}
+        title={project.name}
+        subtitle={project.cwd}
+        hue="teal"
+        actions={
+          <>
+            <IconButton
+              icon={<SquareTerminal className="h-4 w-4" />}
+              label="在此工作区打开终端"
+              tone="muted"
+              onClick={onOpenTerminal}
+            />
+            <IconButton
+              icon={<FolderOpen className="h-4 w-4" />}
+              label="在文件管理器中打开"
+              tone="muted"
+              onClick={onOpenFolder}
+            />
+            <IconButton
+              icon={<Trash2 className="h-4 w-4" />}
+              label="删除工作区"
+              tone="danger"
+              onClick={onDelete}
+            />
+          </>
+        }
+      />
 
       {/* Tab 栏 */}
-      <div className="ws-tabs" role="tablist" aria-label="工作区视图">
-        <button
-          type="button"
-          role="tab"
-          aria-selected={tab === "files"}
-          data-active={tab === "files"}
-          onClick={() => onTabChange("files")}
-          className="ws-tab"
-        >
-          <span className="ws-tab-label">文件</span>
-        </button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={tab === "git"}
-          data-active={tab === "git"}
-          onClick={() => onTabChange("git")}
-          className="ws-tab"
-          title={git?.inProgress ? git.inProgress.label : undefined}
-        >
-          <span className="ws-tab-label">Git</span>
-          {git?.inProgress && (
-            <AlertTriangle
-              className="h-3 w-3 shrink-0 text-agent-amber"
-              aria-label={git.inProgress.label}
-            />
-          )}
-          {git?.available && changes > 0 && (
-            <span className="ws-tab-count">{changes}</span>
-          )}
-        </button>
+      <div className="flex shrink-0 items-center border-b border-border px-card py-2">
+        <SegmentedTabs
+          options={[
+            { id: "files", label: "文件" },
+            {
+              id: "git",
+              label: "Git",
+              title: git?.inProgress?.label,
+              icon: git?.inProgress ? (
+                <AlertTriangle
+                  className="h-3 w-3 shrink-0 text-agent-amber"
+                  aria-label={git.inProgress.label}
+                />
+              ) : undefined,
+              count:
+                git?.available && changes > 0 ? changes : undefined,
+            },
+          ]}
+          value={tab}
+          onChange={onTabChange}
+        />
       </div>
 
       {/* Tab 内容：两个都挂载，切换保留状态 */}

@@ -47,15 +47,9 @@ export function TaskCard({
   // 执行中（有 sessionId）/ 已完成 / 失败 都可以查看详情
   const canViewDetail = (isRunning && !!task.sessionId) || isCompleted || isFailed;
 
-  const borderColor =
-    isRunning ? "border-l-accent"
-    : isCompleted ? "border-l-success"
-    : isFailed ? "border-l-error"
-    : "border-l-border";
-
   return (
     <div
-      className={`group relative rounded-xl border border-border border-l-[3px] ${borderColor} bg-surface-2/40 p-card shadow-[var(--c-shadow-sm)] transition-all hover:-translate-y-0.5 hover:bg-surface-2/80 ${
+      className={`group relative rounded-xl border border-border bg-surface-2/40 p-card transition-[translate,border-color,box-shadow] duration-150 hover:-translate-y-0.5 hover:border-border-strong hover:shadow-[var(--c-shadow-sm)] ${
         canViewDetail ? "cursor-pointer" : ""
       }`}
       onClick={() => canViewDetail && onViewDetail()}
@@ -76,7 +70,7 @@ export function TaskCard({
 
       {/* 错误信息（失败时） */}
       {isFailed && task.error && (
-        <div className="mt-2 flex items-center gap-1 rounded-sm bg-error-bg/50 px-2 py-1 ui-type-note text-error">
+        <div className="mt-2 flex items-center gap-1.5 rounded-md bg-error-bg/50 px-2 py-1 ui-type-note text-error">
           <AlertCircle className="h-3.5 w-3.5 shrink-0" />
           <span className="truncate">{task.error}</span>
         </div>

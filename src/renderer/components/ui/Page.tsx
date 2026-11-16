@@ -26,16 +26,30 @@ export function Page({ children, className = "" }: PageProps) {
     <main
       className={`relative flex flex-1 flex-col overflow-hidden ${className}`.trim()}
     >
-      <div className="ui-page relative z-10 flex flex-1 flex-col overflow-hidden rounded-xl">
+      <div className="ui-page ui-page-enter relative z-10 flex flex-1 flex-col overflow-hidden rounded-xl">
         {children}
       </div>
     </main>
   );
 }
 
+/** 页面分区色：只给页头图标，不染标题与工具条 */
+export type PageHue = "blue" | "teal" | "amber" | "rose" | "moss" | "sky";
+
+export const PAGE_HUE_VAR: Record<PageHue, string> = {
+  blue: "var(--c-accent)",
+  teal: "var(--c-hue-teal)",
+  amber: "var(--c-hue-amber)",
+  rose: "var(--c-hue-rose)",
+  moss: "var(--c-hue-moss)",
+  sky: "var(--c-hue-sky)",
+};
+
 interface PageHeaderProps {
   /** 标题文字 */
   title: ReactNode;
+  /** 分区色：给页头图标一点身份，其余保持中性 */
+  hue?: PageHue;
   /** 标题旁的计数徽标（如 3），与 countSuffix 组合显示 */
   count?: number;
   /** 计数徽标的后缀（如 "个服务"），仅 count 有值时显示 */
@@ -54,6 +68,7 @@ interface PageHeaderProps {
 
 export function PageHeader({
   title,
+  hue,
   count,
   countSuffix,
   badge,
@@ -62,12 +77,36 @@ export function PageHeader({
   actions,
   className = "",
 }: PageHeaderProps) {
+  const hueColor = hue ? PAGE_HUE_VAR[hue] : undefined;
+
   return (
     <header
       className={`ui-glass ui-header-bar relative z-10 flex h-[var(--c-layout-header)] shrink-0 items-center justify-between gap-3 border-b border-border px-card ${className}`.trim()}
+      style={
+        hueColor
+          ? {
+              borderBottomWidth: "2px",
+              borderBottomColor: `color-mix(in srgb, ${hueColor} 50%, transparent)`,
+            }
+          : undefined
+      }
     >
       <div className="flex min-w-0 items-center gap-2.5">
-        {icon && <span className="ui-header-icon shrink-0">{icon}</span>}
+        {icon && (
+          <span
+            className="ui-header-icon shrink-0"
+            style={
+              hueColor
+                ? {
+                    color: hueColor,
+                    backgroundColor: `color-mix(in srgb, ${hueColor} 16%, transparent)`,
+                  }
+                : undefined
+            }
+          >
+            {icon}
+          </span>
+        )}
         <div className="min-w-0">
           <div className="flex min-w-0 items-center gap-2">
             <span className="ui-type-title truncate text-text">
@@ -75,7 +114,7 @@ export function PageHeader({
             </span>
             {badge ??
               (count !== undefined && (
-                <span className="flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-surface-hover px-1.5 ui-type-code-sm leading-none text-text-muted">
+                <span className="ui-type-sub shrink-0 tabular-nums text-text-muted">
                   {count}
                   {countSuffix}
                 </span>

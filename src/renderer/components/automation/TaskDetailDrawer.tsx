@@ -128,14 +128,14 @@ export function TaskDetailDrawer({ task, onClose }: { task: AutomationTask; onCl
           <p className="mb-2.5 ui-type-item leading-relaxed text-text">{task.prompt}</p>
           <div className="flex flex-wrap items-center gap-2 ui-type-sub">
             {project && (
-              <span className="inline-flex items-center gap-1 rounded-full bg-surface-hover px-2 py-0.5 text-text-muted">
+              <span className="inline-flex items-center gap-1.5 rounded-md border border-border px-1.5 py-0.5 text-text-muted">
                 <FolderTypeIcon size={12} />
                 {project.name}
               </span>
             )}
             {task.agentId && <AgentPill agents={agents} agentId={task.agentId} />}
             {employee && (
-              <span className="inline-flex items-center gap-1 rounded-full bg-surface-hover px-2 py-0.5 text-text-muted">
+              <span className="inline-flex items-center gap-1.5 rounded-md border border-border px-1.5 py-0.5 text-text-muted">
                 <UserRound className="h-3 w-3" />
                 {employee.name}
               </span>
@@ -189,7 +189,7 @@ export function TaskDetailDrawer({ task, onClose }: { task: AutomationTask; onCl
               const element = scrollRef.current;
               if (element) element.scrollTop = element.scrollHeight;
             }}
-            className="ui-glass-strong ui-ring absolute bottom-3 left-1/2 z-10 -translate-x-1/2 rounded-full px-3 py-1.5 ui-type-note text-text-secondary shadow-[var(--c-shadow-sm)] transition-colors hover:text-text"
+            className="ui-glass-strong ui-ring absolute bottom-3 left-1/2 z-10 -translate-x-1/2 rounded-lg px-3 py-1.5 ui-type-note text-text-secondary transition-colors hover:text-text"
           >
             回到最新
           </button>

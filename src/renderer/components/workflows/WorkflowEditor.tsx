@@ -145,7 +145,7 @@ const REVIEW_OPTIONS: ReadonlyArray<{
 ];
 
 const LABEL_CLASS = "mb-1.5 block ui-type-label text-text-secondary";
-const SECTION_TITLE_CLASS = "mb-2 ui-type-body font-semibold text-text";
+const SECTION_TITLE_CLASS = "mb-2 ui-type-body font-medium text-text";
 
 /** 从节点当前占位里找一个空槽，避免新增节点互相压住 */
 function freePosition(nodes: WorkflowNode[]): { x: number; y: number } {
@@ -826,7 +826,7 @@ export function WorkflowEditor({
             {dirty && (
               <span
                 title="改动尚未保存，按 Ctrl/Cmd + S 保存"
-                className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-accent/30 bg-accent-soft px-2 py-0.5 ui-type-label text-accent"
+                className="inline-flex shrink-0 items-center gap-1.5 ui-type-sub text-accent"
               >
                 <span className="h-1.5 w-1.5 rounded-full bg-accent" />
                 未保存
@@ -947,27 +947,24 @@ export function WorkflowEditor({
           {/* 左侧：节点面板 + 数字员工 */}
           <aside className="flex w-[280px] shrink-0 flex-col border-r border-border bg-[var(--c-panel-bg)]">
             <div className="p-4">
-              <p className="mb-3 px-1 ui-type-note font-semibold tracking-wide text-text-muted">
+              <p className="mb-3 px-1 ui-type-note font-medium text-text-muted">
                 节点
               </p>
               <div className="space-y-2">
                 <PaletteItem
                   icon={<Play className="h-4 w-4" />}
-                  tone="text-success bg-success/10"
                   title="开始"
                   description="工作流入口"
                   onClick={() => addNode("start")}
                 />
                 <PaletteItem
                   icon={<Flag className="h-4 w-4" />}
-                  tone="text-text-muted bg-surface-hover"
                   title="结束"
                   description="工作流出口"
                   onClick={() => addNode("end")}
                 />
                 <PaletteItem
                   icon={<Bot className="h-4 w-4" />}
-                  tone="text-accent bg-accent-soft"
                   title="节点"
                   description="指定执行人（默认通用助手）"
                   onClick={() => addNode("employee")}
@@ -977,10 +974,10 @@ export function WorkflowEditor({
 
             <div className="flex min-h-0 flex-1 flex-col border-t border-border">
               <div className="flex items-center justify-between px-4 pb-2 pt-4">
-                <p className="ui-type-note font-semibold tracking-wide text-text-muted">
+                <p className="ui-type-note font-medium text-text-muted">
                   数字员工
                 </p>
-                <span className="rounded-full bg-surface-hover px-2 py-0.5 ui-type-code-sm text-text-muted">
+                <span className="ui-type-sub tabular-nums text-text-muted">
                   {employees.length}
                 </span>
               </div>
@@ -1083,13 +1080,11 @@ export function WorkflowEditor({
 
 function PaletteItem({
   icon,
-  tone,
   title,
   description,
   onClick,
 }: {
   icon: ReactNode;
-  tone: string;
   title: string;
   description: string;
   onClick: () => void;
@@ -1098,11 +1093,9 @@ function PaletteItem({
     <button
       type="button"
       onClick={onClick}
-      className="group flex w-full items-center gap-3 rounded-xl border border-border bg-surface-2/40 px-2.5 py-2.5 text-left transition-all hover:-translate-y-0.5 hover:border-accent/40 hover:bg-surface-2 hover:shadow-[var(--c-shadow-sm)] active:translate-y-0 active:scale-[0.99]"
+      className="group flex w-full items-center gap-3 rounded-lg border border-border bg-surface-2/40 px-3 py-2 text-left transition-colors hover:border-border-strong hover:bg-surface-2"
     >
-      <span
-        className={`grid h-9 w-9 shrink-0 place-items-center rounded-lg ${tone}`}
-      >
+      <span className="grid h-8 w-8 shrink-0 place-items-center text-text-muted">
         {icon}
       </span>
       <span className="min-w-0 flex-1">
@@ -1152,10 +1145,10 @@ function NodeInspector({
       // 浮层永远盖在画布之上；阻止指针事件外流，避免任何画布手势误触
       onPointerDown={(event) => event.stopPropagation()}
       style={{ maxHeight: "calc(100% - 32px)" }}
-      className="ui-glass-strong ui-ring ui-panel-in absolute right-4 top-4 z-30 flex w-side-panel flex-col overflow-y-auto rounded-2xl p-4"
+      className="ui-glass-strong ui-ring ui-panel-in absolute right-4 top-4 z-30 flex w-side-panel flex-col overflow-y-auto rounded-xl p-4"
     >
       <div className="mb-4 flex items-center gap-3">
-        <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-accent-soft text-accent">
+        <span className="grid h-8 w-8 shrink-0 place-items-center text-text-muted">
           {node.type === "start" ? (
             <Play className="h-4 w-4" />
           ) : node.type === "end" ? (
@@ -1165,7 +1158,7 @@ function NodeInspector({
           )}
         </span>
         <div className="min-w-0 flex-1">
-          <p className="truncate ui-type-item font-semibold text-text">
+          <p className="truncate ui-type-item font-medium text-text">
             {typeLabel}
           </p>
           <p className="truncate ui-type-note text-text-muted">
@@ -1398,9 +1391,9 @@ function Segmented<T extends string>({
             type="button"
             onClick={() => onChange(option.value)}
             aria-pressed={active}
-            className={`flex items-center justify-center gap-1.5 rounded-lg px-2 py-2 ui-type-body font-medium transition-all active:scale-[0.98] ${
+            className={`flex items-center justify-center gap-1.5 rounded-md px-2 py-2 ui-type-body font-medium transition-colors ${
               active
-                ? "bg-surface text-accent shadow-[var(--c-shadow-sm)]"
+                ? "bg-surface text-text"
                 : "text-text-muted hover:bg-surface/60 hover:text-text"
             }`}
           >

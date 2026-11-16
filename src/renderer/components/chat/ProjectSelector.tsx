@@ -36,8 +36,11 @@ export function ProjectSelector() {
   const [open, setOpen] = useState(false);
   /** 键盘导航的当前高亮项 */
   const [hoverIdx, setHoverIdx] = useState(0);
+  /** 工作区多时的搜索词 */
+  const [query, setQuery] = useState("");
   const rootRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
   const itemRefs = useRef<(HTMLElement | null)[]>([]);
 
   const currentProject = projects.find((p) => p.id === currentProjectId);
@@ -50,6 +53,19 @@ export function ProjectSelector() {
     () => buildWorkspaceItems({ projects, currentProjectId, defaultCwd }),
     [projects, currentProjectId, defaultCwd],
   );
+
+  /** 搜索时只过滤工作区，解绑与「管理工作区」始终保留 */
+  const visibleItems = useMemo(() => {
+    const keyword = query.trim().toLowerCase();
+    if (!keyword) return menuItems;
+    return menuItems.filter(
+      (item) =>
+        item.kind === "manage" ||
+        item.name.toLowerCase().includes(keyword) ||
+        item.detail.toLowerCase().includes(keyword) ||
+        (item.title ?? "").toLowerCase().includes(keyword),
+    );
+  }, [menuItems, query]);
 
   /** 绑定 / 切换 / 解绑。已开始的会话换目录前确认上下文重置 */
   const choose = async (projectId: string | null) => {
@@ -71,12 +87,15 @@ export function ProjectSelector() {
       (item) => item.kind === "project" && item.id === currentProjectId,
     );
     setHoverIdx(index >= 0 ? index : 0);
+    setQuery("");
     setOpen(true);
+    // 工作区一多，搜索比翻列表快；焦点直接落在搜索框
+    requestAnimationFrame(() => searchRef.current?.focus());
   };
 
   /** 执行当前高亮项 */
   const activate = (index: number) => {
-    const item = menuItems[index];
+    const item = visibleItems[index];
     if (!item) return;
     if (item.kind === "manage") manageWorkspaces();
     else void choose(item.id);
@@ -98,10 +117,7 @@ export function ProjectSelector() {
   openMenuRef.current = openMenu;
   useEffect(() => {
     const onRequest = () => {
-      requestAnimationFrame(() => {
-        openMenuRef.current();
-        triggerRef.current?.focus();
-      });
+      requestAnimationFrame(() => openMenuRef.current());
     };
     window.addEventListener(OPEN_WORKSPACE_MENU_EVENT, onRequest);
     return () =>
@@ -123,7 +139,7 @@ export function ProjectSelector() {
       }
       if (e.key === "ArrowDown") {
         e.preventDefault();
-        setHoverIdx((i) => Math.min(i + 1, menuItems.length - 1));
+        setHoverIdx((i) => Math.min(i + 1, visibleItems.length - 1));
         return;
       }
       if (e.key === "ArrowUp") {
@@ -143,7 +159,12 @@ export function ProjectSelector() {
       document.removeEventListener("mousedown", onDown);
       document.removeEventListener("keydown", onKey);
     };
-  }, [open, menuItems.length, hoverIdx]);
+  }, [open, visibleItems.length, hoverIdx]);
+
+  // 搜索词变化时把高亮移回第一项
+  useEffect(() => {
+    setHoverIdx(0);
+  }, [query]);
 
   // 高亮项滚入可视区
   useEffect(() => {
@@ -199,9 +220,12 @@ export function ProjectSelector() {
            * 向右对齐会让 22rem 的面板整体伸到输入框左侧，盖住会话列表。
            */
           align="left"
-          items={menuItems}
+          items={visibleItems}
           hoverIdx={hoverIdx}
           emptyHint="还没有工作区，先到「工作区」页面登记一个本地目录。"
+          query={query}
+          onQueryChange={setQuery}
+          searchRef={searchRef}
           onHover={setHoverIdx}
           onSelect={(item) => {
             if (item.kind === "manage") manageWorkspaces();

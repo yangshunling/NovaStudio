@@ -1283,7 +1283,7 @@ export function GitTab({
               className="border-t border-border bg-bg px-5 py-3"
             >
               <div className="mx-auto w-full max-w-[var(--c-layout-content)]">
-                <div className="rounded-input border border-border/80 bg-input-bg px-3 py-2 shadow-[var(--c-shadow-sm)] transition-[border-color,box-shadow] focus-within:border-accent/40 focus-within:shadow-[0_0_0_3px_var(--c-accent-soft)]">
+                <div className="rounded-input border border-border bg-input-bg px-3 py-2 transition-colors focus-within:border-accent/60">
                   <CommitTextarea
                     ref={commitTextRef}
                     onSubmit={() => void commit()}

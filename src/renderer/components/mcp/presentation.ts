@@ -14,7 +14,7 @@ export const MCP_TRANSPORT_LABEL: Record<McpTransport, string> = {
 };
 
 export const MCP_TRANSPORT_CLASS: Record<McpTransport, string> = {
-  stdio: "bg-agent-teal/10 text-agent-teal",
-  http: "bg-agent-sky/10 text-agent-sky",
-  sse: "bg-agent-amber/10 text-agent-amber",
+  stdio: "text-text-muted",
+  http: "text-text-muted",
+  sse: "text-text-muted",
 };

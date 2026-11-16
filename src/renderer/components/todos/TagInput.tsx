@@ -29,7 +29,7 @@ export function TagInput({
   value,
   onChange,
   suggestions = [],
-  placeholder = "输入标签后回车",
+  placeholder = "添加标签",
   max = 8,
 }: TagInputProps) {
   const [draft, setDraft] = useState("");
@@ -66,14 +66,14 @@ export function TagInput({
         {value.map((tag) => (
           <span
             key={tag}
-            className="flex items-center gap-1 rounded-full bg-accent-soft px-2 py-0.5 ui-type-note text-accent"
+            className="flex items-center gap-1 rounded-md border border-accent/25 px-1.5 py-0.5 ui-type-note text-accent"
           >
             #{tag}
             <button
               type="button"
               onClick={() => remove(tag)}
               title={`移除标签 ${tag}`}
-              className="rounded-full p-0.5 transition-colors hover:bg-accent/15"
+              className="rounded-sm p-0.5 transition-colors hover:bg-surface-hover"
             >
               <X className="h-3 w-3" />
             </button>
@@ -102,14 +102,14 @@ export function TagInput({
       </div>
 
       {available.length > 0 && (
-        <div className="mt-2 flex flex-wrap items-center gap-1.5 border-t border-border/60 pt-2">
+        <div className="mt-2 flex flex-wrap items-center gap-1.5 border-t border-border pt-2">
           <span className="ui-type-sub text-text-muted">已有</span>
           {available.map((tag) => (
             <button
               key={tag}
               type="button"
               onClick={() => add(tag)}
-              className="rounded-full bg-surface-2/40 px-2 py-0.5 ui-type-sub text-text-secondary transition-colors hover:bg-surface-hover hover:text-text"
+              className="rounded-md border border-border px-1.5 py-0.5 ui-type-sub text-text-secondary transition-colors hover:bg-surface-hover hover:text-text"
             >
               #{tag}
             </button>

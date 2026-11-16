@@ -42,25 +42,17 @@ export const ThinkingCard = memo(function ThinkingCard({
   };
 
   return (
-    <div
-      className={`ui-depth w-full overflow-hidden rounded-xl border transition-colors ${
-        running
-          ? "border-accent/25 bg-accent-soft/15"
-          : "border-border/60 bg-surface-2/40"
-      }`}
-    >
+    <div className="w-full overflow-hidden rounded-xl border border-border bg-surface-2/40">
       <button
         type="button"
         onClick={() => setCollapsed((value) => !value)}
-        className="flex w-full items-center gap-2.5 px-3 py-1.5 text-left transition-colors hover:bg-surface-hover/40"
+        className="flex w-full items-center gap-2.5 px-3 py-2 text-left transition-colors hover:bg-surface-hover/60"
       >
-        <span
-          className={`grid h-6 w-6 shrink-0 place-items-center rounded-lg ${
-            running ? "bg-accent-soft text-accent" : "bg-surface-hover text-thinking"
+        <Brain
+          className={`h-4 w-4 shrink-0 ${
+            running ? "text-accent" : "text-text-muted"
           }`}
-        >
-          <Brain className="h-3 w-3" />
-        </span>
+        />
 
         <span className="min-w-0 flex-1 ui-type-label text-text">
           思考过程
@@ -68,10 +60,8 @@ export const ThinkingCard = memo(function ThinkingCard({
 
         <span className="flex shrink-0 items-center gap-2">
           <span
-            className={`inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 ui-type-sub ${
-              running
-                ? "bg-accent-soft text-accent"
-                : "bg-success/10 text-success"
+            className={`flex items-center gap-1.5 ui-type-sub ${
+              running ? "text-accent" : "text-text-muted"
             }`}
           >
             {running ? (
@@ -93,7 +83,7 @@ export const ThinkingCard = memo(function ThinkingCard({
         <div
           ref={bodyRef}
           onScroll={handleBodyScroll}
-          className="ui-well max-h-60 overflow-auto border-t border-border/60 p-3 ui-type-note leading-relaxed text-text-secondary"
+          className="ui-well max-h-60 overflow-auto border-t border-border p-3 ui-type-note leading-relaxed text-text-secondary"
         >
           <StreamingMarkdown content={text} streaming={running} />
         </div>

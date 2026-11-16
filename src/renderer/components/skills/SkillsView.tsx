@@ -111,6 +111,7 @@ export function SkillsView() {
       {/* 顶栏 */}
       <PageHeader
         title="技能"
+        hue="moss"
         count={skills.length}
         countSuffix=" 个"
         icon={<Sparkles className="h-4 w-4" />}
@@ -154,14 +155,14 @@ export function SkillsView() {
           ) : error && skills.length === 0 ? (
             <ErrorState message={error} onRetry={reload} />
           ) : skills.length === 0 ? (
-            <EmptySkills onImport={handleImport} importing={importing} />
+            <EmptySkills />
           ) : filtered.length === 0 ? (
             <FilterEmpty
               title={`没有匹配「${query}」的技能`}
               onClear={query ? () => setQuery("") : undefined}
             />
           ) : (
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
+            <div className="ui-stagger grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
               {filtered.map((skill) => (
                 <SkillCard
                   key={skill.id}
@@ -204,7 +205,11 @@ function SkillCard({
   onOpen: () => void;
 }) {
   return (
-    <button type="button" onClick={onOpen} className={CARD_SHELL}>
+    <button
+      type="button"
+      onClick={onOpen}
+      className={`${CARD_SHELL} border-l-2 border-l-hue-moss/50`}
+    >
       <div className="flex min-w-0 items-start gap-3">
         <span className={cardIconTile("violet")}>
           <Sparkles className="h-5 w-5" />
@@ -828,29 +833,13 @@ function SkillFileTree({
 // 小件
 // ============================================================================
 
-function EmptySkills({
-  onImport,
-  importing,
-}: {
-  onImport: (kind: SkillImportKind) => void;
-  importing: SkillImportKind | null;
-}) {
+function EmptySkills() {
   return (
     <EmptyState
+      hue="moss"
       icon={<Sparkles />}
       title="管理你的技能资产"
       description="把包含 SKILL.md 的技能文件夹导入 Claude 全局技能目录（~/.claude/skills），然后在数字员工中勾选绑定。"
-      action={
-        <Button
-          variant="primary"
-          onClick={() => onImport("directory")}
-          disabled={importing !== null}
-          loading={importing === "directory"}
-          icon={<Upload className="h-4 w-4" />}
-        >
-          导入技能 SKILL
-        </Button>
-      }
     />
   );
 }

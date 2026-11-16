@@ -396,10 +396,9 @@ export function ChatArea({ embedded = false }: { embedded?: boolean } = {}) {
     ["↑ / ↓", "翻找已发送内容"],
   ];
 
-  /** 占位提示用独立的一行文本渲染：textarea 原生 placeholder 会自动折行 */
-  const placeholder = currentProject
-    ? "输入消息，@ 选数字员工，# 引用内容，Enter 发送，Shift+Enter 换行"
-    : "描述任务，@ 选数字员工，# 引用内容，Enter 发送，Shift+Enter 换行";
+  /** 占位提示用独立的一行文本渲染：textarea 原生 placeholder 会自动折行。
+   *  快捷键与 @ / # 的用法收在右下角的键盘说明里，输入框只留最短的动词。 */
+  const placeholder = "描述任务";
 
   const handleSend = useComposerSubmit({
     input,
@@ -426,8 +425,9 @@ export function ChatArea({ embedded = false }: { embedded?: boolean } = {}) {
       >
         {/* 顶栏：会话标题 + 绑定的工作目录 */}
         <PageHeader
-          icon={<MessageSquare className="h-4 w-4" />}
           title={currentSession?.title ?? "新会话"}
+          hue="blue"
+          icon={<MessageSquare className="h-4 w-4" />}
           subtitle={currentProject?.cwd}
           actions={
             <IconButton
@@ -496,10 +496,10 @@ export function ChatArea({ embedded = false }: { embedded?: boolean } = {}) {
                 <div className="mb-2 overflow-hidden rounded-md border border-border/70 bg-surface-2/70">
                   <div className="flex items-center gap-2 border-b border-border/60 px-2.5 py-1.5">
                     <ListOrdered className="h-3.5 w-3.5 shrink-0 text-text-muted" />
-                    <span className="shrink-0 ui-type-sub font-semibold tracking-[0.08em] text-text-secondary">
+                    <span className="shrink-0 ui-type-sub font-medium text-text-secondary">
                       暂存区
                     </span>
-                    <span className="flex h-4 min-w-4 shrink-0 items-center justify-center rounded-sm border border-border bg-surface px-1 ui-type-sub tabular-nums text-text-muted">
+                    <span className="shrink-0 ui-type-sub tabular-nums text-text-muted">
                       {queued.length}
                     </span>
                     <span className="flex min-w-0 items-center gap-1.5 ui-type-sub text-text-muted">
@@ -523,7 +523,7 @@ export function ChatArea({ embedded = false }: { embedded?: boolean } = {}) {
                         type="button"
                         onClick={() => resumeQueue()}
                         title="立即发送暂存区中的下一条"
-                        className="ml-auto shrink-0 rounded-sm px-1.5 py-0.5 ui-type-sub font-medium text-accent transition-colors hover:bg-accent/10"
+                        className="ml-auto shrink-0 rounded-sm px-1.5 py-0.5 ui-type-sub font-medium text-accent transition-colors hover:bg-surface-hover"
                       >
                         继续发送
                       </button>
@@ -556,7 +556,7 @@ export function ChatArea({ embedded = false }: { embedded?: boolean } = {}) {
                             onClick={() => removeQueuedMessage(item.id)}
                             title="从暂存区移除"
                             aria-label="从暂存区移除"
-                            className="mt-0.5 shrink-0 rounded-sm p-0.5 text-text-muted opacity-0 transition-all hover:bg-surface-hover hover:text-text group-hover:opacity-100 focus-visible:opacity-100"
+                            className="mt-0.5 shrink-0 rounded-sm p-0.5 text-text-muted opacity-0 transition-opacity hover:bg-surface-hover hover:text-text group-hover:opacity-100 focus-visible:opacity-100"
                           >
                             <X className="h-3 w-3" />
                           </button>
@@ -720,7 +720,7 @@ export function ChatArea({ embedded = false }: { embedded?: boolean } = {}) {
                     </button>
                     {helpOpen && (
                       <div className="absolute bottom-full left-0 z-50 mb-2 w-72 rounded-xl border border-border bg-surface p-3 shadow-[var(--c-shadow)]">
-                        <p className="mb-2 ui-type-sub font-semibold text-text-secondary">
+                        <p className="mb-2 ui-type-sub font-medium text-text-secondary">
                           输入快捷键
                         </p>
                         <dl className="space-y-1.5">

@@ -47,7 +47,6 @@ export function ModelSelector() {
     : draftModel;
 
   const [open, setOpen] = useState(false);
-  const [query, setQuery] = useState("");
   // 默认模型名常驻工具栏：由共享快照驱动，配置保存后立即更新
   const settings = useAgentSettings(agentId);
   const [models, setModels] = useState<AgentModelOption[]>([]);
@@ -56,9 +55,13 @@ export function ModelSelector() {
   /** 接入点没有模型列表接口：中性提示，不是错误 */
   const [note, setNote] = useState<string | null>(null);
   const [hoverIdx, setHoverIdx] = useState(0);
+  /** 自定义模型 ID 输入只在需要时展开，不占用默认菜单 */
+  const [customOpen, setCustomOpen] = useState(false);
+  const [customValue, setCustomValue] = useState("");
 
   const rootRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const customInputRef = useRef<HTMLInputElement>(null);
   const requestRef = useRef(0);
 
   const defaultLabel = useMemo(
@@ -69,7 +72,8 @@ export function ModelSelector() {
   // 切换会话时收起面板，避免停留在上一个会话的选择态
   useEffect(() => {
     setOpen(false);
-    setQuery("");
+    setCustomOpen(false);
+    setCustomValue("");
   }, [currentSessionId]);
 
   // 外部点击 / Esc 关闭
@@ -137,15 +141,18 @@ export function ModelSelector() {
 
   const openMenu = () => {
     setOpen(true);
-    setQuery("");
     setHoverIdx(0);
+    setCustomOpen(false);
+    setCustomValue("");
     void load();
-    requestAnimationFrame(() => inputRef.current?.focus());
+    // 菜单容器接管方向键；不搜索时不需要输入框抢焦点
+    requestAnimationFrame(() => menuRef.current?.focus());
   };
 
   const activate = async (next: string | null) => {
     setOpen(false);
-    setQuery("");
+    setCustomOpen(false);
+    setCustomValue("");
     if (next === value) return;
     try {
       await setModel(next);
@@ -154,26 +161,11 @@ export function ModelSelector() {
     }
   };
 
-  /** 过滤后的候选：空查询展示全部；有查询时做包含匹配 */
-  const filtered = useMemo(() => {
-    const keyword = query.trim().toLowerCase();
-    if (!keyword) return models;
-    return models.filter(
-      (item) =>
-        item.id.toLowerCase().includes(keyword) ||
-        item.displayName?.toLowerCase().includes(keyword),
-    );
-  }, [models, query]);
-
-  const trimmed = query.trim();
-  const exactMatch = filtered.some((item) => item.id === trimmed);
-  const customCandidate = trimmed && !exactMatch ? trimmed : null;
-
-  /** 可键盘选择的条目：0 = 跟随默认，1..n = 模型，最后 = 自定义 */
+  /** 可键盘选择的条目：0 = 跟随默认，1..n = 模型 */
   const rows = useMemo(
     () => [
       { id: null as string | null, label: "跟随 Agent 默认", hint: defaultLabel },
-      ...filtered.map((item) => ({
+      ...models.map((item) => ({
         id: item.id,
         label:
           item.displayName && item.displayName !== item.id
@@ -181,11 +173,8 @@ export function ModelSelector() {
             : item.id,
         hint: "",
       })),
-      ...(customCandidate
-        ? [{ id: customCandidate, label: `使用「${customCandidate}」`, hint: "自定义模型 ID" }]
-        : []),
     ],
-    [filtered, customCandidate, defaultLabel],
+    [models, defaultLabel],
   );
 
   const onKeyDown = (e: React.KeyboardEvent) => {
@@ -196,6 +185,8 @@ export function ModelSelector() {
       e.preventDefault();
       setHoverIdx((i) => Math.max(i - 1, 0));
     } else if (e.key === "Enter") {
+      // 行按钮自己的 click 已经会选中，避免键盘再触发一次
+      if ((e.target as HTMLElement).tagName === "BUTTON") return;
       e.preventDefault();
       const row = rows[hoverIdx];
       if (row) void activate(row.id);
@@ -203,10 +194,7 @@ export function ModelSelector() {
   };
 
   // 当前值不在候选里（例如旧会话用了已下线的模型）：补一行，避免显示为空
-  const valueInList =
-    value === null ||
-    models.some((item) => item.id === value) ||
-    (customCandidate !== null && customCandidate === value);
+  const valueInList = value === null || models.some((item) => item.id === value);
   const currentLabel = value ?? (defaultLabel || "默认模型");
 
   return (
@@ -250,38 +238,39 @@ export function ModelSelector() {
 
       {open && (
         <div
+          ref={menuRef}
           role="listbox"
-          className="ui-dropdown-in ui-glass-strong ui-ring absolute bottom-full left-0 z-50 mb-2 w-dropdown-wide max-w-[calc(100vw-2rem)] rounded-xl p-1.5"
+          tabIndex={-1}
+          onKeyDown={onKeyDown}
+          className="ui-dropdown-in ui-glass-strong ui-ring absolute bottom-full right-0 z-50 mb-2 w-dropdown-wide max-w-[calc(100vw-2rem)] rounded-xl p-1.5 outline-none"
           style={{ boxShadow: "var(--c-shadow)" }}
         >
-          <div className="px-2 pb-1.5 pt-1">
-            <input
-              ref={inputRef}
-              value={query}
-              onChange={(e) => {
-                setQuery(e.target.value);
-                setHoverIdx(0);
-              }}
-              onKeyDown={onKeyDown}
-              placeholder="搜索模型，或输入模型 ID 后回车"
-              className="w-full rounded-md bg-surface-hover/60 px-2 py-1.5 ui-type-note text-text outline-none placeholder:text-text-muted"
-            />
-            {error && (
-              <p className="mt-1 px-1 ui-type-sub text-text-muted">
-                模型列表获取失败：{error}（可直接输入模型 ID）
-              </p>
-            )}
-            {note && !error && (
-              <p className="mt-1 px-1 ui-type-sub text-text-muted">
-                {note}
-              </p>
-            )}
-            {loading && (
-              <p className="mt-1 px-1 ui-type-sub text-text-muted">
-                正在获取模型列表…
-              </p>
-            )}
+          <div className="flex items-center gap-1 px-2 pb-1 pt-0.5">
+            <span className="min-w-0 flex-1 truncate ui-type-sub text-text-muted">
+              本次会话模型
+            </span>
+            <span className="shrink-0 ui-type-sub text-text-muted/70">
+              ↑↓ 选择
+            </span>
           </div>
+
+          {(error || note || loading) && (
+            <div className="px-2 pb-1">
+              {error && (
+                <p className="ui-type-sub text-text-muted">
+                  模型列表获取失败：{error}
+                </p>
+              )}
+              {note && !error && (
+                <p className="ui-type-sub text-text-muted">{note}</p>
+              )}
+              {loading && (
+                <p className="ui-type-sub text-text-muted">
+                  正在获取模型列表…
+                </p>
+              )}
+            </div>
+          )}
 
           <div className="max-h-[19rem] overflow-y-auto">
             {rows.map((row, index) => {
@@ -329,6 +318,42 @@ export function ModelSelector() {
               </div>
             )}
           </div>
+
+          <div className="my-1 h-px bg-border" />
+          {customOpen ? (
+            <div className="px-1 pb-1">
+              <input
+                ref={customInputRef}
+                autoFocus
+                value={customValue}
+                onChange={(e) => setCustomValue(e.target.value)}
+                onKeyDown={(e) => {
+                  // 自定义输入自己处理回车，方向键不再驱动上方列表
+                  e.stopPropagation();
+                  if (e.key === "Enter" && customValue.trim()) {
+                    void activate(customValue.trim());
+                  }
+                }}
+                placeholder="模型 ID"
+                className="w-full rounded-md bg-surface-hover px-2 py-1.5 ui-type-note text-text outline-none placeholder:text-text-muted"
+              />
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => {
+                setCustomOpen(true);
+                setCustomValue("");
+                requestAnimationFrame(() =>
+                  customInputRef.current?.focus(),
+                );
+              }}
+              className="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left ui-type-note text-text-secondary transition-colors hover:bg-surface-hover hover:text-text"
+            >
+              <Boxes className="h-4 w-4 shrink-0 text-text-muted" />
+              使用其他模型 ID…
+            </button>
+          )}
         </div>
       )}
     </div>

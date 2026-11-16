@@ -31,6 +31,7 @@ import {
   LoadingState,
 } from "../ui/EmptyState";
 import { Page, PageBody, PageHeader } from "../ui/Page";
+import { CARD_DESCRIPTION, CARD_TITLE } from "../ui/cardStyles";
 import { OptionChips } from "../ui/OptionChips";
 import { toast } from "../../stores/toast";
 import { confirmDialog } from "../../stores/confirm";
@@ -248,6 +249,7 @@ export function TriggersView() {
     <Page>
       <PageHeader
         title="触发器"
+        hue="amber"
         count={triggers.length}
         countSuffix=" 个"
         icon={<Zap className="h-4 w-4" />}
@@ -268,9 +270,9 @@ export function TriggersView() {
         ) : error ? (
           <ErrorState message={error} onRetry={reload} />
         ) : triggers.length === 0 ? (
-          <EmptyTriggers onCreate={() => setEditing("new")} />
+          <EmptyTriggers />
         ) : (
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 2xl:grid-cols-3">
+          <div className="ui-stagger grid grid-cols-1 gap-4 sm:grid-cols-2 2xl:grid-cols-3">
             {triggers.map((trigger) => (
               <TriggerCard
                 key={trigger.id}
@@ -381,29 +383,19 @@ function TriggerCard({
   const enabled = trigger.enabled;
 
   return (
-    <article className="group relative flex flex-col overflow-hidden rounded-xl border border-border/60 bg-surface-2/40 shadow-[var(--c-shadow-sm)] transition-colors hover:bg-surface-2/55">
-      {/* 顶部状态条：启用时按强调色亮起 */}
-      <span
-        aria-hidden
-        className={`absolute inset-x-0 top-0 h-[2px] ${
-          enabled ? "bg-accent/70" : "bg-border"
-        }`}
-      />
-
+    <article className="group relative flex flex-col overflow-hidden rounded-xl border border-border border-l-2 border-l-hue-amber/50 bg-surface-2/40 transition-[translate,border-color,box-shadow] duration-150 hover:-translate-y-0.5 hover:border-border-strong hover:shadow-[var(--c-shadow-sm)]">
       <div className="flex items-start gap-3 p-4">
         <span
-          className={`grid h-10 w-10 shrink-0 place-items-center rounded-xl transition-colors ${
-            enabled
-              ? "bg-accent-soft text-accent"
-              : "bg-surface-hover text-text-muted"
+          className={`grid h-8 w-8 shrink-0 place-items-center transition-colors ${
+            enabled ? "text-accent" : "text-text-muted"
           }`}
         >
-          <Zap className="h-5 w-5" />
+          <Zap className="h-4 w-4" />
         </span>
         <div className="min-w-0 flex-1">
           <div className="flex items-start justify-between gap-2">
             <h3
-              className={`truncate ui-type-item font-semibold ${
+              className={`${CARD_TITLE} ${
                 enabled ? "text-text" : "text-text-secondary"
               }`}
               title={trigger.title}
@@ -416,14 +408,14 @@ function TriggerCard({
               label={`启用触发器 ${trigger.title}`}
             />
           </div>
-          <p className="mt-1 line-clamp-2 ui-type-note leading-relaxed text-text-muted">
+          <p className={`mt-1 ${CARD_DESCRIPTION}`}>
             {trigger.description || "暂无说明"}
           </p>
         </div>
       </div>
 
       {/* 调度信息：规则 + 下次执行 + 状态 */}
-      <div className="mx-4 rounded-lg border border-border/60 bg-surface/60 p-3">
+      <div className="mx-4 rounded-lg border border-border bg-surface/60 p-3">
         <div className="flex items-center justify-between gap-2">
           <span className="flex min-w-0 items-center gap-1.5 ui-type-label text-text-secondary">
             <AlarmClock className="h-3.5 w-3.5 shrink-0 text-accent" />
@@ -432,10 +424,8 @@ function TriggerCard({
             </span>
           </span>
           <span
-            className={`shrink-0 rounded-full px-2 py-0.5 ui-type-sub font-medium ${
-              enabled
-                ? "bg-accent-soft text-accent"
-                : "bg-surface-hover text-text-muted"
+            className={`shrink-0 ui-type-sub ${
+              enabled ? "text-accent" : "text-text-muted"
             }`}
           >
             {enabled ? "启用中" : "已停用"}
@@ -466,7 +456,7 @@ function TriggerCard({
             {workflowNames.slice(0, 3).map((name) => (
               <span
                 key={name}
-                className="max-w-[140px] truncate rounded-full bg-surface-hover px-2 py-0.5 ui-type-sub text-text-secondary"
+                className="max-w-[140px] truncate rounded-md border border-border px-1.5 py-0.5 ui-type-sub text-text-secondary"
                 title={name}
               >
                 {name}
@@ -753,7 +743,7 @@ function TriggerDialog({
             />
           </div>
 
-          <div className="flex items-center gap-1.5 rounded-lg bg-accent-soft/40 px-3 py-2 ui-type-note text-text-secondary">
+          <div className="flex items-center gap-1.5 rounded-lg border border-border bg-surface-2/40 px-3 py-2 ui-type-note text-text-secondary">
             <Repeat className="h-3.5 w-3.5 shrink-0 text-accent" />
             将按「{describeTriggerSchedule(schedule)}」触发
           </div>
@@ -778,7 +768,7 @@ function TriggerDialog({
 // 空态与格式化
 // ============================================================================
 
-function EmptyTriggers({ onCreate }: { onCreate: () => void }) {
+function EmptyTriggers() {
   const steps = [
     {
       icon: AlarmClock,
@@ -799,26 +789,18 @@ function EmptyTriggers({ onCreate }: { onCreate: () => void }) {
 
   return (
     <EmptyState
+      hue="amber"
       icon={<Zap />}
       title="让工作流按时自己跑起来"
       description="设置每天几点、每周哪几天或每隔多久触发，再把工作流绑上去；到点后自动启动。"
-      action={
-        <Button
-          variant="primary"
-          onClick={onCreate}
-          icon={<Plus className="h-4 w-4" />}
-        >
-          新建触发器
-        </Button>
-      }
     >
       <div className="mt-6 grid grid-cols-1 gap-2.5 text-left sm:grid-cols-3">
         {steps.map(({ icon: Icon, title, description }) => (
           <div
             key={title}
-            className="rounded-lg border border-border/60 bg-surface/60 p-3"
+            className="rounded-lg border border-border bg-surface/60 p-3"
           >
-            <span className="grid h-8 w-8 place-items-center rounded-lg bg-accent-soft text-accent">
+            <span className="grid h-8 w-8 place-items-center text-text-muted">
               <Icon className="h-4 w-4" />
             </span>
             <p className="mt-2 ui-type-label text-text">{title}</p>

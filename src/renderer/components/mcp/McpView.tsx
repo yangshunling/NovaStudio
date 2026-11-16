@@ -60,10 +60,7 @@ import {
   DrawerFooter,
   DrawerHeader,
 } from "../ui/Drawer";
-import {
-  MCP_TRANSPORT_CLASS,
-  MCP_TRANSPORT_LABEL,
-} from "./presentation";
+import { MCP_TRANSPORT_LABEL } from "./presentation";
 import type {
   DigitalEmployee,
   McpServerAsset,
@@ -142,6 +139,7 @@ export function McpView() {
       {/* 顶栏 */}
       <PageHeader
         title="MCP"
+        hue="sky"
         count={servers.length}
         countSuffix=" 个服务"
         icon={<Server className="h-4 w-4" />}
@@ -184,14 +182,14 @@ export function McpView() {
           ) : error && servers.length === 0 ? (
             <ErrorState message={error} onRetry={reload} />
           ) : servers.length === 0 ? (
-            <EmptyMcp onCreate={() => void changeDrawer({ mode: "create" })} onImport={() => setImportOpen(true)} />
+            <EmptyMcp />
           ) : filtered.length === 0 ? (
             <FilterEmpty
               title={`没有匹配「${query}」的 MCP 服务`}
               onClear={() => setQuery("")}
             />
           ) : (
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
+            <div className="ui-stagger grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
               {filtered.map((server) => (
                 <McpCard
                   key={server.id}
@@ -253,7 +251,11 @@ function McpCard({
       : server.url;
 
   return (
-    <button type="button" onClick={onOpen} className={CARD_SHELL}>
+    <button
+      type="button"
+      onClick={onOpen}
+      className={`${CARD_SHELL} border-l-2 border-l-hue-sky/50`}
+    >
       <div className="flex min-w-0 items-start gap-3">
         <span className={cardIconTile("sky")}>
           <Server className="h-5 w-5" />
@@ -277,7 +279,7 @@ function McpCard({
       </p>
 
       <div className={CARD_META}>
-        <span className={`rounded-full px-2 py-0.5 ui-type-note ${MCP_TRANSPORT_CLASS[server.transport]}`}>
+        <span className="ui-type-note text-text-muted">
           {MCP_TRANSPORT_LABEL[server.transport]}
         </span>
         {server.hasSecrets && (
@@ -448,7 +450,7 @@ function McpDrawer({
             <span className="truncate ui-type-title text-text">{title}</span>
             {server && (
               <span
-                className={`shrink-0 rounded-full px-2 py-0.5 ui-type-sub ${MCP_TRANSPORT_CLASS[server.transport]}`}
+                className="shrink-0 ui-type-sub text-text-muted"
               >
                 {MCP_TRANSPORT_LABEL[server.transport]}
               </span>
@@ -666,36 +668,13 @@ function ImportMcpModal({
 // 小件
 // ============================================================================
 
-function EmptyMcp({
-  onCreate,
-  onImport,
-}: {
-  onCreate: () => void;
-  onImport: () => void;
-}) {
+function EmptyMcp() {
   return (
     <EmptyState
+      hue="sky"
       icon={<Server />}
       title="管理 MCP 服务"
       description="从 Claude 配置导入，或新建一个 stdio / HTTP 服务，然后在数字员工中勾选绑定。"
-      action={
-        <div className="flex items-center gap-2">
-          <Button
-            variant="ghost"
-            onClick={onImport}
-            icon={<Upload className="h-4 w-4" />}
-          >
-            导入 MCP
-          </Button>
-          <Button
-            variant="primary"
-            onClick={onCreate}
-            icon={<Plus className="h-4 w-4" />}
-          >
-            新建 MCP
-          </Button>
-        </div>
-      }
     />
   );
 }

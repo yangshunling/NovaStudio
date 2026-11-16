@@ -3,7 +3,7 @@
  *
  * 发送时引用说明只进入 prompt，界面展示则是这个块：图标 + 名称。
  * 文件 / 会话的路径只留在数据里（重试与定位用），不展示在消息中。
- * 样式刻意压在用户气泡的靛蓝底上（白色半透明），昼夜皮肤下都能与气泡融为一体。
+ * 用一层纸面与发丝线压在气泡上，昼夜皮肤下都能读出这是可展开的引用。
  */
 
 import { FileText, Library, MessagesSquare, Sparkles, Wrench } from "lucide-react";
@@ -32,11 +32,11 @@ export function ReferenceBlock({
   const Icon = ICONS[kind] ?? FileText;
 
   return (
-    <div className="mb-1.5 flex items-center gap-2 rounded-lg border border-white/15 bg-white/10 px-2.5 py-2 text-left last:mb-0">
-      <span className="grid h-6 w-6 shrink-0 place-items-center rounded-md bg-white/15 text-bubble-user-text">
+    <div className="mb-1.5 flex items-center gap-2 rounded-lg border border-border bg-surface px-2 py-1.5 text-left last:mb-0">
+      <span className="grid h-5 w-5 shrink-0 place-items-center text-text-muted">
         <Icon className="h-3.5 w-3.5" />
       </span>
-      <span className="min-w-0 flex-1 truncate ui-type-label text-bubble-user-text">
+      <span className="min-w-0 flex-1 truncate ui-type-sub text-text-secondary">
         {name}
       </span>
     </div>

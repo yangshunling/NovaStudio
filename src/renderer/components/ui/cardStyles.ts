@@ -7,10 +7,10 @@
  */
 
 /**
- * 卡片外壳：统一最小高度、悬浮位移与阴影。
+ * 卡片外壳：统一最小高度、描边与焦点环。
  *
- * 与待办 / 触发器卡片保持同一语言：中性表面 + 细描边，
- * hover 时微微上浮、描边转强调色，不用大面积色块。
+ * 与待办 / 触发器卡片保持同一语言：中性表面 + 细描边。
+ * hover 只加深描边，不位移、不投影，列表滚动时不会被「浮起」打断。
  */
 /*
  * min-w-0 是必需的：卡片是 CSS Grid 的直接子项，而 grid 的 `1fr` 轨道最小宽度
@@ -18,28 +18,29 @@
  * 把卡片自身的最小宽度归零，内部再用 truncate 截断，长文本才会显示省略号。
  */
 export const CARD_SHELL =
-  "ui-card-material group relative flex h-full min-h-32 min-w-0 flex-col items-stretch overflow-hidden rounded-xl border border-border/70 p-card text-left transition-all hover:-translate-y-0.5 hover:border-accent/35 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 focus-visible:ring-offset-2 focus-visible:ring-offset-bg";
+  "ui-card-material group relative flex h-full min-h-32 min-w-0 flex-col items-stretch overflow-hidden rounded-xl border border-border p-card text-left transition-[translate,border-color,box-shadow] duration-150 hover:-translate-y-0.5 hover:border-border-strong hover:shadow-[var(--c-shadow-sm)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 focus-visible:ring-offset-2 focus-visible:ring-offset-bg";
 
 /**
- * 图标容器的色调槽位。
+ * 图标容器的分区色槽位。
  *
- * 同一类资产始终用同一个色相（技能=紫、MCP=蓝、工作区=琥珀…），
- * 这样一屏卡片不用读标题就能按颜色区分「这是哪一类东西」。
+ * 一类资产固定一个低饱和色相：技能=苔绿、MCP=天蓝、工作区/知识库=青、
+ * 提示词/触发器=琥珀、数字员工=玫红、工作流/Agent=品牌蓝。
+ * 色相只出现在图标与关键读数上，不染卡片底色。
  */
 const CARD_ICON_TONES = {
-  accent: "bg-accent-soft text-accent",
-  violet: "bg-agent-violet/10 text-agent-violet",
-  sky: "bg-agent-sky/10 text-agent-sky",
-  teal: "bg-agent-teal/10 text-agent-teal",
-  amber: "bg-agent-amber/10 text-agent-amber",
-  rose: "bg-agent-rose/10 text-agent-rose",
+  accent: "text-accent",
+  violet: "text-hue-moss",
+  sky: "text-hue-sky",
+  teal: "text-hue-teal",
+  amber: "text-hue-amber",
+  rose: "text-hue-rose",
 } as const;
 
 export type CardIconTone = keyof typeof CARD_ICON_TONES;
 
-/** 卡片左上角的图标容器，按色调槽位取色 */
+/** 卡片左上角的图标容器，统一 16px 单色（分区色） */
 export function cardIconTile(tone: CardIconTone = "accent"): string {
-  return `ui-tile grid h-11 w-11 shrink-0 place-items-center rounded-xl ${CARD_ICON_TONES[tone]}`;
+  return `ui-tile grid h-8 w-8 shrink-0 place-items-center ${CARD_ICON_TONES[tone]}`;
 }
 
 /** 卡片标题 */

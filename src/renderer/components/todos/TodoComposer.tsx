@@ -82,16 +82,14 @@ export function TodoComposer({
 
   return (
     <div
-      className={`overflow-hidden rounded-xl border bg-surface-2/40 shadow-[var(--c-shadow-sm)] transition-[border-color,box-shadow] focus-within:border-accent/50 focus-within:shadow-[0_0_0_3px_var(--c-accent-soft)] ${
-        expanded ? "border-accent/40" : "border-border/60"
+      className={`overflow-hidden rounded-xl border bg-surface-2/40 transition-colors focus-within:border-accent/60 ${
+        expanded ? "border-accent/40" : "border-border"
       }`}
     >
-      <div className="flex items-center gap-2.5 px-3.5 py-2.5">
+      <div className="flex items-center gap-2.5 px-3 py-2.5">
         <span
-          className={`grid h-7 w-7 shrink-0 place-items-center rounded-full transition-colors ${
-            filled
-              ? "bg-accent text-accent-foreground"
-              : "bg-surface-hover text-text-muted"
+          className={`grid h-6 w-6 shrink-0 place-items-center transition-colors ${
+            filled ? "text-accent" : "text-text-muted"
           }`}
         >
           <Plus className="h-4 w-4" />
@@ -111,14 +109,12 @@ export function TodoComposer({
             }
           }}
           placeholder={
-            defaultDueAt !== null
-              ? "在这天记一件事，回车添加"
-              : "记一件要做的事，回车添加"
+            defaultDueAt !== null ? "在这天记一件事" : "记一件事"
           }
           className="min-w-0 flex-1 bg-transparent ui-type-item text-text outline-none placeholder-text-muted"
         />
         {!expanded && defaultDueAt !== null && (
-          <span className="shrink-0 rounded-full bg-surface-hover px-2 py-0.5 ui-type-sub text-text-muted">
+          <span className="shrink-0 rounded-md border border-border px-1.5 py-0.5 ui-type-sub text-text-muted">
             截止 {formatDateLabel(defaultDueAt)}
           </span>
         )}
@@ -130,7 +126,7 @@ export function TodoComposer({
               ? "收起详细信息"
               : "填写备注 / 优先级 / 截止日期 / 标签"
           }
-          className={`flex h-7 shrink-0 items-center gap-1 rounded-full px-2.5 ui-type-note transition-colors hover:bg-surface-hover hover:text-text ${
+          className={`flex h-7 shrink-0 items-center gap-1 rounded-md px-2 ui-type-note transition-colors hover:bg-surface-hover hover:text-text ${
             expanded ? "text-text" : "text-text-muted"
           }`}
         >
@@ -144,7 +140,7 @@ export function TodoComposer({
       </div>
 
       {expanded && (
-        <div className="space-y-3 border-t border-border/60 bg-surface/50 p-3.5">
+        <div className="space-y-3 border-t border-border bg-surface/50 p-3">
           <TextArea
             value={note}
             onChange={(event) => setNote(event.target.value)}

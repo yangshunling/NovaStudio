@@ -216,11 +216,11 @@ export function EmployeeDrawer({
         <EmployeeAvatar employee={draft} size={40} />
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
-            <span className="truncate ui-type-item font-semibold text-text">
+            <span className="truncate ui-type-item font-medium text-text">
               {draft.name.trim() || (employee ? "未命名员工" : "新建数字员工")}
             </span>
             {!draft.enabled && (
-              <span className="shrink-0 rounded-full bg-surface-hover px-2 py-0.5 ui-type-note text-text-muted">
+              <span className="shrink-0 ui-type-sub text-text-muted">
                 已停用
               </span>
             )}

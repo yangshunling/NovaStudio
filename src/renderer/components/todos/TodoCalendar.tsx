@@ -96,25 +96,25 @@ export function TodoCalendar({
   };
 
   return (
-    <section className="rounded-2xl border border-border/60 bg-surface-2/40 p-4 shadow-[var(--c-shadow-sm)]">
+    <section className="rounded-xl border border-border bg-surface-2/40 p-4">
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-0.5">
           <button
             type="button"
             onClick={() => shiftMonth(-1)}
             aria-label="上个月"
-            className="flex h-7 w-7 items-center justify-center rounded-full text-text-muted transition-colors hover:bg-surface-hover hover:text-text"
+            className="flex h-7 w-7 items-center justify-center rounded-md text-text-muted transition-colors hover:bg-surface-hover hover:text-text"
           >
             <ChevronLeft className="h-4 w-4" />
           </button>
-          <span className="min-w-[92px] text-center ui-type-body font-semibold text-text">
+          <span className="min-w-[92px] text-center ui-type-body font-medium text-text">
             {monthLabel}
           </span>
           <button
             type="button"
             onClick={() => shiftMonth(1)}
             aria-label="下个月"
-            className="flex h-7 w-7 items-center justify-center rounded-full text-text-muted transition-colors hover:bg-surface-hover hover:text-text"
+            className="flex h-7 w-7 items-center justify-center rounded-md text-text-muted transition-colors hover:bg-surface-hover hover:text-text"
           >
             <ChevronRight className="h-4 w-4" />
           </button>
@@ -122,7 +122,7 @@ export function TodoCalendar({
         <button
           type="button"
           onClick={goToday}
-          className="shrink-0 rounded-full bg-surface-hover px-2.5 py-1 ui-type-sub text-text-secondary transition-colors hover:text-accent"
+          className="shrink-0 rounded-md px-2 py-1 ui-type-sub text-text-secondary transition-colors hover:bg-surface-hover hover:text-text"
         >
           今天
         </button>
@@ -156,9 +156,9 @@ export function TodoCalendar({
           const dotClass = isSelected ? "bg-accent-foreground/80" : dot;
 
           const stateClass = isSelected
-            ? "bg-accent font-semibold text-accent-foreground shadow-[var(--c-shadow-sm)]"
+            ? "bg-accent font-medium text-accent-foreground"
             : isToday
-              ? "bg-accent-soft font-semibold text-accent ring-1 ring-accent/30"
+              ? "bg-accent-soft font-medium text-accent ring-1 ring-accent/30"
               : inMonth
                 ? "text-text-secondary hover:bg-surface-hover hover:text-text"
                 : "text-text-muted/40 hover:bg-surface-hover/60";
@@ -177,13 +177,13 @@ export function TodoCalendar({
                 taskCount > 0 ? `，${taskCount} 件任务` : ""
               }`}
               aria-pressed={isSelected}
-              className={`relative mx-auto flex h-8 w-8 items-center justify-center rounded-full ui-type-note transition-colors ${stateClass}`}
+              className={`relative mx-auto flex h-8 w-8 items-center justify-center rounded-md ui-type-note transition-colors ${stateClass}`}
             >
               {date.getDate()}
               {dot && (
                 <span
                   aria-hidden
-                  className={`absolute bottom-[3px] h-1 w-1 rounded-full ${dotClass}`}
+                  className={`absolute bottom-0.5 h-1 w-1 rounded-full ${dotClass}`}
                 />
               )}
             </button>
@@ -191,7 +191,7 @@ export function TodoCalendar({
         })}
       </div>
 
-      <p className="mt-3 border-t border-border/60 pt-2.5 ui-type-sub leading-relaxed text-text-muted">
+      <p className="mt-3 border-t border-border pt-3 ui-type-sub leading-relaxed text-text-muted">
         圆点表示当天有截止任务；点日期可只看当天。
       </p>
     </section>

@@ -9,10 +9,10 @@ import type { ReactNode } from "react";
 import type { LucideIcon } from "lucide-react";
 
 export const TAG_TONE_CLASS = {
-  neutral: "bg-surface-hover text-text-muted",
-  error: "bg-error-bg text-error",
-  warning: "bg-agent-amber/10 text-agent-amber",
-  success: "bg-success/10 text-success",
+  neutral: "text-text-muted",
+  error: "text-error",
+  warning: "text-agent-amber",
+  success: "text-success",
 } as const;
 
 export function Tag({
@@ -29,7 +29,7 @@ export function Tag({
   return (
     <span
       title={title}
-      className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 ui-type-note ${TAG_TONE_CLASS[tone]}`}
+      className={`inline-flex items-center gap-1 rounded-md border border-border px-1.5 py-0.5 ui-type-note ${TAG_TONE_CLASS[tone]}`}
     >
       {Icon && <Icon className="h-3 w-3" />}
       {children}

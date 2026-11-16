@@ -11,7 +11,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import type { LucideIcon } from "lucide-react";
-import { AlertCircle, ArrowUpCircle, Bot, CheckCircle2, Copy, Download, Eye, EyeOff, FolderOpen, KeyRound, RefreshCw, RotateCw, Save, ShieldCheck, Sparkles, Terminal } from "lucide-react";
+import { AlertCircle, ArrowUpCircle, Bot, CheckCircle2, Copy, Download, Eye, EyeOff, FolderOpen, KeyRound, RefreshCw, RotateCw, ShieldCheck, Sparkles, Terminal } from "lucide-react";
 import {
   AGENT_MODEL_ALIASES,
   type AgentInfo,
@@ -37,6 +37,7 @@ import { Field, FORM_INPUT_CLASS, inputClass } from "../ui/Field";
 import { Select } from "../ui/Select";
 import { Page, PageHeader } from "../ui/Page";
 import { EmptyState } from "../ui/EmptyState";
+import { ListItem, ListPane } from "../ui/ListPane";
 import { Spinner } from "../ui/Spinner";
 
 const CLAUDE_ID = "claude";
@@ -105,6 +106,23 @@ function sameModelEntry(a: AgentModelEntry, b: AgentModelEntry): boolean {
   return a.name === b.name && a.context === b.context;
 }
 
+/** 表单是否与已落盘的配置不同 */
+function isSettingsDirty(
+  form: FormState,
+  settings: AgentSettingsView,
+): boolean {
+  return (
+    form.baseUrl !== settings.baseUrl ||
+    form.apiKey !== settings.apiKey ||
+    !sameModelEntry(form.defaultModel, settings.defaultModel) ||
+    form.permissionMode !== settings.permissionMode ||
+    MODEL_ALIASES.some(
+      ({ key }) =>
+        !sameModelEntry(form.modelAliases[key], settings.modelAliases[key]),
+    )
+  );
+}
+
 export function AgentsView() {
   const agents = useChatStore((state) => state.agents);
   const detectAgents = useChatStore((state) => state.detectAgents);
@@ -115,7 +133,10 @@ export function AgentsView() {
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [detecting, setDetecting] = useState(false);
-  const [saving, setSaving] = useState(false);
+  /** 自动保存状态：idle=待保存，saving=保存中，saved=已同步，error=失败 */
+  const [saveState, setSaveState] = useState<
+    "idle" | "saving" | "saved" | "error"
+  >("saved");
   const [opening, setOpening] = useState(false);
   const [showKey, setShowKey] = useState(false);
   const [remoteModels, setRemoteModels] = useState<AgentModelOption[]>([]);
@@ -127,6 +148,17 @@ export function AgentsView() {
   const [modelsError, setModelsError] = useState<string | null>(null);
   /** 只接受最后一次请求的结果，避免旧响应覆盖新列表 */
   const modelRequestRef = useRef(0);
+  /** 自动保存：始终读取最新表单 / 已落盘快照，避免 debounce 闭包过期 */
+  const formRef = useRef<FormState | null>(null);
+  formRef.current = form;
+  const settingsRef = useRef<AgentSettingsView | null>(null);
+  settingsRef.current = settings;
+  const savingRef = useRef(false);
+  const pendingSaveRef = useRef(false);
+  const commitRef = useRef<() => Promise<boolean>>(async () => false);
+  const lastSaveErrorRef = useRef<string | null>(null);
+  /** 模型列表只在接入点（Base URL / Key）真正变化时刷新 */
+  const modelOriginRef = useRef<string | null>(null);
   /** 右侧配置区：滚动容器 + 当前分区 */
   const contentRef = useRef<HTMLDivElement>(null);
   const [activeSection, setActiveSection] = useState<SectionId>("connection");
@@ -233,6 +265,8 @@ export function AgentsView() {
         if (cancelled) return;
         setSettings(view);
         setForm(toForm(view));
+        setSaveState("saved");
+        lastSaveErrorRef.current = null;
         // 写回共享快照：默认模型名、上下文窗口等读者立即跟上
         useAgentSettingsStore.getState().setView(CLAUDE_ID, view);
       })
@@ -251,27 +285,22 @@ export function AgentsView() {
     };
   }, [selected?.id, selected?.status.installed]);
 
-  // 配置加载 / 保存完成后自动拉取一次；之后每次展开下拉时按最新输入刷新
+  // 接入点变化（首次加载 / 保存了新的 Base URL 或 Key）时拉一次模型列表。
+  // 权限、模型别名等保存不应反复请求模型接口。
   useEffect(() => {
-    if (!settings || !form) return;
+    if (!settings) return;
+    const origin = `${settings.baseUrl}\u0000${settings.apiKey}`;
+    if (modelOriginRef.current === origin) return;
+    modelOriginRef.current = origin;
     void refreshModelList();
-    // refreshModelList 依赖实时表单值，这里只在配置整体变化时触发
+    // refreshModelList 依赖实时表单值，origin 只由已落盘配置决定
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [settings]);
 
-  const dirty = useMemo(() => {
-    if (!settings || !form) return false;
-    return (
-      form.baseUrl !== settings.baseUrl ||
-      form.apiKey !== settings.apiKey ||
-      !sameModelEntry(form.defaultModel, settings.defaultModel) ||
-      form.permissionMode !== settings.permissionMode ||
-      MODEL_ALIASES.some(
-        ({ key }) =>
-          !sameModelEntry(form.modelAliases[key], settings.modelAliases[key]),
-      )
-    );
-  }, [settings, form]);
+  const dirty = useMemo(
+    () => (form && settings ? isSettingsDirty(form, settings) : false),
+    [settings, form],
+  );
 
   const liveModelCount = useMemo(() => {
     if (!form) return 0;
@@ -380,6 +409,8 @@ export function AgentsView() {
       const view = await ipc.getAgentSettings(CLAUDE_ID);
       setSettings(view);
       setForm(toForm(view));
+      setSaveState("saved");
+      lastSaveErrorRef.current = null;
       useAgentSettingsStore.getState().setView(CLAUDE_ID, view);
       toast.success("已重新读取本机配置");
     } catch (err) {
@@ -391,47 +422,110 @@ export function AgentsView() {
     }
   };
 
-  const handleSave = async (): Promise<boolean> => {
-    if (!form || !settings) return false;
-    if (!form.baseUrl.trim() && !form.apiKey.trim()) {
-      // 允许官方端点 + 已有 OAuth 的情况；只做温和提示
-      toast.info("当前未填写 Base URL / API Key，将使用 Claude 本机默认配置");
+  /**
+   * 自动保存：把当前表单写成 Claude 配置。
+   *
+   * - 不在保存后重置表单，避免用户正在输入时被服务端快照覆盖；
+   * - 保存期间又有新修改时，标记 pending，等本轮结束再补一次；
+   * - 失败只提示一次，下一次修改会继续重试。
+   */
+  const commit = useCallback(async (): Promise<boolean> => {
+    const currentForm = formRef.current;
+    const currentSettings = settingsRef.current;
+    if (!currentForm || !currentSettings) return true;
+    if (!isSettingsDirty(currentForm, currentSettings)) {
+      setSaveState("saved");
+      return true;
     }
+    if (savingRef.current) {
+      pendingSaveRef.current = true;
+      return false;
+    }
+
+    savingRef.current = true;
+    setSaveState("saving");
 
     const draft: AgentSettingsDraft = {
       agentId: CLAUDE_ID,
-      baseUrl: form.baseUrl,
-      apiKey: form.apiKey === settings.apiKey ? undefined : form.apiKey,
-      defaultModel: form.defaultModel,
-      modelAliases: form.modelAliases,
-      permissionMode: form.permissionMode,
+      baseUrl: currentForm.baseUrl,
+      apiKey:
+        currentForm.apiKey === currentSettings.apiKey
+          ? undefined
+          : currentForm.apiKey,
+      defaultModel: currentForm.defaultModel,
+      modelAliases: currentForm.modelAliases,
+      permissionMode: currentForm.permissionMode,
     };
 
-    setSaving(true);
     try {
       const updated = await ipc.saveAgentSettings(draft);
+      settingsRef.current = updated;
       setSettings(updated);
-      setForm(toForm(updated));
       useAgentSettingsStore.getState().setView(CLAUDE_ID, updated);
-      toast.success("已写入 ~/.claude/settings.json，Claude 与 Nova 同步生效");
+      lastSaveErrorRef.current = null;
+      setSaveState(
+        formRef.current && isSettingsDirty(formRef.current, updated)
+          ? "idle"
+          : "saved",
+      );
       return true;
     } catch (err) {
-      toast.error(toMessage(err));
+      const message = toMessage(err);
+      setSaveState("error");
+      if (lastSaveErrorRef.current !== message) {
+        lastSaveErrorRef.current = message;
+        toast.error(message);
+      }
       return false;
     } finally {
-      setSaving(false);
+      savingRef.current = false;
+      if (pendingSaveRef.current) {
+        pendingSaveRef.current = false;
+        void commitRef.current();
+      }
     }
-  };
+  }, []);
+  commitRef.current = commit;
+
+  /** 输入停止 500ms 后自动落盘；连续输入不会被每个字符打断 */
+  useEffect(() => {
+    if (!form || !settings) return;
+    if (!isSettingsDirty(form, settings)) {
+      setSaveState((state) => (state === "saving" ? state : "saved"));
+      return;
+    }
+    setSaveState("idle");
+    const timer = window.setTimeout(() => {
+      void commitRef.current();
+    }, 500);
+    return () => window.clearTimeout(timer);
+  }, [form, settings]);
+
+  /** 组件卸载（切页 / 关窗）前把尚未落盘的改动补保存一次 */
+  useEffect(
+    () => () => {
+      const currentForm = formRef.current;
+      const currentSettings = settingsRef.current;
+      if (
+        currentForm &&
+        currentSettings &&
+        isSettingsDirty(currentForm, currentSettings)
+      ) {
+        void commitRef.current();
+      }
+    },
+    [],
+  );
 
   /*
-   * 关窗 / 切页统一走未保存协议：登记后由主进程弹原生确认，
-   * 或在切换侧栏时由 confirmLeaveUnsaved 拦截。
+   * 自动保存失败时仍走未保存协议：关窗 / 切页会提示，
+   * 避免用户以为已经保存。成功时 dirty 为 false，不会打扰。
    */
   useUnsavedGuard({
     id: `agent-settings:${CLAUDE_ID}`,
     label: "Agent 配置",
-    dirty,
-    save: handleSave,
+    dirty: dirty && saveState === "error",
+    save: commit,
   });
 
   const patchForm = (patch: Partial<FormState>) =>
@@ -464,17 +558,24 @@ export function AgentsView() {
     <Page>
       <PageHeader
         title="Agent 配置"
+        hue="blue"
         badge={
           selected && !selected.status.installed ? (
-            <span className="rounded-full bg-error-bg px-2 py-0.5 ui-type-label text-error">
-              未安装
-            </span>
-          ) : dirty ? (
-            <span className="rounded-full bg-accent-soft px-2 py-0.5 ui-type-label text-accent">
-              有未保存的修改
-            </span>
+            <span className="ui-type-sub text-error">未安装</span>
+          ) : loading ? (
+            <span className="ui-type-sub text-text-muted">读取中…</span>
+          ) : saveState === "error" ? (
+            <button
+              type="button"
+              onClick={() => void commitRef.current()}
+              className="ui-type-sub text-error hover:underline"
+            >
+              保存失败 · 重试
+            </button>
+          ) : saveState === "saving" || dirty ? (
+            <span className="ui-type-sub text-text-muted">保存中…</span>
           ) : (
-            "本机配置"
+            <span className="ui-type-sub text-text-muted">已同步</span>
           )
         }
         icon={<Bot className="h-4 w-4" />}
@@ -483,7 +584,7 @@ export function AgentsView() {
             <Button
               variant="ghost"
               size="sm"
-              className="rounded-full"
+              className=""
               icon={
                 <RefreshCw
                   className={`h-3.5 w-3.5 ${detecting ? "animate-spin" : ""}`}
@@ -500,27 +601,20 @@ export function AgentsView() {
                 <Button
                   variant="ghost"
                   size="sm"
-                  className="rounded-full"
+                  className=""
                   icon={
                     <RotateCw
                       className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`}
                     />
                   }
                   onClick={handleReload}
-                  disabled={loading || selected?.id !== CLAUDE_ID}
+                  disabled={
+                    loading ||
+                    saveState === "saving" ||
+                    selected?.id !== CLAUDE_ID
+                  }
                 >
                   刷新配置
-                </Button>
-                <Button
-                  variant="primary"
-                  size="sm"
-                  className="rounded-full"
-                  loading={saving}
-                  icon={<Save className="h-3.5 w-3.5" />}
-                  onClick={handleSave}
-                  disabled={!dirty}
-                >
-                  保存并同步
                 </Button>
               </>
             )}
@@ -529,30 +623,38 @@ export function AgentsView() {
       />
 
       <div className="flex min-h-0 flex-1">
-          <aside className="flex w-60 shrink-0 flex-col overflow-y-auto border-r border-border bg-surface-2/40 p-3">
-            <div className="flex items-center justify-between px-1 pb-2">
-              <span className="ui-type-note font-semibold tracking-wide text-text-muted">
-                已检测到的 Agent
-              </span>
-              <span className="rounded-full bg-surface-hover px-1.5 ui-type-sub tabular-nums text-text-muted">
-                {agents.length}
-              </span>
-            </div>
+          <ListPane title="Agent" hue="blue" count={agents.length}>
             {agents.length === 0 ? (
               <p className="px-1 py-3 ui-type-sub leading-relaxed text-text-muted">
                 尚未检测到 Claude Code。请先安装 Claude Code。
               </p>
             ) : (
               agents.map((agent) => (
-                <AgentListItem
+                <ListItem
                   key={agent.id}
-                  agent={agent}
                   active={selected?.id === agent.id}
+                  icon={<Bot className="h-4 w-4" />}
+                  title={agent.displayName}
+                  subtitle={
+                    <span
+                      className={
+                        agent.status.installed
+                          ? "text-success"
+                          : "text-error"
+                      }
+                    >
+                      {agent.status.installed
+                        ? agent.status.version
+                          ? `已安装 · ${agent.status.version}`
+                          : "已安装"
+                        : "未安装"}
+                    </span>
+                  }
                   onClick={() => setSelectedId(agent.id)}
                 />
               ))
             )}
-          </aside>
+          </ListPane>
 
           <section className="flex min-w-0 flex-1 flex-col overflow-hidden">
             <div
@@ -608,7 +710,7 @@ export function AgentsView() {
                             onClick={() => scrollToSection(item.id)}
                             className={`rounded-lg px-3 py-1.5 ui-type-label transition-colors ${
                               active
-                                ? "bg-surface text-text shadow-[var(--c-shadow-sm)]"
+                                ? "bg-surface text-text "
                                 : "text-text-muted hover:text-text"
                             }`}
                           >
@@ -712,7 +814,7 @@ export function AgentsView() {
                       action={
                         <span
                           title="按基础模型名去重"
-                          className="shrink-0 rounded-full bg-accent-soft px-2 py-0.5 ui-type-label text-accent"
+                          className="shrink-0 ui-type-sub tabular-nums text-text-muted"
                         >
                           已配置 {liveModelCount} 个模型
                         </span>
@@ -795,7 +897,7 @@ export function AgentsView() {
                       description="Claude Code 与 Nova 共用同一份本机配置；保存后会直接写回该文件。"
                       icon={FolderOpen}
                     >
-                      <div className="flex flex-wrap items-center gap-2 rounded-lg border border-border/60 bg-input-bg px-3 py-2.5 ui-type-sub text-text-muted">
+                      <div className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-input-bg px-3 py-2.5 ui-type-sub text-text-muted">
                         <FolderOpen className="h-3.5 w-3.5 shrink-0" />
                         <span
                           title={settings.settingsPath}
@@ -831,7 +933,7 @@ export function AgentsView() {
                       icon={ArrowUpCircle}
                       action={
                         upgrade.check?.updateAvailable ? (
-                          <span className="shrink-0 rounded-full bg-accent-soft px-2 py-0.5 ui-type-label text-accent">
+                          <span className="shrink-0 ui-type-sub text-accent">
                             可升级到 {upgrade.check.latestVersion}
                           </span>
                         ) : undefined
@@ -861,7 +963,7 @@ export function AgentsView() {
                           <Button
                             variant="ghost"
                             size="sm"
-                            className="rounded-full"
+                            className=""
                             icon={
                               <RefreshCw
                                 className={`h-3.5 w-3.5 ${
@@ -877,7 +979,7 @@ export function AgentsView() {
                           <Button
                             variant="primary"
                             size="sm"
-                            className="rounded-full"
+                            className=""
                             loading={upgrade.upgrading}
                             icon={<ArrowUpCircle className="h-3.5 w-3.5" />}
                             onClick={() => void upgrade.runUpgrade()}
@@ -891,7 +993,7 @@ export function AgentsView() {
                         </div>
 
                         {(upgrade.upgrading || upgrade.log) && (
-                          <pre className="max-h-52 overflow-auto whitespace-pre-wrap break-all rounded-lg border border-border/60 bg-input-bg px-3 py-2 ui-type-code leading-relaxed text-text-secondary">
+                          <pre className="max-h-52 overflow-auto whitespace-pre-wrap break-all rounded-lg border border-border bg-input-bg px-3 py-2 ui-type-code leading-relaxed text-text-secondary">
                             {upgrade.log || "正在升级…"}
                           </pre>
                         )}
@@ -929,27 +1031,20 @@ function AgentStatusCard({
     : "跟随默认";
 
   return (
-    <section className="relative overflow-hidden rounded-2xl border border-border/60 bg-surface-2/40 p-5">
-      <span
-        aria-hidden
-        className="pointer-events-none absolute inset-x-10 top-0 h-px bg-accent/30"
-      />
-
+    <section className="relative overflow-hidden rounded-xl border border-border bg-surface-2/40 p-4">
       <div className="relative flex flex-wrap items-center justify-between gap-x-8 gap-y-4">
-        <div className="flex min-w-0 items-center gap-3.5">
-          <span className="grid h-12 w-12 shrink-0 place-items-center rounded-xl bg-accent text-accent-foreground shadow-[var(--c-shadow-sm)]">
+        <div className="flex min-w-0 items-center gap-3">
+          <span className="grid h-8 w-8 shrink-0 place-items-center text-text-muted">
             <Bot className="h-5 w-5" />
           </span>
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
-              <h2 className="truncate ui-type-heading tracking-tight text-text">
+              <h2 className="truncate ui-type-heading text-text">
                 {agent.displayName}
               </h2>
               <span
-                className={`rounded-full px-2 py-0.5 ui-type-sub font-medium ${
-                  agent.status.installed
-                    ? "bg-success/10 text-success"
-                    : "bg-error-bg text-error"
+                className={`ui-type-sub ${
+                  agent.status.installed ? "text-success" : "text-error"
                 }`}
               >
                 {agent.status.installed ? "已安装" : "未安装"}
@@ -1010,7 +1105,7 @@ function StatusMetric({
 
 function VersionTile({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-lg border border-border/60 bg-input-bg px-3 py-2.5">
+    <div className="rounded-lg border border-border bg-input-bg px-3 py-2.5">
       <div className="ui-type-sub text-text-muted">{label}</div>
       <div
         title={value}
@@ -1040,15 +1135,15 @@ function SectionCard({
   return (
     <section
       id={id}
-      className="scroll-mt-14 rounded-xl border border-border/60 bg-surface-2/40 p-5 shadow-[var(--c-shadow-sm)]"
+      className="scroll-mt-14 rounded-xl border border-border bg-surface-2/40 p-4"
     >
       <div className="mb-4 flex items-start justify-between gap-3">
         <div className="flex min-w-0 items-start gap-3">
-          <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-accent-soft text-accent">
+          <span className="grid h-8 w-8 shrink-0 place-items-center text-text-muted">
             <Icon className="h-4 w-4" />
           </span>
           <div className="min-w-0">
-            <h2 className="ui-type-body font-semibold text-text">{title}</h2>
+            <h2 className="ui-type-body font-medium text-text">{title}</h2>
             {description && (
               <p className="mt-0.5 ui-type-note leading-relaxed text-text-muted">
                 {description}
@@ -1087,16 +1182,11 @@ function AgentInstallView({
 
   return (
     <div className="mx-auto flex min-h-[60vh] w-full max-w-2xl flex-col justify-center py-2">
-      <section className="relative overflow-hidden rounded-2xl border border-border/60 bg-surface-2/40 p-7 shadow-[var(--c-shadow-sm)]">
-        <span
-          aria-hidden
-          className="pointer-events-none absolute inset-x-10 top-0 h-px bg-accent/40"
-        />
-
+      <section className="relative overflow-hidden rounded-xl border border-border bg-surface-2/40 p-6">
         <div className="flex flex-col items-center text-center">
-          <span className="relative grid h-16 w-16 place-items-center rounded-2xl bg-accent-soft text-accent ring-1 ring-inset ring-accent/20">
-            <Bot className="h-7 w-7" />
-            <span className="absolute -bottom-1.5 -right-1.5 grid h-7 w-7 place-items-center rounded-full border border-border bg-surface shadow-[var(--c-shadow-sm)]">
+          <span className="relative grid h-12 w-12 place-items-center text-text-muted">
+            <Bot className="h-6 w-6" />
+            <span className="absolute -bottom-1.5 -right-1.5 grid h-7 w-7 place-items-center rounded-full border border-border bg-surface ">
               {installed ? (
                 <CheckCircle2 className="h-3.5 w-3.5 text-success" />
               ) : (
@@ -1106,16 +1196,14 @@ function AgentInstallView({
           </span>
 
           <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
-            <h2 className="ui-type-heading tracking-tight text-text">
+            <h2 className="ui-type-heading text-text">
               {installed
                 ? `${agent.displayName} 安装完成`
                 : `安装 ${agent.displayName}`}
             </h2>
             <span
-              className={`rounded-full px-2 py-0.5 ui-type-sub font-medium ${
-                installed
-                  ? "bg-accent-soft text-accent"
-                  : "bg-error-bg text-error"
+              className={`ui-type-sub ${
+                installed ? "text-accent" : "text-error"
               }`}
             >
               {installed ? "待检测" : "未安装"}
@@ -1130,7 +1218,7 @@ function AgentInstallView({
           <div className="mt-5 flex flex-wrap items-center justify-center gap-2">
             <Button
               variant="primary"
-              className="rounded-full"
+              className=""
               loading={install.installing}
               icon={<Download className="h-4 w-4" />}
               onClick={() => void install.runInstall()}
@@ -1144,7 +1232,7 @@ function AgentInstallView({
             </Button>
             <Button
               variant="ghost"
-              className="rounded-full"
+              className=""
               icon={
                 <RefreshCw
                   className={`h-4 w-4 ${detecting ? "animate-spin" : ""}`}
@@ -1198,8 +1286,8 @@ function AgentInstallView({
         )}
 
         {(install.installing || install.log) && (
-          <div className="mt-4 overflow-hidden rounded-xl border border-border/60 bg-input-bg text-left">
-            <div className="flex items-center justify-between border-b border-border/60 px-3 py-2">
+          <div className="mt-4 overflow-hidden rounded-xl border border-border bg-input-bg text-left">
+            <div className="flex items-center justify-between border-b border-border px-3 py-2">
               <span className="ui-type-sub font-medium text-text-muted">
                 安装输出
               </span>
@@ -1217,12 +1305,12 @@ function AgentInstallView({
         )}
 
         {agent.installCommand ? (
-          <details className="mt-4 rounded-xl border border-border/60 bg-input-bg/50 px-3.5 py-3 text-left">
+          <details className="mt-4 rounded-xl border border-border bg-input-bg/50 px-3.5 py-3 text-left">
             <summary className="flex cursor-pointer list-none items-center gap-1.5 ui-type-note text-text-muted transition-colors hover:text-text [&::-webkit-details-marker]:hidden">
               <Terminal className="h-3.5 w-3.5" />
               或手动执行安装命令
             </summary>
-            <div className="mt-2.5 flex items-center gap-2 rounded-lg border border-border/60 bg-surface px-inset py-2">
+            <div className="mt-2.5 flex items-center gap-2 rounded-lg border border-border bg-surface px-inset py-2">
               <code className="min-w-0 flex-1 truncate ui-type-code text-text">
                 {agent.installCommand}
               </code>
@@ -1269,17 +1357,17 @@ function InstallStep({
     <div
       className={`flex items-start gap-2.5 rounded-xl border px-3 py-2.5 text-left transition-colors ${
         state === "active"
-          ? "border-accent/40 bg-accent-soft/40"
-          : "border-border/60 bg-input-bg/50"
+          ? "border-accent/40 bg-accent-soft/20"
+          : "border-border bg-input-bg/50"
       }`}
     >
       <span
-        className={`grid h-6 w-6 shrink-0 place-items-center rounded-full ui-type-sub font-semibold ${
+        className={`grid h-6 w-6 shrink-0 place-items-center rounded-full border ui-type-sub font-medium ${
           state === "done"
-            ? "bg-success/10 text-success"
+            ? "border-success/30 text-success"
             : state === "active"
-              ? "bg-accent text-accent-foreground"
-              : "bg-surface-hover text-text-muted"
+              ? "border-accent/40 text-accent"
+              : "border-border text-text-muted"
         }`}
       >
         {state === "done" ? (
@@ -1295,67 +1383,6 @@ function InstallStep({
         </div>
       </div>
     </div>
-  );
-}
-
-function AgentListItem({
-  agent,
-  active,
-  onClick,
-}: {
-  agent: AgentInfo;
-  active: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`relative mb-1 flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left transition-colors ${
-        active
-          ? "bg-selected text-text"
-          : "text-text-secondary hover:bg-surface-hover/70 hover:text-text"
-      }`}
-    >
-      {active && (
-        <span
-          aria-hidden
-          className="absolute left-0 top-1/2 h-5 w-indicator -translate-y-1/2 rounded-full bg-accent"
-        />
-      )}
-      <span
-        className={`grid h-6 w-6 shrink-0 place-items-center ${
-          active ? "text-accent" : "text-text-muted"
-        }`}
-      >
-        <Bot className="h-4 w-4" />
-      </span>
-      <span className="min-w-0 flex-1">
-        <span
-          className={`block truncate ui-type-item leading-5 ${
-            active ? "font-medium" : ""
-          }`}
-        >
-          {agent.displayName}
-        </span>
-        <span className="mt-0.5 flex min-w-0 items-center gap-1.5">
-          <span
-            className={`flex h-4 shrink-0 items-center rounded-full px-1.5 ui-type-sub font-medium leading-none ${
-              agent.status.installed
-                ? "bg-success/10 text-success"
-                : "bg-error-bg text-error"
-            }`}
-          >
-            {agent.status.installed ? "已安装" : "未安装"}
-          </span>
-          {agent.status.installed && agent.status.version && (
-            <span className="min-w-0 truncate ui-type-sub text-text-muted">
-              {agent.status.version}
-            </span>
-          )}
-        </span>
-      </span>
-    </button>
   );
 }
 

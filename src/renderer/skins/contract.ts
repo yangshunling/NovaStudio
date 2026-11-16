@@ -198,6 +198,12 @@ export const OPTIONAL_TOKENS: readonly string[] = [
   "--c-sel-top",
   "--c-sel-bottom",
   "--c-sel-border",
+  // 分区色：页面身份用的低饱和色相，只落在页头图标 / 卡片图标 / 关键读数上
+  "--c-hue-teal",
+  "--c-hue-amber",
+  "--c-hue-rose",
+  "--c-hue-moss",
+  "--c-hue-sky",
   // 设置页可选字体族；选项清单见 skins/typography.ts
   "--c-font-preset-system",
   "--c-font-preset-yahei",

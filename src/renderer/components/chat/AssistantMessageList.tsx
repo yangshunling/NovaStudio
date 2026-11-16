@@ -28,6 +28,9 @@ import {
   type ToolCallMessagePartProps,
 } from "@assistant-ui/react";
 import {
+  AlertTriangle,
+  Bot,
+  Boxes,
   Bug,
   Check,
   ChevronRight,
@@ -36,7 +39,6 @@ import {
   FolderTree,
   ListChecks,
   RotateCcw,
-  AlertTriangle,
 } from "lucide-react";
 import type {
   AgentEvent,
@@ -56,9 +58,8 @@ import {
 } from "../../stores/chat";
 import { useEmployeesStore } from "../../stores/employees";
 import { REVEAL_MESSAGE_EVENT } from "../../lib/chat-events";
-import { formatJson, toMessage } from "../../lib/utils";
+import { formatJson, getAgentName, toMessage } from "../../lib/utils";
 import { imageSrc } from "../../lib/attachment";
-import logoAvatarUrl from "../../assets/logo-avatar.png";
 import { copyText } from "../../lib/clipboard";
 import { toast } from "../../stores/toast";
 import { CHAT_VIEWPORT_ID, scrollToMessage } from "../../lib/chat-scroll";
@@ -75,26 +76,37 @@ import { ToolCallCard } from "./ToolCallCard";
 import { ThinkingCard } from "./ThinkingCard";
 import { ReferenceBlock } from "./ReferenceBlock";
 
-/** 欢迎卡上的示例：点击后填入输入框，由用户决定是否发送 */
+/**
+ * 空会话的起手式：点击后填入输入框，由用户决定是否发送。
+ * 每条带自己的分区色，空态不至于只有一种颜色。
+ */
 const SUGGESTIONS = [
   {
     icon: FolderTree,
     label: "了解当前工作区",
+    description: "先看目录结构与主要模块",
+    hue: "text-hue-teal",
     prompt: "先浏览一下当前工作区，介绍一下项目结构和主要模块。",
   },
   {
     icon: ListChecks,
     label: "拆解一个需求",
+    description: "把需求拆成可执行的任务",
+    hue: "text-hue-moss",
     prompt: "我有个需求，帮我拆解成可执行的开发任务。",
   },
   {
     icon: FileText,
     label: "写一份周报",
+    description: "汇总最近的提交与改动",
+    hue: "text-hue-amber",
     prompt: "根据我最近的工作，帮我写一份本周周报。",
   },
   {
     icon: Bug,
     label: "排查一个问题",
+    description: "从日志与报错里找原因",
+    hue: "text-hue-rose",
     prompt: "帮我排查一个问题，先问我几个关键信息。",
   },
 ];
@@ -450,7 +462,7 @@ export function AssistantMessageList({
                 type="button"
                 onClick={loadEarlier}
                 disabled={loadingEarlier}
-                className="rounded-full border border-border/60 bg-surface-2/40 px-3 py-1 ui-type-note text-text-secondary transition-colors hover:border-accent/40 hover:text-accent disabled:cursor-not-allowed disabled:opacity-50"
+                className="rounded-lg border border-border bg-transparent px-3 py-1.5 ui-type-note text-text-secondary transition-colors hover:bg-surface-hover hover:text-text disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {loadingEarlier ? "正在载入更早的消息…" : "载入更早的消息"}
               </button>
@@ -479,70 +491,94 @@ function ThreadEmpty({
       s.loadingHistoryFor === s.currentSessionId,
   );
   const project = projects.find((p) => p.id === currentProjectId);
+  const agents = useChatStore((s) => s.agents);
+  const agentId = useChatStore(selectEffectiveAgentId);
+  const selectedModel = useChatStore((s) => s.selectedModel);
+  const agentName = getAgentName(agents, agentId);
+  const modelLabel = selectedModel ?? "跟随默认模型";
 
   if (loadingHistory) {
     return (
-      <div className="history-loading ui-glass ui-ring mx-auto mt-[20vh] flex w-[260px] flex-col items-center gap-4 rounded-lg px-6 py-6">
+      <div className="history-loading ui-glass ui-ring mx-auto mt-24 flex w-64 flex-col items-center gap-4 rounded-lg px-6 py-6">
         <div className="history-progress">
           <div className="history-progress-bar" />
         </div>
-        <p className="ui-type-body tracking-wide text-text-secondary">
-          历史记录正在恢复中
-        </p>
+        <p className="ui-type-body text-text-secondary">历史记录正在恢复中</p>
       </div>
     );
   }
 
   return (
-    <div className="ui-entrance relative flex min-h-full flex-col items-center justify-center px-6 py-10">
-      {/* 入口的两次装饰：顶部弥散光 + 极轻噪点，离开空态即消失 */}
-      <div aria-hidden className="ui-entrance-glow" />
+    <div className="flex min-h-full flex-col justify-center py-12">
+      <div className="mx-auto w-full max-w-[var(--c-layout-content)]">
+        <div className="@container max-w-[760px]">
+          {/* 标题：主语是任务，不是欢迎语 */}
+          <h1 className="ui-type-hero font-medium text-text">
+            从一个任务开始
+          </h1>
+          <p className="mt-2 max-w-[56ch] ui-type-body leading-relaxed text-text-secondary">
+            {project
+              ? `在「${project.name}」中开始工作。描述任务，需要读写文件时 Agent 会在该目录里执行。`
+              : "描述任务；在输入框旁绑定工作区后，Agent 才能读写本地文件。"}
+          </p>
 
-      {/* 一次性的入场编排：品牌标记 → 标题 → 说明 → 起手式 → 快捷键提示 */}
-      <div className="ui-entrance-stack relative z-10 flex w-full max-w-[620px] flex-col items-center text-center">
-        <div className="ui-brand-mark overflow-hidden">
-          <img
-            src={logoAvatarUrl}
-            alt="Nova"
-            draggable={false}
-            className="h-8 w-8 select-none object-cover"
-          />
-        </div>
-
-        <h1 className="mt-6 ui-type-entrance text-text">Work is Agentic</h1>
-
-        {/* 全站唯一的渐变元素：入口标题下的一条光谱细线 */}
-        <div aria-hidden className="ui-spectral-rule mt-5" />
-
-        <p className="mt-4 max-w-[520px] ui-type-body leading-relaxed text-text-secondary">
-          {project
-            ? `在「${project.name}」中开始工作。描述任务，或从下面的起手式开始。`
-            : "描述任务，或从下面的起手式开始。需要读写本地文件时，在输入框旁指定工作区。"}
-        </p>
-
-        {/* 窄窗口（尤其右侧工作区展开时）保持单列，避免标签被截断 */}
-        {onSuggestion && (
-          <div className="mt-8 grid w-full grid-cols-1 border-b border-border min-[1400px]:grid-cols-2 min-[1400px]:gap-x-8">
-            {SUGGESTIONS.map(({ icon: Icon, label, prompt }) => (
-              <button
-                key={label}
-                type="button"
-                onClick={() => onSuggestion(prompt)}
-                className="ui-starter group"
-              >
-                <span className="ui-starter-icon">
-                  <Icon className="h-4 w-4" />
-                </span>
-                <span className="min-w-0 flex-1 truncate">{label}</span>
-                <ChevronRight className="h-3.5 w-3.5 shrink-0 text-text-muted opacity-0 transition-all group-hover:translate-x-0.5 group-hover:opacity-100" />
-              </button>
-            ))}
+          {/* 本次会话的真实上下文：工作区 / Agent / 模型 */}
+          <div className="mt-5 flex flex-wrap items-center gap-x-3 gap-y-1.5 ui-type-sub text-text-muted">
+            <span className="flex min-w-0 items-center gap-1.5">
+              <FolderTree className="h-3.5 w-3.5 shrink-0 text-hue-teal" />
+              <span className="truncate">
+                {project?.name ?? "未绑定工作区"}
+              </span>
+            </span>
+            <span aria-hidden className="text-text-muted/50">·</span>
+            <span className="flex min-w-0 items-center gap-1.5">
+              <Bot className="h-3.5 w-3.5 shrink-0 text-accent" />
+              <span className="truncate">{agentName}</span>
+            </span>
+            <span aria-hidden className="text-text-muted/50">·</span>
+            <span className="flex min-w-0 items-center gap-1.5">
+              <Boxes className="h-3.5 w-3.5 shrink-0 text-hue-moss" />
+              <span className="truncate">{modelLabel}</span>
+            </span>
           </div>
-        )}
 
-        <p className="mt-6 ui-type-sub text-text-muted">
-          Enter 发送 · Shift + Enter 换行
-        </p>
+          {/* 起手式：四条真实任务，颜色区分类型 */}
+          {onSuggestion && (
+            <div className="ui-stagger mt-7 grid w-full grid-cols-1 gap-2.5 @[560px]:grid-cols-2">
+              {SUGGESTIONS.map(
+                ({ icon: Icon, label, description, hue, prompt }) => (
+                  <button
+                    key={label}
+                    type="button"
+                    onClick={() => onSuggestion(prompt)}
+                    className="group flex items-start gap-3 rounded-lg border border-border bg-surface-2/40 p-3 text-left transition-[translate,border-color,box-shadow] duration-150 hover:-translate-y-0.5 hover:border-border-strong hover:shadow-[var(--c-shadow-sm)]"
+                  >
+                    <span
+                      className={`grid h-8 w-8 shrink-0 place-items-center ${hue}`}
+                    >
+                      <Icon className="h-4 w-4" />
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="flex items-center gap-1.5">
+                        <span className="min-w-0 truncate ui-type-item font-medium text-text">
+                          {label}
+                        </span>
+                        <ChevronRight className="h-3.5 w-3.5 shrink-0 text-text-muted opacity-0 transition-[opacity,translate] group-hover:translate-x-0.5 group-hover:opacity-100" />
+                      </span>
+                      <span className="mt-0.5 block truncate ui-type-sub text-text-muted">
+                        {description}
+                      </span>
+                    </span>
+                  </button>
+                ),
+              )}
+            </div>
+          )}
+
+          <p className="mt-5 ui-type-sub text-text-muted">
+            Enter 发送 · Shift + Enter 换行 · @ 选数字员工 · # 引用内容
+          </p>
+        </div>
       </div>
     </div>
   );
@@ -724,14 +760,32 @@ function CopyAnswerButton() {
   );
 }
 
-/** 「Nova is working...」——回复进行中的常驻状态提示 */
+/**
+ * 「正在运行」——回复进行中的常驻状态。
+ *
+ * 一个安静的状态灯 + 已用时间：这行本身会一直变化，不需要再叠流动效果。
+ * 计时器放在叶子节点里，父组件不跟着每秒重渲染。
+ */
 function WorkingIndicator() {
+  const startedAt = useRef(Date.now()).current;
+  const [seconds, setSeconds] = useState(0);
+
+  useEffect(() => {
+    const timer = window.setInterval(
+      () => setSeconds(Math.floor((Date.now() - startedAt) / 1000)),
+      1000,
+    );
+    return () => window.clearInterval(timer);
+  }, [startedAt]);
+
   return (
-    <div className="flex items-center" role="status">
-      {/* 整句流光：让「正在工作」这件事在字面上持续流动 */}
-      <span className="shimmer shimmer-fast ui-type-body italic tracking-wide">
-        Nova is working...
-      </span>
+    <div
+      className="flex items-center gap-2 ui-type-sub text-text-muted"
+      role="status"
+    >
+      <span className="h-1.5 w-1.5 rounded-full bg-accent" aria-hidden />
+      <span>正在运行</span>
+      <span className="tabular-nums">{seconds}s</span>
     </div>
   );
 }
@@ -879,7 +933,7 @@ function ErrorPart(props: DataMessagePartProps<{ message: string }>) {
   };
 
   return (
-    <div className="flex items-start gap-2.5 rounded-xl border border-error/30 bg-error-bg/70 px-3.5 py-2.5 ui-type-body text-error">
+    <div className="flex items-start gap-2.5 rounded-xl border border-error/30 bg-error-bg/70 px-3 py-2 ui-type-body text-error">
       <Bug className="mt-0.5 h-4 w-4 shrink-0" />
       <span className="min-w-0 flex-1 whitespace-pre-wrap">
         {props.data.message}
@@ -910,7 +964,7 @@ function ErrorPart(props: DataMessagePartProps<{ message: string }>) {
 
 function WarningPart(props: DataMessagePartProps<{ message: string }>) {
   return (
-    <div className="flex items-start gap-2.5 rounded-xl border border-border/60 bg-surface-2/40 px-3.5 py-2.5 ui-type-body text-text-secondary">
+    <div className="flex items-start gap-2.5 rounded-xl border border-border bg-surface-2/40 px-3 py-2 ui-type-body text-text-secondary">
       <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-text-muted" />
       <span className="min-w-0">{props.data.message}</span>
     </div>

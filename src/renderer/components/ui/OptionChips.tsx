@@ -76,17 +76,17 @@ export function OptionChips(props: OptionChipsProps) {
 
   const chipClass = (active: boolean) =>
     variant === "pill"
-      ? `rounded-full ui-type-note transition-colors ${
-          size === "sm" ? "px-2.5 py-1" : "px-3 py-1.5"
+      ? `rounded-md border ui-type-note transition-colors ${
+          size === "sm" ? "px-2 py-1" : "px-3 py-1.5"
         } ${
           active
-            ? "bg-accent-soft font-medium text-accent"
-            : "bg-surface-2/40 text-text-secondary hover:bg-surface-hover hover:text-text"
+            ? "border-accent/30 bg-accent-soft font-medium text-accent"
+            : "border-border bg-transparent text-text-secondary hover:bg-surface-hover hover:text-text"
         }`
-      : `flex-1 rounded-lg px-3 py-2 ui-type-body font-medium transition-colors ${
+      : `flex-1 rounded-lg border px-3 py-2 ui-type-body font-medium transition-colors ${
           active
-            ? "bg-accent-soft text-accent shadow-[var(--c-shadow-sm)]"
-            : "bg-surface-2/40 text-text-secondary hover:bg-surface-hover hover:text-text"
+            ? "border-accent/30 bg-accent-soft text-accent"
+            : "border-border bg-transparent text-text-secondary hover:bg-surface-hover hover:text-text"
         }`;
 
   return (

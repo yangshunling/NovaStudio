@@ -1,8 +1,8 @@
 /**
- * 标记药丸（Badge/Pill）
+ * 标记文字（Badge）
  *
- * 统一 Agent/项目/状态的紧凑标记样式。
- * variant: "accent"（渐变强调色）/ "neutral"（中性灰）
+ * 统一 Agent/项目/状态的紧凑标记：描边小方块，不用实色药丸。
+ * variant 只决定文字色，颜色仍表示语义（强调 / 成功 / 失败 / 警告）。
  */
 
 import type { ReactNode } from "react";
@@ -19,11 +19,11 @@ interface PillProps {
 }
 
 const variantClasses: Record<NonNullable<PillProps["variant"]>, string> = {
-  accent: "bg-accent-soft text-accent",
-  neutral: "bg-surface-hover text-text-muted",
-  success: "bg-accent-soft text-success",
-  error: "bg-error-bg text-error",
-  warning: "bg-agent-amber/10 text-agent-amber",
+  accent: "border-accent/25 text-accent",
+  neutral: "border-border text-text-muted",
+  success: "border-success/25 text-success",
+  error: "border-error/30 text-error",
+  warning: "border-agent-amber/30 text-agent-amber",
 };
 
 export function Pill({
@@ -38,7 +38,7 @@ export function Pill({
   return (
     <span
       title={title}
-      className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 ui-type-note ${
+      className={`inline-flex items-center gap-1 rounded-md border bg-transparent px-1.5 py-0.5 ui-type-sub ${
         toneClassName ?? variantClasses[variant]
       } ${className}`}
     >

@@ -48,7 +48,10 @@ const HERO_ALLOWED = new Set([
   "components/app/Sidebar.tsx",
   "components/todos/TodosView.tsx",
 ]);
-const HERO_ROLE_ALLOWED = new Set(["components/todos/TodosView.tsx"]);
+const HERO_ROLE_ALLOWED = new Set([
+  "components/todos/TodosView.tsx",
+  "components/chat/AssistantMessageList.tsx",
+]);
 const DISPLAY_ALLOWED = new Set(["components/ui/MarkdownRenderer.tsx"]);
 const MICRO_ALLOWED = new Set([
   "components/chat/ToolCallCard.tsx",
