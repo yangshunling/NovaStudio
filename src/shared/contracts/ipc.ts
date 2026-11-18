@@ -747,6 +747,8 @@ export interface IpcPushMap {
    * 与 agent:done 分开：中断不应触发“完成”语义，也不应自动消费暂存队列。
    */
   "agent:aborted": { sessionId: string };
+  /** 后台总结出的会话标题：首条消息后异步更新，列表就地改标题即可 */
+  "session:title": { sessionId: string; title: string };
   /** 工具执行前的授权询问；必须即时送达，不能参与批量聚合 */
   "agent:permission:request": PermissionPromptView;
   /** 请求已失效（已回答 / 超时 / 中断 / 窗口关闭等） */

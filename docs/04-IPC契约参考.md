@@ -51,6 +51,7 @@ export function handle<C extends IpcInvokeChannel>(channel: C, handler: Handler<
 | `agent:event` | `{ sessionId, event: AgentEvent }` | 聊天流式事件 | 16ms |
 | `agent:done` | `{ sessionId, exitCode, duration }` | 一轮聊天结束 | 立即 |
 | `agent:aborted` | `{ sessionId }` | 被中断的运行已真正收尾（不触发“完成”语义） | 立即 |
+| `session:title` | `{ sessionId, title }` | 首条消息后的后台标题总结完成 | 立即 |
 | `agent:permission:request` | `PermissionPromptView` | 工具授权询问（必须即时送达） | 立即 |
 | `agent:permission:resolved` | `PermissionPromptResolved` | 授权请求已失效（已回答 / 超时 / 中断） | 立即 |
 | `agents:detected` | `AgentInfo[]` | Agent 检测结果 | 立即 |

@@ -16,7 +16,7 @@ import type {
 import * as db from "../db/sqlite";
 import { isInside } from "../utils/paths";
 import { errorMessage } from "../../shared/error";
-import { isMarkdownFile, isTextFile } from "../../shared/file-kinds";
+import { isHtmlFile, isMarkdownFile, isTextFile } from "../../shared/file-kinds";
 
 const MAX_TEXT_BYTES = 2 * 1024 * 1024;
 const MAX_EMBED_BYTES = 25 * 1024 * 1024;
@@ -36,6 +36,27 @@ const IMAGE_MIME_TYPES: Record<string, string> = {
   tiff: "image/tiff",
   tif: "image/tiff",
   svg: "image/svg+xml",
+};
+
+/**
+ * 预览 HTML 页面时，相对引用的样式 / 脚本 / 字体也要按正确 MIME 返回，
+ * 否则 Chromium 会以 MIME 不匹配拒绝应用样式表或模块脚本。
+ */
+const WEB_MIME_TYPES: Record<string, string> = {
+  html: "text/html; charset=utf-8",
+  htm: "text/html; charset=utf-8",
+  xhtml: "application/xhtml+xml; charset=utf-8",
+  css: "text/css; charset=utf-8",
+  js: "text/javascript; charset=utf-8",
+  mjs: "text/javascript; charset=utf-8",
+  cjs: "text/javascript; charset=utf-8",
+  json: "application/json; charset=utf-8",
+  map: "application/json; charset=utf-8",
+  woff: "font/woff",
+  woff2: "font/woff2",
+  ttf: "font/ttf",
+  otf: "font/otf",
+  eot: "application/vnd.ms-fontobject",
 };
 
 const CODE_LANGUAGES: Record<string, string> = {
@@ -110,45 +131,28 @@ export async function readProjectFile(
     const extension = extname(name).slice(1).toLowerCase();
     const mimeType = resolveMimeType(name, extension);
 
-    const imageMime = IMAGE_MIME_TYPES[extension];
-    if (imageMime) {
+    /*
+     * 图片与 PDF 不再把内容读成 base64 data URL：
+     * 1) Chromium 对 URL 长度有 2MB 上限，稍大的 PDF（base64 后超过 2MB）
+     *    会整段加载失败，界面只剩一个白框；
+     * 2) data URL 要经过 IPC 与 React state，文件越大主线程卡得越久。
+     * 渲染层改用 nova-preview:// 按需流式读取（见 files/protocol.ts）。
+     */
+    if (IMAGE_MIME_TYPES[extension] || extension === "pdf") {
       if (fileStat.size > MAX_EMBED_BYTES) {
         return {
           ok: true,
           file: binaryPreview(name, relativePath, mimeType, fileStat.size, "文件过大，未生成预览"),
         };
       }
-      const buffer = await readFile(fullPath);
       return {
         ok: true,
         file: {
           name,
           relativePath,
-          kind: "image",
-          mimeType: imageMime,
-          size: fileStat.size,
-          dataUrl: `data:${imageMime};base64,${buffer.toString("base64")}`,
-        },
-      };
-    }
-
-    if (extension === "pdf") {
-      if (fileStat.size > MAX_EMBED_BYTES) {
-        return {
-          ok: true,
-          file: binaryPreview(name, relativePath, mimeType, fileStat.size, "文件过大，未生成预览"),
-        };
-      }
-      const buffer = await readFile(fullPath);
-      return {
-        ok: true,
-        file: {
-          name,
-          relativePath,
-          kind: "pdf",
+          kind: extension === "pdf" ? "pdf" : "image",
           mimeType,
           size: fileStat.size,
-          dataUrl: `data:application/pdf;base64,${buffer.toString("base64")}`,
         },
       };
     }
@@ -174,7 +178,9 @@ export async function readProjectFile(
     const content = decodeText(buffer);
     const kind: FilePreviewKind = isMarkdownFile(name)
       ? "markdown"
-      : "text";
+      : isHtmlFile(name)
+        ? "html"
+        : "text";
 
     return {
       ok: true,
@@ -316,12 +322,13 @@ function resolveLanguage(extension: string): string {
   return CODE_LANGUAGES[extension] ?? "text";
 }
 
-function resolveMimeType(name: string, extension: string): string {
+export function resolveMimeType(name: string, extension: string): string {
   const lower = name.toLowerCase();
   if (lower === "dockerfile" || lower === "containerfile") return "text/plain";
   if (IMAGE_MIME_TYPES[extension]) return IMAGE_MIME_TYPES[extension];
   if (extension === "pdf") return "application/pdf";
   if (extension === "svg") return "image/svg+xml";
+  if (WEB_MIME_TYPES[extension]) return WEB_MIME_TYPES[extension];
   if (isTextFile(name)) return "text/plain";
   return "application/octet-stream";
 }

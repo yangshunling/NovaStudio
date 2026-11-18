@@ -227,7 +227,9 @@ export interface PreparedChatRun extends PreparedAgentRun {
 }
 ```
 
-`CompleteOptions` 用于「不建会话、不开工具、只要最终文本」的任务（提交信息、标题、周报）：`prompt` / `cwd` / `timeoutMs` / `onChunk` / `signal`。provider 选择逻辑在 `src/main/agents/complete.ts`：优先设置里的 `defaultAgent`，否则用第一个具备 `complete` 的 provider。
+`CompleteOptions` 用于「不建会话、不开工具、只要最终文本」的任务（提交信息、标题、周报）：`prompt` / `cwd` / `timeoutMs` / `onChunk` / `signal` / `jsonSchema`。provider 选择逻辑在 `src/main/agents/complete.ts`：优先设置里的 `defaultAgent`，否则用第一个具备 `complete` 的 provider。
+
+传 `jsonSchema` 时，支持结构化输出的 provider（Claude CLI：`--output-format json --json-schema`）会把结果约束成符合 schema 的对象，并让 `complete()` 返回该对象的 JSON 字符串（优先取 `structured_output`，缺失时回退 `result`）。不支持的 provider 按纯文本返回，调用方需兼容两种形态。
 
 `src/main/agents/chat-identity.ts` 只导出 `BASE_CHAT_NAME`（「通用助手」）——它是宿主概念，不属于任何具体 CLI，聊天运行时与 IPC 共用它，避免反向依赖会话模块。
 

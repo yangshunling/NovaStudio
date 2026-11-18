@@ -247,6 +247,14 @@ export interface CompleteOptions {
   cwd: string;
   timeoutMs?: number;
   /**
+   * JSON Schema：要求 provider 以结构化输出返回结果。
+   *
+   * 支持该能力的 provider（Claude CLI 的 `--json-schema`）会把模型输出
+   * 约束成符合 schema 的对象，并让 complete() 返回该对象的 JSON 字符串。
+   * 不支持的 provider 可以忽略此字段，调用方仍需能处理纯文本返回值。
+   */
+  jsonSchema?: Record<string, unknown>;
+  /**
    * 增量输出回调。
    *
    * provider 支持流式输出时逐段回传，调用方可以据此展示进度；

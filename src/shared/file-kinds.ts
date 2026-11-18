@@ -11,6 +11,9 @@
 
 const MARKDOWN_EXTENSIONS = new Set(["md", "markdown", "mdx", "mdown"]);
 
+/** 可以像页面一样渲染的 HTML 文档 */
+const HTML_EXTENSIONS = new Set(["html", "htm", "xhtml"]);
+
 /** 可以按 UTF-8 文本读取、预览与保存的扩展名 */
 const TEXT_EXTENSIONS = new Set([
   // 文档
@@ -116,6 +119,11 @@ export function extensionOf(fileName: string): string {
 /** 是否为 Markdown 文档 */
 export function isMarkdownFile(fileName: string): boolean {
   return MARKDOWN_EXTENSIONS.has(extensionOf(fileName));
+}
+
+/** 是否为可渲染的 HTML 文档 */
+export function isHtmlFile(fileName: string): boolean {
+  return HTML_EXTENSIONS.has(extensionOf(fileName));
 }
 
 /** 是否可以按文本处理（预览 / 编辑 / 全文索引） */

@@ -15,6 +15,7 @@ export function useAgentStream(): void {
   const _onEvent = useChatStore((s) => s._onEvent);
   const _onDone = useChatStore((s) => s._onDone);
   const _onAborted = useChatStore((s) => s._onAborted);
+  const _onSessionTitle = useChatStore((s) => s._onSessionTitle);
   // 用 selector 取 action，保证依赖稳定且绕开 getState 的非响应式调用
   const _onTaskUpdated = useAutomationStore((s) => s._onTaskUpdated);
 
@@ -25,6 +26,8 @@ export function useAgentStream(): void {
     unsubs.push(ipc.on.agentEvent((payload) => _onEvent(payload)));
     unsubs.push(ipc.on.agentDone((data) => _onDone(data)));
     unsubs.push(ipc.on.agentAborted((data) => _onAborted(data)));
+    // 首条消息后的后台标题总结：就地更新列表中的标题
+    unsubs.push(ipc.on.sessionTitle((data) => _onSessionTitle(data)));
     // 收到 Agent 检测结果推送后刷新 store
     unsubs.push(
       ipc.on.agentsDetected((agents) => {
@@ -54,5 +57,5 @@ export function useAgentStream(): void {
     return () => {
       unsubs.forEach((unsub) => unsub());
     };
-  }, [_onEvent, _onDone, _onAborted, _onTaskUpdated]);
+  }, [_onEvent, _onDone, _onAborted, _onTaskUpdated, _onSessionTitle]);
 }

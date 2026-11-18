@@ -1,8 +1,9 @@
 /**
  * 项目文件只读预览
  *
- * 文本 / 代码使用 Shiki，Markdown 可切换预览与源码，
- * 图片与 PDF 使用主进程返回的 data URL，其他类型回退到系统默认程序。
+ * 文本 / 代码使用 Shiki；Markdown 与 HTML 都可以在「渲染 / 源码」之间切换
+ * （HTML 渲染走沙箱 iframe），图片与 PDF 通过 nova-preview:// 从磁盘流式读取
+ * （PDF 再转 Blob），其他类型回退到系统默认程序。
  */
 
 import { useEffect, useState } from "react";
@@ -36,15 +37,20 @@ export function FilePreview({
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [reloadKey, setReloadKey] = useState(0);
-  const [markdownMode, setMarkdownMode] = useState<"preview" | "source">("preview");
+  /** Markdown / HTML 的渲染与源码切换；切换文件时重置为渲染 */
+  const [documentMode, setDocumentMode] = useState<"preview" | "source">(
+    "preview",
+  );
   const [externalError, setExternalError] = useState<string | null>(null);
+  const [pdfUrl, setPdfUrl] = useState<string | null>(null);
+  const [pdfError, setPdfError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
     setError(null);
     setExternalError(null);
-    setMarkdownMode("preview");
+    setDocumentMode("preview");
 
     ipc
       .readFile(tab.projectId, tab.relativePath)
@@ -72,6 +78,41 @@ export function FilePreview({
     };
   }, [tab.projectId, tab.relativePath, reloadKey]);
 
+  /*
+   * PDF 不能直接把 nova-preview:// 交给 <embed>：Chromium 的 PDF 查看器
+   * 只接管 http(s)/file/blob 等 URL，自定义协议会得到空白框。
+   * 先把字节拉下来做成 Blob URL，实测 12MB 级别也能立即渲染。
+   */
+  useEffect(() => {
+    if (file?.kind !== "pdf") {
+      setPdfUrl(null);
+      setPdfError(null);
+      return;
+    }
+
+    let cancelled = false;
+    let objectUrl: string | null = null;
+    setPdfUrl(null);
+    setPdfError(null);
+
+    fetch(previewUrl(tab.projectId, tab.relativePath))
+      .then(async (response) => {
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const blob = await response.blob();
+        if (cancelled) return;
+        objectUrl = URL.createObjectURL(blob);
+        setPdfUrl(objectUrl);
+      })
+      .catch((err) => {
+        if (!cancelled) setPdfError(String(err));
+      });
+
+    return () => {
+      cancelled = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [file, tab.projectId, tab.relativePath]);
+
   const openExternal = async () => {
     setExternalError(null);
     const result = await ipc.openFileExternal(tab.projectId, tab.relativePath);
@@ -93,22 +134,22 @@ export function FilePreview({
                 {file.truncated ? " · 已截断" : ""}
               </span>
             )}
-            {file?.kind === "markdown" && (
+            {(file?.kind === "markdown" || file?.kind === "html") && (
               <SegmentedTabs
                 size="sm"
-                value={markdownMode}
-                onChange={setMarkdownMode}
+                value={documentMode}
+                onChange={setDocumentMode}
                 className="mr-1"
                 options={[
                   {
                     id: "preview",
                     label: <Eye className="h-3.5 w-3.5" />,
-                    title: "预览 Markdown",
+                    title: `预览 ${file.kind === "html" ? "HTML 页面" : "Markdown"}`,
                   },
                   {
                     id: "source",
                     label: <FileCode2 className="h-3.5 w-3.5" />,
-                    title: "查看 Markdown 源码",
+                    title: `查看 ${file.kind === "html" ? "HTML" : "Markdown"} 源码`,
                   },
                 ]}
               />
@@ -155,38 +196,81 @@ export function FilePreview({
             title="无法打开文件"
             detail={error}
           />
-        ) : file?.kind === "markdown" ? (
-          markdownMode === "preview" ? (
-            <div className="h-full overflow-y-auto p-section">
-              <div className="mx-auto max-w-[var(--c-layout-content)]">
-                <MarkdownRenderer
-                  content={file.content ?? ""}
-                  projectId={tab.projectId}
-                  markdownPath={tab.relativePath}
-                  allowHtml
-                />
+        ) : (file?.kind === "markdown" || file?.kind === "html") ? (
+          documentMode === "preview" ? (
+            file.kind === "markdown" ? (
+              <div className="h-full overflow-y-auto p-section">
+                <div className="mx-auto max-w-[var(--c-layout-content)]">
+                  <MarkdownRenderer
+                    content={file.content ?? ""}
+                    projectId={tab.projectId}
+                    markdownPath={tab.relativePath}
+                    allowHtml
+                  />
+                </div>
               </div>
-            </div>
+            ) : (
+              /*
+               * HTML 用沙箱 iframe 渲染：
+               * - 不用 dangerouslySetInnerHTML：页面里的脚本 / 样式会直接
+               *   进入宿主 DOM，既可能污染界面，也拿不到独立的视口滚动；
+               * - sandbox 只给 allow-scripts，不给 allow-same-origin：
+               *   页面能正常跑自己的脚本，但处于不透明源，读不到宿主状态；
+               * - src 走 nova-preview://<projectId>/<相对路径>，页面内的
+               *   ./style.css 等相对资源因此能按同一项目解析。
+               */
+              <iframe
+                key={`${tab.projectId}:${tab.relativePath}:${reloadKey}`}
+                src={previewDocumentUrl(tab.projectId, tab.relativePath)}
+                title={file.name}
+                sandbox="allow-scripts"
+                className="h-full w-full border-0 bg-white"
+              />
+            )
           ) : (
-            <CodePreview code={file.content ?? ""} language={file.language ?? "markdown"} />
+            <CodePreview
+              code={file.content ?? ""}
+              language={
+                file.language ?? (file.kind === "html" ? "html" : "markdown")
+              }
+            />
           )
         ) : file?.kind === "text" ? (
           <CodePreview code={file.content ?? ""} language={file.language ?? "text"} />
-        ) : file?.kind === "image" && file.dataUrl ? (
+        ) : file?.kind === "image" ? (
           <div className="flex h-full items-center justify-center overflow-auto bg-surface-2 p-section">
             <img
-              src={file.dataUrl}
+              src={previewUrl(tab.projectId, tab.relativePath)}
               alt={file.name}
               className="max-h-full max-w-full rounded-md object-contain shadow-[var(--c-shadow-sm)]"
             />
           </div>
-        ) : file?.kind === "pdf" && file.dataUrl ? (
-          <embed
-            src={file.dataUrl}
-            type="application/pdf"
-            className="h-full w-full"
-            title={file.name}
-          />
+        ) : file?.kind === "pdf" ? (
+          pdfError ? (
+            <PreviewState
+              icon={<AlertCircle className="h-7 w-7" />}
+              title="无法加载 PDF"
+              detail={pdfError}
+              action={
+                <Button variant="primary" size="sm" onClick={openExternal}>
+                  用系统默认程序打开
+                </Button>
+              }
+            />
+          ) : pdfUrl ? (
+            <embed
+              src={pdfUrl}
+              type="application/pdf"
+              className="h-full w-full"
+              title={file.name}
+            />
+          ) : (
+            <PreviewState
+              icon={<Spinner className="h-6 w-6" />}
+              title="正在加载 PDF"
+              detail={formatBytes(file.size)}
+            />
+          )
         ) : (
           <PreviewState
             icon={<FileTypeIcon name={tab.name} size={36} />}
@@ -202,6 +286,33 @@ export function FilePreview({
       </div>
     </main>
   );
+}
+
+/**
+ * 图片 / PDF 交给主进程的 nova-preview:// 协议按需流式读取。
+ *
+ * 不用 data URL：Chromium 的 URL 长度上限是 2MB（base64 还会膨胀 4/3），
+ * 超过后 <img>/<embed> 会静默失败，预览区只剩白框。
+ */
+function previewUrl(projectId: string, relativePath: string): string {
+  const name = relativePath.split(/[\\/]/).pop() || "file";
+  const params = new URLSearchParams({ project: projectId, path: relativePath });
+  return `nova-preview://file/${encodeURIComponent(name)}?${params.toString()}`;
+}
+
+/**
+ * HTML 文档的预览地址：项目 id 放在 host 上。
+ *
+ * 页面里的相对资源引用（./style.css、../img/a.png）解析后仍落在同一个
+ * host，主进程据此知道是哪个项目，从而正确读取工作区里的其它文件。
+ */
+function previewDocumentUrl(projectId: string, relativePath: string): string {
+  const path = relativePath
+    .split(/[\\/]+/)
+    .filter(Boolean)
+    .map((segment) => encodeURIComponent(segment))
+    .join("/");
+  return `nova-preview://${projectId}/${path}`;
 }
 
 function CodePreview({ code, language }: { code: string; language: string }) {

@@ -103,7 +103,7 @@ export function EmployeesView() {
               onClick={openCreate}
               icon={<Plus className="h-4 w-4" />}
             >
-              新建数字员工
+              新建员工
             </Button>
           </>
         }
@@ -215,32 +215,37 @@ function EmployeeCard({
       </p>
 
       {/* mt-auto 把工具标签顶到卡片底部，保证卡片上、下、左、右的 padding 一致。
-          数量为 0 时降级为中性灰：没有绑定任何资产不该和真的绑定了的抢注意力。 */}
+          三种资产各固定一个分区色（与 cardStyles 的资产色槽位一致），
+          无论是否绑定都保持同一种颜色。 */}
       <div className={CARD_META}>
-        <UsageChip
-          icon={Plug}
-          count={mcpCount}
-          label="MCP"
-          tone="text-text-secondary"
-        />
-        <UsageChip
-          icon={Sparkles}
-          count={skillCount}
-          label="技能"
-          tone="text-text-secondary"
-        />
+        <UsageChip icon={Plug} count={mcpCount} label="MCP" tone="sky" />
+        <UsageChip icon={Sparkles} count={skillCount} label="技能" tone="moss" />
         <UsageChip
           icon={Library}
           count={knowledgeCount}
           label="知识库"
-          tone="text-text-secondary"
+          tone="teal"
         />
       </div>
     </article>
   );
 }
 
-/** 绑定数量徽标：数量为 0 时静音，避免一屏卡片全是彩色标签 */
+/**
+ * 绑定数量徽标的固定色槽位。
+ *
+ * 颜色只标识资产类型，不表达状态：MCP 永远是天蓝、技能永远是苔绿、
+ * 知识库永远是青，换卡片、换排序、有没有绑定都不变。
+ */
+const USAGE_TONES = {
+  sky: "border-hue-sky/30 bg-hue-sky/10 text-hue-sky",
+  moss: "border-hue-moss/30 bg-hue-moss/10 text-hue-moss",
+  teal: "border-hue-teal/30 bg-hue-teal/10 text-hue-teal",
+} as const;
+
+type UsageTone = keyof typeof USAGE_TONES;
+
+/** 绑定数量徽标：三种资产各一种固定颜色，空态也保持一致 */
 function UsageChip({
   icon: Icon,
   count,
@@ -250,15 +255,12 @@ function UsageChip({
   icon: typeof Plug;
   count: number;
   label: string;
-  tone: string;
+  tone: UsageTone;
 }) {
-  const empty = count === 0;
   return (
     <span
-      title={empty ? `未绑定${label}` : `已绑定 ${count} 个${label}`}
-      className={`flex items-center gap-1 rounded-md border border-border px-1.5 py-0.5 ${
-        empty ? "text-text-muted" : tone
-      }`}
+      title={count === 0 ? `未绑定${label}` : `已绑定 ${count} 个${label}`}
+      className={`flex items-center gap-1 rounded-md border px-1.5 py-0.5 ${USAGE_TONES[tone]}`}
     >
       <Icon className="h-3 w-3" />
       {count} {label}

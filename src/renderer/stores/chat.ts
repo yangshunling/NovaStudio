@@ -230,12 +230,36 @@ interface ChatState {
   _onDone: (data: { sessionId: string }) => void;
   /** 中断的运行已真正收尾：复位运行态，但不自动消费暂存队列 */
   _onAborted: (data: { sessionId: string }) => void;
+  /** 后台总结出的会话标题：就地更新列表，无需整表重载 */
+  _onSessionTitle: (data: { sessionId: string; title: string }) => void;
 }
 
 const EMPTY: readonly Message[] = Object.freeze([]);
 
 /** 会话历史单页条数：与渲染层的首屏预算配合，200 条通常足够覆盖一屏上下文 */
 const SESSION_PAGE_SIZE = 200;
+
+/**
+ * 本次进程内「上一次选择的工作区」。
+ *
+ * 只放内存、不落库：
+ * - 新建会话时默认带回上次选中的工作区，省去每次手动再选一遍；
+ * - 重启程序后内存清空，新会话回到「不绑定工作区」；
+ * - 只在用户显式选择工作区（bindProject）时更新，浏览历史会话不改写它。
+ */
+let lastUsedProjectId: string | null = null;
+
+/**
+ * 取回可默认选中的工作区。
+ * 工作区可能已在别处被删除（或项目列表尚未就绪），此时不能默认选中，
+ * 否则输入框会显示一个绑定了不存在目录的标签。
+ */
+function rememberedProjectId(projects: Project[]): string | null {
+  if (!lastUsedProjectId) return null;
+  return projects.some((project) => project.id === lastUsedProjectId)
+    ? lastUsedProjectId
+    : null;
+}
 
 /** 一次 usage 事件（整轮汇总或单次调用的上下文快照） */
 type UsageEvent = Extract<AgentEvent, { type: "usage" }>;
@@ -661,6 +685,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   deleteProject: async (id) => {
     await ipc.deleteProject(id);
+    // 记住的工作区已被删除：新会话不能默认再选中它
+    if (lastUsedProjectId === id) lastUsedProjectId = null;
     set((state) => {
       // 删除项目会级联删除其下所有会话，渲染层同步清空对应消息桶
       const removed = new Set(
@@ -718,6 +744,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
     // 新会话草稿：只记下选择，首条消息创建会话时一并写入
     if (!sessionId) {
+      // 记住本次选择，下个新会话默认沿用（含「不使用工作区」= null）
+      lastUsedProjectId = projectId;
       set({ currentProjectId: projectId });
       return;
     }
@@ -729,6 +757,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
     const result = await ipc.setSessionProject(sessionId, projectId);
     if (!result) throw new Error("会话不存在");
     const { session, marker } = result;
+    // 切换成功才写入内存：失败的选择不应影响下一个新会话的默认值
+    lastUsedProjectId = session.projectId;
 
     /*
      * 暂存队列绑定的是「旧工作区」里的任务。
@@ -794,7 +824,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   newSession: () => {
     // 只清空当前视图，不预建会话；首条消息时才 createSession，
-    // 避免产生大量空会话。新会话默认不绑定项目。
+    // 避免产生大量空会话。
+    // 工作区默认沿用本次进程内上次选中的那个（重启后内存为空，回到不绑定）；
+    // 目的是让连续新建会话时不必每次重新选目录，直接提问就能用对上下文。
     // 显式「新建」意味着放弃上一份未发送草稿，避免下次进来又看到旧内容。
     set((state) => {
       /*
@@ -805,7 +837,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
        */
       const cleared = {
         currentSessionId: null,
-        currentProjectId: null,
+        currentProjectId: rememberedProjectId(state.projects),
         selectedEmployeeId: null,
         selectedModel: null,
       };
@@ -1535,6 +1567,20 @@ export const useChatStore = create<ChatState>((set, get) => ({
     void get()
       .loadSessions()
       .catch((err) => console.warn("[chat] 会话列表刷新失败", err));
+  },
+
+  _onSessionTitle: (data) => {
+    /*
+     * 后台总结完成：只改这一条的标题。
+     * 不整表重载，避免列表排序 / 滚动位置在用户阅读时跳动。
+     */
+    set((s) => ({
+      sessions: s.sessions.map((session) =>
+        session.id === data.sessionId
+          ? { ...session, title: data.title }
+          : session,
+      ),
+    }));
   },
 }));
 

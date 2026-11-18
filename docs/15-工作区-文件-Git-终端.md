@@ -170,27 +170,45 @@ if (!target) return [];
 ### 4.1 类型
 
 ```ts
-type FilePreviewKind = "text" | "markdown" | "image" | "pdf" | "binary";
+type FilePreviewKind =
+  | "text"
+  | "markdown"
+  | "html"
+  | "image"
+  | "pdf"
+  | "binary";
 ```
+
+`html`（`.html / .htm / .xhtml`）与 Markdown 一样提供「渲染 / 源码」切换。
 
 ### 4.2 大小限制
 
 | 常量 | 值 |
 |---|---|
 | `MAX_TEXT_BYTES` | 2MB |
-| `MAX_EMBED_BYTES` | 25MB |
+| `MAX_EMBED_BYTES` | 25MB（仅 Markdown 内嵌图片） |
 
 ### 4.3 分支
 
+图片与 PDF 不再返回 base64 data URL（Chromium 的 URL 上限 2MB，
+稍大的文件会静默失败成白框），只返回元信息；渲染层通过
+`nova-preview://file/<文件名>?project=<id>&path=<相对路径>` 按需读取：
+
+- `<img src>` 直接使用该协议（主进程流式返回，支持 Range）；
+- `<embed>` 不接受自定义协议，PDF 由渲染层 `fetch` 该协议后转成 Blob URL。
+
+HTML 页面预览另走路径式地址 `nova-preview://<projectId>/<相对路径>`：
+项目 id 放在 host 上，页面里的 `./style.css`、`../img/a.png` 等相对引用解析后
+仍落在同一项目内。协议层为 html / css / js / json / 字体 返回正确的 MIME，
+否则 Chromium 会以 MIME 不匹配拒绝样式表或模块脚本。
+
 ```ts
 if (图片扩展名) {
-  if (size > 25MB) return binaryPreview("文件过大，未生成预览");
-  return { kind: "image", dataUrl: base64 };
+  return { kind: "image", mimeType, size };
 }
 
 if (extension === "pdf") {
-  if (size > 25MB) return binaryPreview(...);
-  return { kind: "pdf", dataUrl: base64 };
+  return { kind: "pdf", mimeType, size };
 }
 
 const knownText = TEXT_EXTENSIONS.has(extension);
@@ -498,8 +516,11 @@ interface FileTab {
 根据 `kind` 渲染：
 
 - `text`：Shiki 高亮；
-- `markdown`：MarkdownRenderer；
-- `image` / `pdf`：data URL；
+- `markdown`：MarkdownRenderer（可切源码）；
+- `html`：沙箱 iframe（`sandbox="allow-scripts"`，不给 same-origin）加载
+  `nova-preview://<projectId>/<相对路径>`（可切源码）；
+- `image`：`nova-preview://` 流式读取；
+- `pdf`：`nova-preview://` 读取后转 Blob URL 再交给 `<embed>`；
 - `binary`：大小与说明；
 - 顶部工具条：打开原文件 / 关闭 / 复制路径等。
 

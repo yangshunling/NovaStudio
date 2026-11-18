@@ -16,7 +16,12 @@ import { handle } from "../register";
 import { revealPath } from "../nativeUi";
 import { BASE_CHAT_NAME } from "../../agents/chat-identity";
 import { prepareSessionChatRun } from "../../sessions/runtime";
+import { generateSessionTitle } from "../../sessions/title";
 import { errorMessage } from "../../../shared/error";
+import {
+  condenseSessionTitle,
+  SESSION_TITLE_MAX_CHARS,
+} from "../../../shared/session-title";
 import type {
   DigitalEmployee,
   DisplayReference,
@@ -231,15 +236,38 @@ export function registerAgentHandlers(service: AgentService): void {
      * 标题取聊天里展示的正文，而不是含引用说明的完整 prompt，
      * 否则首条消息带引用时标题会变成「请读取另一个会话的原始记录…」。
      */
-    const titleSource =
-      (display ?? prompt).trim() || references?.[0]?.name || "[图片]";
+    const firstUserText = (display ?? prompt).trim();
+    const titleSource = firstUserText || references?.[0]?.name || "[图片]";
+    const isFirstMessage = (session.messageCount ?? 0) === 0;
+    /*
+     * 首条消息先写一个本地压缩的临时标题，避免侧栏直接显示整段原始问题；
+     * 真正的短标题由模型在后台总结（见下方 generateSessionTitle），
+     * 期间用户已经能看到一个可读的标题，模型失败也还有兜底。
+     */
+    const fallbackTitle = isFirstMessage
+      ? condenseSessionTitle(titleSource) ||
+        titleSource.slice(0, SESSION_TITLE_MAX_CHARS)
+      : undefined;
     db.touchSession(sessionId, {
-      title:
-        (session.messageCount ?? 0) === 0
-          ? titleSource.slice(0, 40)
-          : undefined,
+      title: fallbackTitle,
       countDelta: 1,
     });
+
+    /*
+     * 后台总结标题：不 await，标题生成不能拖慢本轮对话。
+     * 结果通过 session:title 推送让会话列表就地更新；
+     * 用户手动改名后由 generateSessionTitle 内部的现状校验放弃覆盖。
+     */
+    if (isFirstMessage && fallbackTitle && firstUserText) {
+      void generateSessionTitle({
+        sessionId,
+        question: firstUserText,
+        cwd,
+        fallbackTitle,
+      }).then((title) => {
+        if (title) push("session:title", { sessionId, title });
+      });
+    }
 
     /*
      * 发言者前缀只加在送入 CLI 的上下文里。

@@ -323,7 +323,14 @@ export interface GitStatusSummary {
 // 文件预览 — 工作区文件只读打开
 // ============================================================================
 
-export type FilePreviewKind = "text" | "markdown" | "image" | "pdf" | "binary";
+export type FilePreviewKind =
+  | "text"
+  | "markdown"
+  /** 可渲染的 HTML 文档：预览用沙箱 iframe，源码走代码高亮 */
+  | "html"
+  | "image"
+  | "pdf"
+  | "binary";
 
 export interface FilePreview {
   name: string;
@@ -333,7 +340,6 @@ export interface FilePreview {
   size: number;
   language?: string;
   content?: string;
-  dataUrl?: string;
   truncated?: boolean;
   note?: string;
 }

@@ -405,6 +405,8 @@ export const ipc = {
     agentDone: (cb: (payload: IpcPushMap["agent:done"]) => void) => on("agent:done", cb),
     agentAborted: (cb: (payload: IpcPushMap["agent:aborted"]) => void) =>
       on("agent:aborted", cb),
+    sessionTitle: (cb: (payload: IpcPushMap["session:title"]) => void) =>
+      on("session:title", cb),
     permissionRequest: (
       cb: (payload: IpcPushMap["agent:permission:request"]) => void,
     ) => on("agent:permission:request", cb),

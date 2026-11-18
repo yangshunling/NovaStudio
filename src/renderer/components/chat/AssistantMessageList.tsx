@@ -767,14 +767,24 @@ function CopyAnswerButton() {
  * 计时器放在叶子节点里，父组件不跟着每秒重渲染。
  */
 function WorkingIndicator() {
-  const startedAt = useRef(Date.now()).current;
-  const [seconds, setSeconds] = useState(0);
+  /*
+   * 起始时间取自这条回复的 createdAt，而不是组件挂载时刻。
+   *
+   * 切换会话会卸载消息列表，切回来时组件重新挂载；若以挂载时刻起算，
+   * 计时就会从 0 重新开始。createdAt 跟着消息存在 store 里（流式更新
+   * 只换 content，保留 timestamp），因此切走再回来能接着上次的数字走。
+   */
+  const startedAt = useAuiState((s) => s.message.createdAt.getTime());
+  const [seconds, setSeconds] = useState(() =>
+    Math.max(0, Math.floor((Date.now() - startedAt) / 1000)),
+  );
 
   useEffect(() => {
-    const timer = window.setInterval(
-      () => setSeconds(Math.floor((Date.now() - startedAt) / 1000)),
-      1000,
-    );
+    const tick = () =>
+      setSeconds(Math.max(0, Math.floor((Date.now() - startedAt) / 1000)));
+    // 挂载时先对齐一次，避免切回会话后的首帧显示旧的 0
+    tick();
+    const timer = window.setInterval(tick, 1000);
     return () => window.clearInterval(timer);
   }, [startedAt]);
 

@@ -47,21 +47,28 @@ import {
   ATTACHMENT_SCHEME,
   registerAttachmentProtocol,
 } from "./attachments/protocol";
+import { PREVIEW_SCHEME, registerPreviewProtocol } from "./files/protocol";
 
 /*
  * 自定义协议必须在 app ready 之前声明特权；放在模块顶层是为了保证
  * 无论单实例检查是否通过，注册都发生在 ready 之前。
  */
+const PRIVILEGED_SCHEME_PRIVILEGES = {
+  standard: true,
+  secure: true,
+  supportFetchAPI: true,
+  corsEnabled: true,
+  stream: true,
+} as const;
+
 protocol.registerSchemesAsPrivileged([
   {
     scheme: ATTACHMENT_SCHEME,
-    privileges: {
-      standard: true,
-      secure: true,
-      supportFetchAPI: true,
-      corsEnabled: true,
-      stream: true,
-    },
+    privileges: { ...PRIVILEGED_SCHEME_PRIVILEGES },
+  },
+  {
+    scheme: PREVIEW_SCHEME,
+    privileges: { ...PRIVILEGED_SCHEME_PRIVILEGES },
   },
 ]);
 
@@ -287,6 +294,9 @@ async function bootstrap(): Promise<void> {
   initDatabase();
   // 会话图片附件协议：渲染层通过 nova-attachment:// 按需读取
   registerAttachmentProtocol();
+  // 工作区文件预览协议：图片 / PDF 通过 nova-preview:// 流式读取，
+  // 避免大文件 data URL 超过 Chromium 2MB 长度上限后白屏
+  registerPreviewProtocol();
   // 上次异常退出可能留下含系统提示词的临时目录（员工 / 知识库内容），先清掉
   purgeStaleTempDirs("novastudio-system-");
   await migrateLegacyAssets();

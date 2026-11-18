@@ -90,10 +90,38 @@ const COMPLETE_TIMEOUT_MS = 120_000;
 const COMPLETE_STDERR_LIMIT = 4000;
 
 /**
+ * 解析 `--output-format json` 的结果。
+ *
+ * 正常输出是单个 JSON 对象，结构化结果在 structured_output 里；
+ * 个别版本只填 result（内容是 JSON 文本）。诊断信息混入 stdout 时，
+ * 从后往前找最后一个可解析的对象行，避免一行告警毁掉整次生成。
+ */
+function parseJsonCompleteOutput(stdout: string): string {
+  const trimmed = stdout.trim();
+  const candidates = [trimmed, ...trimmed.split(/\r?\n/).reverse()];
+  for (const candidate of candidates) {
+    const text = candidate.trim();
+    if (!text.startsWith("{")) continue;
+    try {
+      const value = JSON.parse(text) as Record<string, unknown>;
+      if (value.structured_output !== undefined && value.structured_output !== null) {
+        return JSON.stringify(value.structured_output);
+      }
+      if (typeof value.result === "string") return value.result;
+    } catch {
+      // 不是完整 JSON：继续尝试下一行
+    }
+  }
+  // 完全解析失败：原样返回，调用方按纯文本处理
+  return trimmed;
+}
+
+/**
  * 一次性文本生成。
  *
  * 与 start() 的差别：
- * - --output-format text：只要最终文本，不解析事件流
+ * - --output-format text / json：只要最终文本或结构化结果，不解析事件流
+ * - --json-schema：调用方给了 schema 时，要求模型输出符合 schema 的对象
  * - --tools ""：禁用全部内置工具，模型不能读写仓库
  * - --no-session-persistence：不落盘会话，不污染用户历史
  */
@@ -126,16 +154,24 @@ function completeOnce(opts: CompleteOptions): Promise<string> {
       transport?.kill();
     }, limit);
 
+    /*
+     * 有 jsonSchema 时改用 JSON 输出：CLI 会把模型结果约束成 schema 对象，
+     * 并在结果对象的 structured_output 字段里返回。
+     */
+    const jsonSchema = opts.jsonSchema;
     transport = spawnChild(
       [
         BIN,
         "-p",
         "--output-format",
-        "text",
+        jsonSchema ? "json" : "text",
         // 空字符串表示禁用全部内置工具
         "--tools",
         "",
         "--no-session-persistence",
+        ...(jsonSchema
+          ? ["--json-schema", JSON.stringify(jsonSchema)]
+          : []),
       ],
       opts.cwd,
       undefined,
@@ -150,7 +186,9 @@ function completeOnce(opts: CompleteOptions): Promise<string> {
         },
         onExit: (code) => {
           if (code === 0) {
-            settle(() => resolve(stdout.trim()));
+            settle(() =>
+              resolve(jsonSchema ? parseJsonCompleteOutput(stdout) : stdout.trim()),
+            );
           } else {
             settle(() =>
               reject(

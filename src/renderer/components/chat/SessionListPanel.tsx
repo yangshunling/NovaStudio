@@ -8,7 +8,8 @@
  * - 置顶会话固定在最上方的「置顶」组；其余按「今天 / 昨天 / 本周 / 更早」
  *   分组。每个分组标题可点击折叠，状态记在 localStorage。
  * - 每行给出标题、时间、消息数与绑定项目，让列表本身就能回答「这是哪次对话」。
- * - 置顶 / 重命名 / 新建终端 / 删除收进 hover 出现的「…」菜单；
+ * - 置顶 / 重命名 / 分享 / 新建终端 / 删除收进右键菜单；键盘可用菜单键或
+ *   Shift+F10 打开。行内不再有常驻操作按钮，标题因此能铺满整行。
  *   运行中在时间位置显示旋转图标。
  */
 
@@ -24,7 +25,6 @@ import {
   Check,
   ChevronRight,
   MessageSquarePlus,
-  MoreHorizontal,
   PenLine,
   Pin,
   PinOff,
@@ -386,15 +386,10 @@ function SessionRow({
     setEditing(true);
   };
 
-  /** hover 出的「…」按按钮位置展开菜单 */
-  const openMenuAtButton = (event: React.MouseEvent<HTMLButtonElement>) => {
-    event.stopPropagation();
-    const rect = event.currentTarget.getBoundingClientRect();
+  /** 在视口坐标处打开菜单；坐标会被收拢到窗口内 */
+  const openMenuAt = (x: number, y: number) => {
     setMenu(
-      clampMenuPosition(rect.right - MENU_WIDTH, rect.bottom + 4, {
-        width: MENU_WIDTH,
-        height: MENU_HEIGHT,
-      }),
+      clampMenuPosition(x, y, { width: MENU_WIDTH, height: MENU_HEIGHT }),
     );
   };
 
@@ -461,14 +456,36 @@ function SessionRow({
     <div
       role="button"
       tabIndex={0}
-      onClick={onOpen}
+      aria-haspopup="menu"
+      aria-expanded={Boolean(menu)}
+      onClick={(event) => {
+        // portal 渲染的菜单也会沿 React 树冒泡到这里：菜单里的点击不算“打开会话”
+        if (!event.currentTarget.contains(event.target as Node)) return;
+        onOpen();
+      }}
+      onContextMenu={(event) => {
+        // 菜单本体通过 portal 渲染，事件仍会沿 React 树冒泡到这里：忽略它
+        if (!event.currentTarget.contains(event.target as Node)) return;
+        event.preventDefault();
+        event.stopPropagation();
+        openMenuAt(event.clientX, event.clientY);
+      }}
       onKeyDown={(e) => {
+        // 只处理行自身获得焦点时的按键，避免菜单项 / 内部控件的按键被拦下
+        if (e.target !== e.currentTarget) return;
         if (e.key === "Enter" || e.key === " ") {
           e.preventDefault();
           onOpen();
+          return;
+        }
+        // 键盘打开上下文菜单：菜单键或 Shift+F10，位置贴住行的右下角
+        if (e.key === "ContextMenu" || (e.shiftKey && e.key === "F10")) {
+          e.preventDefault();
+          const rect = e.currentTarget.getBoundingClientRect();
+          openMenuAt(rect.right - MENU_WIDTH, rect.bottom + 4);
         }
       }}
-      className={`ui-cv-row ui-interactive group relative min-h-13 rounded-lg px-3 py-2 ${
+      className={`ui-cv-row ui-interactive relative min-h-13 rounded-lg px-3 py-2 ${
         isActive
           ? "ui-row-active text-text"
           : "text-text-secondary hover:bg-surface-hover hover:text-text"
@@ -482,9 +499,9 @@ function SessionRow({
         />
       )}
 
-      {/* 标题独占第一行，时间与元信息放到第二行 */}
+      {/* 标题独占第一行并铺满整行宽度：行内没有常驻操作按钮，不需要预留右边距 */}
       <div
-        className={`min-w-0 truncate pr-7 ui-type-item leading-5 ${
+        className={`min-w-0 truncate ui-type-item leading-5 ${
           isActive ? "font-medium" : ""
         }`}
       >
@@ -524,7 +541,7 @@ function SessionRow({
             <span className="truncate">{item}</span>
           </span>
         ))}
-        <span className="ml-auto flex shrink-0 items-center tabular-nums transition-opacity group-hover:opacity-0">
+        <span className="ml-auto flex shrink-0 items-center tabular-nums">
           {isStreaming ? (
             <Spinner label="正在执行" className="h-3.5 w-3.5 text-accent" />
           ) : (
@@ -533,22 +550,7 @@ function SessionRow({
         </span>
       </div>
 
-      {/* hover 时在行右侧出现「…」，点开重命名 / 删除菜单 */}
-      <button
-        type="button"
-        onClick={openMenuAtButton}
-        title="会话操作"
-        aria-label="会话操作"
-        className={`absolute right-2 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-md text-text-muted transition-opacity hover:bg-surface-hover hover:text-text ${
-          menu
-            ? "pointer-events-auto opacity-100"
-            : "pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100 focus-visible:pointer-events-auto focus-visible:opacity-100"
-        }`}
-      >
-        <MoreHorizontal className="h-3.5 w-3.5" />
-      </button>
-
-      {/* 置顶 / 重命名 / 分享 / 终端 / 删除统一收进「…」菜单，保持列表清爽 */}
+      {/* 置顶 / 重命名 / 分享 / 终端 / 删除统一收进右键菜单，保持列表清爽 */}
       {menu && (
         <MenuPanel x={menu.x} y={menu.y} menuRef={menuRef}>
           <MenuItem

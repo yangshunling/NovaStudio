@@ -133,26 +133,11 @@ export function Sidebar() {
 
   return (
     <aside className="ui-sidebar relative flex h-full w-[var(--c-layout-sidebar)] flex-col border-r-0">
-      {/* 头部：扁平品牌标记 + 产品名 + 一行标语。
-          标记是 N 字形里的一个节点，取自产品「Agent 网络」的意象；
-          不用渐变、发光或星芒，保持工作台气质。 */}
+      {/* 头部：产品名 + 标语，不放图标。 */}
       <div
         style={{ zIndex: 30 }}
-        className="relative flex h-[var(--c-layout-header)] shrink-0 items-center gap-2.5 overflow-hidden border-b border-border px-4"
+        className="relative flex h-[var(--c-layout-header)] shrink-0 items-center overflow-hidden border-b border-border px-4"
       >
-        <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-accent-soft text-accent">
-          <svg viewBox="0 0 24 24" className="h-5 w-5" aria-hidden>
-            <path
-              d="M6 18V6l12 12V6"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-            <circle cx="12" cy="12" r="1.7" fill="currentColor" />
-          </svg>
-        </span>
         <div className="min-w-0">
           <div className="ui-type-heading leading-none text-text">Nova</div>
           <div className="mt-1 ui-type-sub leading-none text-text-muted">
