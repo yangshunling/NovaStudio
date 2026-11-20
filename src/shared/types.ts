@@ -330,6 +330,15 @@ export type FilePreviewKind =
   | "html"
   | "image"
   | "pdf"
+  /** 音视频：由 nova-preview:// 流式读取，交给 <audio> / <video> 播放 */
+  | "audio"
+  | "video"
+  /** SVG：渲染与源码可切换，源码随预览一起返回 */
+  | "svg"
+  /** 字体：渲染层用 FontFace 加载后展示样张 */
+  | "font"
+  /** 字幕：按时间轴列出，可挂到同名视频上 */
+  | "subtitle"
   | "binary";
 
 export interface FilePreview {
@@ -342,6 +351,10 @@ export interface FilePreview {
   content?: string;
   truncated?: boolean;
   note?: string;
+  /** 视频同目录下的字幕文件（相对项目根，`/` 分隔） */
+  subtitlePath?: string;
+  /** 字幕格式：vtt 可直接作为 <track>，srt 需要先转成 WebVTT */
+  subtitleKind?: "vtt" | "srt";
 }
 
 export type ReadFileResult =

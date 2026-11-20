@@ -5,7 +5,7 @@
  * 防止 ../ 与符号链接逃逸到项目目录之外。
  */
 
-import { open, readFile, realpath, stat } from "node:fs/promises";
+import { open, readFile, readdir, realpath, stat } from "node:fs/promises";
 import { basename, dirname, extname, resolve } from "node:path";
 import type {
   FilePreview,
@@ -16,7 +16,12 @@ import type {
 import * as db from "../db/sqlite";
 import { isInside } from "../utils/paths";
 import { errorMessage } from "../../shared/error";
-import { isHtmlFile, isMarkdownFile, isTextFile } from "../../shared/file-kinds";
+import {
+  isHtmlFile,
+  isMarkdownFile,
+  isSubtitleFile,
+  isTextFile,
+} from "../../shared/file-kinds";
 
 const MAX_TEXT_BYTES = 2 * 1024 * 1024;
 const MAX_EMBED_BYTES = 25 * 1024 * 1024;
@@ -36,6 +41,43 @@ const IMAGE_MIME_TYPES: Record<string, string> = {
   tiff: "image/tiff",
   tif: "image/tiff",
   svg: "image/svg+xml",
+};
+
+/**
+ * 音视频只收录 Chromium 内核能直接解码的容器。
+ *
+ * mkv / avi 等容器 Chromium 不支持，继续走 binary 兜底，由用户选择
+ * 系统程序打开，避免预览区出现无法播放的黑框。
+ */
+const AUDIO_MIME_TYPES: Record<string, string> = {
+  mp3: "audio/mpeg",
+  wav: "audio/wav",
+  ogg: "audio/ogg",
+  oga: "audio/ogg",
+  m4a: "audio/mp4",
+  aac: "audio/aac",
+  flac: "audio/flac",
+  opus: "audio/ogg",
+  weba: "audio/webm",
+};
+
+const VIDEO_MIME_TYPES: Record<string, string> = {
+  mp4: "video/mp4",
+  m4v: "video/mp4",
+  webm: "video/webm",
+  ogv: "video/ogg",
+  mov: "video/quicktime",
+};
+
+/**
+ * 字体：浏览器原生通过 FontFace 加载，不需要额外解析。
+ * .eot 早已被 Chromium 移除，不收录。
+ */
+const FONT_MIME_TYPES: Record<string, string> = {
+  ttf: "font/ttf",
+  otf: "font/otf",
+  woff: "font/woff",
+  woff2: "font/woff2",
 };
 
 /**
@@ -138,6 +180,77 @@ export async function readProjectFile(
      * 2) data URL 要经过 IPC 与 React state，文件越大主线程卡得越久。
      * 渲染层改用 nova-preview:// 按需流式读取（见 files/protocol.ts）。
      */
+    /*
+     * 音视频不进入文本 / 二进制判定：内容由 nova-preview:// 按需流式读取，
+     * 这里只返回类型与元信息。协议层已支持 Range，可以拖动进度条。
+     */
+    if (AUDIO_MIME_TYPES[extension]) {
+      return {
+        ok: true,
+        file: {
+          name,
+          relativePath,
+          kind: "audio",
+          mimeType: AUDIO_MIME_TYPES[extension],
+          size: fileStat.size,
+        },
+      };
+    }
+    if (VIDEO_MIME_TYPES[extension]) {
+      // 同目录下的同名 .vtt / .srt 自动挂到播放器上，省去手动选择字幕
+      const subtitle = await findSiblingSubtitle(fullPath);
+      return {
+        ok: true,
+        file: {
+          name,
+          relativePath,
+          kind: "video",
+          mimeType: VIDEO_MIME_TYPES[extension],
+          size: fileStat.size,
+          ...(subtitle
+            ? {
+                subtitlePath: siblingRelativePath(relativePath, subtitle.name),
+                subtitleKind: subtitle.kind,
+              }
+            : {}),
+        },
+      };
+    }
+
+    if (FONT_MIME_TYPES[extension]) {
+      return {
+        ok: true,
+        file: {
+          name,
+          relativePath,
+          kind: "font",
+          mimeType: FONT_MIME_TYPES[extension],
+          size: fileStat.size,
+        },
+      };
+    }
+
+    /*
+     * SVG 既是图片也是文本：返回渲染用的元信息，同时带上源码，
+     * 让「渲染 / 源码」切换和 HTML 保持一致。
+     */
+    if (extension === "svg") {
+      const truncated = fileStat.size > MAX_TEXT_BYTES;
+      const buffer = await readPrefix(fullPath, MAX_TEXT_BYTES);
+      return {
+        ok: true,
+        file: {
+          name,
+          relativePath,
+          kind: "svg",
+          mimeType: "image/svg+xml",
+          size: fileStat.size,
+          content: decodeText(buffer),
+          truncated,
+        },
+      };
+    }
+
     if (IMAGE_MIME_TYPES[extension] || extension === "pdf") {
       if (fileStat.size > MAX_EMBED_BYTES) {
         return {
@@ -180,7 +293,9 @@ export async function readProjectFile(
       ? "markdown"
       : isHtmlFile(name)
         ? "html"
-        : "text";
+        : isSubtitleFile(name)
+          ? "subtitle"
+          : "text";
 
     return {
       ok: true,
@@ -322,12 +437,68 @@ function resolveLanguage(extension: string): string {
   return CODE_LANGUAGES[extension] ?? "text";
 }
 
+/**
+ * 查找视频同目录下的字幕文件。
+ *
+ * 只认 `.vtt` / `.srt`：前者可以原样作为 `<track>`，后者渲染层会转成
+ * WebVTT；`.ass` / `.ssa` 需要额外的样式解析，暂不自动挂载。
+ * 精确同名（movie.srt）优先于带语言后缀（movie.zh.srt）。
+ */
+async function findSiblingSubtitle(
+  fullPath: string,
+): Promise<{ name: string; kind: "vtt" | "srt" } | null> {
+  const dir = dirname(fullPath);
+  const base = basename(fullPath, extname(fullPath));
+
+  let names: string[];
+  try {
+    names = await readdir(dir);
+  } catch {
+    return null;
+  }
+
+  const candidates = names.filter((entry) =>
+    /\.(vtt|srt)$/i.test(entry) &&
+    entry.toLowerCase().startsWith(`${base.toLowerCase()}.`),
+  );
+  if (candidates.length === 0) return null;
+
+  const score = (entry: string): number => {
+    const suffix = entry.slice(base.length + 1).toLowerCase();
+    return suffix.length * 10 + (suffix.endsWith("vtt") ? 0 : 1);
+  };
+  candidates.sort((a, b) => score(a) - score(b) || a.localeCompare(b));
+
+  const chosen = candidates[0];
+  return {
+    name: chosen,
+    kind: chosen.toLowerCase().endsWith(".vtt") ? "vtt" : "srt",
+  };
+}
+
+/** 同目录文件 → 相对项目根路径；沿用原路径的分隔符习惯 */
+function siblingRelativePath(relativePath: string, fileName: string): string {
+  const index = Math.max(
+    relativePath.lastIndexOf("/"),
+    relativePath.lastIndexOf("\\"),
+  );
+  return index >= 0 ? relativePath.slice(0, index + 1) + fileName : fileName;
+}
+
 export function resolveMimeType(name: string, extension: string): string {
   const lower = name.toLowerCase();
   if (lower === "dockerfile" || lower === "containerfile") return "text/plain";
   if (IMAGE_MIME_TYPES[extension]) return IMAGE_MIME_TYPES[extension];
+  if (AUDIO_MIME_TYPES[extension]) return AUDIO_MIME_TYPES[extension];
+  if (VIDEO_MIME_TYPES[extension]) return VIDEO_MIME_TYPES[extension];
+  if (FONT_MIME_TYPES[extension]) return FONT_MIME_TYPES[extension];
   if (extension === "pdf") return "application/pdf";
   if (extension === "svg") return "image/svg+xml";
+  // WebVTT 必须按 text/vtt 返回，否则 <track> 会拒绝加载
+  if (extension === "vtt") return "text/vtt";
+  if (extension === "srt" || extension === "ass" || extension === "ssa") {
+    return "text/plain";
+  }
   if (WEB_MIME_TYPES[extension]) return WEB_MIME_TYPES[extension];
   if (isTextFile(name)) return "text/plain";
   return "application/octet-stream";

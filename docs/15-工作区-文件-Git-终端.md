@@ -6,7 +6,7 @@
 
 - 工作区（复用项目实体）的登记与删除；
 - 工作区文件树与懒加载；
-- 只读文件预览（文本 / Markdown / 图片 / PDF / 二进制）；
+- 只读文件预览（文本 / Markdown / 图片 / PDF / 音视频 / 二进制）；
 - Git 工作区状态；
 - 基于 node-pty 的系统终端；
 - 会话页的右侧文件面板与文件 / 终端标签。
@@ -176,10 +176,16 @@ type FilePreviewKind =
   | "html"
   | "image"
   | "pdf"
+  | "audio"
+  | "video"
+  | "svg"
+  | "font"
+  | "subtitle"
   | "binary";
 ```
 
-`html`（`.html / .htm / .xhtml`）与 Markdown 一样提供「渲染 / 源码」切换。
+`html`（`.html / .htm / .xhtml`）与 Markdown 一样提供「渲染 / 源码」切换；
+`svg` 同样支持切换，源码随预览一起返回。
 
 ### 4.2 大小限制
 
@@ -195,7 +201,24 @@ type FilePreviewKind =
 `nova-preview://file/<文件名>?project=<id>&path=<相对路径>` 按需读取：
 
 - `<img src>` 直接使用该协议（主进程流式返回，支持 Range）；
-- `<embed>` 不接受自定义协议，PDF 由渲染层 `fetch` 该协议后转成 Blob URL。
+- `<embed>` 不接受自定义协议，PDF 由渲染层 `fetch` 该协议后转成 Blob URL；
+- `<audio>` / `<video>` 直接使用该协议，206 分段响应让进度条可拖动。
+
+音视频只收录 Chromium 能解码的容器（音频：mp3 / wav / ogg / m4a / aac / flac /
+opus / weba；视频：mp4 / m4v / webm / ogv / mov）。mkv / avi 等容器仍归为
+`binary`；HEVC、AC-3 等编码不支持时，`<audio>` / `<video>` 的 `onError`
+会提示改用系统程序打开。
+
+字体（ttf / otf / woff / woff2）只返回元信息，渲染层用 `FontFace` 加载后展示
+样张；不引入字体解析库。
+
+字幕（srt / vtt / ass / ssa）按纯文本读取，渲染层解析成时间轴。视频同目录下
+存在同名 `.vtt` / `.srt` 时（精确同名优先于 `movie.zh.srt`），会自动挂到
+`<video>` 的 `<track>` 上：`.vtt` 直接使用，`.srt` 由渲染层转成 WebVTT 后
+以 Blob URL 传入。ASS / SSA 只做时间轴预览，不自动挂载。
+
+未知二进制不再只有「不支持预览」兜底：渲染层通过协议读取前 32KB，展示
+十六进制与 ASCII。超大图片 / PDF 仍回退到「用系统默认程序打开」。
 
 HTML 页面预览另走路径式地址 `nova-preview://<projectId>/<相对路径>`：
 项目 id 放在 host 上，页面里的 `./style.css`、`../img/a.png` 等相对引用解析后
@@ -203,6 +226,22 @@ HTML 页面预览另走路径式地址 `nova-preview://<projectId>/<相对路径
 否则 Chromium 会以 MIME 不匹配拒绝样式表或模块脚本。
 
 ```ts
+if (音频扩展名) {
+  return { kind: "audio", mimeType, size };
+}
+
+if (视频扩展名) {
+  return { kind: "video", mimeType, size, subtitlePath, subtitleKind };
+}
+
+if (字体扩展名) {
+  return { kind: "font", mimeType, size };
+}
+
+if (扩展名 === "svg") {
+  return { kind: "svg", mimeType, size, content, truncated };
+}
+
 if (图片扩展名) {
   return { kind: "image", mimeType, size };
 }
@@ -571,7 +610,7 @@ interface FileTab {
 - [ ] 文件树懒加载，忽略构建 / 依赖 / VCS 目录，最多 200 项。
 - [ ] 只监听根目录与展开目录，250ms 合并，仅重拉脏目录。
 - [ ] 文件路径词法 + realpath 双重校验。
-- [ ] 预览支持文本 / Markdown / 图片 / PDF / 二进制。
+- [ ] 预览支持文本 / Markdown / HTML / SVG / 图片 / PDF / 音视频 / 字体 / 字幕 / 十六进制。
 - [ ] 文本 2MB、内嵌 25MB 上限，二进制探测。
 - [ ] 文本解码支持 UTF-8 / UTF-16 BOM。
 - [ ] Markdown 内嵌图片按文档目录解析并由主进程内联。
