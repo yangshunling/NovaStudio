@@ -10,6 +10,7 @@ import { basename, dirname, extname, resolve } from "node:path";
 import type {
   FilePreview,
   FilePreviewKind,
+  OfficePreviewKind,
   ReadEmbeddedImageResult,
   ReadFileResult,
 } from "../../shared/types";
@@ -42,6 +43,53 @@ const IMAGE_MIME_TYPES: Record<string, string> = {
   tif: "image/tiff",
   svg: "image/svg+xml",
 };
+
+/**
+ * Office 文档交给独立的 file-viewer 查看器渲染。
+ *
+ * 这些格式都是二进制容器（ZIP / CFB），不能按文本读；主进程只返回类型与
+ * 大小，渲染层用 nova-preview:// 把字节交给查看器。CSV / TSV 仍按文本预览，
+ * 留在文本链路里，避免改掉可读性更好的现有行为。
+ */
+const OFFICE_WORD_EXTENSIONS = new Set([
+  "docx",
+  "docm",
+  "dotx",
+  "dotm",
+  "doc",
+  "dot",
+  "rtf",
+  "odt",
+]);
+const OFFICE_SHEET_EXTENSIONS = new Set([
+  "xlsx",
+  "xltx",
+  "xlsm",
+  "xlsb",
+  "xls",
+  "xlt",
+  "xltm",
+  "ods",
+  "fods",
+]);
+const OFFICE_SLIDE_EXTENSIONS = new Set([
+  "pptx",
+  "pptm",
+  "potx",
+  "potm",
+  "ppsx",
+  "ppsm",
+  "ppt",
+  "pot",
+  "odp",
+]);
+
+function officeKindOf(extension: string): OfficePreviewKind | null {
+  if (OFFICE_WORD_EXTENSIONS.has(extension)) return "word";
+  if (OFFICE_SHEET_EXTENSIONS.has(extension)) return "spreadsheet";
+  if (OFFICE_SLIDE_EXTENSIONS.has(extension)) return "presentation";
+  return null;
+}
 
 /**
  * 音视频只收录 Chromium 内核能直接解码的容器。
@@ -172,6 +220,22 @@ export async function readProjectFile(
     const name = basename(fullPath);
     const extension = extname(name).slice(1).toLowerCase();
     const mimeType = resolveMimeType(name, extension);
+
+    // Office 文档：只给元信息，正文由查看器按需从 nova-preview:// 拉取
+    const officeKind = officeKindOf(extension);
+    if (officeKind) {
+      return {
+        ok: true,
+        file: {
+          name,
+          relativePath,
+          kind: "office",
+          officeKind,
+          mimeType,
+          size: fileStat.size,
+        },
+      };
+    }
 
     /*
      * 图片与 PDF 不再把内容读成 base64 data URL：

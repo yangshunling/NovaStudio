@@ -6,10 +6,11 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ChevronRight, FolderOpen } from "lucide-react";
+import { AtSign, ChevronRight, FolderOpen, Trash2 } from "lucide-react";
 import { ipc } from "../../lib/ipc";
 import { toMessage } from "../../lib/utils";
 import { toast } from "../../stores/toast";
+import { confirmDialog } from "../../stores/confirm";
 import {
   clearWatchSource,
   setWatchSource,
@@ -18,11 +19,18 @@ import {
 import { useChatStore } from "../../stores/chat";
 import { useFileViewerStore } from "../../stores/fileViewer";
 import { useElementVisible } from "../../hooks/useElementVisible";
+import { useDismissableLayer } from "../../hooks/useDismissableLayer";
 import { useGitStatusRefresh } from "../../hooks/useGitStatusRefresh";
 import {
   readExpandedPaths,
   writeExpandedPaths,
 } from "../../lib/tree-expansion";
+import { clampMenuPosition } from "../../lib/popup";
+import {
+  requestComposerFocus,
+  requestComposerReference,
+} from "../../lib/chat-events";
+import { MENU_WIDTH, MenuItem, MenuPanel, MenuSeparator } from "../ui/Menu";
 import { FileTypeIcon } from "../ui/FileTypeIcon";
 import { FolderTypeIcon } from "../ui/FolderTypeIcon";
 import { PageHeader, PageToolbar } from "../ui/Page";
@@ -44,6 +52,9 @@ const MAX_WORKSPACE_WIDTH = 560;
 function clampWidth(width: number): number {
   return clamp(width, MIN_WORKSPACE_WIDTH, MAX_WORKSPACE_WIDTH);
 }
+
+/** 文件树右键菜单尺寸：引用 + 分割线 + 删除 */
+const TREE_MENU_HEIGHT = 96;
 
 function readStoredWidth(): number | null {
   try {
@@ -211,6 +222,9 @@ export function WorkspacePanel({
   const project = projectProp === undefined ? storeProject : projectProp;
   const openFile = useFileViewerStore((s) => s.openFile);
   const activeTabId = useFileViewerStore((s) => s.activeTabId);
+  const activateCenterTab = useFileViewerStore((s) => s.activateTab);
+  /** 对话当前绑定的工作区：面板跟随终端时可能与展示的工作区不同 */
+  const chatProjectId = storeProject?.id ?? "";
 
   const handleOpenFile = (entry: FileEntry, owner: Project) => {
     openFile(owner.id, entry.relativePath, entry.name);
@@ -436,6 +450,116 @@ export function WorkspacePanel({
     }
   };
 
+  /**
+   * 右键「引用到输入框」。
+   *
+   * 面板与对话绑定同一工作区时用相对路径（与 `#` 文件引用一致）；
+   * 跟随终端展示别的工作区时改用绝对路径，避免 Agent 按错误根目录解析。
+   * 引用标签挂在对话输入框上方，因此顺手把中心区切回对话并聚焦。
+   */
+  const referenceFile = useCallback(
+    (entry: FileEntry, owner: Project) => {
+      const sameWorkspace = owner.id === chatProjectId;
+      const path = sameWorkspace
+        ? entry.relativePath
+        : `${owner.cwd.replace(/\\/g, "/").replace(/\/+$/, "")}/${entry.relativePath}`;
+      requestComposerReference({
+        key: `file:${path}`,
+        category: "file",
+        name: entry.name,
+        detail: path,
+        promptText: `@${path}`,
+        isDirectory: entry.isDirectory,
+      });
+      activateCenterTab(null);
+      requestComposerFocus();
+    },
+    [chatProjectId, activateCenterTab],
+  );
+
+  /**
+   * 右键「删除文件 / 文件夹」。
+   *
+   * 删除前必须二次确认；文件和文件夹都移入系统回收站（整棵子树可整体找回）。
+   * 成功后先本地摘除该行（监听事件随后触发的重拉是幂等的），并清理指向它的
+   * 预览标签与展开状态，避免留下打不开的页签和点不开的目录。
+   */
+  const deleteFile = useCallback(async (entry: FileEntry, owner: Project) => {
+    const target = entry.isDirectory ? "文件夹" : "文件";
+    const confirmed = await confirmDialog({
+      title: `删除${target}「${entry.name}」？`,
+      message: `${entry.relativePath}\n\n${
+        entry.isDirectory ? "文件夹及其中所有内容" : "文件"
+      }会移入系统回收站。`,
+      confirmLabel: "删除",
+      tone: "danger",
+    });
+    if (!confirmed) return;
+
+    try {
+      await ipc.deleteProjectFile(owner.id, entry.relativePath);
+    } catch (err) {
+      toast.error(toMessage(err), 5000);
+      return;
+    }
+
+    /** 自身与全部后代（文件树路径统一以 / 分隔） */
+    const prefix = `${entry.relativePath}/`;
+    const isUnder = (path: string) =>
+      path === entry.relativePath || path.startsWith(prefix);
+
+    // 父目录列表里摘掉这一行
+    const slash = entry.relativePath.lastIndexOf("/");
+    const parent = slash >= 0 ? entry.relativePath.slice(0, slash) : "";
+    const without = (list: FileEntry[]) =>
+      list.filter((item) => item.relativePath !== entry.relativePath);
+    if (parent) {
+      setChildrenByPath((current) =>
+        current[parent]
+          ? { ...current, [parent]: without(current[parent]) }
+          : current,
+      );
+    } else {
+      setRootItems(without);
+    }
+
+    if (entry.isDirectory) {
+      // 已缓存的后代目录列表与展开记录一并丢弃：目录已不存在，留着会挡住重建
+      setChildrenByPath((current) => {
+        const next = { ...current };
+        for (const key of Object.keys(next)) if (isUnder(key)) delete next[key];
+        return next;
+      });
+      const current = expandedPathsRef.current;
+      const next = new Set([...current].filter((path) => !isUnder(path)));
+      if (next.size !== current.size) {
+        setExpandedPaths(next);
+        writeExpandedPaths(owner.id, next);
+      }
+    }
+
+    // 该文件 / 该目录下的预览标签统一关掉
+    const viewer = useFileViewerStore.getState();
+    const closing = viewer.tabs
+      .filter(
+        (tab) => tab.projectId === owner.id && isUnder(tab.relativePath),
+      )
+      .map((tab) => tab.id);
+    if (closing.length > 0) {
+      const wasActive =
+        viewer.activeTabId !== null && closing.includes(viewer.activeTabId);
+      viewer.closeTabs(closing);
+      if (wasActive) {
+        const remaining = useFileViewerStore.getState().tabs;
+        useFileViewerStore
+          .getState()
+          .activateTab(remaining[remaining.length - 1]?.id ?? null);
+      }
+    }
+
+    toast.success(`已删除 ${entry.name}`, 4000);
+  }, []);
+
   const isLoadingRoot = loadingPaths.has("");
   const hasWorkspace = Boolean(cwd);
 
@@ -628,6 +752,12 @@ export function WorkspacePanel({
                 if (project) handleOpenFile(entry, project);
               }}
               onToggleDirectory={toggleDirectory}
+              onReferenceFile={(entry) => {
+                if (project) referenceFile(entry, project);
+              }}
+              onDeleteFile={(entry) => {
+                if (project) void deleteFile(entry, project);
+              }}
             />
           )}
         </div>
@@ -658,6 +788,8 @@ function TreeNodes({
   activeTabId,
   onOpenFile,
   onToggleDirectory,
+  onReferenceFile,
+  onDeleteFile,
 }: {
   entries: FileEntry[];
   depth: number;
@@ -671,6 +803,10 @@ function TreeNodes({
   activeTabId: string | null;
   onOpenFile: (entry: FileEntry) => void;
   onToggleDirectory: (entry: FileEntry) => void;
+  /** 右键：把文件 / 目录路径引用到输入框 */
+  onReferenceFile: (entry: FileEntry) => void;
+  /** 右键：删除文件 / 文件夹（移入系统回收站） */
+  onDeleteFile: (entry: FileEntry) => void;
 }) {
   return (
     <div className="space-y-0.5">
@@ -689,6 +825,8 @@ function TreeNodes({
           activeTabId={activeTabId}
           onOpenFile={onOpenFile}
           onToggleDirectory={onToggleDirectory}
+          onReferenceFile={onReferenceFile}
+          onDeleteFile={onDeleteFile}
         />
       ))}
     </div>
@@ -708,6 +846,8 @@ function TreeNode({
   activeTabId,
   onOpenFile,
   onToggleDirectory,
+  onReferenceFile,
+  onDeleteFile,
 }: {
   entry: FileEntry;
   depth: number;
@@ -721,7 +861,39 @@ function TreeNode({
   activeTabId: string | null;
   onOpenFile: (entry: FileEntry) => void;
   onToggleDirectory: (entry: FileEntry) => void;
+  onReferenceFile: (entry: FileEntry) => void;
+  onDeleteFile: (entry: FileEntry) => void;
 }) {
+  /** 右键菜单坐标（视口坐标）；null 表示关闭 */
+  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  useDismissableLayer(Boolean(menu), () => setMenu(null), [menuRef]);
+
+  const openMenuAt = (x: number, y: number) => {
+    setMenu(
+      clampMenuPosition(x, y, {
+        width: MENU_WIDTH,
+        height: TREE_MENU_HEIGHT,
+      }),
+    );
+  };
+
+  const handleContextMenu = (event: React.MouseEvent) => {
+    event.preventDefault();
+    event.stopPropagation();
+    openMenuAt(event.clientX, event.clientY);
+  };
+
+  /** 键盘打开菜单：菜单键或 Shift+F10，位置贴住行的右下角 */
+  const handleMenuKey = (event: React.KeyboardEvent) => {
+    if (event.key !== "ContextMenu" && !(event.shiftKey && event.key === "F10")) {
+      return;
+    }
+    event.preventDefault();
+    const rect = event.currentTarget.getBoundingClientRect();
+    openMenuAt(rect.right - MENU_WIDTH, rect.bottom + 4);
+  };
+
   const expanded = expandedPaths.has(entry.relativePath);
   const loading = loadingPaths.has(entry.relativePath);
   const children = useMemo(
@@ -749,6 +921,8 @@ function TreeNode({
         <button
           type="button"
           onClick={() => onToggleDirectory(entry)}
+          onContextMenu={handleContextMenu}
+          onKeyDown={handleMenuKey}
           title={entry.relativePath}
           className={`${rowClass} text-text-secondary hover:bg-surface-hover hover:text-text`}
           style={{ paddingLeft: 8 + depth * 14 }}
@@ -775,6 +949,8 @@ function TreeNode({
           type="button"
           disabled={status === "deleted"}
           onClick={() => onOpenFile(entry)}
+          onContextMenu={handleContextMenu}
+          onKeyDown={handleMenuKey}
           title={entry.relativePath}
           className={`${rowClass} ${
             statusMeta?.textClass ?? "text-text-secondary"
@@ -801,6 +977,34 @@ function TreeNode({
         </button>
       )}
 
+      {/*
+        右键菜单挂在行的外层，而不是按钮内部：portal 里的点击会沿 React 树
+        冒泡回来，外层没有 onClick，不会误触「展开目录 / 打开文件」。
+      */}
+      {menu && (
+        <MenuPanel x={menu.x} y={menu.y} menuRef={menuRef}>
+          <MenuItem
+            icon={AtSign}
+            label="引用到输入框"
+            onClick={() => {
+              setMenu(null);
+              onReferenceFile(entry);
+            }}
+          />
+          <MenuSeparator />
+          <MenuItem
+            icon={Trash2}
+            label={entry.isDirectory ? "删除文件夹" : "删除文件"}
+            danger
+            disabled={status === "deleted"}
+            onClick={() => {
+              setMenu(null);
+              onDeleteFile(entry);
+            }}
+          />
+        </MenuPanel>
+      )}
+
       {entry.isDirectory && expanded && children && (
         <TreeNodes
           entries={children}
@@ -815,6 +1019,8 @@ function TreeNode({
           activeTabId={activeTabId}
           onOpenFile={onOpenFile}
           onToggleDirectory={onToggleDirectory}
+          onReferenceFile={onReferenceFile}
+          onDeleteFile={onDeleteFile}
         />
       )}
     </div>

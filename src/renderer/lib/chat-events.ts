@@ -38,3 +38,30 @@ export const OPEN_WORKSPACE_MENU_EVENT = "nova:open-workspace-menu";
 export function requestWorkspaceMenu(): void {
   window.dispatchEvent(new Event(OPEN_WORKSPACE_MENU_EVENT));
 }
+
+/**
+ * 从输入框之外的界面（工作区文件树等）引用一条内容。
+ *
+ * 引用标签属于 ChatArea 内部的 `useMention` 状态，不提升到 store；
+ * 其它面板只广播「要追加这个引用」，由 ChatArea 自己落到当前草稿上。
+ * 结构上与 MentionReference 一致，避免 lib 反向依赖组件类型。
+ */
+export interface ComposerReference {
+  key: string;
+  category: "file" | "session" | "tool" | "skill" | "knowledge";
+  name: string;
+  detail: string;
+  promptText: string;
+  /** 文件引用：目录换成文件夹图标 */
+  isDirectory?: boolean;
+}
+
+export const ADD_COMPOSER_REFERENCE_EVENT = "nova:add-composer-reference";
+
+export function requestComposerReference(reference: ComposerReference): void {
+  window.dispatchEvent(
+    new CustomEvent<ComposerReference>(ADD_COMPOSER_REFERENCE_EVENT, {
+      detail: reference,
+    }),
+  );
+}

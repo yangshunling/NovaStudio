@@ -88,6 +88,8 @@ export interface MentionReference {
   name: string;
   detail: string;
   promptText: string;
+  /** 文件引用：目录在标签上显示文件夹图标 */
+  isDirectory?: boolean;
 }
 
 /** 弹窗里的一行：类型行或具体条目 */

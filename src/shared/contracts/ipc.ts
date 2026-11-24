@@ -213,6 +213,15 @@ export interface IpcInvokeMap {
     result: FileEntry[];
   };
   /**
+   * 删除工作区内的单个文件或文件夹。
+   * 只接受项目内路径（越界 / 符号链接逃逸 / 工作区根目录一律拒绝），
+   * 实际删除走系统回收站，失败时抛错由渲染层提示。
+   */
+  "project:deleteFile": {
+    args: [{ projectId: string; relativePath: string }];
+    result: boolean;
+  };
+  /**
    * 声明当前需要监听的目录集合（相对路径，空串表示根目录）。
    * 传空数组等于关闭监听；多次调用以最后一次为准。
    */

@@ -19,8 +19,20 @@ import {
   fromDateInputValue,
   toDateInputValue,
 } from "./todoUtils";
+import { startOfDay } from "@shared/time";
 import { toast } from "../../stores/toast";
 import { toMessage } from "../../lib/utils";
+
+/**
+ * 新建待办的默认截止日期。
+ *
+ * 日历选中某天时用那一天；没有选中日期（默认状态）时落到**今天**。
+ * 快速添加只输入标题就回车，不应该产生没有任何日期的条目 —— 否则它会
+ * 沉进「无日期」分组，和「今天要做什么」的直觉相反。
+ */
+function defaultDueFor(selectedDate: number | null): number {
+  return selectedDate ?? startOfDay(Date.now());
+}
 
 interface TodoComposerProps {
   /** 已有标签，供补全 */
@@ -44,16 +56,16 @@ export function TodoComposer({
   const [tags, setTags] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
 
-  // 日历切换日期时，展开面板里的截止日期跟着切换
+  // 日历切换日期时，展开面板里的截止日期跟着切换；未选中日期时显示今天
   useEffect(() => {
-    setDueDate(toDateInputValue(defaultDueAt));
+    setDueDate(toDateInputValue(defaultDueFor(defaultDueAt)));
   }, [defaultDueAt]);
 
   const reset = () => {
     setTitle("");
     setNote("");
     setPriority("normal");
-    setDueDate(toDateInputValue(defaultDueAt));
+    setDueDate(toDateInputValue(defaultDueFor(defaultDueAt)));
     setTags([]);
   };
 
@@ -66,7 +78,11 @@ export function TodoComposer({
         title: value,
         note: expanded ? note.trim() : "",
         priority: expanded ? priority : "normal",
-        dueAt: expanded ? fromDateInputValue(dueDate) : defaultDueAt,
+        // 展开时以日期输入框为准（留空 = 用户显式选择「无日期」）；
+        // 收起时日历选中哪天就落在哪天，否则默认今天
+        dueAt: expanded
+          ? fromDateInputValue(dueDate)
+          : defaultDueFor(defaultDueAt),
         tags: expanded ? tags : [],
       });
       reset();

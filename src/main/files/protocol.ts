@@ -27,6 +27,23 @@ export const PREVIEW_SCHEME = "nova-preview";
 
 export function registerPreviewProtocol(): void {
   protocol.handle(PREVIEW_SCHEME, async (request) => {
+    /*
+     * 跨源预检：Office 查看器运行在独立的回环 http 源里，PDF.js 拉文件时会带
+     * Range 头（不是 CORS 安全头），浏览器先发 OPTIONS。这里必须显式放行，
+     * 否则 PDF 的按需流式读取会直接失败。
+     */
+    if (request.method === "OPTIONS") {
+      return new Response(null, {
+        status: 204,
+        headers: {
+          "access-control-allow-origin": "*",
+          "access-control-allow-methods": "GET, HEAD, OPTIONS",
+          "access-control-allow-headers": "range",
+          "access-control-max-age": "600",
+        },
+      });
+    }
+
     let url: URL;
     try {
       url = new URL(request.url);
@@ -92,6 +109,9 @@ export function registerPreviewProtocol(): void {
       "cache-control": "no-store",
       // 渲染进程的页面基址是 dev server / 应用目录，fetch 该协议属于跨源
       "access-control-allow-origin": "*",
+      // 跨源读取方（PDF.js）需要读到分段信息
+      "access-control-expose-headers":
+        "content-range, content-length, accept-ranges",
     };
 
     const range = parseRange(request.headers.get("range"), size);

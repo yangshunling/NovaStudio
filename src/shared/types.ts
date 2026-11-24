@@ -339,7 +339,15 @@ export type FilePreviewKind =
   | "font"
   /** 字幕：按时间轴列出，可挂到同名视频上 */
   | "subtitle"
+  /**
+   * Office 文档（Word / Excel / PPT）：交给独立查看器渲染。
+   * 主进程只返回类型与大小，不读取正文，避免把二进制当文本处理。
+   */
+  | "office"
   | "binary";
+
+/** Office 文档的具体门类：决定查看器用哪条渲染链路 */
+export type OfficePreviewKind = "word" | "spreadsheet" | "presentation";
 
 export interface FilePreview {
   name: string;
@@ -347,6 +355,8 @@ export interface FilePreview {
   kind: FilePreviewKind;
   mimeType: string;
   size: number;
+  /** kind = office 时的具体门类 */
+  officeKind?: OfficePreviewKind;
   language?: string;
   content?: string;
   truncated?: boolean;

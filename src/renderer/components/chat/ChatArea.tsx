@@ -52,11 +52,16 @@ import { newId } from "../../lib/utils";
 import type { InputImage } from "@shared/types";
 import { QuestionNav } from "./QuestionNav";
 import { FileTypeIcon } from "../ui/FileTypeIcon";
+import { FolderTypeIcon } from "../ui/FolderTypeIcon";
 import { PageHeader } from "../ui/Page";
 import { IconButton } from "../ui/IconButton";
 import { toast } from "../../stores/toast";
 import { toMessage } from "../../lib/utils";
-import { FOCUS_COMPOSER_EVENT } from "../../lib/chat-events";
+import {
+  ADD_COMPOSER_REFERENCE_EVENT,
+  FOCUS_COMPOSER_EVENT,
+  type ComposerReference,
+} from "../../lib/chat-events";
 
 /** 输入区里待发送的图片：带本地 key，便于预览列表增删 */
 type PendingImage = InputImage & { id: string };
@@ -89,7 +94,11 @@ function relativePathIn(root: string | undefined, target: string): string | null
 function ReferenceIcon({ reference }: { reference: MentionReference }) {
   switch (reference.category) {
     case "file":
-      return <FileTypeIcon name={reference.name} size={13} />;
+      return reference.isDirectory ? (
+        <FolderTypeIcon size={13} />
+      ) : (
+        <FileTypeIcon name={reference.name} size={13} />
+      );
     case "tool":
       return <Wrench className="h-3.5 w-3.5" />;
     case "skill":
@@ -339,6 +348,26 @@ export function ChatArea({ embedded = false }: { embedded?: boolean } = {}) {
     [addImageFiles],
   );
   const handlePaste = usePasteNormalizer(setInput, handleImageFiles);
+
+  /*
+   * 工作区文件树等外部面板发起的「引用到输入框」。
+   * 引用标签属于当前草稿（useMention 内部状态），这里只负责追加并聚焦，
+   * 焦点让用户可以直接接着写指令。
+   */
+  useEffect(() => {
+    const handleReference = (event: Event) => {
+      const reference = (event as CustomEvent<ComposerReference>).detail;
+      if (!reference) return;
+      mention.addReference(reference);
+      requestAnimationFrame(() => textareaRef.current?.focus());
+    };
+    window.addEventListener(ADD_COMPOSER_REFERENCE_EVENT, handleReference);
+    return () =>
+      window.removeEventListener(
+        ADD_COMPOSER_REFERENCE_EVENT,
+        handleReference,
+      );
+  }, [mention.addReference]);
 
   /**
    * 拖入非图片文件 → 作为 `#` 文件引用挂到输入框上方。

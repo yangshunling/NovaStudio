@@ -36,9 +36,16 @@ interface NovaBridge {
   subscribe: (channel: string, callback: (payload: unknown) => void) => () => void;
   /** 拖入文件 → 本机绝对路径（空串表示拿不到） */
   getPathForFile: (file: File) => string;
+  /** Office 查看器的回环静态服务基址；开发模式为空串 */
+  viewerBaseUrl: string;
 }
 
 const bridge = (window as unknown as { nova: NovaBridge }).nova;
+
+/** Office 查看器静态服务基址（生产环境由主进程回环服务提供） */
+export function getViewerBaseUrl(): string {
+  return bridge.viewerBaseUrl;
+}
 
 /** 唯一的类型收敛点：调用方拿到的类型由通道契约决定 */
 function call<C extends IpcInvokeChannel>(
@@ -106,6 +113,9 @@ export const ipc = {
   revealProject: (id: string) => call("project:reveal", { id }),
   listFiles: (projectId: string, subPath?: string) =>
     call("project:listFiles", { projectId, subPath }),
+  /** 删除工作区内的单个文件（移入系统回收站） */
+  deleteProjectFile: (projectId: string, relativePath: string) =>
+    call("project:deleteFile", { projectId, relativePath }),
   /** 声明要监听的目录集合（空数组 = 关闭）；目录变化后由 workspace:changed 推送 */
   watchWorkspace: (projectId: string, dirs: string[]) =>
     call("workspace:watch", { projectId, dirs }),

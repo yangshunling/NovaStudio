@@ -4,6 +4,10 @@
  * 文本 / 代码 / SVG / 字幕使用 Shiki 或专用视图；Markdown、HTML、SVG 可以在
  * 「渲染 / 源码」之间切换（HTML 走沙箱 iframe）。图片、PDF、音视频统一通过
  * nova-preview:// 从磁盘流式读取；字体交给 FontFace；未知二进制显示十六进制。
+ *
+ * Office（Word / Excel / PPT）与 PDF 交给 file-viewer：它在主进程提供的
+ * 独立同源页面里运行（见 OfficeViewer.tsx），失败时 PDF 回落到 Chromium 内置
+ * 查看器、Office 回落到系统默认程序。
  */
 
 import { useEffect, useState } from "react";
@@ -16,8 +20,10 @@ import { ipc } from "../../lib/ipc";
 import { useSkin } from "../../hooks/useTheme";
 import { getHighlighter, highlightCodeSync } from "../../lib/shiki";
 import { formatBytes, stripPreTag } from "../../lib/utils";
+import { previewUrl } from "../../lib/preview-url";
 import { MarkdownRenderer } from "../ui/MarkdownRenderer";
 import { FontPreview, HexPreview, SubtitlePreview } from "./PreviewExtras";
+import { OfficeViewer } from "./OfficeViewer";
 import { subtitleFormatOf, srtToVtt } from "../../lib/subtitles";
 import { Button } from "../ui/Button";
 import { FileTypeIcon } from "../ui/FileTypeIcon";
@@ -46,8 +52,6 @@ export function FilePreview({
   const [externalError, setExternalError] = useState<string | null>(null);
   const [mediaError, setMediaError] = useState(false);
   const [subtitleTrackUrl, setSubtitleTrackUrl] = useState<string | null>(null);
-  const [pdfUrl, setPdfUrl] = useState<string | null>(null);
-  const [pdfError, setPdfError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -82,41 +86,6 @@ export function FilePreview({
       cancelled = true;
     };
   }, [tab.projectId, tab.relativePath, reloadKey]);
-
-  /*
-   * PDF 不能直接把 nova-preview:// 交给 <embed>：Chromium 的 PDF 查看器
-   * 只接管 http(s)/file/blob 等 URL，自定义协议会得到空白框。
-   * 先把字节拉下来做成 Blob URL，实测 12MB 级别也能立即渲染。
-   */
-  useEffect(() => {
-    if (file?.kind !== "pdf") {
-      setPdfUrl(null);
-      setPdfError(null);
-      return;
-    }
-
-    let cancelled = false;
-    let objectUrl: string | null = null;
-    setPdfUrl(null);
-    setPdfError(null);
-
-    fetch(previewUrl(tab.projectId, tab.relativePath))
-      .then(async (response) => {
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        const blob = await response.blob();
-        if (cancelled) return;
-        objectUrl = URL.createObjectURL(blob);
-        setPdfUrl(objectUrl);
-      })
-      .catch((err) => {
-        if (!cancelled) setPdfError(String(err));
-      });
-
-    return () => {
-      cancelled = true;
-      if (objectUrl) URL.revokeObjectURL(objectUrl);
-    };
-  }, [file, tab.projectId, tab.relativePath]);
 
   /*
    * 视频同名字幕自动挂载：
@@ -371,32 +340,43 @@ export function FilePreview({
               className="max-h-full max-w-full rounded-md object-contain shadow-[var(--c-shadow-sm)]"
             />
           </div>
+        ) : file?.kind === "office" ? (
+          /*
+           * Word / Excel / PPT 由独立查看器解析：主进程只返回类型与大小，
+           * 正文由查看器通过 nova-preview:// 按需拉取，不经过 IPC / React state。
+           */
+          <OfficeViewer
+            projectId={tab.projectId}
+            relativePath={tab.relativePath}
+            name={file.name}
+            reloadKey={reloadKey}
+            fallback={
+              <PreviewState
+                icon={<FileTypeIcon name={tab.name} size={36} />}
+                title="无法内置预览该文档"
+                detail="文档查看器未能加载，可以换用系统默认程序打开。"
+                action={
+                  <Button variant="primary" size="sm" onClick={openExternal}>
+                    用系统默认程序打开
+                  </Button>
+                }
+              />
+            }
+          />
         ) : file?.kind === "pdf" ? (
-          pdfError ? (
-            <PreviewState
-              icon={<AlertCircle className="h-7 w-7" />}
-              title="无法加载 PDF"
-              detail={pdfError}
-              action={
-                <Button variant="primary" size="sm" onClick={openExternal}>
-                  用系统默认程序打开
-                </Button>
-              }
-            />
-          ) : pdfUrl ? (
-            <embed
-              src={pdfUrl}
-              type="application/pdf"
-              className="h-full w-full"
-              title={file.name}
-            />
-          ) : (
-            <PreviewState
-              icon={<Spinner className="h-6 w-6" />}
-              title="正在加载 PDF"
-              detail={formatBytes(file.size)}
-            />
-          )
+          <OfficeViewer
+            projectId={tab.projectId}
+            relativePath={tab.relativePath}
+            name={file.name}
+            reloadKey={reloadKey}
+            fallback={
+              <PdfEmbed
+                tab={tab}
+                reloadKey={reloadKey}
+                onOpenExternal={openExternal}
+              />
+            }
+          />
         ) : file?.kind === "binary" &&
           !file.mimeType.startsWith("image/") &&
           file.mimeType !== "application/pdf" ? (
@@ -426,18 +406,6 @@ export function FilePreview({
 }
 
 /**
- * 图片 / PDF 交给主进程的 nova-preview:// 协议按需流式读取。
- *
- * 不用 data URL：Chromium 的 URL 长度上限是 2MB（base64 还会膨胀 4/3），
- * 超过后 <img>/<embed> 会静默失败，预览区只剩白框。
- */
-function previewUrl(projectId: string, relativePath: string): string {
-  const name = relativePath.split(/[\\/]/).pop() || "file";
-  const params = new URLSearchParams({ project: projectId, path: relativePath });
-  return `nova-preview://file/${encodeURIComponent(name)}?${params.toString()}`;
-}
-
-/**
  * HTML 文档的预览地址：项目 id 放在 host 上。
  *
  * 页面里的相对资源引用（./style.css、../img/a.png）解析后仍落在同一个
@@ -450,6 +418,84 @@ function previewDocumentUrl(projectId: string, relativePath: string): string {
     .map((segment) => encodeURIComponent(segment))
     .join("/");
   return `nova-preview://${projectId}/${path}`;
+}
+
+/**
+ * PDF 兜底：查看器组件不可用时回落到 Chromium 内置 PDF 查看器。
+ *
+ * 不能把 nova-preview:// 直接交给 <embed>：Chromium 的 PDF 查看器只接管
+ * http(s)/file/blob 等 URL，自定义协议会得到空白框。先把字节拉下来做成
+ * Blob URL，实测 12MB 级别也能立即渲染。
+ */
+function PdfEmbed({
+  tab,
+  reloadKey,
+  onOpenExternal,
+}: {
+  tab: FileTab;
+  reloadKey: number;
+  onOpenExternal: () => void;
+}) {
+  const [url, setUrl] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    let objectUrl: string | null = null;
+    setUrl(null);
+    setError(null);
+
+    fetch(previewUrl(tab.projectId, tab.relativePath))
+      .then(async (response) => {
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const blob = await response.blob();
+        if (cancelled) return;
+        objectUrl = URL.createObjectURL(blob);
+        setUrl(objectUrl);
+      })
+      .catch((err) => {
+        if (!cancelled) setError(String(err));
+      });
+
+    return () => {
+      cancelled = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [tab.projectId, tab.relativePath, reloadKey]);
+
+  if (error) {
+    return (
+      <PreviewState
+        icon={<AlertCircle className="h-7 w-7" />}
+        title="无法加载 PDF"
+        detail={error}
+        action={
+          <Button variant="primary" size="sm" onClick={onOpenExternal}>
+            用系统默认程序打开
+          </Button>
+        }
+      />
+    );
+  }
+
+  if (!url) {
+    return (
+      <PreviewState
+        icon={<Spinner className="h-6 w-6" />}
+        title="正在加载 PDF"
+        detail="文档查看器不可用，正在回落到内置查看器"
+      />
+    );
+  }
+
+  return (
+    <embed
+      src={url}
+      type="application/pdf"
+      className="h-full w-full"
+      title={tab.name}
+    />
+  );
 }
 
 function CodePreview({ code, language }: { code: string; language: string }) {

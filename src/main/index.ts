@@ -48,6 +48,7 @@ import {
   registerAttachmentProtocol,
 } from "./attachments/protocol";
 import { PREVIEW_SCHEME, registerPreviewProtocol } from "./files/protocol";
+import { startViewerServer, stopViewerServer } from "./viewer/server";
 
 /*
  * 自定义协议必须在 app ready 之前声明特权；放在模块顶层是为了保证
@@ -75,6 +76,8 @@ protocol.registerSchemesAsPrivileged([
 let mainWindow: BrowserWindow | null = null;
 /** 知识库外部变更的后台索引同步（搜索路径不再扫盘） */
 let knowledgeSyncTimer: NodeJS.Timeout | null = null;
+/** Office 查看器的回环静态服务地址；启动时赋值，通过 preload 传给渲染层 */
+let viewerBaseUrl = "";
 
 /**
  * 解析 preload 脚本路径。
@@ -168,6 +171,11 @@ function createWindow(): BrowserWindow {
       // 会话在后台也要持续接收流式事件：窗口失焦 / 被遮挡时，
       // Chromium 默认会把定时器节流到 1 次/秒，切回来时会看到文字成块蹦出。
       backgroundThrottling: false,
+      /*
+       * 把 Office 查看器的回环服务地址带进 preload。渲染层需要在生产环境
+       * 拼出 iframe 地址；走 preload 参数而不是 IPC，避免首帧额外异步等待。
+       */
+      additionalArguments: [`--nova-viewer-base=${viewerBaseUrl}`],
     },
   });
 
@@ -297,6 +305,15 @@ async function bootstrap(): Promise<void> {
   // 工作区文件预览协议：图片 / PDF 通过 nova-preview:// 流式读取，
   // 避免大文件 data URL 超过 Chromium 2MB 长度上限后白屏
   registerPreviewProtocol();
+  // Office 文档查看器（file-viewer）：页面 / Worker / WASM 需要一个标准 http 源。
+  // 自定义协议的 Worker 请求在 Electron 31 会被绕过（见 viewer/server.ts）。
+  try {
+    viewerBaseUrl = await startViewerServer();
+  } catch (err) {
+    // 端口被占等情况下不阻塞启动：Office 预览会回落到「系统程序打开」
+    console.warn("[viewer] 查看器服务启动失败：", errorMessage(err));
+    viewerBaseUrl = "";
+  }
   // 上次异常退出可能留下含系统提示词的临时目录（员工 / 知识库内容），先清掉
   purgeStaleTempDirs("novastudio-system-");
   await migrateLegacyAssets();
@@ -344,6 +361,11 @@ async function bootstrap(): Promise<void> {
       clearInterval(knowledgeSyncTimer);
       knowledgeSyncTimer = null;
     },
+  });
+  appLifecycle.register({
+    name: "viewer-server",
+    order: 50,
+    run: stopViewerServer,
   });
   appLifecycle.register({
     name: "workspace-watchers",
